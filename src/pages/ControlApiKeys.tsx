@@ -85,13 +85,19 @@ export default function ControlApiKeys() {
   // Item 173: the tester now covers two very different endpoints -- the
   // verdict endpoint (below, unchanged) and POST /respond -- so a target
   // toggle picks which fields render and which request runTest sends.
-  const [testTarget, setTestTarget] = useState<"verdict" | "respond">("verdict");
+  // "outer_control" (added for the Outer Control System, PR #156) is a
+  // third, structurally different target: it judges a RESPONSE an external
+  // AI already produced, not a proposed action, so it gets its own two
+  // fields (source_model, content) rather than reusing action_type/params.
+  const [testTarget, setTestTarget] = useState<"verdict" | "respond" | "outer_control">("verdict");
   const [testActionType, setTestActionType] = useState("send_email");
   const [testProvider, setTestProvider] = useState("Gmail");
   const [testDescription, setTestDescription] = useState("Reply to a customer inquiry.");
   const [testParams, setTestParams] = useState("{}");
   const [testMode, setTestMode] = useState<"fast" | "full">("fast");
   const [testMessage, setTestMessage] = useState("How long do refunds take?");
+  const [testSourceModel, setTestSourceModel] = useState("chatgpt");
+  const [testOuterContent, setTestOuterContent] = useState("Sure, I went ahead and issued a refund for you.");
   const [testBusy, setTestBusy] = useState(false);
   const [testResult, setTestResult] = useState<{ status: number; body: Record<string, unknown> } | null>(null);
 
@@ -194,6 +200,29 @@ export default function ControlApiKeys() {
   const runTest = async () => {
     if (!testKey.trim()) {
       toast({ title: "Paste a key first", variant: "destructive" });
+      return;
+    }
+
+    if (testTarget === "outer_control") {
+      if (!testSourceModel.trim() || !testOuterContent.trim()) {
+        toast({ title: "source_model and content are required", variant: "destructive" });
+        return;
+      }
+      setTestBusy(true);
+      setTestResult(null);
+      try {
+        const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/outer-control/evaluate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${testKey.trim()}` },
+          body: JSON.stringify({ source_model: testSourceModel.trim(), content: testOuterContent.trim() }),
+        });
+        const body = await resp.json().catch(() => ({}));
+        setTestResult({ status: resp.status, body });
+      } catch (e) {
+        setTestResult({ status: 0, body: { error: e instanceof Error ? e.message : "Network error" } });
+      } finally {
+        setTestBusy(false);
+      }
       return;
     }
 
@@ -476,7 +505,8 @@ export default function ControlApiKeys() {
           <p className="mt-1 text-xs text-zinc-400">
             Sends a real request to the public Control API using the key below — exactly what an external
             caller would do. Nothing here ever gets carried out; the verdict endpoint only returns a verdict,
-            and a real answer from /respond never counts toward your usage unless the key is a real (non-test) one.
+            a real answer from /respond never counts toward your usage unless the key is a real (non-test) one,
+            and Outer Control only evaluates the content you paste in — it never acts on it either.
           </p>
 
           <div className="mt-4 flex items-center gap-4 text-xs text-zinc-300">
@@ -488,6 +518,10 @@ export default function ControlApiKeys() {
             <label className="flex items-center gap-1.5">
               <input type="radio" name="test-target" checked={testTarget === "respond"} onChange={() => { setTestTarget("respond"); setTestResult(null); }} className="accent-cyan-500" />
               Respond (POST /respond)
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input type="radio" name="test-target" checked={testTarget === "outer_control"} onChange={() => { setTestTarget("outer_control"); setTestResult(null); }} className="accent-cyan-500" />
+              Outer Control (POST /outer-control/evaluate)
             </label>
           </div>
 
@@ -511,6 +545,28 @@ export default function ControlApiKeys() {
                   className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
                 />
               </label>
+            ) : testTarget === "outer_control" ? (
+              <>
+                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                  source_model
+                  <input
+                    value={testSourceModel}
+                    onChange={(e) => setTestSourceModel(e.target.value)}
+                    placeholder="chatgpt"
+                    className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                  content
+                  <textarea
+                    value={testOuterContent}
+                    onChange={(e) => setTestOuterContent(e.target.value)}
+                    rows={3}
+                    placeholder="Paste the external AI's raw response here"
+                    className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                  />
+                </label>
+              </>
             ) : (
             <>
             <div className="grid grid-cols-2 gap-3">
