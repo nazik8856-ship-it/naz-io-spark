@@ -104,6 +104,12 @@ export default function ControlApiKeys() {
   const [testMessage, setTestMessage] = useState("How long do refunds take?");
   const [testSourceModel, setTestSourceModel] = useState("chatgpt");
   const [testOuterContent, setTestOuterContent] = useState("Sure, I went ahead and issued a refund for you.");
+  // Outer Control's own two content kinds: a free-text response to scan, or
+  // a structured proposed action (content_kind: "action") to run through
+  // the same gate/execution path a real connected tool would trigger --
+  // reuses the verdict test's own action_type/provider/description/params
+  // fields rather than duplicating a second set just for this sub-mode.
+  const [testOuterKind, setTestOuterKind] = useState<"text" | "action">("text");
   const [testBusy, setTestBusy] = useState(false);
   const [testResult, setTestResult] = useState<{ status: number; body: Record<string, unknown> } | null>(null);
 
@@ -249,9 +255,37 @@ export default function ControlApiKeys() {
     }
 
     if (testTarget === "outer_control") {
-      if (!testSourceModel.trim() || !testOuterContent.trim()) {
-        toast({ title: "source_model and content are required", variant: "destructive" });
+      if (!testSourceModel.trim()) {
+        toast({ title: "source_model is required", variant: "destructive" });
         return;
+      }
+      let payload: Record<string, unknown>;
+      if (testOuterKind === "action") {
+        if (!testActionType.trim() || !testDescription.trim()) {
+          toast({ title: "action_type and description are required", variant: "destructive" });
+          return;
+        }
+        let parsedParams: unknown = {};
+        try {
+          parsedParams = testParams.trim() ? JSON.parse(testParams) : {};
+        } catch {
+          toast({ title: "params must be valid JSON", variant: "destructive" });
+          return;
+        }
+        payload = {
+          source_model: testSourceModel.trim(),
+          content_kind: "action",
+          action_type: testActionType.trim(),
+          provider: testProvider.trim() || "unknown",
+          description: testDescription.trim(),
+          params: parsedParams,
+        };
+      } else {
+        if (!testOuterContent.trim()) {
+          toast({ title: "content is required", variant: "destructive" });
+          return;
+        }
+        payload = { source_model: testSourceModel.trim(), content: testOuterContent.trim() };
       }
       setTestBusy(true);
       setTestResult(null);
@@ -259,7 +293,7 @@ export default function ControlApiKeys() {
         const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/outer-control/evaluate`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${testKey.trim()}` },
-          body: JSON.stringify({ source_model: testSourceModel.trim(), content: testOuterContent.trim() }),
+          body: JSON.stringify(payload),
         });
         const body = await resp.json().catch(() => ({}));
         setTestResult({ status: resp.status, body });
@@ -621,6 +655,17 @@ export default function ControlApiKeys() {
               </label>
             ) : testTarget === "outer_control" ? (
               <>
+                <div className="flex items-center gap-4 text-xs text-zinc-300">
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Content kind</span>
+                  <label className="flex items-center gap-1.5">
+                    <input type="radio" name="test-outer-kind" checked={testOuterKind === "text"} onChange={() => { setTestOuterKind("text"); setTestResult(null); }} className="accent-cyan-500" />
+                    Text response
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input type="radio" name="test-outer-kind" checked={testOuterKind === "action"} onChange={() => { setTestOuterKind("action"); setTestResult(null); }} className="accent-cyan-500" />
+                    Proposed action
+                  </label>
+                </div>
                 <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
                   source_model
                   <input
@@ -630,16 +675,60 @@ export default function ControlApiKeys() {
                     className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-                  content
-                  <textarea
-                    value={testOuterContent}
-                    onChange={(e) => setTestOuterContent(e.target.value)}
-                    rows={3}
-                    placeholder="Paste the external AI's raw response here"
-                    className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
-                  />
-                </label>
+                {testOuterKind === "action" ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                        action_type
+                        <input
+                          value={testActionType}
+                          onChange={(e) => setTestActionType(e.target.value)}
+                          className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                        provider
+                        <input
+                          value={testProvider}
+                          onChange={(e) => setTestProvider(e.target.value)}
+                          className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                        />
+                      </label>
+                    </div>
+                    <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                      description
+                      <input
+                        value={testDescription}
+                        onChange={(e) => setTestDescription(e.target.value)}
+                        className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                      params (JSON)
+                      <textarea
+                        value={testParams}
+                        onChange={(e) => setTestParams(e.target.value)}
+                        rows={3}
+                        className="rounded border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs text-zinc-200"
+                      />
+                    </label>
+                    <p className="text-[10px] text-zinc-500">
+                      Executes for real only if the pasted key was created with "Let this key execute allowed actions
+                      automatically" checked, and the action comes back allowed.
+                    </p>
+                  </>
+                ) : (
+                  <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                    content
+                    <textarea
+                      value={testOuterContent}
+                      onChange={(e) => setTestOuterContent(e.target.value)}
+                      rows={3}
+                      placeholder="Paste the external AI's raw response here"
+                      className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                    />
+                  </label>
+                )}
               </>
             ) : (
             <>
