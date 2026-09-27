@@ -19,6 +19,7 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { ensureAccessToken, gmailList } from "../_shared/gmail.ts";
 import { readSecret } from "../_shared/integration-secrets.ts";
+import { SHOPIFY_API_VERSION } from "../_shared/shopify.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 
@@ -74,8 +75,8 @@ async function syncShopify(c: Credentials): Promise<SyncResult> {
   const store = c.store_url?.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
   const token = c.access_token?.trim();
   if (!store || !token) return simulate("shopify", c);
-  const ordersUrl = `https://${store}/admin/api/2024-07/orders.json?status=any&limit=25`;
-  const productsUrl = `https://${store}/admin/api/2024-07/products/count.json`;
+  const ordersUrl = `https://${store}/admin/api/${SHOPIFY_API_VERSION}/orders.json?status=any&limit=25`;
+  const productsUrl = `https://${store}/admin/api/${SHOPIFY_API_VERSION}/products/count.json`;
   const shopifyCheck = await validateOutboundUrl(ordersUrl);
   if (!shopifyCheck.ok) return { ok: false, kind: "commerce", data: {}, error: `store_url is not allowed: ${shopifyCheck.reason}` };
   const h = { "X-Shopify-Access-Token": token, "Content-Type": "application/json" };

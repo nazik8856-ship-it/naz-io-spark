@@ -21,6 +21,7 @@ import { canvaAuthedFetch } from "./canva.ts";
 import { figmaAuthedFetch } from "./figma.ts";
 import { fetchWithRetry } from "./fetch-retry.ts";
 import { diffSheetWrite } from "./sheet-diff.ts";
+import { SHOPIFY_API_VERSION } from "./shopify.ts";
 
 export type WriteResult = {
   ok: boolean;
@@ -213,7 +214,27 @@ export async function notionUpdatePage(
     if (title || archived !== undefined) {
       const patch: Record<string, unknown> = {};
       if (archived !== undefined) patch.archived = archived;
-      if (title) patch.properties = { title: { title: [{ text: { content: title.slice(0, 200) } }] } };
+      if (title) {
+        // Correctness fix: a page-parented page's title property is always
+        // named "title", but a database-parented page's title property can
+        // be named anything the database's schema calls it (commonly
+        // "Name", but not guaranteed -- notion_create_page's own guess of
+        // "Name" above can itself be wrong for a differently-named schema).
+        // Patching a hardcoded "title" key against a database page whose
+        // actual title property is "Name" gets a real 400 from Notion.
+        // Look the key up on the page itself instead of assuming it --
+        // every Notion page object has exactly one property with
+        // type:"title", whatever its name.
+        const pr = await fetchWithRetry(`https://api.notion.com/v1/pages/${pageId}`, { headers: NOTION_HEADERS(token) });
+        const pb = await pr.json().catch(() => ({}));
+        if (!pr.ok || !pb?.id) {
+          return fail(`Could not look up Notion page ${pageId} to find its title property: ${String((pb as { message?: string })?.message || `HTTP ${pr.status}`)}`, pageId);
+        }
+        const existingProps = (pb.properties as Record<string, { type?: string }> | undefined) || {};
+        const titleKey = Object.keys(existingProps).find((k) => existingProps[k]?.type === "title");
+        if (!titleKey) return fail(`Notion page ${pageId} has no title property to update.`, pageId);
+        patch.properties = { [titleKey]: { title: [{ text: { content: title.slice(0, 200) } }] } };
+      }
       const r = await fetchWithRetry(`https://api.notion.com/v1/pages/${pageId}`, {
         method: "PATCH", headers: NOTION_HEADERS(token), body: JSON.stringify(patch),
       });
@@ -257,7 +278,12 @@ export async function notionUpdatePage(
     return fail(`Notion archived state did not change (still archived=${vb?.archived}). Treat as failed.`, pageId);
   }
   if (title) {
-    const titleParts = (vb?.properties?.title?.title as { plain_text?: string; text?: { content?: string } }[] | undefined) || [];
+    // Same "find the real title-property key" fix as the patch above --
+    // for a database page it's whatever the schema calls it, not literally
+    // "title".
+    const properties = (vb?.properties as Record<string, { type?: string; title?: unknown }> | undefined) || {};
+    const titleKey = Object.keys(properties).find((k) => properties[k]?.type === "title");
+    const titleParts = (titleKey ? (properties[titleKey]?.title as { plain_text?: string; text?: { content?: string } }[] | undefined) : undefined) || [];
     const gotTitle = titleParts.map((t) => t.plain_text ?? t.text?.content ?? "").join("").trim();
     if (gotTitle !== title.slice(0, 200)) {
       return fail(`Notion title did NOT change as requested (still "${gotTitle || "(unchanged)"}"). Treat as failed.`, pageId);
@@ -456,7 +482,6 @@ export async function canvaCreateFolder(
 // ---------------------------------------------------------------------------
 // SHOPIFY — Admin REST API against the connected shop, verified by re-fetch.
 // ---------------------------------------------------------------------------
-const SHOPIFY_API_VERSION = "2024-10";
 
 async function shopifyCtx(admin: SupabaseClient, userId: string, agentId: string, wantedShop?: string) {
   const row = await loadProviderIntegration(admin, userId, agentId, "Shopify", (r) =>
