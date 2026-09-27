@@ -102,6 +102,60 @@ Deno.serve(async (req) => {
     return json({ ok: true, revoked: true });
   }
 
+  // ---- POST /api-keys/:id/rotate ----------------------------------------
+  // Correctness-audit gap: the only way to get a new secret for a key was
+  // to revoke it and create a brand new one -- which also throws away every
+  // setting attached to that key's own id (on_uncertain policy, callback
+  // config, rate limits, context entries, response rules), forcing a
+  // completely fresh setup just to replace a leaked/rotated secret. This
+  // mirrors the existing webhook-secret-rotation pattern's intent (a new
+  // credential without losing the surrounding config) but deliberately
+  // WITHOUT a grace period: unlike a webhook secret (which a third party
+  // signs deliveries with and needs time to roll over), an API key secret
+  // is presented directly on every call, so the caller updating it is a
+  // single atomic "replace the value I'm sending" edit on their end --
+  // there's no legitimate reason for the old secret to keep working even
+  // briefly once a new one exists, and doing so would just widen the
+  // window a leaked key stays useful.
+  const rotateMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/rotate\/?$/);
+  if (req.method === "POST" && rotateMatch) {
+    const keyId = rotateMatch[1];
+    const body = await req.json().catch(() => ({}));
+    const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    const rate = await checkRateLimit(admin, userId, "api-keys-rotate", CREATE_KEY_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many rotation attempts — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const { data: existing } = await admin
+      .from("api_keys").select("id, revoked_at").eq("id", keyId).eq("user_id", targetUserId).maybeSingle();
+    if (!existing) return json({ error: "Key not found for this account." }, 404);
+    if ((existing as { revoked_at?: string | null }).revoked_at) {
+      return json({ error: "revoked", message: "This key is revoked — create a new one instead of rotating it." }, 409);
+    }
+
+    const rawKey = generateRawKey();
+    const keyHash = await sha256Hex(rawKey);
+    const displayPrefix = displayPrefixFor(rawKey);
+    const { data, error } = await admin
+      .from("api_keys")
+      .update({ key_hash: keyHash, key_prefix: displayPrefix })
+      .eq("id", keyId)
+      .eq("user_id", targetUserId)
+      .select("id, name, key_prefix, scopes, created_at")
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    if (!data) return json({ error: "Key not found for this account." }, 500);
+    // Same "shown exactly once" contract as creation -- the raw secret is
+    // never persisted or retrievable again after this response.
+    return json({ ok: true, key: rawKey, ...data });
+  }
+
   // ---- POST /api-keys/:id/policy ---------------------------------------
   // "Zero human review" plan, item 1: lets an account set (or change) a
   // key's on_uncertain auto-resolve policy without needing a UI panel for
@@ -249,15 +303,57 @@ Deno.serve(async (req) => {
         update.callback_fallback = body.callback_fallback;
       }
     }
+    // Correctness-audit gap: expires_at is enforced end-to-end by
+    // resolve_api_key (a key past its expiry stops authenticating, same as
+    // a revoked one) but had no create-time or edit-time way to ever set
+    // it -- a fully dead feature from the UI's perspective. `null`
+    // explicitly clears it (no expiration); omitting the field leaves
+    // whatever was set before untouched, same convention as every other
+    // optional field on this route.
+    if (body?.expires_at !== undefined) {
+      if (body.expires_at === null) {
+        update.expires_at = null;
+      } else {
+        const expiresAt = new Date(String(body.expires_at));
+        if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+          return json({ error: "expires_at must be a valid date in the future, or null to remove the expiration" }, 400);
+        }
+        update.expires_at = expiresAt.toISOString();
+      }
+    }
+
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    // Correctness-audit gap: outer_control:execute could only ever be
+    // granted at key-creation time -- an account had to revoke and
+    // recreate a key (losing every other setting attached to it) just to
+    // turn on execution for a key that already existed. Toggled here the
+    // same way the checkbox on creation does: add/remove the one scope
+    // string, never touch the key's base tier (control:verdict vs.
+    // control:respond).
+    if (body?.allow_outer_control_execute !== undefined) {
+      const { data: existingKey } = await admin
+        .from("api_keys").select("scopes").eq("id", keyId).eq("user_id", targetUserId).maybeSingle();
+      if (!existingKey) return json({ error: "Key not found for this account." }, 404);
+      const currentScopes = ((existingKey as { scopes?: string[] | null }).scopes ?? ["control:verdict"]);
+      if (!currentScopes.includes("control:verdict")) {
+        return json({ error: "outer_control:execute can only be set on a full-access key, not a respond-only one." }, 400);
+      }
+      const has = currentScopes.includes("outer_control:execute");
+      if (body.allow_outer_control_execute === true && !has) {
+        update.scopes = [...currentScopes, "outer_control:execute"];
+      } else if (body.allow_outer_control_execute === false && has) {
+        update.scopes = currentScopes.filter((s) => s !== "outer_control:execute");
+      }
+    }
 
     const { data, error } = await admin
       .from("api_keys")
       .update(update)
       .eq("id", keyId)
       .eq("user_id", targetUserId)
-      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, respond_rate_limit_per_minute, response_persona, fallback_message, on_uncertain_downgraded_at, on_uncertain_downgrade_reason")
+      .select("id, scopes, expires_at, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, respond_rate_limit_per_minute, response_persona, fallback_message, on_uncertain_downgraded_at, on_uncertain_downgrade_reason")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Key not found for this account." }, 404);
@@ -875,6 +971,28 @@ Deno.serve(async (req) => {
       return json({ error: "scope must be 'full' or 'respond_only'" }, 400);
     }
     const scopes = scopeInput === "respond_only" ? ["control:respond"] : ["control:verdict"];
+    // Outer Control execution power (running a real Gmail/Slack/Shopify/etc.
+    // write on an external AI's "allow"-verdicted proposed action) is opt-in
+    // per key, never implied by 'full' -- a key created before this existed,
+    // or one this account doesn't want to trust with real writes, stays
+    // evaluate-only. Meaningless (and ignored) on a respond_only key, which
+    // never reaches the action-evaluation path at all.
+    if (scopeInput === "full" && body?.allow_outer_control_execute === true) {
+      scopes.push("outer_control:execute");
+    }
+
+    // Correctness-audit gap: expires_at is enforced by resolve_api_key (a
+    // key past its expiry stops authenticating) but had no create-time
+    // input anywhere -- optional here, same validation as the /policy
+    // route's own edit-time version.
+    let expiresAtIso: string | null = null;
+    if (body?.expires_at !== undefined && body?.expires_at !== null) {
+      const expiresAt = new Date(String(body.expires_at));
+      if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+        return json({ error: "expires_at must be a valid date in the future, or omitted for no expiration" }, 400);
+      }
+      expiresAtIso = expiresAt.toISOString();
+    }
 
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
@@ -913,10 +1031,10 @@ Deno.serve(async (req) => {
       .from("api_keys")
       .insert({
         user_id: targetUserId, name, key_prefix: displayPrefix, key_hash: keyHash,
-        is_test: isTest, scopes,
+        is_test: isTest, scopes, expires_at: expiresAtIso,
         ...(body.on_uncertain ? { on_uncertain: body.on_uncertain } : {}),
       })
-      .select("id, name, key_prefix, scopes, on_uncertain, created_at, is_test")
+      .select("id, name, key_prefix, scopes, on_uncertain, expires_at, created_at, is_test")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Couldn't create the key" }, 500);

@@ -17,6 +17,9 @@ type EvaluationRow = {
   trust_score: number;
   summary: string | null;
   created_at: string;
+  content_kind: "text" | "action";
+  action_type: string | null;
+  executed: boolean;
 };
 
 // Status colors, reserved for verdict meaning only (never reused as a
@@ -261,7 +264,7 @@ export default function OuterControlSystem() {
           .contains("scopes", ["control:verdict"]),
         anyDb
           .from("outer_control_evaluations")
-          .select("id, source_model, verdict, trust_score, summary, created_at")
+          .select("id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed")
           .eq("user_id", accountId)
           .order("created_at", { ascending: false })
           .limit(50),
@@ -423,14 +426,28 @@ export default function OuterControlSystem() {
                   return (
                     <div key={r.id} className={`rounded-xl border ${style.border} ${style.bg} px-3 py-2.5`}>
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-medium text-zinc-200 truncate">{r.source_model}</span>
+                        <span className="text-xs font-medium text-zinc-200 truncate">
+                          {r.source_model}
+                          {r.content_kind === "action" && r.action_type && (
+                            <span className="ml-1.5 text-zinc-500">· {r.action_type}</span>
+                          )}
+                        </span>
                         <span className={`shrink-0 rounded-full border ${style.border} px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${style.text}`}>
                           {style.label}
                         </span>
                       </div>
                       <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-500">
                         <span>Trust {r.trust_score}</span>
-                        <span>{timeAgo(r.created_at)}</span>
+                        <span className="flex items-center gap-2">
+                          {r.content_kind === "action" && (
+                            <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wide ${
+                              r.executed ? "border-emerald-500/40 text-emerald-300" : "border-white/15 text-zinc-500"
+                            }`}>
+                              {r.executed ? "Executed" : "Evaluated only"}
+                            </span>
+                          )}
+                          {timeAgo(r.created_at)}
+                        </span>
                       </div>
                     </div>
                   );

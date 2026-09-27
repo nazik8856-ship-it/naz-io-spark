@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText, Zap, Globe2, Mail } from "lucide-react";
+import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText, Zap, Globe2, Mail, RefreshCw } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
@@ -69,6 +69,15 @@ export default function ControlApiKeys() {
   const [activityByKey, setActivityByKey] = useState<Record<string, KeyActivity>>({});
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
+  // Outer Control execution is opt-in per key -- off by default, so
+  // generating a key never silently hands an external caller the power to
+  // actually run a real Gmail/Slack/Shopify/etc. write. Meaningful only
+  // alongside the default 'full' scope.
+  const [allowOuterExecute, setAllowOuterExecute] = useState(false);
+  // Correctness-audit gap: expires_at was enforced end-to-end (a key past
+  // its expiry stops authenticating) but had no create-time input anywhere
+  // -- optional, blank means "never expires" same as every key today.
+  const [expiresAt, setExpiresAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [justCreated, setJustCreated] = useState<{ key: string; name: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -99,6 +108,12 @@ export default function ControlApiKeys() {
   const [testMessage, setTestMessage] = useState("How long do refunds take?");
   const [testSourceModel, setTestSourceModel] = useState("chatgpt");
   const [testOuterContent, setTestOuterContent] = useState("Sure, I went ahead and issued a refund for you.");
+  // Outer Control's own two content kinds: a free-text response to scan, or
+  // a structured proposed action (content_kind: "action") to run through
+  // the same gate/execution path a real connected tool would trigger --
+  // reuses the verdict test's own action_type/provider/description/params
+  // fields rather than duplicating a second set just for this sub-mode.
+  const [testOuterKind, setTestOuterKind] = useState<"text" | "action">("text");
   const [testBusy, setTestBusy] = useState(false);
   const [testResult, setTestResult] = useState<{ status: number; body: Record<string, unknown> } | null>(null);
 
@@ -159,17 +174,48 @@ export default function ControlApiKeys() {
       toast({ title: "Name it first", description: "e.g. \"Production integration\"", variant: "destructive" });
       return;
     }
+    if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
+      toast({ title: "Invalid expiration", description: "Pick a future date, or leave it blank for no expiration.", variant: "destructive" });
+      return;
+    }
     setBusy(true);
-    const { data, error } = await supabase.functions.invoke("api-keys", { body: { name: trimmed, account_id: accountId } });
+    const { data, error } = await supabase.functions.invoke("api-keys", {
+      body: {
+        name: trimmed, account_id: accountId, allow_outer_control_execute: allowOuterExecute,
+        expires_at: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+      },
+    });
     setBusy(false);
     const res = (data ?? {}) as { ok?: boolean; key?: string; name?: string; error?: string };
     if (error || !res.ok || !res.key) {
       toast({ title: "Couldn't create the key", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
       return;
     }
-    posthog.capture("control_api_key_created");
+    posthog.capture("control_api_key_created", { outer_control_execute: allowOuterExecute });
     setName("");
+    setAllowOuterExecute(false);
+    setExpiresAt("");
     setJustCreated({ key: res.key, name: res.name || trimmed });
+    setCopied(false);
+    setTestKey(res.key);
+    load();
+  };
+
+  const [rotatingKeyId, setRotatingKeyId] = useState<string | null>(null);
+
+  const rotate = async (row: ApiKeyRow) => {
+    if (!window.confirm(`Rotate "${row.name}"? The current secret stops working immediately -- anywhere it's pasted in will need the new one.`)) {
+      return;
+    }
+    setRotatingKeyId(row.id);
+    const { data, error } = await supabase.functions.invoke(`api-keys/${row.id}/rotate`, { body: { account_id: accountId } });
+    setRotatingKeyId(null);
+    const res = (data ?? {}) as { ok?: boolean; key?: string; name?: string; error?: string };
+    if (error || !res.ok || !res.key) {
+      toast({ title: "Couldn't rotate the key", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
+      return;
+    }
+    setJustCreated({ key: res.key, name: res.name || row.name });
     setCopied(false);
     setTestKey(res.key);
     load();
@@ -241,9 +287,37 @@ export default function ControlApiKeys() {
     }
 
     if (testTarget === "outer_control") {
-      if (!testSourceModel.trim() || !testOuterContent.trim()) {
-        toast({ title: "source_model and content are required", variant: "destructive" });
+      if (!testSourceModel.trim()) {
+        toast({ title: "source_model is required", variant: "destructive" });
         return;
+      }
+      let payload: Record<string, unknown>;
+      if (testOuterKind === "action") {
+        if (!testActionType.trim() || !testDescription.trim()) {
+          toast({ title: "action_type and description are required", variant: "destructive" });
+          return;
+        }
+        let parsedParams: unknown = {};
+        try {
+          parsedParams = testParams.trim() ? JSON.parse(testParams) : {};
+        } catch {
+          toast({ title: "params must be valid JSON", variant: "destructive" });
+          return;
+        }
+        payload = {
+          source_model: testSourceModel.trim(),
+          content_kind: "action",
+          action_type: testActionType.trim(),
+          provider: testProvider.trim() || "unknown",
+          description: testDescription.trim(),
+          params: parsedParams,
+        };
+      } else {
+        if (!testOuterContent.trim()) {
+          toast({ title: "content is required", variant: "destructive" });
+          return;
+        }
+        payload = { source_model: testSourceModel.trim(), content: testOuterContent.trim() };
       }
       setTestBusy(true);
       setTestResult(null);
@@ -251,7 +325,7 @@ export default function ControlApiKeys() {
         const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/outer-control/evaluate`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${testKey.trim()}` },
-          body: JSON.stringify({ source_model: testSourceModel.trim(), content: testOuterContent.trim() }),
+          body: JSON.stringify(payload),
         });
         const body = await resp.json().catch(() => ({}));
         setTestResult({ status: resp.status, body });
@@ -420,6 +494,31 @@ export default function ControlApiKeys() {
                 className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
               />
             </label>
+            <label className="flex items-start gap-2 rounded-lg border border-white/10 bg-black/30 p-2.5 text-xs text-zinc-300">
+              <input
+                type="checkbox"
+                checked={allowOuterExecute}
+                onChange={(e) => setAllowOuterExecute(e.target.checked)}
+                className="mt-0.5 h-3.5 w-3.5 accent-cyan-500"
+              />
+              <span>
+                <span className="font-medium text-zinc-200">Let this key execute allowed actions automatically</span>
+                <span className="block text-[11px] text-zinc-500">
+                  Outer Control only. When an external AI's proposed action is judged safe, NazAI carries it out for real
+                  (send the email, post the message, etc.) instead of only returning a verdict. Off by default.
+                </span>
+              </span>
+            </label>
+            <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+              Expires (optional)
+              <input
+                type="date"
+                value={expiresAt}
+                onChange={(e) => setExpiresAt(e.target.value)}
+                min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
+                className="w-fit rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200 [color-scheme:dark]"
+              />
+            </label>
             <button
               disabled={busy}
               onClick={create}
@@ -480,10 +579,20 @@ export default function ControlApiKeys() {
                   <div className="min-w-0">
                     <div className="truncate text-sm text-zinc-200">{k.name}</div>
                     <div className="mt-1 font-mono text-[10px] text-zinc-500">{k.key_prefix}</div>
+                    {k.scopes?.includes("outer_control:execute") && (
+                      <div className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[9px] font-mono uppercase tracking-wide text-cyan-300">
+                        <Zap className="h-2.5 w-2.5" /> Executes actions
+                      </div>
+                    )}
                     <div className="mt-1 text-[10px] font-mono text-zinc-500">
                       Created {new Date(k.created_at).toLocaleDateString()}
                       {k.last_used_at ? ` · Last used ${new Date(k.last_used_at).toLocaleString()}` : " · Never used"}
                     </div>
+                    {k.expires_at && (
+                      <div className={`mt-1 text-[10px] font-mono ${new Date(k.expires_at).getTime() < Date.now() ? "text-rose-400" : "text-amber-400/80"}`}>
+                        {new Date(k.expires_at).getTime() < Date.now() ? "Expired" : "Expires"} {new Date(k.expires_at).toLocaleDateString()}
+                      </div>
+                    )}
                     <div className="mt-1 text-[10px] font-mono text-zinc-500">
                       {(activityByKey[k.id]?.callsToday ?? 0)} call{(activityByKey[k.id]?.callsToday ?? 0) === 1 ? "" : "s"} today
                       {activityByKey[k.id]?.lastDecision && (
@@ -516,6 +625,15 @@ export default function ControlApiKeys() {
                         </button>
                         {canWrite && (
                           <button
+                            onClick={() => rotate(k)}
+                            disabled={rotatingKeyId === k.id}
+                            className="flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[10px] font-mono uppercase text-amber-300 hover:bg-amber-500/20 disabled:opacity-50"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" /> {rotatingKeyId === k.id ? "Rotating…" : "Rotate"}
+                          </button>
+                        )}
+                        {canWrite && (
+                          <button
                             onClick={() => revoke(k)}
                             className="flex items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-[10px] font-mono uppercase text-rose-300 hover:bg-rose-500/20"
                           >
@@ -532,9 +650,10 @@ export default function ControlApiKeys() {
                     keyId={k.id}
                     accountId={accountId}
                     onUncertain={k.on_uncertain}
-                    initialPersona={k.response_persona}
                     initialRateLimit={k.rate_limit_per_minute}
                     initialRespondRateLimit={k.respond_rate_limit_per_minute}
+                    initialAllowOuterExecute={k.scopes?.includes("outer_control:execute") ?? false}
+                    initialExpiresAt={k.expires_at}
                     canWrite={canWrite}
                     onSaved={load}
                   />
@@ -593,6 +712,17 @@ export default function ControlApiKeys() {
               </label>
             ) : testTarget === "outer_control" ? (
               <>
+                <div className="flex items-center gap-4 text-xs text-zinc-300">
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Content kind</span>
+                  <label className="flex items-center gap-1.5">
+                    <input type="radio" name="test-outer-kind" checked={testOuterKind === "text"} onChange={() => { setTestOuterKind("text"); setTestResult(null); }} className="accent-cyan-500" />
+                    Text response
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input type="radio" name="test-outer-kind" checked={testOuterKind === "action"} onChange={() => { setTestOuterKind("action"); setTestResult(null); }} className="accent-cyan-500" />
+                    Proposed action
+                  </label>
+                </div>
                 <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
                   source_model
                   <input
@@ -602,16 +732,60 @@ export default function ControlApiKeys() {
                     className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-                  content
-                  <textarea
-                    value={testOuterContent}
-                    onChange={(e) => setTestOuterContent(e.target.value)}
-                    rows={3}
-                    placeholder="Paste the external AI's raw response here"
-                    className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
-                  />
-                </label>
+                {testOuterKind === "action" ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                        action_type
+                        <input
+                          value={testActionType}
+                          onChange={(e) => setTestActionType(e.target.value)}
+                          className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                        provider
+                        <input
+                          value={testProvider}
+                          onChange={(e) => setTestProvider(e.target.value)}
+                          className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                        />
+                      </label>
+                    </div>
+                    <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                      description
+                      <input
+                        value={testDescription}
+                        onChange={(e) => setTestDescription(e.target.value)}
+                        className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                      params (JSON)
+                      <textarea
+                        value={testParams}
+                        onChange={(e) => setTestParams(e.target.value)}
+                        rows={3}
+                        className="rounded border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs text-zinc-200"
+                      />
+                    </label>
+                    <p className="text-[10px] text-zinc-500">
+                      Executes for real only if the pasted key was created with "Let this key execute allowed actions
+                      automatically" checked, and the action comes back allowed.
+                    </p>
+                  </>
+                ) : (
+                  <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                    content
+                    <textarea
+                      value={testOuterContent}
+                      onChange={(e) => setTestOuterContent(e.target.value)}
+                      rows={3}
+                      placeholder="Paste the external AI's raw response here"
+                      className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                    />
+                  </label>
+                )}
               </>
             ) : (
             <>
@@ -723,24 +897,27 @@ function ApiKeySettingsPanel({
   keyId,
   accountId,
   onUncertain,
-  initialPersona,
   initialRateLimit,
   initialRespondRateLimit,
+  initialAllowOuterExecute,
+  initialExpiresAt,
   canWrite,
   onSaved,
 }: {
   keyId: string;
   accountId: string | null;
   onUncertain: string;
-  initialPersona: string | null;
   initialRateLimit: number | null;
   initialRespondRateLimit: number | null;
+  initialAllowOuterExecute: boolean;
+  initialExpiresAt: string | null;
   canWrite: boolean;
   onSaved: () => void;
 }) {
-  const [persona, setPersona] = useState(initialPersona ?? "");
   const [rateLimit, setRateLimit] = useState(initialRateLimit != null ? String(initialRateLimit) : "");
   const [respondRateLimit, setRespondRateLimit] = useState(initialRespondRateLimit != null ? String(initialRespondRateLimit) : "");
+  const [allowOuterExecute, setAllowOuterExecute] = useState(initialAllowOuterExecute);
+  const [expiresAt, setExpiresAt] = useState(initialExpiresAt ? initialExpiresAt.slice(0, 10) : "");
   const [savingSettings, setSavingSettings] = useState(false);
 
   const [entries, setEntries] = useState<ContextEntry[]>([]);
@@ -794,11 +971,6 @@ function ApiKeySettingsPanel({
   useEffect(() => { loadEntries(); loadRules(); }, [loadEntries, loadRules]);
 
   const saveSettings = async () => {
-    const trimmedPersona = persona.trim();
-    if (trimmedPersona.length > 500) {
-      toast({ title: "Persona too long", description: "Keep it to 500 characters or fewer.", variant: "destructive" });
-      return;
-    }
     let rateLimitValue: number | null = null;
     if (rateLimit.trim()) {
       const parsed = Number(rateLimit.trim());
@@ -817,14 +989,19 @@ function ApiKeySettingsPanel({
       }
       respondRateLimitValue = parsed;
     }
+    if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
+      toast({ title: "Invalid expiration", description: "Pick a future date, or clear it for no expiration.", variant: "destructive" });
+      return;
+    }
     setSavingSettings(true);
     const { data, error } = await supabase.functions.invoke(`api-keys/${keyId}/policy`, {
       body: {
         account_id: accountId,
         on_uncertain: onUncertain,
-        response_persona: trimmedPersona || null,
         rate_limit_per_minute: rateLimitValue,
         respond_rate_limit_per_minute: respondRateLimitValue,
+        allow_outer_control_execute: allowOuterExecute,
+        expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
       },
     });
     setSavingSettings(false);
@@ -917,25 +1094,42 @@ function ApiKeySettingsPanel({
 
   return (
     <div className="mt-3 space-y-4 rounded border border-white/10 bg-black/20 p-3">
-      <div>
-        <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-          Tone (reserved -- not currently applied by /respond)
-          <textarea
-            value={persona}
-            onChange={(e) => setPersona(e.target.value)}
+      <label className="flex items-start gap-2 text-xs text-zinc-300">
+        <input
+          type="checkbox"
+          checked={allowOuterExecute}
+          onChange={(e) => setAllowOuterExecute(e.target.checked)}
+          disabled={!canWrite}
+          className="mt-0.5 h-3.5 w-3.5 accent-cyan-500 disabled:opacity-50"
+        />
+        <span>
+          <span className="font-medium text-zinc-200">Let this key execute allowed actions automatically</span>
+          <span className="block text-[11px] text-zinc-500">Outer Control only. Same setting as at creation — flip it any time.</span>
+        </span>
+      </label>
+
+      <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+        Expires (blank for no expiration)
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={expiresAt}
+            onChange={(e) => setExpiresAt(e.target.value)}
             disabled={!canWrite}
-            placeholder="e.g. Warm, concise, first names, no corporate jargon."
-            rows={2}
-            maxLength={500}
-            className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200 disabled:opacity-50"
+            className="w-fit rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200 disabled:opacity-50 [color-scheme:dark]"
           />
-        </label>
-        <p className="mt-0.5 text-[10px] font-mono text-zinc-600">
-          /respond now answers deterministically from your context entries with no generative model in the
-          path, so there's no tone-shaping step left to apply this to. Saved for a possible future use.
-        </p>
-        <p className="mt-0.5 text-right text-[10px] font-mono text-zinc-600">{persona.length}/500</p>
-      </div>
+          {expiresAt && (
+            <button
+              type="button"
+              onClick={() => setExpiresAt("")}
+              disabled={!canWrite}
+              className="text-[10px] font-mono uppercase text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </label>
 
       <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
         Rate limit (requests/minute — blank for platform default)
