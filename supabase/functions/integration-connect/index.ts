@@ -11,7 +11,7 @@
 //
 // Supported providers (real API calls):
 //   - stripe       (api_key)                       → GET /v1/account
-//   - shopify      (store_url, access_token)       → GET /admin/api/2024-07/shop.json
+//   - shopify      (store_url, access_token)       → GET /admin/api/{SHOPIFY_API_VERSION}/shop.json
 //   - woocommerce  (store_url, client_id, secret)  → GET /wp-json/wc/v3/system_status
 //   - slack        (webhook_url) OR (access_token) → POST webhook ping / auth.test
 //   - hubspot      (access_token)                  → GET /account-info/v3/details
@@ -26,6 +26,7 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { createSecret, updateSecret, deleteSecret } from "../_shared/integration-secrets.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
+import { SHOPIFY_API_VERSION } from "../_shared/shopify.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -64,7 +65,7 @@ async function verifyShopify(c: Credentials) {
   const store = c.store_url?.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
   const token = c.access_token?.trim();
   if (!store || !token) return { ok: false, error: "Missing store URL or access token" };
-  const shopifyUrl = `https://${store}/admin/api/2024-07/shop.json`;
+  const shopifyUrl = `https://${store}/admin/api/${SHOPIFY_API_VERSION}/shop.json`;
   const shopifyCheck = await validateOutboundUrl(shopifyUrl);
   if (!shopifyCheck.ok) return { ok: false, error: `store_url is not allowed: ${shopifyCheck.reason}` };
   const r = await fetch(shopifyUrl, {

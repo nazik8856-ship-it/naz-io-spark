@@ -4,6 +4,18 @@
 // https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/authorization-code-grant
 import { getRotatableClientSecret, verifyWithClientSecretRotation, withClientSecretRotation } from "./oauth-secret-rotation.ts";
 
+// Correctness fix: this was previously hardcoded independently in FOUR
+// places (provider-writes.ts, reversibility.ts, integration-sync/index.ts,
+// integration-connect/index.ts) at TWO different stale values ("2024-10"
+// and "2024-07") that had drifted apart from each other. Shopify only
+// guarantees ~12 months of support per quarterly version, so an
+// unmaintained hardcoded version silently starts failing once Shopify
+// sunsets it -- centralized here as the one place that needs bumping going
+// forward. Recheck this against Shopify's current supported-versions list
+// (https://shopify.dev/docs/api/usage/versioning) periodically; it cannot
+// be verified live from this environment.
+export const SHOPIFY_API_VERSION = "2026-07";
+
 export const SHOPIFY_SCOPES = [
   "read_products",
   "write_products",
@@ -13,6 +25,12 @@ export const SHOPIFY_SCOPES = [
   "write_customers",
   "read_inventory",
   "write_inventory",
+  // Correctness fix: Shopify scopes draft orders separately from regular
+  // orders -- write_orders does NOT cover /draft_orders.json. Without
+  // these, shopify_create_draft_order gets a real 403 ("requires merchant
+  // approval for write_draft_orders scope") against a live store.
+  "read_draft_orders",
+  "write_draft_orders",
 ];
 
 export const SHOPIFY_REDIRECT_URI = `${Deno.env.get("SUPABASE_URL")}/functions/v1/shopify-oauth-callback`;
@@ -124,7 +142,7 @@ export async function exchangeCode(shop: string, code: string): Promise<ShopifyT
 }
 
 export async function fetchShopInfo(shop: string, access_token: string): Promise<Record<string, unknown> | null> {
-  const r = await fetch(`https://${shop}/admin/api/2024-07/shop.json`, {
+  const r = await fetch(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/shop.json`, {
     headers: { "X-Shopify-Access-Token": access_token, Accept: "application/json" },
   });
   if (!r.ok) return null;

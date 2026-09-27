@@ -14,6 +14,7 @@ import { readSecret } from "./integration-secrets.ts";
 import { canvaAuthedFetch } from "./canva.ts";
 import { figmaAuthedFetch } from "./figma.ts";
 import { loadProviderIntegration, type WriteResult, type IntegrationRow } from "./provider-writes.ts";
+import { SHOPIFY_API_VERSION } from "./shopify.ts";
 
 export type UndoKind = "compensating" | "delete" | "restore" | "none";
 
@@ -108,7 +109,6 @@ export function reversibilityFor(kind: string): Reversibility {
 const NOTION_HEADERS = (t: string) => ({
   Authorization: `Bearer ${t}`, "Notion-Version": "2022-06-28", "Content-Type": "application/json",
 });
-const SHOPIFY_API_VERSION = "2024-10";
 const shopifyHeaders = (t: string) => ({ "X-Shopify-Access-Token": t, "Content-Type": "application/json" });
 
 async function notionToken(admin: SupabaseClient, userId: string, agentId: string) {
