@@ -875,6 +875,15 @@ Deno.serve(async (req) => {
       return json({ error: "scope must be 'full' or 'respond_only'" }, 400);
     }
     const scopes = scopeInput === "respond_only" ? ["control:respond"] : ["control:verdict"];
+    // Outer Control execution power (running a real Gmail/Slack/Shopify/etc.
+    // write on an external AI's "allow"-verdicted proposed action) is opt-in
+    // per key, never implied by 'full' -- a key created before this existed,
+    // or one this account doesn't want to trust with real writes, stays
+    // evaluate-only. Meaningless (and ignored) on a respond_only key, which
+    // never reaches the action-evaluation path at all.
+    if (scopeInput === "full" && body?.allow_outer_control_execute === true) {
+      scopes.push("outer_control:execute");
+    }
 
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);

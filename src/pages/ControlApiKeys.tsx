@@ -69,6 +69,11 @@ export default function ControlApiKeys() {
   const [activityByKey, setActivityByKey] = useState<Record<string, KeyActivity>>({});
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
+  // Outer Control execution is opt-in per key -- off by default, so
+  // generating a key never silently hands an external caller the power to
+  // actually run a real Gmail/Slack/Shopify/etc. write. Meaningful only
+  // alongside the default 'full' scope.
+  const [allowOuterExecute, setAllowOuterExecute] = useState(false);
   const [busy, setBusy] = useState(false);
   const [justCreated, setJustCreated] = useState<{ key: string; name: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -160,15 +165,18 @@ export default function ControlApiKeys() {
       return;
     }
     setBusy(true);
-    const { data, error } = await supabase.functions.invoke("api-keys", { body: { name: trimmed, account_id: accountId } });
+    const { data, error } = await supabase.functions.invoke("api-keys", {
+      body: { name: trimmed, account_id: accountId, allow_outer_control_execute: allowOuterExecute },
+    });
     setBusy(false);
     const res = (data ?? {}) as { ok?: boolean; key?: string; name?: string; error?: string };
     if (error || !res.ok || !res.key) {
       toast({ title: "Couldn't create the key", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
       return;
     }
-    posthog.capture("control_api_key_created");
+    posthog.capture("control_api_key_created", { outer_control_execute: allowOuterExecute });
     setName("");
+    setAllowOuterExecute(false);
     setJustCreated({ key: res.key, name: res.name || trimmed });
     setCopied(false);
     setTestKey(res.key);
@@ -420,6 +428,21 @@ export default function ControlApiKeys() {
                 className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
               />
             </label>
+            <label className="flex items-start gap-2 rounded-lg border border-white/10 bg-black/30 p-2.5 text-xs text-zinc-300">
+              <input
+                type="checkbox"
+                checked={allowOuterExecute}
+                onChange={(e) => setAllowOuterExecute(e.target.checked)}
+                className="mt-0.5 h-3.5 w-3.5 accent-cyan-500"
+              />
+              <span>
+                <span className="font-medium text-zinc-200">Let this key execute allowed actions automatically</span>
+                <span className="block text-[11px] text-zinc-500">
+                  Outer Control only. When an external AI's proposed action is judged safe, NazAI carries it out for real
+                  (send the email, post the message, etc.) instead of only returning a verdict. Off by default.
+                </span>
+              </span>
+            </label>
             <button
               disabled={busy}
               onClick={create}
@@ -480,6 +503,11 @@ export default function ControlApiKeys() {
                   <div className="min-w-0">
                     <div className="truncate text-sm text-zinc-200">{k.name}</div>
                     <div className="mt-1 font-mono text-[10px] text-zinc-500">{k.key_prefix}</div>
+                    {k.scopes?.includes("outer_control:execute") && (
+                      <div className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[9px] font-mono uppercase tracking-wide text-cyan-300">
+                        <Zap className="h-2.5 w-2.5" /> Executes actions
+                      </div>
+                    )}
                     <div className="mt-1 text-[10px] font-mono text-zinc-500">
                       Created {new Date(k.created_at).toLocaleDateString()}
                       {k.last_used_at ? ` · Last used ${new Date(k.last_used_at).toLocaleString()}` : " · Never used"}
