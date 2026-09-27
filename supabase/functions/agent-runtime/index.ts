@@ -11,7 +11,7 @@ import {
   MAX_TOOL_ATTEMPTS,
   type Corrector,
 } from "../_shared/tool-retry.ts";
-import { PROVIDER_WRITE_KINDS } from "../_shared/provider-writes.ts";
+import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
@@ -3018,29 +3018,58 @@ Rules:
           continue;
         }
 
-        // ---- Real, verified provider writes (Slack / Notion / Canva / Shopify / Figma / Calendar).
-        // Unlike send_email/http_post, these had NO guardrail check at all --
-        // a manifest guardrail literally saying "never post to Slack/change
-        // Shopify prices without approval [REQUIRES APPROVAL]" was silently
-        // unenforceable, and the action ran immediately every time. Until
-        // agent-approval can actually dispatch each of these kinds on
-        // approve (it currently can't -- see its own comment), always queue
-        // them for approval instead of running them, so at minimum nothing
-        // unapproved ever executes. This is a deliberate, temporary
-        // reduction in capability (these tools can't complete automatically
-        // right now) in exchange for the safety property the product
-        // promises actually holding.
+        // ---- Real, verified provider writes (Slack / Notion / Canva / Shopify / Figma).
+        // These already pass through the SAME control-engine gate every other
+        // ACTION_CAPPED_KINDS tool does (spend cap, kill switch, hard rules,
+        // circuit breaker, safety scanner, model risk/fit -- see the gate
+        // block above) before ever reaching here, so a hard rule or safety
+        // scanner match already stopped an unsafe one. What that gate can't
+        // see is a founder's own plain-English manifest guardrail ("never
+        // post to Slack without approval [REQUIRES APPROVAL]") -- mirror the
+        // exact same guardrail-lookup pattern send_email/http_post already
+        // use for that, then actually execute via the same runProviderWrite
+        // control-engine's own approve/override endpoints and Outer Control
+        // already use, verified by re-fetch inside that function itself.
         if (PROVIDER_WRITE_KINDS.has(tool.kind)) {
-          await logEvent("pending_approval", {
-            action: tool.kind,
-            payload: input,
-            risk: "high",
-            guardrail: "Provider writes (Slack/Shopify/Notion/Canva/Figma/Calendar) always require approval for now.",
+          const writeProviderName = providerForTool(tool.kind, input);
+          const writeGuard = (manifest.guardrails || []).find((g) => {
+            const r = (g.rule || "").toLowerCase();
+            return g.requiresApproval && (r.includes(tool.kind) || r.includes(writeProviderName.toLowerCase()));
           });
-          const msg = `Queued for approval; NOT executed. Approving this in the current build only records the decision -- it does not yet perform the action. Tell the operator to do this manually for now.`;
-          await logEvent("tool_result", { tool: tool.name, ok: true, summary: msg });
-          await logEvent("action", { type: tool.kind, target: null, ok: false, result_ref: null, summary: msg });
-          messages.push({ role: "user", content: `${msg}\n\nContinue with other work or finish.` });
+          const hardBlockWrite = !!writeGuard && /\[requires approval\]/i.test(writeGuard.rule || "");
+          const autoApproveWrite = (agent as { auto_approve_low_risk?: boolean }).auto_approve_low_risk === true && !hardBlockWrite;
+          if (writeGuard && !autoApproveWrite) {
+            await logEvent("pending_approval", {
+              action: tool.kind,
+              payload: input,
+              risk: "high",
+              guardrail: writeGuard.rule,
+            });
+            const msg = `Queued for approval (guardrail: ${writeGuard.rule}); NOT executed.`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary: msg });
+            await logEvent("action", { type: tool.kind, target: null, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue with other work or finish.` });
+            continue;
+          }
+          const writeResult = await runProviderWrite(tool.kind, supabase, userId, agentId, input);
+          await logEvent("tool_result", { tool: tool.name, ok: writeResult.ok, summary: writeResult.summary });
+          await logEvent("action", {
+            type: tool.kind,
+            target: writeResult.target ?? null,
+            ok: writeResult.ok,
+            result_ref: writeResult.ref ?? null,
+            summary: writeResult.summary,
+            url: writeResult.url ?? null,
+          });
+          if (gateAttempt) {
+            await gateAttempt(!writeResult.ok, writeResult.ok ? "ok" : writeResult.summary).catch(() => null);
+          }
+          messages.push({
+            role: "user",
+            content: writeResult.ok
+              ? `${writeResult.summary}\n\nContinue.`
+              : `${writeResult.summary}\n\nDo not describe this as done. Either fix the input and try once more, or continue with other work and state this plainly to the operator.`,
+          });
           continue;
         }
 
