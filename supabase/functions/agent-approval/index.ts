@@ -13,7 +13,8 @@ import { runControlGate } from "../_shared/control-gate.ts";
 import { claimRowOnce, releaseRowClaim } from "../_shared/idempotency.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
-import { PROVIDER_WRITE_KINDS } from "../_shared/provider-writes.ts";
+import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
+import { providerForTool } from "../_shared/integration-issues.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -225,15 +226,52 @@ serve(async (req) => {
       }
     }
 
-    // Provider writes (Slack/Shopify/Notion/Canva/Figma/Calendar) have no real
-    // dispatch-on-approve path yet -- falling into the generic branch below
-    // would log "approval_granted, ok:true" and tell the operator it was
-    // "Approved & executed" when nothing happened at all. Say so plainly
-    // instead of claiming a fake success.
+    // Provider writes (Slack/Notion/Canva/Shopify/Figma) -- same real dispatch
+    // agent-runtime's own directly-allowed path now uses (runProviderWrite,
+    // verified by re-fetch inside that function itself), reached here for
+    // whichever ones a founder's own manifest guardrail routed to this queue
+    // instead of running immediately. Re-check the same deterministic gate
+    // first, exactly like send_email/http_post above -- being approved once
+    // doesn't exempt an action from a safety condition that changed while it
+    // sat in the queue.
     if (PROVIDER_WRITE_KINDS.has(actionType)) {
-      const msg = `Approving "${actionType}" doesn't perform it yet in this build — do this manually for now. Support for automatically carrying out this action is coming soon.`;
-      await logEvent("approval_granted", { original_event_id: eventId, action: actionType, note, ok: false, summary: msg });
-      return json({ ok: false, resolved: "not_supported", error: "manual_action_required", message: msg });
+      const gateParams = (payload.payload as Record<string, unknown>) || {};
+      const gate = await runControlGate(admin, {
+        userId,
+        actionType,
+        provider: providerForTool(actionType, gateParams),
+        description: `Approved ${actionType} from an agent's manifest-guardrail queue (event ${eventId}).`,
+        params: gateParams,
+        agentId: evt.agent_id as string | null,
+        runId: evt.run_id as string | null,
+        origin: "agent-approval",
+      });
+      if (!gate.ok) {
+        await logEvent("approval_rejected", {
+          original_event_id: eventId,
+          action: actionType,
+          reason: `Stopped by the control gate at execute time: ${gate.reason}`,
+          gate_source: gate.source,
+        });
+        return json({
+          ok: false,
+          resolved: "blocked",
+          error: gate.source ?? "control_gate",
+          message: gate.reason ?? "Stopped by the control system before it could run.",
+        }, 409);
+      }
+
+      const result = await runProviderWrite(actionType, admin, userId, String(evt.agent_id || ""), gateParams);
+      if (!result.ok) await releaseRowClaim(admin, "agent_events", eventId, "resolved_at");
+      await logEvent("approval_granted", {
+        original_event_id: eventId, action: actionType, note,
+        ok: result.ok, result_ref: result.ref ?? null, summary: result.summary,
+      });
+      await logEvent("action", {
+        type: actionType, target: result.target ?? null, ok: result.ok,
+        result_ref: result.ref ?? null, summary: result.summary, url: result.url ?? null,
+      });
+      return json({ ok: result.ok, resolved: "approved", summary: result.summary, ref: result.ref ?? null, url: result.url ?? null });
     }
 
     // Generic request_approval (or unknown action): just record approval so agent can resume.
