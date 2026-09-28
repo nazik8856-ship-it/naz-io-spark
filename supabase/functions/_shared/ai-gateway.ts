@@ -1,8 +1,8 @@
 // Shared LLM-gateway resolver. Prefers a direct OpenAI call (OPENAI_API_KEY)
 // and falls back to the Lovable AI gateway (LOVABLE_API_KEY) when that's
-// the only key configured. Established by run-ai-agent/generate-ai-agent;
-// centralized here so every function that calls an LLM resolves the same
-// way and stays in sync if the provider priority ever changes again.
+// the only key configured. Established by generate-ai-agent; centralized
+// here so every function that calls an LLM resolves the same way and stays
+// in sync if the provider priority ever changes again.
 //
 // Both endpoints speak the same OpenAI-chat-completions-shaped request/
 // response (Lovable's gateway is itself OpenAI-compatible), so callers only
