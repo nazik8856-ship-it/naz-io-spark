@@ -181,6 +181,22 @@ const MASTER_CATALOG: Integration[] = [
   { name: "GitHub", category: "Dev", method: "Sign in", examples: ["Summarise PRs", "Triage issues"], steps: ["Sign in with GitHub"] },
 ];
 
+// Correctness fix: this catalog listed ~30 providers with specific write-
+// action "examples" (e.g. HubSpot "Create/update contacts", QuickBooks
+// "Nudge overdue invoices") as if they were all equally connectable. In
+// reality IntegrationConnectModal.tsx already gates every provider that
+// isn't real OAuth behind its own honest "Coming soon" screen (its
+// isRealOAuth check) -- but a founder saw the fabricated capability text
+// on THIS grid tile before ever clicking through to discover that. Mirrors
+// that exact same real-provider set so the tile stops promising something
+// the very next screen already admits isn't there.
+const REAL_OAUTH_PROVIDERS = new Set(["figma", "canva", "shopify", "slack", "notion"]);
+function isComingSoonProvider(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  if (n.includes("drive") || n.includes("calendar") || n.includes("analytics") || n === "ga4") return false;
+  return !REAL_OAUTH_PROVIDERS.has(n);
+}
+
 function pickRoleFromManifest(manifest: { goal?: string; name?: string }): keyof typeof ROLE_DEFAULTS {
   const p = `${manifest?.name || ""} ${manifest?.goal || ""}`.toLowerCase();
   if (/support|ticket|inbox|helpdesk/.test(p)) return "support";
@@ -197,15 +213,20 @@ function recommendFor(
   catalog: Integration[],
 ): { names: Set<string>; reason: string } {
   const text = `${manifest?.name || ""} ${manifest?.goal || ""} ${manifest?.role || ""}`.toLowerCase();
+  // Correctness fix: this used to boost fictional-capability providers
+  // (HubSpot, Zendesk, QuickBooks, Meta Ads, GitHub, Calendly, etc.) as
+  // NazAI's own "top pick" -- the single most prominent recommendation
+  // badge in the UI, on tools that can't do anything yet. Every boost list
+  // below now names only providers with a real, working connector.
   const signals: Array<{ kw: RegExp; boost: string[] }> = [
-    { kw: /shop|ecom|store|product|order|inventory|dtc|brand/, boost: ["Shopify", "Stripe", "Klaviyo", "Instagram", "Meta Ads", "Google"] },
-    { kw: /support|ticket|inbox|helpdesk|customer/, boost: ["Zendesk", "Google", "Intercom", "Slack", "WhatsApp Business"] },
-    { kw: /sales|lead|prospect|outreach|crm|pipeline|b2b/, boost: ["HubSpot", "Google", "LinkedIn", "Slack", "Calendly"] },
-    { kw: /market|content|social|blog|seo|creator|influenc|reels|posts?/, boost: ["Instagram", "TikTok", "Google", "X / Twitter", "LinkedIn", "Google"] },
-    { kw: /finance|invoice|kpi|revenue|cash|book|accounting|ops|operations/, boost: ["Stripe", "QuickBooks", "Xero", "Google", "Slack"] },
-    { kw: /restaurant|local|booking|appointment/, boost: ["Google", "Instagram", "WhatsApp Business", "Square"] },
-    { kw: /saas|product|dev|engineer/, boost: ["GitHub", "Linear", "Slack", "Stripe", "HubSpot"] },
-    { kw: /agenc|freelanc|client/, boost: ["Notion", "Google", "Slack", "Stripe", "Calendly"] },
+    { kw: /shop|ecom|store|product|order|inventory|dtc|brand/, boost: ["Shopify", "Slack", "Google Analytics"] },
+    { kw: /support|ticket|inbox|helpdesk|customer/, boost: ["Google Drive", "Slack", "Notion"] },
+    { kw: /sales|lead|prospect|outreach|crm|pipeline|b2b/, boost: ["Google Drive", "Slack", "Notion"] },
+    { kw: /market|content|social|blog|seo|creator|influenc|reels|posts?/, boost: ["Notion", "Canva", "Google Analytics"] },
+    { kw: /finance|invoice|kpi|revenue|cash|book|accounting|ops|operations/, boost: ["Shopify", "Google Analytics", "Slack"] },
+    { kw: /restaurant|local|booking|appointment/, boost: ["Google Calendar", "Slack"] },
+    { kw: /saas|product|dev|engineer/, boost: ["Slack", "Notion", "Figma"] },
+    { kw: /agenc|freelanc|client/, boost: ["Notion", "Google Drive", "Slack"] },
   ];
   const picks = new Set<string>();
   const matched: string[] = [];
@@ -216,7 +237,7 @@ function recommendFor(
     }
   }
   // Sensible defaults if we couldn't infer anything
-  if (picks.size === 0) ["Google", "Slack", "Google", "Stripe", "Instagram"].forEach((n) => picks.add(n));
+  if (picks.size === 0) ["Google Drive", "Slack", "Notion"].forEach((n) => picks.add(n));
   // Filter to items actually present in catalog
   const inCatalog = new Set(catalog.map((c) => c.name));
   const names = new Set([...picks].filter((n) => inCatalog.has(n)));
@@ -357,9 +378,17 @@ export default function AgentIntegrationsPanel({
           (i) => i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q),
         )
       : spec.integrations;
-    // Sort: broken (needs attention) → connected → recommended → alphabetical
+    // Sort: broken (needs attention) → connected → recommended → real but
+    // unrecommended → coming soon → alphabetical. Real, connectable tools
+    // always surface above ones that can't do anything yet.
     return [...base].sort((a, b) => {
-      const rank = (name: string) => (erroredName(name) ? 0 : isConnectedName(name) ? 1 : recommendedNames.has(name) ? 2 : 3);
+      const rank = (name: string) => (
+        erroredName(name) ? 0
+        : isConnectedName(name) ? 1
+        : recommendedNames.has(name) ? 2
+        : isComingSoonProvider(name) ? 4
+        : 3
+      );
       const ac = rank(a.name);
       const bc = rank(b.name);
       if (ac !== bc) return ac - bc;
@@ -495,12 +524,20 @@ export default function AgentIntegrationsPanel({
                 const isConnected = isConnectedName(it.name);
                 const isRecommended = recommendedNames.has(it.name);
                 const errorMsg = erroredName(it.name);
+                // Correctness fix: IntegrationConnectModal already routes any
+                // non-real-OAuth provider to its own honest "Coming soon"
+                // screen -- this tile now says so up front too, instead of
+                // showing a fabricated capability example and a live-looking
+                // "Connect" button for something that can't do anything yet.
+                const comingSoon = !isConnected && !errorMsg && isComingSoonProvider(it.name);
                 return (
                   <div key={it.name}
                     className={`rounded-2xl border p-4 transition-all flex flex-col ${
                       errorMsg
                         ? "border-red-400/40 bg-red-400/[0.04] hover:border-red-400/60 hover:bg-red-400/[0.06]"
-                        : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"
+                        : comingSoon
+                          ? "border-white/5 bg-white/[0.01] opacity-70"
+                          : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"
                     }`}>
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="min-w-0">
@@ -516,6 +553,10 @@ export default function AgentIntegrationsPanel({
                             <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
                               style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }}>
                               <CheckCircle2 className="h-2.5 w-2.5" /> Connected
+                            </span>
+                          ) : comingSoon ? (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-white/15 bg-white/[0.03] text-zinc-500">
+                              Coming soon
                             </span>
                           ) : isRecommended && (
                             <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
@@ -533,18 +574,23 @@ export default function AgentIntegrationsPanel({
                     </div>
                     {errorMsg ? (
                       <p className="text-[11px] text-red-300/90 mb-3 line-clamp-2">{errorMsg}</p>
+                    ) : comingSoon ? (
+                      <p className="text-[11px] text-zinc-500 mb-3 line-clamp-2">Not connectable yet — NazAI has no real integration built for this one.</p>
                     ) : (
                       <p className="text-[11px] text-zinc-400 mb-3 line-clamp-2">{it.examples[0]}</p>
                     )}
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); setOpenIntegration(it); }}
-                      className="relative z-10 mt-auto inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-black cursor-pointer touch-manipulation"
-                      style={errorMsg
+                      disabled={comingSoon}
+                      onClick={(e) => { e.stopPropagation(); if (!comingSoon) setOpenIntegration(it); }}
+                      className={`relative z-10 mt-auto inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold touch-manipulation ${
+                        comingSoon ? "text-zinc-500 cursor-not-allowed bg-white/5 border border-white/10" : "text-black cursor-pointer"
+                      }`}
+                      style={comingSoon ? undefined : errorMsg
                         ? { background: "linear-gradient(135deg, #f87171, #fbbf24)", boxShadow: "0 6px 18px -8px rgba(248,113,113,0.6)" }
                         : { background: `linear-gradient(135deg, ${accent}, #22d3ee)`, boxShadow: `0 6px 18px -8px ${accent}99` }}
                     >
-                      {errorMsg ? "Reconnect" : isConnected ? "Manage" : "Connect"}
+                      {errorMsg ? "Reconnect" : comingSoon ? "Coming soon" : isConnected ? "Manage" : "Connect"}
                     </button>
 
                   </div>
