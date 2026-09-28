@@ -46,12 +46,22 @@ Deno.serve(async (req) => {
   const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
   const requestedAccountId = body?.account_id ?? url.searchParams.get("account_id");
   const accountId = typeof requestedAccountId === "string" && requestedAccountId ? requestedAccountId : userId;
+  const requestedAgentId = body?.agent_id ?? url.searchParams.get("agent_id");
+  const agentId = typeof requestedAgentId === "string" && requestedAgentId ? requestedAgentId : null;
 
-  const { data: conns } = await supabase
+  // With no agent_id, report every connected provider on the account (the
+  // original account-wide behavior ControlCoverageGaps.tsx relies on). With
+  // an agent_id, scope the same way agent-runtime does when deciding what's
+  // connected for a run -- account-wide integrations (agent_id null) plus
+  // ones connected specifically for this agent -- so a provider connected
+  // only to a DIFFERENT agent isn't misreported as "real" for this one.
+  let connQuery = supabase
     .from("agent_integrations")
     .select("provider")
     .eq("user_id", accountId)
     .eq("status", "connected");
+  if (agentId) connQuery = connQuery.or(`agent_id.eq.${agentId},agent_id.is.null`);
+  const { data: conns } = await connQuery;
   const connected = ((conns ?? []) as { provider: string }[]).map((c) => c.provider);
 
   // Reuses the SAME gate agent-runtime checks before ever offering a tool to
