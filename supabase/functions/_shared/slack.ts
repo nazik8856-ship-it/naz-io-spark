@@ -13,7 +13,13 @@ export const SLACK_SCOPE_GROUPS: Record<string, string[]> = {
   groups_read: ["groups:read"],
   groups_history: ["groups:history"],
   users_read: ["users:read"],
-  chat_write: ["chat:write"],
+  // Correctness fix: chat:write alone only lets the bot post to channels
+  // it's already been invited to -- confirmed live, a real chat.postMessage
+  // call to a public channel the bot hadn't joined came back "not_in_channel".
+  // chat:write.public lets it post to any PUBLIC channel without an invite
+  // first, which is what a founder actually expects from "Post messages".
+  // Private channels still require an explicit invite either way.
+  chat_write: ["chat:write", "chat:write.public"],
 };
 
 export const SLACK_DEFAULT_GROUPS = Object.keys(SLACK_SCOPE_GROUPS);
