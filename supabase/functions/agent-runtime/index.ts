@@ -403,7 +403,18 @@ serve(async (req) => {
     // ok:false, remember which tool failed so we can force the model to try
     // one alternative before it is allowed to ask_user. Wrapped in an object
     // holder so TS control-flow analysis doesn't narrow it to null.
-    const failGuard: { state: { failedTool: string; nudged: boolean } | null } = { state: null };
+    // `streak` counts consecutive failures since the last success, across
+    // whichever tools were tried -- not just repeats of the same one. Past
+    // one nudge, a streak that keeps growing means alternatives alone aren't
+    // working, so `replanned` tracks whether the model has already been
+    // forced to genuinely reconsider its plan (not just try another input)
+    // before ask_user is escalated. Real success clears all of it.
+    const failGuard: {
+      state: { failedTool: string; nudged: boolean } | null;
+      streak: number;
+      replanned: boolean;
+    } = { state: null, streak: 0, replanned: false };
+    const REPLAN_FAILURE_STREAK = 3;
 
     // Identical-action loop detection, scoped to tools that never reach the
     // control gate. Confirmed: ACTION_CAPPED_KINDS tools eventually get a
@@ -654,9 +665,17 @@ serve(async (req) => {
         const p = payload as { ok?: unknown; tool?: unknown; type?: unknown };
         const toolName = String(p.tool || p.type || "unknown");
         if (p.ok === false) {
-          failGuard.state = { failedTool: toolName, nudged: false };
-        } else if (p.ok === true && failGuard.state && toolName !== failGuard.state.failedTool) {
+          failGuard.streak += 1;
+          failGuard.state = { failedTool: toolName, nudged: failGuard.state?.nudged ?? false };
+        } else if (p.ok === true) {
+          // Any real success — including a retry of the tool that just
+          // failed — means the run is no longer stuck. Reset the whole
+          // guard rather than only clearing it for a DIFFERENT tool's
+          // success, which used to leave a stale streak/nudge behind a
+          // successful retry of the same tool.
           failGuard.state = null;
+          failGuard.streak = 0;
+          failGuard.replanned = false;
         }
       }
 
@@ -1604,22 +1623,38 @@ Rules:
         }
 
         // Retry-alternative-first guard: block ask_user until the model has
-        // tried at least one different tool after the last failure.
-        if (tool.kind === "ask_user" && failGuard.state && !failGuard.state.nudged) {
-          failGuard.state.nudged = true;
-          const failed = failGuard.state.failedTool;
-          await logEvent("reason", {
-            thought: `Intercepted ask_user — must try one alternative approach after "${failed}" failed before escalating to operator.`,
-          });
-          messages.push({
-            role: "user",
-            content: `Do NOT call ask_user yet. The last "${failed}" attempt failed. Try ONE reasonable alternative first — a different tool, different input, or a smaller sub-goal. Only call ask_user if that alternative also fails or the missing piece is genuinely operator-only (credentials, a decision, a fact the business hasn't shared).`,
-          });
-          continue;
-        }
-        // Any DIFFERENT tool attempt clears the pending-alternative flag.
-        if (failGuard.state && tool.name !== failGuard.state.failedTool && tool.kind !== "ask_user") {
-          failGuard.state = null;
+        // genuinely tried something different after a failure. Escalates in
+        // two stages -- a lightweight nudge first, then (if failures keep
+        // coming even from different tools) a forced replan -- and never
+        // blocks a third time, since a dead end the model can't work around
+        // is exactly when the human needs to hear about it.
+        if (tool.kind === "ask_user" && failGuard.state) {
+          if (!failGuard.state.nudged) {
+            failGuard.state.nudged = true;
+            const failed = failGuard.state.failedTool;
+            await logEvent("reason", {
+              thought: `Intercepted ask_user — must try one alternative approach after "${failed}" failed before escalating to operator.`,
+            });
+            messages.push({
+              role: "user",
+              content: `Do NOT call ask_user yet. The last "${failed}" attempt failed. Try ONE reasonable alternative first — a different tool, different input, or a smaller sub-goal. Only call ask_user if that alternative also fails or the missing piece is genuinely operator-only (credentials, a decision, a fact the business hasn't shared).`,
+            });
+            continue;
+          }
+          if (failGuard.streak >= REPLAN_FAILURE_STREAK && !failGuard.replanned) {
+            failGuard.replanned = true;
+            await logEvent("reason", {
+              thought: `${failGuard.streak} consecutive failures across different attempts — forcing a full replan before any further escalation.`,
+            });
+            messages.push({
+              role: "user",
+              content: `Do NOT call ask_user yet. ${failGuard.streak} attempts in a row have failed, including at least one alternative approach. Step back and use a "decide" action: state plainly what specifically isn't working and why, then commit to a genuinely different strategy for the remaining goal -- not just another tool with different input. That might mean dropping the blocked sub-goal, reordering what's left, or sticking only to tools that have actually worked so far. If no viable strategy exists without operator input, call ask_user next.`,
+            });
+            continue;
+          }
+          // Already nudged once and, if the streak justified it, forced a
+          // replan -- blocking a third time would risk trapping the run in a
+          // retry loop with no way to reach the operator. Let it through.
         }
 
         // Stage decision provenance (reasoning + confidence) from the model's
@@ -3154,7 +3189,9 @@ Rules:
             retryable: f.retryable,
             issue_id: known?.id ?? null,
           });
-          failGuard.state = { failedTool: tool.name, nudged: false };
+          // failGuard.state/streak are already updated by the logEvent("tool_result", { ok: false, ... })
+          // call just above -- it shares the same general ok:true/ok:false tracking every other
+          // tool failure goes through, so the nudge/replan escalation stays consistent here too.
           messages.push({
             role: "user",
             content: f.surfacedToUser
