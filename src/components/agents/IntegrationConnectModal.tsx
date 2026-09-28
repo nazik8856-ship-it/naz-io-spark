@@ -333,6 +333,7 @@ export default function IntegrationConnectModal({
     { id: "comments_write", label: "Comments — post", hint: "Post and reply to comments on your files" },
     { id: "library", label: "Design libraries — view", hint: "Read components, styles and variables from your libraries" },
     { id: "projects", label: "Projects — view", hint: "Read project names and file listings" },
+    { id: "dev_resources", label: "Dev resources — manage", hint: "Attach and read dev-mode links (specs, code, docs) on file nodes" },
   ];
   const [figmaGroups, setFigmaGroups] = useState<Record<string, boolean>>(
     () => Object.fromEntries(FIGMA_CAPABILITIES.map((c) => [c.id, !!c.defaultOn])),

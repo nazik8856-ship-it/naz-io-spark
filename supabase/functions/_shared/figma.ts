@@ -17,6 +17,12 @@ export const FIGMA_SCOPE_GROUPS: Record<string, string[]> = {
   comments_write: ["file_comments:write"],
   library: ["library_content:read"],
   projects: ["project_metadata:read"],
+  // Correctness fix: figma_create_dev_resource (POST /v1/dev_resources) needs
+  // file_dev_resources:write, which had NO scope group at all here -- meaning
+  // no founder could ever grant it, on any connection, regardless of what
+  // they checked. The tool was wired into agent-runtime's real dispatch but
+  // could never actually succeed; every attempt would 403.
+  dev_resources: ["file_dev_resources:read", "file_dev_resources:write"],
 };
 
 export const FIGMA_DEFAULT_GROUPS = Object.keys(FIGMA_SCOPE_GROUPS);
