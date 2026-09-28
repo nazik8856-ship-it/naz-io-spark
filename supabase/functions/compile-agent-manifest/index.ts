@@ -51,12 +51,12 @@ const ROLE_LIBRARY: Record<string, {
     ],
     tools: ["web_search", "sync_now", "read_data", "notify", "remember", "request_approval", "ask_user"],
     workflowSummary:
-      "Every morning the agent pulls fresh prospect signals, scores them, drafts personalized outreach, and queues it for one-click approval. Throughout the day it watches replies and pipeline events, advances stages in your CRM, and nudges stalled deals — so the rep only handles humans, not data entry.",
+      "The agent researches the prospects you name, drafts personalized outreach in Gmail, and queues it for one-click approval. Throughout the day it watches replies, logs every contact and note internally, and nudges you when a lead's gone quiet in Slack and Notion — so you only handle humans, not data entry. (No CRM is connected yet, so pipeline tracking lives in Notion until one is.)",
     automations: [
-      { name: "Daily prospect refresh", trigger: "Daily 09:00", source: "HubSpot / Apollo", condition: "New companies match ICP filters", action: "Enrich, score, and add 10 to today's outreach queue", integrations: ["HubSpot", "Apollo"] },
-      { name: "Reply-triggered stage move", trigger: "On Gmail webhook", source: "Gmail / Outlook", condition: "Positive intent reply detected", action: "Move deal to 'Engaged', notify owner in Slack", integrations: ["Gmail", "HubSpot", "Slack"] },
-      { name: "Stalled deal nudge", trigger: "Every 4h", source: "HubSpot deals", condition: "Deal idle > 7 days in stage", action: "send_email follow-up draft (queued for approval) + schedule_followup for 48h", integrations: ["HubSpot", "Gmail"], requiresApproval: true },
-      { name: "Pipeline hygiene", trigger: "Daily 18:00", source: "HubSpot", condition: "Missing close date or amount", action: "Patch fields from email thread + flag exceptions", integrations: ["HubSpot"] },
+      { name: "Prospect research", trigger: "On request", source: "Web search", condition: "You name a company or lead", action: "Research the prospect, draft a personalized outreach email (queued for approval), and log the contact internally", integrations: ["Gmail"] },
+      { name: "Reply-triggered nudge", trigger: "Every 10 min", source: "Gmail", condition: "Positive-intent reply detected", action: "Notify the owner in Slack and log the interaction internally", integrations: ["Gmail", "Slack"] },
+      { name: "Stalled deal nudge", trigger: "Every 4h", source: "Logged contacts", condition: "Contact idle > 7 days since last touch", action: "send_email follow-up draft (queued for approval) + schedule_followup for 48h", integrations: ["Gmail"], requiresApproval: true },
+      { name: "Pipeline log", trigger: "Weekly Mon 08:00", source: "Logged contacts", condition: "Always", action: "Publish a current pipeline snapshot as a Notion page", integrations: ["Notion"] },
     ],
   },
   support: {
@@ -74,35 +74,32 @@ const ROLE_LIBRARY: Record<string, {
     ],
     tools: ["web_search", "notify", "remember", "request_approval", "ask_user"],
     workflowSummary:
-      "The agent watches your inbox and helpdesk in real time. Every new ticket gets classified, tagged, and a brand-tone draft reply within minutes. Refund, legal, and churn signals jump straight to a human; everything else moves through one-click approval — keeping first-response times under 5 minutes around the clock.",
+      "The agent watches your Gmail inbox in real time. Every new customer message gets classified, tagged, and a brand-tone draft reply within minutes. Refund, legal, and churn signals jump straight to a human in Slack; everything else moves through one-click approval — keeping first-response times under 5 minutes around the clock. (No dedicated helpdesk is connected yet, so tickets live in your inbox until one is.)",
     automations: [
-      { name: "Inbox triage", trigger: "Every 10 min", source: "Gmail / Zendesk / Intercom", condition: "New unread customer message", action: "Classify intent + urgency, draft reply, attach to ticket", integrations: ["Gmail", "Zendesk", "Intercom"] },
-      { name: "Refund risk escalation", trigger: "On new ticket", source: "Helpdesk", condition: "Keywords: refund, chargeback, lawyer, cancel", action: "Flag P1, notify on-call in Slack, draft empathetic hold reply", integrations: ["Slack", "Zendesk"], requiresApproval: true },
-      { name: "SLA breach watch", trigger: "Every 15 min", source: "Helpdesk", condition: "Ticket open > SLA target", action: "Re-prioritize queue and ping owner", integrations: ["Slack", "Zendesk"] },
-      { name: "Macro tuning", trigger: "Weekly Mon 08:00", source: "Resolved tickets", condition: "Repeated question (≥3 last week)", action: "generate_report weekly macro proposals + send_email summary to team lead", integrations: ["Notion", "Zendesk"], requiresApproval: true },
+      { name: "Inbox triage", trigger: "Every 10 min", source: "Gmail", condition: "New unread customer message", action: "Classify intent + urgency, draft a reply (queued for approval)", integrations: ["Gmail"] },
+      { name: "Refund risk escalation", trigger: "On new message", source: "Gmail", condition: "Keywords: refund, chargeback, lawyer, cancel", action: "Notify on-call in Slack, draft an empathetic hold reply", integrations: ["Gmail", "Slack"], requiresApproval: true },
+      { name: "Unanswered watch", trigger: "Every 15 min", source: "Gmail", condition: "Customer message unanswered past your target time", action: "Ping the owner in Slack", integrations: ["Slack"] },
+      { name: "Macro tuning", trigger: "Weekly Mon 08:00", source: "Resolved messages", condition: "Repeated question (≥3 last week)", action: "generate_report weekly macro proposals, saved as a Notion page, + send_email summary to team lead", integrations: ["Notion", "Gmail"], requiresApproval: true },
     ],
   },
   marketing: {
-    goal: "Maintain a content calendar, draft posts in brand tone, monitor mentions and SEO, and publish a weekly brief.",
-    decisionPolicy: "Generate drafts and weekly briefs autonomously; require approval before posting publicly.",
+    goal: "Maintain a content calendar, draft posts and visuals in brand tone, and publish a weekly performance brief.",
+    decisionPolicy: "Generate drafts and weekly briefs autonomously; require approval before anything goes out.",
     schedule_cron: "0 8 * * 1", schedule_label: "Mondays at 08:00 UTC",
     kpis: [
       { name: "Drafts/week", target: ">= 5" },
-      { name: "Mentions tracked", target: ">= 20/week" },
       { name: "Weekly brief", target: "delivered every Mon" },
     ],
     guardrails: [
-      { rule: "Never publish to social/blog without approval.", requiresApproval: true },
+      { rule: "Never send anything externally without approval.", requiresApproval: true },
       { rule: "Stay within stated brand tone and forbidden-topics list.", requiresApproval: false },
     ],
     tools: ["web_search", "sync_now", "read_data", "notify", "remember", "request_approval", "ask_user"],
     workflowSummary:
-      "The agent runs your content engine on autopilot: it watches mentions and SEO movement daily, drafts 5+ posts per week in your brand tone, monitors ad performance, and pauses underperformers. Every Monday it ships a one-page brief with what shipped, what worked, and what's queued for approval.",
+      "The agent runs your content engine: it drafts posts and matching visuals in your brand tone, saved to Notion for review, and ships a one-page performance brief every Monday using your GA4 numbers. (No ad platform or social-posting connector is set up yet, so publishing and ad management stay manual for now.)",
     automations: [
-      { name: "Underperforming ad pause", trigger: "Every 1h", source: "Meta Ads / Google Ads", condition: "ROAS < target for 24h", action: "Pause adset, notify with diagnosis", integrations: ["Meta Ads", "Google Ads", "Slack"], requiresApproval: true },
-      { name: "Mention sweep", trigger: "Every 2h", source: "Web + X/Twitter", condition: "Brand mentioned", action: "Log sentiment, draft response for review", integrations: ["X", "Slack"] },
-      { name: "Content drafts", trigger: "Daily 07:00", source: "Calendar + trend feed", condition: "Empty slot in next 7 days", action: "Generate post draft in brand tone", integrations: ["Notion", "Buffer"], requiresApproval: true },
-      { name: "Weekly performance brief", trigger: "Mon 08:00", source: "GA4 + Ads + Social", condition: "Always", action: "generate_report 1-page brief + send_email to founder", integrations: ["GA4", "Meta Ads", "Email"] },
+      { name: "Content drafts", trigger: "Daily 07:00", source: "Trend feed", condition: "Empty slot in next 7 days", action: "Generate a post draft in brand tone and a matching Canva visual, saved to Notion for review", integrations: ["Notion", "Canva"], requiresApproval: true },
+      { name: "Weekly performance brief", trigger: "Mon 08:00", source: "GA4 (read-only)", condition: "Always", action: "generate_report 1-page brief + send_email to founder", integrations: ["GA4", "Gmail"] },
     ],
   },
   ops_finance: {
@@ -112,7 +109,7 @@ const ROLE_LIBRARY: Record<string, {
     kpis: [
       { name: "Daily digest", target: "delivered every day" },
       { name: "Anomaly precision", target: ">= 85%" },
-      { name: "Invoices nudged", target: "all overdue" },
+      { name: "Low-stock SKUs flagged", target: "same day" },
     ],
     guardrails: [
       { rule: "Never charge customers or move funds without approval.", requiresApproval: true },
@@ -120,13 +117,11 @@ const ROLE_LIBRARY: Record<string, {
     ],
     tools: ["calc", "sync_now", "read_data", "notify", "remember", "request_approval", "ask_user"],
     workflowSummary:
-      "Every morning the agent reconciles yesterday's sales, payouts, refunds, and inventory across Stripe, Shopify, and QuickBooks. It catches anomalies (>25% swings, low cash runway, overdue invoices, low stock) and either fixes them inside policy or drafts the action for one-click approval — closing the loop on daily ops without you opening a spreadsheet.",
+      "Every morning the agent reconciles yesterday's sales and payouts across Stripe and Shopify (read-only). It catches anomalies (>25% swings, low stock) and either reports them or drafts the action for one-click approval — closing the loop on daily ops without you opening a spreadsheet. (No accounting-software connector is set up yet, so invoicing stays manual for now.)",
     automations: [
-      { name: "Daily cash & sales reconcile", trigger: "Daily 07:00", source: "Stripe + Shopify + QuickBooks", condition: "Always", action: "Post digest with revenue, refunds, top SKUs, anomalies", integrations: ["Stripe", "Shopify", "QuickBooks", "Slack"] },
-      { name: "Low stock reorder", trigger: "Every 30 min", source: "Shopify inventory", condition: "SKU < reorder point", action: "Draft PO in QuickBooks, ping ops", integrations: ["Shopify", "QuickBooks"], requiresApproval: true },
-      { name: "Overdue invoice nudge", trigger: "Daily 10:00", source: "QuickBooks / Xero", condition: "Invoice 7+ days overdue", action: "send_email reminder (queued for approval) + generate_report weekly cashflow digest", integrations: ["QuickBooks", "Gmail"], requiresApproval: true },
-      { name: "Cash-runway guardrail", trigger: "Daily 08:00", source: "Bank + Stripe", condition: "Runway < 60 days", action: "Pause discretionary ad spend, alert founder", integrations: ["Meta Ads", "Slack"], requiresApproval: true },
-      { name: "Price-elasticity nudge", trigger: "Weekly Sun 22:00", source: "Shopify + GA4", condition: "Conversion ↓ & margin headroom", action: "Propose ±5% price test for approval", integrations: ["Shopify", "GA4"], requiresApproval: true },
+      { name: "Daily cash & sales reconcile", trigger: "Daily 07:00", source: "Stripe + Shopify (read-only)", condition: "Always", action: "Post digest with revenue, refunds, top SKUs, anomalies", integrations: ["Stripe", "Shopify", "Slack"] },
+      { name: "Low stock watch", trigger: "Every 30 min", source: "Shopify inventory (read-only)", condition: "SKU < reorder point", action: "Flag the SKU and ping ops in Slack", integrations: ["Shopify", "Slack"] },
+      { name: "Price-elasticity nudge", trigger: "Weekly Sun 22:00", source: "Shopify + GA4 (read-only)", condition: "Conversion ↓ & margin headroom", action: "Propose a ±5% price test on the product for approval, then apply it in Shopify once approved", integrations: ["Shopify", "GA4"], requiresApproval: true },
     ],
   },
   custom: {
@@ -179,7 +174,7 @@ Rules:
 - 2-4 guardrails. Mark requiresApproval=true for anything external/spend/messages.
 - 6-10 widgets tuned to the role's day-to-day surface (Sales: pipeline + approvals; Support: queue + drafts + escalations; etc.). ALWAYS include one automation_rules widget and one workflow_summary widget so the operator sees how their workflow is automated.
 - workflowSummary: 2-4 sentences in plain English describing how the agent automates the operator's daily/weekly workflow end-to-end.
-- automations: 3-6 entries. Each is a real "MONITORS source → IF condition → THEN action" rule with concrete integrations (Shopify, Stripe, QuickBooks, HubSpot, Gmail, Slack, GA4, Meta Ads, Xero, Klaviyo, WooCommerce, Notion, etc.). Mark requiresApproval=true for anything that sends/charges/posts externally.
+- automations: 3-6 entries. Each is a real "MONITORS source → IF condition → THEN action" rule. The "integrations" array may ONLY name tools NazAI can actually connect and act on today: Gmail, Google Docs, Google Sheets, Google Calendar, Slack, Notion, Canva, Shopify, Figma (plus GA4 and Stripe for READ-ONLY data in a report, never as a write/send/charge/post action). Never name HubSpot, Apollo, Zendesk, Intercom, Meta Ads, Google Ads, QuickBooks, Xero, Klaviyo, WooCommerce, Buffer, X/Twitter, or any other tool NazAI has no real connector for — an operator will believe whatever is listed here actually runs. If the business genuinely needs one of those, describe the gap in workflowSummary instead of inventing an automation for it. Mark requiresApproval=true for anything that sends/charges/posts externally.
 - Never reveal it is an LLM. Always act in-character.`;
 
 const STOPWORDS = new Set([
