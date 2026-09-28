@@ -714,10 +714,21 @@ function WidgetCard({
                 className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded"
                 style={{ background: `${accent}18`, color: accent }}
               >
-                {rules.length} active
+                {rules.length} planned
               </span>
             }
           />
+          {rules.length > 0 && (
+            // Correctness fix: this list previously said "N active", implying
+            // these run on the stated schedule -- in reality the agent
+            // decides its own next step dynamically each run (see the
+            // reasoning/decision/action streams elsewhere on this dashboard
+            // for what it actually did); this is the intended pattern, not a
+            // literal always-on schedule.
+            <p className="text-[10.5px] text-zinc-500 mb-2 leading-snug">
+              The agent's playbook — it reasons through each run dynamically rather than executing this list on a fixed schedule.
+            </p>
+          )}
           {rules.length === 0 ? (
             <div className="text-[11px] text-zinc-500">No automation rules configured yet.</div>
           ) : (
@@ -804,7 +815,7 @@ function defaultUiFor(m: Manifest): AgentUiSpec {
     widgets: [
       { kind: "execution_flow", title: "Execution flow (last 3 runs)", limit: 3, span: 6 },
       { kind: "workflow_summary", title: "How this agent automates your workflow", span: 6 },
-      { kind: "automation_rules", title: "Active automations", span: 6 },
+      { kind: "automation_rules", title: "Automation playbook", span: 6 },
       { kind: "artifacts_panel", title: "Artifacts & reports", limit: 10, span: 3 },
       { kind: "hero_metric", title: "Actions taken", valueFrom: "actions_count", span: 2 },
       { kind: "hero_metric", title: "Tool calls", valueFrom: "tool_calls_count", span: 2 },
