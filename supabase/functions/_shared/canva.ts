@@ -33,7 +33,14 @@ export function resolveCanvaScopes(groups: string[]): string[] {
   return Array.from(set);
 }
 
-export const CANVA_REDIRECT_URI = "https://nazai.net/api/auth/canva/callback";
+// Correctness fix: this pointed at https://nazai.net/api/auth/canva/callback
+// -- a path on the Vite SPA (vercel.json rewrites every path to index.html,
+// and nothing in src/ handles this route), so Canva would redirect the
+// browser to the React app shell and the OAuth code would never reach
+// canva-oauth-callback (the actual handler that exchanges it for a token).
+// Every other provider (Slack/Notion/Shopify) correctly points straight at
+// its own Supabase edge function -- Canva now matches that pattern.
+export const CANVA_REDIRECT_URI = `${Deno.env.get("SUPABASE_URL")}/functions/v1/canva-oauth-callback`;
 
 const enc = new TextEncoder();
 export const b64urlEncode = (bytes: Uint8Array) =>
