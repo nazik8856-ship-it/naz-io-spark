@@ -705,7 +705,17 @@ export async function figmaCreateDevResource(
     });
     created = await r.json().catch(() => ({}));
     if (!r.ok) {
-      return fail(`Figma dev resource NOT created: ${String((created as { message?: string })?.message || `HTTP ${r.status}`)}`);
+      const msg = String((created as { message?: string })?.message || `HTTP ${r.status}`);
+      // Confirmed live (2026-09-28): Figma's dev_resources endpoints 404 with
+      // this exact message for a personal Draft file, even with a valid
+      // token and file_dev_resources:write granted, and even though a plain
+      // GET /v1/files/:key on the SAME file succeeds. Dev Mode/dev resources
+      // only work on files inside a Team project, not personal Drafts -- a
+      // platform/plan restriction, not something this code can work around.
+      const hint = r.status === 404 && /file not found/i.test(msg)
+        ? " Figma's Dev Resources feature only works on files inside a Team project (Professional/Organization/Enterprise with Dev Mode) -- personal Draft files return this same error even with the right scope."
+        : "";
+      return fail(`Figma dev resource NOT created: ${msg}.${hint}`);
     }
   } catch (e) {
     return fail(`Figma dev resource failed: ${e instanceof Error ? e.message : String(e)} — nothing was attached.`);
