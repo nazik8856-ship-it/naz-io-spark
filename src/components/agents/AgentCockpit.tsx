@@ -121,6 +121,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
   useIntegrationOAuthMessages(async (info) => {
     await clearIssuesForProvider(info.provider);
     await loadIssues();
+    await loadCapabilities();
   });
 
 
@@ -145,6 +146,45 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
     if (data) setDecisions(data as DecisionRow[]);
   }, [agentId]);
 
+
+  // ---- Capability gaps: what this agent's planned tools can ACTUALLY do
+  // today, surfaced before the founder relies on it -- not just discovered
+  // mid-run when a tool gets silently withheld (capability-registry.ts
+  // already handles that; this is the same data, one screen earlier).
+  type CapabilityInfo = { kind: string; status: "real" | "needs_connection" | "not_implemented" | "unverified"; provider: string | null };
+  const [capabilities, setCapabilities] = useState<CapabilityInfo[] | null>(null);
+
+  const loadCapabilities = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("capability-status", {
+        body: { agent_id: agentId },
+      });
+      if (error) return;
+      const rows = ((data as { capabilities?: CapabilityInfo[] })?.capabilities) || [];
+      setCapabilities(rows);
+    } catch {
+      // Best-effort — the review screen still works without this summary.
+    }
+  }, [agentId]);
+
+  const capabilityGaps = useMemo(() => {
+    if (!capabilities || manifest.tools.length === 0) return null;
+    const byKind = new Map(capabilities.map((c) => [c.kind, c]));
+    const needsConnection: { name: string; provider: string | null }[] = [];
+    const notImplemented: { name: string }[] = [];
+    let real = 0;
+    for (const t of manifest.tools) {
+      // A kind absent from capability-status's list is itself a gap: the
+      // registry covers every real+built-in kind, so an unlisted one means
+      // canOfferTool would refuse it too (unknown -> not_implemented).
+      const cap = byKind.get(t.kind);
+      if (!cap) notImplemented.push({ name: t.name });
+      else if (cap.status === "real") real++;
+      else if (cap.status === "needs_connection") needsConnection.push({ name: t.name, provider: cap.provider });
+      else notImplemented.push({ name: t.name });
+    }
+    return { total: manifest.tools.length, real, needsConnection, notImplemented };
+  }, [capabilities, manifest.tools]);
 
   const loadGmail = useCallback(async () => {
     const { data } = await supabase
@@ -185,6 +225,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
     loadEvents();
     loadDecisions();
     loadGmail();
+    loadCapabilities();
     const channel = supabase
 
       .channel(`agent_events:${agentId}`)
@@ -718,6 +759,41 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
 
       {/* Digital-employee surfaces: business sync, schedule, approvals, clarifications, memory */}
       <AgentEmployeePanel agentId={agentId} events={events} />
+
+      {/* Capability gaps — surfaced BEFORE the founder relies on this agent, not
+          just discovered mid-run when a tool gets silently withheld. Same
+          real/needs_connection/not_implemented tiers capability-registry.ts
+          already enforces at execution time (capability-status exposes them). */}
+      {capabilityGaps && (capabilityGaps.needsConnection.length > 0 || capabilityGaps.notImplemented.length > 0) && (
+        <div className="rounded-lg border border-amber-400/25 bg-amber-400/[0.04] px-3 py-2.5 text-xs space-y-1.5">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-300 shrink-0" />
+            <span className="text-amber-200 font-semibold">
+              {capabilityGaps.real} of {capabilityGaps.total} planned tools work today
+            </span>
+          </div>
+          {capabilityGaps.needsConnection.length > 0 && (
+            <div className="text-zinc-400 pl-6">
+              <span className="text-zinc-300">Needs a connection:</span>{" "}
+              {capabilityGaps.needsConnection.map((t) => t.name).join(", ")}
+            </div>
+          )}
+          {capabilityGaps.notImplemented.length > 0 && (
+            <div className="text-zinc-500 pl-6">
+              <span className="text-zinc-400">Not built yet — the agent will say so instead of faking it:</span>{" "}
+              {capabilityGaps.notImplemented.map((t) => t.name).join(", ")}
+            </div>
+          )}
+          {capabilityGaps.needsConnection.length > 0 && (
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent("nazai:open-integrations-hub", { detail: { agentId } }))}
+              className="ml-6 px-2 py-1 rounded border border-amber-400/30 text-amber-200 hover:bg-amber-400/10 text-[11px] font-semibold"
+            >
+              Connect now
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Business Integrations & Setup — every agent ships with concrete connect-your-tools guidance */}
       <AgentIntegrationsPanel
