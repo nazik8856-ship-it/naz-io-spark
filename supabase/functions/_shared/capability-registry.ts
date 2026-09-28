@@ -51,7 +51,7 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
   http_post: {
     kind: "http_post", provider: null, implemented: true, verified: true, mode: "write",
     verification: "confirmed by the endpoint's real HTTP status + response body",
-    honesty: "I can POST to allow-listed webhooks and report the endpoint's real response.",
+    honesty: "I can POST to any https webhook (not internal/private addresses) and report the endpoint's real response — the fallback for a system with no native NazAI integration. Usually queued for your approval first.",
   },
   calc: {
     kind: "calc", provider: null, implemented: true, verified: true, mode: "internal",

@@ -1069,8 +1069,8 @@ serve(async (req) => {
       { name: "reply_email", kind: "reply_email", description: "Reply inside an existing Gmail thread by thread_id (proper In-Reply-To/References headers). Same approval-gating as send_email.", config: {} },
       { name: "read_analytics", kind: "read_analytics", description: "Fetch last 30 days of sessions and users from a Google Analytics 4 property via the GA4 Data API. Requires property_id.", config: {} },
       
-      { name: "http_post", kind: "http_post", description: "POST a JSON payload to an allow-listed URL to trigger or adjust an external system. URL must be https and either match this agent's configured webhook_url or a whitelisted domain.", config: {} },
-      { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to an allow-listed URL.", config: {} },
+      { name: "http_post", kind: "http_post", description: "POST a JSON payload to any https URL — the escape hatch for reaching a system NazAI has no native integration for (a CRM's incoming webhook, Zapier, a custom endpoint, etc). Blocked from localhost/private/internal addresses (SSRF-safe DNS check), but NOT restricted to a specific domain otherwise. Queued for the operator's approval by default; sends immediately only if a manifest guardrail explicitly allows it or the agent has auto_approve_low_risk on.", config: {} },
+      { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to any https URL, same SSRF-safe checks and approval gating.", config: {} },
       { name: "slack_post_message", kind: "slack_post_message", description: "Post a real message to a Slack channel via chat.postMessage using the connected workspace's bot token. Confirmed by Slack's own message receipt (ts) and a read-back where scopes allow.", config: {} },
       { name: "notion_create_page", kind: "notion_create_page", description: "Create a real Notion page under a parent page or database, then re-fetch the page to confirm it exists before reporting success.", config: {} },
       { name: "notion_update_page", kind: "notion_update_page", description: "Update an existing Notion page (title, archived state, or appended content) and re-fetch it to confirm the change landed.", config: {} },
@@ -1133,7 +1133,7 @@ serve(async (req) => {
 
         case "read_analytics": usage = `read_analytics(property_id: string)  // GA4 Data API: last 30 days sessions & totalUsers for the given property`; break;
         
-        case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to an allow-listed https URL (per-agent webhook_url or whitelisted domain)`; break;
+        case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to any https URL not on a private/internal address; queued for approval unless a guardrail auto-allows it. The escape hatch for integrations NazAI has no native connector for.`; break;
         case "slack_post_message": usage = `slack_post_message(channel: string, text: string, thread_ts?: string)  // really posts to Slack; verified by Slack's message receipt`; break;
         case "notion_create_page": usage = `notion_create_page(parent_id: string, parent_type?: "page"|"database", title: string, body_markdown?: string)  // creates a real Notion page, verified by re-fetching it`; break;
         case "notion_update_page": usage = `notion_update_page(page_id: string, title?: string, append_markdown?: string, archived?: boolean)  // updates a real Notion page, verified by re-fetching it`; break;
@@ -3510,8 +3510,3 @@ function stripHtml(s: string): string {
     .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-// Hostnames explicitly permitted for http_post beyond a per-agent
-// metadata.webhook_url. START EMPTY — operator must add trusted domains here
-// before generic http_post calls will resolve for anything except an exact
-// match to an integration's configured webhook_url.
-const WEBHOOK_DOMAIN_ALLOWLIST: string[] = [];
