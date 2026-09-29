@@ -462,6 +462,12 @@ serve(async (req) => {
     // Guards against double-recording when a tool emits both an `action` and a
     // `tool_result` event for the same deliverable.
     const recordedArtifacts = new Set<string>();
+    // Real (provider != null) deliverables made this run, collected for a
+    // single end-of-run confirmation email -- see the "delivered" digest
+    // below. Deliberately NOT one email per action: a run that sends 15
+    // Slack messages should produce one "here's what I actually did"
+    // summary, not 15 separate inbox pings.
+    const deliveredArtifacts: Array<{ label: string; provider: string; url: string | null; summary: string }> = [];
 
     // Verified-action executor kinds subject to the daily action cap AND the
     // control-engine gate (kill switch, hard rules, circuit breaker, spend
@@ -719,6 +725,13 @@ serve(async (req) => {
             if (artErr) {
               recordedArtifacts.delete(dedupeKey);
               console.warn("agent_artifacts insert failed", rawKind, artErr.message);
+            } else if (provider) {
+              deliveredArtifacts.push({
+                label: String(p.target || p.title || rawKind).slice(0, 200),
+                provider,
+                url: p.url ? String(p.url) : null,
+                summary: typeof p.summary === "string" ? p.summary.slice(0, 500) : `Delivered via ${provider}.`,
+              });
             }
           }
         }
@@ -3323,6 +3336,40 @@ Reply with ONE fenced JSON block:
       hit_step_limit: hitStepLimit,
       steps,
     });
+
+    // ---- Delivery-confirmation digest --------------------------------------
+    // A founder previously had no way to know real work actually happened
+    // out in the world (an email sent, a file landed in Slack, a design
+    // exported) short of opening the cockpit and reading the run log. One
+    // best-effort email per run, listing everything genuinely delivered
+    // this run — never one per action (see deliveredArtifacts above).
+    // Never let a notification failure affect the run's own status.
+    if (deliveredArtifacts.length > 0) {
+      try {
+        const { data: ownerUser } = await supabase.auth.admin.getUserById(userId);
+        const ownerEmail = ownerUser?.user?.email;
+        if (ownerEmail) {
+          const lines = deliveredArtifacts.map((d) =>
+            `• [${d.provider}] ${d.label} — ${d.summary}${d.url ? `\n  ${d.url}` : ""}`
+          );
+          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+            body: JSON.stringify({
+              templateName: "agent-notification",
+              recipientEmail: ownerEmail,
+              templateData: {
+                subject: `${manifest.name || "Your agent"} delivered ${deliveredArtifacts.length} thing${deliveredArtifacts.length === 1 ? "" : "s"} for real`,
+                body: `${lines.join("\n\n")}\n\nView the full run: https://www.nazai.net/generated/agent/${agentId}`,
+                agentName: manifest.name,
+              },
+            }),
+          });
+        }
+      } catch (e) {
+        console.warn("agent-runtime: delivery digest notification failed", e);
+      }
+    }
 
     await supabase.from("agent_runs").update({
       status: runStatus,
