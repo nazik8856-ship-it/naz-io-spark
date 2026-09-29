@@ -1153,7 +1153,14 @@ async function driveShareFile(
   );
   const cb = await gJson(cr);
   if (!cr.ok) return { ok: false, reason: gErr(cb, cr) };
-  const vr = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, { headers: h });
+  // Drive API v3 uses partial response: without an explicit `fields` param,
+  // permissions.list omits emailAddress entirely, so the match below would
+  // always fail even for a share that genuinely succeeded -- caught live
+  // when a real, verified-as-sent share was reported as unverified.
+  const vr = await fetchWithRetry(
+    `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?fields=permissions(id,emailAddress,role,type)`,
+    { headers: h },
+  );
   const vb = await gJson(vr);
   const perms = (vb as { permissions?: { emailAddress?: string }[] }).permissions || [];
   if (!vr.ok || !perms.some((p) => (p.emailAddress || "").toLowerCase() === email.toLowerCase())) {
