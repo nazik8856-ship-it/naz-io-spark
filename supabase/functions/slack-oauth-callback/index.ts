@@ -62,6 +62,14 @@ Deno.serve(async (req) => {
     }
     const info = await fetchTeamInfo(tok.access_token!, teamId);
     const now = new Date().toISOString();
+    // Report what Slack actually granted, not what we asked for -- Slack's
+    // real tok.scope is the source of truth. Fixes a live bug where this
+    // field showed a stale/incomplete list (missing files:write) even
+    // though the real bot token had it, because scopesForGroups(grantedGroups)
+    // reflects the REQUEST, which can drift from Slack's actual grant.
+    const actualScopes = tok.scope
+      ? tok.scope.split(",").map((s) => s.trim()).filter(Boolean)
+      : grantedScopes;
 
     const credentials: Record<string, unknown> = {
       access_token: tok.access_token,
@@ -104,7 +112,7 @@ Deno.serve(async (req) => {
         team_domain: (info?.domain as string) || null,
         account_name: teamName,
         bot_user_id: tok.bot_user_id || null,
-        granted_scopes: grantedScopes,
+        granted_scopes: actualScopes,
         granted_groups: grantedGroups,
         scope: tok.scope || grantedScopes.join(","),
       },
