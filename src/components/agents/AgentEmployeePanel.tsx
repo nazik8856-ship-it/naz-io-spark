@@ -549,6 +549,8 @@ function describeApprovalAction(action: string | undefined, payload: unknown): s
       return `Post a Slack message${p.channel ? ` in ${p.channel}` : ""}`;
     case "slack_upload_file":
       return `Upload a file to Slack${p.channel ? ` in ${p.channel}` : ""}${p.filename ? ` ("${String(p.filename).slice(0, 60)}")` : ""}`;
+    case "canva_export_design":
+      return `Export a Canva design${p.format ? ` to ${String(p.format).toUpperCase()}` : ""}`;
     case "create_calendar_event":
       return `Create a calendar event${p.summary ? `: "${String(p.summary).slice(0, 60)}"` : ""}`;
     default:

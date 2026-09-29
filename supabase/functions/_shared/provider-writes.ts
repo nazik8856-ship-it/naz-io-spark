@@ -482,6 +482,82 @@ export async function canvaCreateDesign(
 }
 
 // ---------------------------------------------------------------------------
+// CANVA — export a design to PNG/PDF via the Connect API's async export job
+// (POST /exports kicks off the job, GET /exports/{id} is polled to completion
+// since Canva renders it out of band — there is no synchronous "export now").
+// ---------------------------------------------------------------------------
+export async function canvaExportDesign(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const designId = String(input.design_id || "").trim();
+  if (!designId) return fail("canva_export_design requires a design_id.");
+  const format = String(input.format || "pdf").toLowerCase();
+  const allowed = new Set(["pdf", "png", "jpg"]);
+  if (!allowed.has(format)) return fail(`canva_export_design: unsupported format "${format}" — use pdf, png, or jpg.`);
+
+  const row = await loadProviderIntegration(admin, userId, agentId, "Canva");
+  if (!row) return notConnected("Canva", "canva_export_design");
+
+  const formatBody: Record<string, unknown> = format === "jpg"
+    ? { type: "jpg", quality: 100 }
+    : { type: format };
+
+  let job: Record<string, unknown>;
+  try {
+    const r = await canvaAuthedFetch(admin, row, "https://api.canva.com/rest/v1/exports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ design_id: designId, format: formatBody }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return fail(`Canva export NOT started for design ${designId}: ${String((body as { message?: string })?.message || `HTTP ${r.status}`)}`);
+    }
+    job = (body.job as Record<string, unknown>) || body;
+  } catch (e) {
+    return fail(`Canva export request failed: ${e instanceof Error ? e.message : String(e)} — nothing was exported.`);
+  }
+
+  const jobId = job?.id ? String(job.id) : "";
+  if (!jobId) return fail(`Canva returned no export job id for design ${designId} — treat the export as NOT started.`, designId);
+
+  // Canva renders asynchronously; poll GET /exports/{id} until it settles.
+  // Bounded to stay well inside the edge function's execution window.
+  let status = String((job.status as Record<string, unknown>)?.type || job.status || "in_progress");
+  let urls: string[] = [];
+  const deadline = Date.now() + 25_000;
+  while (status === "in_progress" && Date.now() < deadline) {
+    await new Promise((res) => setTimeout(res, 1500));
+    try {
+      const pr = await canvaAuthedFetch(admin, row, `https://api.canva.com/rest/v1/exports/${jobId}`, { method: "GET" });
+      const pb = await pr.json().catch(() => ({}));
+      if (!pr.ok) {
+        return fail(`Canva export ${jobId} for design ${designId} could NOT be polled: ${String((pb as { message?: string })?.message || `HTTP ${pr.status}`)}.`, jobId, designId);
+      }
+      const pjob = (pb.job as Record<string, unknown>) || pb;
+      status = String((pjob.status as Record<string, unknown>)?.type || pjob.status || status);
+      if (Array.isArray(pjob.urls)) urls = pjob.urls as string[];
+      if (status === "failed") {
+        const errMsg = (pjob.error as Record<string, unknown>)?.message || (pjob.status as Record<string, unknown>)?.error?.message;
+        return fail(`Canva export ${jobId} for design ${designId} FAILED: ${String(errMsg || "no reason given")}.`, jobId, designId);
+      }
+    } catch (e) {
+      return fail(`Canva export ${jobId} polling failed: ${e instanceof Error ? e.message : String(e)}.`, jobId, designId);
+    }
+  }
+  if (status !== "success") {
+    return fail(`Canva export ${jobId} for design ${designId} did not finish within 25s (last status: ${status}) — treat as NOT delivered, do not claim success.`, jobId, designId);
+  }
+  if (!urls.length) return fail(`Canva export ${jobId} reported success but returned no download URLs — treat as failed.`, jobId, designId);
+
+  return {
+    ok: true,
+    summary: `Exported Canva design ${designId} to ${format.toUpperCase()} (job ${jobId}) — ${urls.length} file(s): ${urls.join(", ")}`,
+    ref: jobId, url: urls[0], target: designId,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // CANVA — list the user's existing designs (real read via the Connect API).
 // ---------------------------------------------------------------------------
 export async function canvaListDesigns(
@@ -1101,6 +1177,7 @@ export const PROVIDER_WRITE_KINDS = new Set([
   "canva_create_design",
   "canva_list_designs",
   "canva_create_folder",
+  "canva_export_design",
   "shopify_create_draft_order",
   "shopify_update_product",
   "figma_post_comment",
@@ -1118,6 +1195,7 @@ export async function runProviderWrite(
     case "canva_create_design": return await canvaCreateDesign(admin, userId, agentId, input);
     case "canva_list_designs": return await canvaListDesigns(admin, userId, agentId, input);
     case "canva_create_folder": return await canvaCreateFolder(admin, userId, agentId, input);
+    case "canva_export_design": return await canvaExportDesign(admin, userId, agentId, input);
     case "shopify_create_draft_order": return await shopifyCreateDraftOrder(admin, userId, agentId, input);
     case "shopify_update_product": return await shopifyUpdateProduct(admin, userId, agentId, input);
     case "figma_post_comment": return await figmaPostComment(admin, userId, agentId, input);

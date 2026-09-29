@@ -151,6 +151,10 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
     name: nonEmpty("name").max(250),
     parent_folder_id: str.optional(),
   }).passthrough(),
+  canva_export_design: z.object({
+    design_id: nonEmpty("design_id"),
+    format: z.enum(["pdf", "png", "jpg"]).optional(),
+  }).passthrough(),
   figma_post_comment: z.object({
     file_key: nonEmpty("file_key"),
     message: nonEmpty("message").max(4000),
@@ -432,6 +436,10 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
   canva_create_folder: {
     required: ["target", "result_ref"],
     labels: { target: "folder name", result_ref: "Canva folder ID" },
+  },
+  canva_export_design: {
+    required: ["target", "result_ref", "url"],
+    labels: { target: "Canva design ID", result_ref: "Canva export job ID", url: "link to the exported file" },
   },
   figma_post_comment: {
     required: ["target", "result_ref"],

@@ -206,6 +206,11 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
     verification: "folder fetched back by id from the Canva Connect API",
     honesty: "I can really create Canva folders (projects) and put new designs inside them.",
   },
+  canva_export_design: {
+    kind: "canva_export_design", provider: "Canva", implemented: true, verified: true, mode: "write",
+    verification: "the async export job is polled to a \"success\" status and a real download URL is returned",
+    honesty: "I can really export a Canva design to PDF/PNG/JPG and hand you the actual download link.",
+  },
   notion_create_page: {
     kind: "notion_create_page", provider: "Notion", implemented: true, verified: true, mode: "write",
     verification: "page re-fetched from the Notion API after creation",
