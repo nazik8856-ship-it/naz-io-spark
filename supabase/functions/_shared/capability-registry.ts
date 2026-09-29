@@ -133,6 +133,11 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
     verification: "recipient domain resolved (MX/A record) before sending; sent message re-fetched from Gmail by id",
     honesty: "I can really send email from your Gmail account, and I check the recipient's domain can actually receive mail before I try.",
   },
+  compose_and_deliver: {
+    kind: "compose_and_deliver", provider: "Gmail/Slack", implemented: true, verified: true, mode: "write",
+    verification: "delegates to send_email's or slack_post_message's own verified send — only reports success once that underlying delivery is confirmed",
+    honesty: "I can compose content and really deliver it by email or Slack in one step — I never report this as done just for having written it.",
+  },
   reply_email: {
     kind: "reply_email", provider: "Gmail", implemented: true, verified: true, mode: "write",
     verification: "sent reply re-fetched from Gmail by id",

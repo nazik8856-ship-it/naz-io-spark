@@ -57,6 +57,16 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
     body: nonEmpty("body").max(50000),
     subject: str.optional(),
   }).passthrough(),
+  compose_and_deliver: z.object({
+    title: nonEmpty("title").max(300),
+    body_markdown: nonEmpty("body_markdown").max(50000),
+    via: z.enum(["email", "slack"]),
+    to: z.string().trim().email("must be a valid email address").optional(),
+    channel: str.optional(),
+  }).passthrough().refine(
+    (v) => (v.via === "email" ? !!v.to : !!v.channel),
+    { message: "email needs `to`; slack needs `channel`" },
+  ),
   read_email: z.object({
     message_id: str.optional(),
     thread_id: str.optional(),
@@ -352,6 +362,10 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
   send_email: {
     required: ["target", "result_ref"],
     labels: { target: "recipient address", result_ref: "sent-message ID from Gmail" },
+  },
+  compose_and_deliver: {
+    required: ["target", "result_ref"],
+    labels: { target: "recipient address or Slack channel", result_ref: "Gmail message ID or Slack message timestamp" },
   },
   reply_email: {
     required: ["target", "result_ref"],

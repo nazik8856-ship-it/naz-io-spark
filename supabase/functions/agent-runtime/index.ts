@@ -493,7 +493,7 @@ serve(async (req) => {
     // perpetuating effects that used to run on nothing but their own local
     // guardrail, invisible to the kill switch).
     const ACTION_CAPPED_KINDS = new Set([
-      "send_email", "reply_email",
+      "send_email", "reply_email", "compose_and_deliver",
       "create_doc", "edit_doc",
       "create_sheet", "edit_sheet",
       "create_calendar_event",
@@ -724,16 +724,23 @@ serve(async (req) => {
       if (kind === "action" || kind === "tool_result") {
         const p = payload as Record<string, unknown>;
         const rawKind = String(p.type || p.kind || "");
-        const artifactKind = ARTIFACT_KINDS[rawKind];
-        const failureProvider = ARTIFACT_PROVIDERS[rawKind];
+        // A composite kind like compose_and_deliver picks its own provider
+        // per call (email vs Slack) rather than having one fixed at the tool
+        // level, so the executor's own reported provider (p.provider) wins
+        // when present; every other kind falls back to the static maps as
+        // before.
+        const dynamicProvider = typeof p.provider === "string" ? p.provider : null;
+        const provider = dynamicProvider || ARTIFACT_PROVIDERS[rawKind] || null;
+        const artifactKind = ARTIFACT_KINDS[rawKind] ||
+          (dynamicProvider === "Gmail" ? "email" : dynamicProvider === "Slack" ? "message" : null);
         const failureKey = `${rawKind}::${String(p.target ?? "")}`;
-        if (p.ok === false && failureProvider && p.target) {
+        if (p.ok === false && provider && p.target) {
           failedDeliveries.set(failureKey, {
             label: String(p.target).slice(0, 200),
-            provider: failureProvider,
+            provider,
             summary: typeof p.summary === "string" ? p.summary.slice(0, 500) : `${rawKind} failed.`,
           });
-        } else if (p.ok === true && failureProvider && p.target) {
+        } else if (p.ok === true && provider && p.target) {
           // A later success for the same tool+target means the agent
           // recovered on its own (e.g. retried with a corrected input) --
           // don't report a failure that no longer reflects reality.
@@ -743,7 +750,6 @@ serve(async (req) => {
           const dedupeKey = `${rawKind}::${String(p.result_ref ?? p.ref ?? p.url ?? p.target ?? p.summary ?? "")}`;
           if (!recordedArtifacts.has(dedupeKey)) {
             recordedArtifacts.add(dedupeKey);
-            const provider = ARTIFACT_PROVIDERS[rawKind] ?? null;
             const integ = provider
               ? connectedIntegrations.find((i) => String(i.provider) === provider ||
                   (provider === "Google" && String(i.provider).startsWith("Google")))
@@ -1132,6 +1138,7 @@ serve(async (req) => {
       { name: "make_plan", kind: "make_plan", description: "Produce a concrete, numbered execution plan for a stated objective. Each step includes owner, tool/action to take, success criteria. Use before large multi-step work.", config: {} },
       { name: "send_email", kind: "send_email", description: "Send a real email via the agent-notification template. Requires an explicit guardrail allowing external sends; otherwise it will be queued for approval instead of sent.", config: {} },
       { name: "generate_report", kind: "generate_report", description: "Write a markdown report/digest/audit/plan as a durable artifact the operator can open later.", config: {} },
+      { name: "compose_and_deliver", kind: "compose_and_deliver", description: "Compose content AND deliver it via a real channel (email or Slack) in one guaranteed step — use this instead of generate_report when the point is for someone to actually receive it, not just to save it for later. Only reports success once the real send is verified; never claims delivery for content that was merely composed.", config: {} },
       { name: "create_doc", kind: "create_doc", description: "Create a real Google Doc in the connected Google account (from the Gmail integration) with the given title and body text. Returns the doc URL.", config: {} },
       { name: "create_sheet", kind: "create_sheet", description: "Create a real Google Sheet in the connected Google account (from the Gmail integration) with the given title and rows (2D array of cell values). Returns the sheet URL.", config: {} },
       { name: "create_calendar_event", kind: "create_calendar_event", description: "Create a real event on the connected Google account's primary calendar. Requires ISO start/end times.", config: {} },
@@ -1197,6 +1204,7 @@ serve(async (req) => {
         case "make_plan": usage = `make_plan(objective: string, constraints?: string)  // returns a numbered execution plan with success criteria`; break;
         case "send_email": usage = `send_email(to: string, subject: string, body: string)  // actually delivers an email unless guardrails require approval`; break;
         case "generate_report": usage = `generate_report(title: string, kind: "report"|"digest"|"audit"|"plan", body_markdown: string)  // saves a durable artifact`; break;
+        case "compose_and_deliver": usage = `compose_and_deliver(title: string, body_markdown: string, via: "email"|"slack", to?: string, channel?: string)  // composes AND really delivers in one step; to required for email, channel required for slack`; break;
         case "create_doc": usage = `create_doc(title: string, body_markdown: string)  // creates a real Google Doc in the connected Google account and returns { url, id }`; break;
         case "create_sheet": usage = `create_sheet(title: string, rows: string[][])  // creates a real Google Sheet with the given rows and returns { url, id }`; break;
         case "create_calendar_event": usage = `create_calendar_event(title: string, start_iso: string, end_iso: string, description?: string)  // creates an event on the primary Google Calendar and returns { url, id }`; break;
@@ -1277,7 +1285,7 @@ ${toolDescriptions}
 \`\`\`json
 {"action":"tool","tool":"<name>","input":{...},"reasoning":"<one short sentence WHY you chose this action now>","alternatives_considered":["<other option you weighed and rejected>","..."],"confidence_score":0-100,"confidence":"high|medium|low"}
 \`\`\`
-For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, slack_upload_file, notion_create_page, notion_update_page, canva_create_design, canva_create_folder, canva_export_design, figma_post_comment, figma_create_dev_resource, shopify_create_draft_order, shopify_update_product, http_post, schedule_followup) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
+For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, slack_upload_file, notion_create_page, notion_update_page, canva_create_design, canva_create_folder, canva_export_design, compose_and_deliver, figma_post_comment, figma_create_dev_resource, shopify_create_draft_order, shopify_update_product, http_post, schedule_followup) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
 Decision provenance (ALL tool + decide blocks): include "alternatives_considered" (the other tools/strategies/data sources you genuinely weighed for this step — empty array only if there truly was no alternative) and "confidence_score", an integer 0-100 that honestly reflects how certain YOU are in this specific choice given the data you actually have. Never emit a fixed or habitual number: lower it when data is stale, missing or ambiguous, raise it when you verified the inputs.
 \`\`\`json
 {"action":"decide","decision":"...","rationale":"...","alternatives_considered":["..."],"confidence_score":0-100}
@@ -1955,8 +1963,12 @@ Rules:
         }
 
         // Fan-out safety gate — see FANOUT_KINDS/FANOUT_THRESHOLD above.
+        // compose_and_deliver picks its destination field dynamically (via
+        // its own `via` input) rather than having one fixed per kind.
         {
-          const fanoutField = FANOUT_KINDS[tool.kind];
+          const fanoutField = tool.kind === "compose_and_deliver"
+            ? (String((input as Record<string, unknown>).via || "").toLowerCase() === "slack" ? "channel" : "to")
+            : FANOUT_KINDS[tool.kind];
           if (fanoutField) {
             const dest = String((input as Record<string, unknown>)[fanoutField] || "").trim().toLowerCase();
             if (dest) {
@@ -3201,6 +3213,7 @@ Rules:
             result_ref: writeResult.ref ?? null,
             summary: writeResult.summary,
             url: writeResult.url ?? null,
+            provider: writeResult.provider ?? null,
           });
           if (gateAttempt) {
             await gateAttempt(!writeResult.ok, writeResult.ok ? "ok" : writeResult.summary).catch(() => null);

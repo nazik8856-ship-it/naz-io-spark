@@ -29,6 +29,11 @@ export type WriteResult = {
   ref?: string | null;
   url?: string | null;
   target?: string | null;
+  // Set only by composite kinds (compose_and_deliver) whose actual provider
+  // is chosen per call rather than fixed for the tool kind — lets
+  // agent-runtime's artifact/delivery-digest bookkeeping resolve the right
+  // provider instead of relying solely on its static per-kind map.
+  provider?: string | null;
 };
 
 export type IntegrationRow = {
@@ -1012,6 +1017,41 @@ async function googleSendEmail(
   };
 }
 
+// ---------------------------------------------------------------------------
+// COMPOSITE — compose_and_deliver: writes the content AND delivers it via a
+// real channel in one guaranteed step. Two separate tool calls
+// (generate_report, then remember-to-also-send-it) let a model produce
+// real content that never actually reaches anyone if it skips or forgets
+// the second step; this collapses that into one action that can only
+// report ok:true once a real, verified send has happened — never for
+// having merely composed the content. Delegates to the already-verified
+// googleSendEmail / slackPostMessage executors rather than duplicating
+// their send+verify logic.
+export async function composeAndDeliver(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const via = String(input.via || "").trim().toLowerCase();
+  const title = String(input.title || input.subject || "").trim();
+  const body = String(input.body_markdown || input.body || "").trim();
+  if (!title || !body) return fail("compose_and_deliver needs a title/subject and body_markdown.");
+  if (!["email", "slack"].includes(via)) {
+    return fail(`compose_and_deliver: "via" must be "email" or "slack" (got "${via || "none"}").`);
+  }
+
+  if (via === "email") {
+    const to = String(input.to || "").trim();
+    if (!to) return fail("compose_and_deliver via \"email\" requires a to address.");
+    const result = await googleSendEmail(admin, userId, agentId, { to, subject: title, body });
+    return { ...result, provider: "Gmail" };
+  }
+
+  const channel = String(input.channel || "").trim();
+  if (!channel) return fail("compose_and_deliver via \"slack\" requires a channel.");
+  const text = `*${title}*\n\n${body}`.slice(0, 39000); // Slack's message length ceiling
+  const result = await slackPostMessage(admin, userId, agentId, { channel, text });
+  return { ...result, provider: "Slack" };
+}
+
 async function googleCreateDoc(
   admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
 ): Promise<WriteResult> {
@@ -1190,6 +1230,7 @@ async function googleCreateCalendarEvent(
 
 export const PROVIDER_WRITE_KINDS = new Set([
   "send_email",
+  "compose_and_deliver",
   "create_doc",
   "edit_doc",
   "create_sheet",
@@ -1225,6 +1266,7 @@ export async function runProviderWrite(
     case "shopify_create_draft_order": return await shopifyCreateDraftOrder(admin, userId, agentId, input);
     case "shopify_update_product": return await shopifyUpdateProduct(admin, userId, agentId, input);
     case "figma_post_comment": return await figmaPostComment(admin, userId, agentId, input);
+    case "compose_and_deliver": return await composeAndDeliver(admin, userId, agentId, input);
     case "figma_create_dev_resource": return await figmaCreateDevResource(admin, userId, agentId, input);
     case "send_email": return await googleSendEmail(admin, userId, agentId, input);
     case "create_doc": return await googleCreateDoc(admin, userId, agentId, input);
