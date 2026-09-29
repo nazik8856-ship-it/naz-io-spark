@@ -362,6 +362,7 @@ export default function IntegrationConnectModal({
     { id: "groups_history", label: "Private channel messages — read", hint: "Read messages in private channels the bot joins" },
     { id: "users_read", label: "Users — view profiles", hint: "See workspace members' names and profile info", defaultOn: true },
     { id: "chat_write", label: "Post messages", hint: "Send messages as the NazAI Slack bot", defaultOn: true },
+    { id: "files_write", label: "Upload files", hint: "Attach and share files (reports, exports) in channels", defaultOn: true },
   ];
   const [slackGroups, setSlackGroups] = useState<Record<string, boolean>>(
     () => Object.fromEntries(SLACK_CAPABILITIES.map((c) => [c.id, !!c.defaultOn])),
