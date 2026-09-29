@@ -474,6 +474,15 @@ serve(async (req) => {
     // one must NOT be cleared, or that same retry would queue the delivery
     // into the digest twice.
     const notifiedDeliveries = new Set<string>();
+    // Structured recovery for a failed real send: a permanently-failed real
+    // write (all of fetchWithRetry's transient-error retries already
+    // exhausted) used to just sit in the run log — nothing told the founder
+    // their invoice email or Slack update never actually went out unless
+    // they opened the cockpit and read events themselves. Keyed by
+    // kind+target so a LATER success for the same destination clears the
+    // failure (the agent retried it itself and it went through) instead of
+    // reporting a stale failure alongside the eventual success.
+    const failedDeliveries = new Map<string, { label: string; provider: string; summary: string }>();
 
     // Verified-action executor kinds subject to the daily action cap AND the
     // control-engine gate (kill switch, hard rules, circuit breaker, spend
@@ -716,6 +725,20 @@ serve(async (req) => {
         const p = payload as Record<string, unknown>;
         const rawKind = String(p.type || p.kind || "");
         const artifactKind = ARTIFACT_KINDS[rawKind];
+        const failureProvider = ARTIFACT_PROVIDERS[rawKind];
+        const failureKey = `${rawKind}::${String(p.target ?? "")}`;
+        if (p.ok === false && failureProvider && p.target) {
+          failedDeliveries.set(failureKey, {
+            label: String(p.target).slice(0, 200),
+            provider: failureProvider,
+            summary: typeof p.summary === "string" ? p.summary.slice(0, 500) : `${rawKind} failed.`,
+          });
+        } else if (p.ok === true && failureProvider && p.target) {
+          // A later success for the same tool+target means the agent
+          // recovered on its own (e.g. retried with a corrected input) --
+          // don't report a failure that no longer reflects reality.
+          failedDeliveries.delete(failureKey);
+        }
         if (p.ok === true && artifactKind) {
           const dedupeKey = `${rawKind}::${String(p.result_ref ?? p.ref ?? p.url ?? p.target ?? p.summary ?? "")}`;
           if (!recordedArtifacts.has(dedupeKey)) {
@@ -3405,19 +3428,35 @@ Reply with ONE fenced JSON block:
 
     // ---- Delivery-confirmation digest --------------------------------------
     // A founder previously had no way to know real work actually happened
-    // out in the world (an email sent, a file landed in Slack, a design
-    // exported) short of opening the cockpit and reading the run log. One
-    // best-effort email per run, listing everything genuinely delivered
-    // this run — never one per action (see deliveredArtifacts above).
-    // Never let a notification failure affect the run's own status.
-    if (deliveredArtifacts.length > 0) {
+    // (or DIDN'T happen) out in the world short of opening the cockpit and
+    // reading the run log. One best-effort email per run, listing what was
+    // genuinely delivered and, separately, what a real send permanently
+    // failed to deliver (structured recovery: the founder learns about it
+    // immediately and can act, instead of silently assuming success) —
+    // never one email per action (see deliveredArtifacts/failedDeliveries
+    // above). Never let a notification failure affect the run's own status.
+    const stillFailed = [...failedDeliveries.values()];
+    if (deliveredArtifacts.length > 0 || stillFailed.length > 0) {
       try {
         const { data: ownerUser } = await supabase.auth.admin.getUserById(userId);
         const ownerEmail = ownerUser?.user?.email;
         if (ownerEmail) {
-          const lines = deliveredArtifacts.map((d) =>
-            `• [${d.provider}] ${d.label} — ${d.summary}${d.url ? `\n  ${d.url}` : ""}`
-          );
+          const sections: string[] = [];
+          if (deliveredArtifacts.length > 0) {
+            sections.push([
+              `Delivered for real (${deliveredArtifacts.length}):`,
+              ...deliveredArtifacts.map((d) => `• [${d.provider}] ${d.label} — ${d.summary}${d.url ? `\n  ${d.url}` : ""}`),
+            ].join("\n"));
+          }
+          if (stillFailed.length > 0) {
+            sections.push([
+              `Did NOT go through (${stillFailed.length}) — needs your attention:`,
+              ...stillFailed.map((d) => `• [${d.provider}] ${d.label} — ${d.summary}`),
+            ].join("\n"));
+          }
+          const subjectParts: string[] = [];
+          if (deliveredArtifacts.length > 0) subjectParts.push(`delivered ${deliveredArtifacts.length}`);
+          if (stillFailed.length > 0) subjectParts.push(`${stillFailed.length} failed`);
           await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
@@ -3425,8 +3464,8 @@ Reply with ONE fenced JSON block:
               templateName: "agent-notification",
               recipientEmail: ownerEmail,
               templateData: {
-                subject: `${manifest.name || "Your agent"} delivered ${deliveredArtifacts.length} thing${deliveredArtifacts.length === 1 ? "" : "s"} for real`,
-                body: `${lines.join("\n\n")}\n\nView the full run: https://www.nazai.net/generated/agent/${agentId}`,
+                subject: `${manifest.name || "Your agent"}: ${subjectParts.join(", ")}`,
+                body: `${sections.join("\n\n")}\n\nView the full run: https://www.nazai.net/generated/agent/${agentId}`,
                 agentName: manifest.name,
               },
             }),
