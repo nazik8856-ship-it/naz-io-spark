@@ -622,7 +622,7 @@ export async function canvaExportDesign(
       status = String((pjob.status as Record<string, unknown>)?.type || pjob.status || status);
       if (Array.isArray(pjob.urls)) urls = pjob.urls as string[];
       if (status === "failed") {
-        const errMsg = (pjob.error as Record<string, unknown>)?.message || (pjob.status as Record<string, unknown>)?.error?.message;
+        const errMsg = (pjob.error as { message?: string } | undefined)?.message;
         return fail(`Canva export ${jobId} for design ${designId} FAILED: ${String(errMsg || "no reason given")}.`, jobId, designId);
       }
     } catch (e) {

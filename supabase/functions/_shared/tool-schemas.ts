@@ -400,7 +400,10 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
     labels: { target: "spreadsheet title", result_ref: "Google Sheet ID", url: "shareable spreadsheet link" },
   },
   export_google_file: {
-    required: ["target", "result_ref", "url"],
+    // url NOT required: it comes straight from slackUploadBytes, which can
+    // legitimately return a null permalink for a genuinely successful,
+    // verified upload -- see the same note on slack_upload_file above.
+    required: ["target", "result_ref"],
     labels: { target: "source Google file ID", result_ref: "Slack file ID", url: "link to the exported file in Slack" },
   },
   edit_sheet: {
@@ -444,7 +447,11 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
     labels: { target: "Slack channel", result_ref: "Slack message timestamp (ts)" },
   },
   slack_upload_file: {
-    required: ["target", "result_ref", "url"],
+    // url NOT required: Slack's files.info response can legitimately omit
+    // permalink even for a genuinely shared file (slackUploadBytes falls
+    // back to null) -- requiring it would downgrade a real, verified
+    // upload to "incomplete_result" whenever that happens.
+    required: ["target", "result_ref"],
     labels: { target: "Slack channel", result_ref: "Slack file ID", url: "link to the uploaded file" },
   },
   notion_create_page: {
