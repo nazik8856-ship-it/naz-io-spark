@@ -57,6 +57,16 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
     body: nonEmpty("body").max(50000),
     subject: str.optional(),
   }).passthrough(),
+  compose_and_deliver: z.object({
+    title: nonEmpty("title").max(300),
+    body_markdown: nonEmpty("body_markdown").max(50000),
+    via: z.enum(["email", "slack"]),
+    to: z.string().trim().email("must be a valid email address").optional(),
+    channel: str.optional(),
+  }).passthrough().refine(
+    (v) => (v.via === "email" ? !!v.to : !!v.channel),
+    { message: "email needs `to`; slack needs `channel`" },
+  ),
   read_email: z.object({
     message_id: str.optional(),
     thread_id: str.optional(),
@@ -74,17 +84,29 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
   create_doc: z.object({
     title: nonEmpty("title").max(300),
     body_markdown: nonEmpty("body_markdown"),
+    share_with_email: z.string().trim().email("must be a valid email address").optional(),
+    share_role: z.enum(["reader", "commenter", "writer"]).optional(),
   }).passthrough(),
   edit_doc: z.object({
     doc_id: nonEmpty("doc_id"),
     mode: z.enum(["append", "replace"]),
     body_markdown: nonEmpty("body_markdown"),
   }).passthrough(),
-  create_sheet: z.object({ title: nonEmpty("title").max(300), rows }).passthrough(),
+  create_sheet: z.object({
+    title: nonEmpty("title").max(300),
+    rows,
+    share_with_email: z.string().trim().email("must be a valid email address").optional(),
+    share_role: z.enum(["reader", "commenter", "writer"]).optional(),
+  }).passthrough(),
   edit_sheet: z.object({
     sheet_id: nonEmpty("sheet_id"),
     range: nonEmpty("range").regex(/.+![A-Z]+\d*(:[A-Z]+\d*)?$/i, 'must look like "Sheet1!A2:C10"'),
     values: rows,
+  }).passthrough(),
+  export_google_file: z.object({
+    file_id: nonEmpty("file_id"),
+    format: z.enum(["pdf", "csv"]),
+    channel: nonEmpty("channel"),
   }).passthrough(),
   create_calendar_event: z.object({
     title: nonEmpty("title").max(300),
@@ -115,6 +137,13 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
     text: nonEmpty("text").max(4000),
     thread_ts: str.optional(),
   }).passthrough(),
+  slack_upload_file: z.object({
+    channel: nonEmpty("channel"),
+    filename: nonEmpty("filename"),
+    content: nonEmpty("content").max(200_000),
+    title: str.optional(),
+    initial_comment: str.optional(),
+  }).passthrough(),
   notion_create_page: z.object({
     parent_id: nonEmpty("parent_id"),
     parent_type: z.enum(["page", "database"]).optional(),
@@ -143,6 +172,10 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
   canva_create_folder: z.object({
     name: nonEmpty("name").max(250),
     parent_folder_id: str.optional(),
+  }).passthrough(),
+  canva_export_design: z.object({
+    design_id: nonEmpty("design_id"),
+    format: z.enum(["pdf", "png", "jpg"]).optional(),
   }).passthrough(),
   figma_post_comment: z.object({
     file_key: nonEmpty("file_key"),
@@ -342,6 +375,10 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
     required: ["target", "result_ref"],
     labels: { target: "recipient address", result_ref: "sent-message ID from Gmail" },
   },
+  compose_and_deliver: {
+    required: ["target", "result_ref"],
+    labels: { target: "recipient address or Slack channel", result_ref: "Gmail message ID or Slack message timestamp" },
+  },
   reply_email: {
     required: ["target", "result_ref"],
     labels: { target: "recipient address", result_ref: "sent-message ID from Gmail" },
@@ -361,6 +398,13 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
   create_sheet: {
     required: ["target", "result_ref", "url"],
     labels: { target: "spreadsheet title", result_ref: "Google Sheet ID", url: "shareable spreadsheet link" },
+  },
+  export_google_file: {
+    // url NOT required: it comes straight from slackUploadBytes, which can
+    // legitimately return a null permalink for a genuinely successful,
+    // verified upload -- see the same note on slack_upload_file above.
+    required: ["target", "result_ref"],
+    labels: { target: "source Google file ID", result_ref: "Slack file ID", url: "link to the exported file in Slack" },
   },
   edit_sheet: {
     required: ["result_ref", "url"],
@@ -402,6 +446,14 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
     required: ["target", "result_ref"],
     labels: { target: "Slack channel", result_ref: "Slack message timestamp (ts)" },
   },
+  slack_upload_file: {
+    // url NOT required: Slack's files.info response can legitimately omit
+    // permalink even for a genuinely shared file (slackUploadBytes falls
+    // back to null) -- requiring it would downgrade a real, verified
+    // upload to "incomplete_result" whenever that happens.
+    required: ["target", "result_ref"],
+    labels: { target: "Slack channel", result_ref: "Slack file ID", url: "link to the uploaded file" },
+  },
   notion_create_page: {
     required: ["target", "result_ref", "url"],
     labels: { target: "page title", result_ref: "Notion page ID", url: "link to the page" },
@@ -421,6 +473,10 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
   canva_create_folder: {
     required: ["target", "result_ref"],
     labels: { target: "folder name", result_ref: "Canva folder ID" },
+  },
+  canva_export_design: {
+    required: ["target", "result_ref", "url"],
+    labels: { target: "Canva design ID", result_ref: "Canva export job ID", url: "link to the exported file" },
   },
   figma_post_comment: {
     required: ["target", "result_ref"],

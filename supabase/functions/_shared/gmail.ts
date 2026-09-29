@@ -93,11 +93,18 @@ export function buildGoogleAuthUrl(
   url.searchParams.set("scope", scopes.join(" "));
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
-  // NOTE: intentionally NOT setting include_granted_scopes. When enabled,
-  // Google carries every previously-granted scope forward into each new
-  // authorization request, which causes youtube.readonly + drive.file (Sheets/
-  // Docs) to be requested together and rejected as "scopes that cannot be
-  // requested together". Each Connect button must send only its own scopes.
+  // include_granted_scopes=true: every Google connection (drive/calendar/
+  // analytics) is stored as ONE row (provider="Gmail", agent_id null) with
+  // ONE access token -- without this flag, connecting a second service
+  // (e.g. Analytics after Drive) issues a token scoped to ONLY the new
+  // request, silently overwriting the earlier one's credentials and
+  // breaking it even though metadata.services still listed it as
+  // connected. This used to be off because a since-removed YouTube scope
+  // (youtube.readonly) couldn't be combined with drive.file in one grant;
+  // that scope no longer exists in GOOGLE_SCOPE_SETS, so the combination
+  // this flag now produces (drive.file + calendar.events + analytics.readonly)
+  // is a standard, non-conflicting set.
+  url.searchParams.set("include_granted_scopes", "true");
   url.searchParams.set("state", state);
   if (loginHint) url.searchParams.set("login_hint", loginHint);
   return url.toString();

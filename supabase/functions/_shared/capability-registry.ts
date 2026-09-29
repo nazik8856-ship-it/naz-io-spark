@@ -130,8 +130,13 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
   // ---------- Google (real API calls, all read-back verified) ----------
   send_email: {
     kind: "send_email", provider: "Gmail", implemented: true, verified: true, mode: "write",
-    verification: "sent message re-fetched from Gmail by id",
-    honesty: "I can really send email from your Gmail account.",
+    verification: "recipient domain resolved (MX/A record) before sending; sent message re-fetched from Gmail by id",
+    honesty: "I can really send email from your Gmail account, and I check the recipient's domain can actually receive mail before I try.",
+  },
+  compose_and_deliver: {
+    kind: "compose_and_deliver", provider: "Gmail/Slack", implemented: true, verified: true, mode: "write",
+    verification: "delegates to send_email's or slack_post_message's own verified send — only reports success once that underlying delivery is confirmed",
+    honesty: "I can compose content and really deliver it by email or Slack in one step — I never report this as done just for having written it.",
   },
   reply_email: {
     kind: "reply_email", provider: "Gmail", implemented: true, verified: true, mode: "write",
@@ -146,8 +151,8 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
   create_doc: {
     kind: "create_doc", provider: "Google Docs", providerAliases: ["Google Drive", "Gmail"],
     implemented: true, verified: true, mode: "write",
-    verification: "document re-fetched via the Docs API after creation",
-    honesty: "I can really create Google Docs.",
+    verification: "document re-fetched via the Docs API after creation; a requested share is re-verified by re-listing Drive permissions",
+    honesty: "I can really create Google Docs, and really share them with someone (Google emails them directly) the moment I do.",
   },
   edit_doc: {
     kind: "edit_doc", provider: "Google Docs", providerAliases: ["Google Drive", "Gmail"],
@@ -158,8 +163,14 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
   create_sheet: {
     kind: "create_sheet", provider: "Google Sheets", providerAliases: ["Google Drive", "Gmail"],
     implemented: true, verified: true, mode: "write",
-    verification: "spreadsheet re-fetched after creation",
-    honesty: "I can really create Google Sheets.",
+    verification: "spreadsheet re-fetched after creation; a requested share is re-verified by re-listing Drive permissions",
+    honesty: "I can really create Google Sheets, and really share them with someone (Google emails them directly) the moment I do.",
+  },
+  export_google_file: {
+    kind: "export_google_file", provider: "Google Drive", providerAliases: ["Slack"],
+    implemented: true, verified: true, mode: "write",
+    verification: "the exported bytes are non-empty and the resulting Slack file is re-fetched and confirmed shared to the channel",
+    honesty: "I can really export an existing Doc/Sheet to PDF/CSV and deliver it as a real file in Slack, not just leave it as a link.",
   },
   edit_sheet: {
     kind: "edit_sheet", provider: "Google Sheets", providerAliases: ["Google Drive", "Gmail"],
@@ -186,6 +197,11 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
     verification: "Slack's own chat.postMessage receipt (ok:true + message ts), plus a channel read-back where scopes allow",
     honesty: "I can really post messages to Slack channels.",
   },
+  slack_upload_file: {
+    kind: "slack_upload_file", provider: "Slack", implemented: true, verified: true, mode: "write",
+    verification: "the file is re-fetched by id and confirmed as actually shared to the target channel",
+    honesty: "I can really upload a text-based file (a report, a CSV, notes) and share it into a Slack channel.",
+  },
   canva_create_design: {
     kind: "canva_create_design", provider: "Canva", implemented: true, verified: true, mode: "write",
     verification: "design fetched back by id from the Canva Connect API",
@@ -200,6 +216,11 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
     kind: "canva_create_folder", provider: "Canva", implemented: true, verified: true, mode: "write",
     verification: "folder fetched back by id from the Canva Connect API",
     honesty: "I can really create Canva folders (projects) and put new designs inside them.",
+  },
+  canva_export_design: {
+    kind: "canva_export_design", provider: "Canva", implemented: true, verified: true, mode: "write",
+    verification: "the async export job is polled to a \"success\" status and a real download URL is returned",
+    honesty: "I can really export a Canva design to PDF/PNG/JPG and hand you the actual download link.",
   },
   notion_create_page: {
     kind: "notion_create_page", provider: "Notion", implemented: true, verified: true, mode: "write",

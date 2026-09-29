@@ -43,6 +43,11 @@ export function providerForTool(kind: string, input?: Record<string, unknown>): 
     const p = typeof input?.provider === "string" ? input.provider.trim() : "";
     return p || "Connected apps";
   }
+  if (k === "compose_and_deliver") {
+    const via = typeof input?.via === "string" ? input.via.trim().toLowerCase() : "";
+    return via === "slack" ? "Slack" : "Gmail";
+  }
+  if (k === "export_google_file") return "Google Drive";
   if (k.includes("canva")) return "Canva";
   if (k.includes("slack")) return "Slack";
   if (k.includes("notion")) return "Notion";

@@ -29,6 +29,11 @@ export type WriteResult = {
   ref?: string | null;
   url?: string | null;
   target?: string | null;
+  // Set only by composite kinds (compose_and_deliver) whose actual provider
+  // is chosen per call rather than fixed for the tool kind — lets
+  // agent-runtime's artifact/delivery-digest bookkeeping resolve the right
+  // provider instead of relying solely on its static per-kind map.
+  provider?: string | null;
 };
 
 export type IntegrationRow = {
@@ -122,6 +127,185 @@ export async function slackPostMessage(
     ref: ts,
     target: channel,
     url: null,
+  };
+}
+
+// Slack's old files.upload endpoint is deprecated -- files now go through a
+// 3-step external-upload flow: reserve a URL, POST the bytes to it, then
+// complete the upload with the channel/comment to actually share it. Split
+// out from slackUploadFile so export_google_file can push real binary bytes
+// (a PDF/CSV pulled from Drive) through the exact same verified path,
+// instead of only ever handling text content.
+async function slackUploadBytes(
+  admin: SupabaseClient, userId: string, agentId: string,
+  opts: { channel: string; filename: string; bytes: Uint8Array; title?: string; initialComment?: string },
+): Promise<WriteResult> {
+  const { channel, filename, bytes } = opts;
+  const title = opts.title || filename;
+  const initialComment = opts.initialComment;
+  if (!channel || !filename || !bytes.byteLength) {
+    return fail("Slack upload requires a channel, filename and non-empty content.");
+  }
+
+  const row = await loadProviderIntegration(admin, userId, agentId, "Slack");
+  if (!row) return notConnected("Slack", "file upload");
+  const creds = await readSecret(admin, row.credentials_secret_id);
+  const token = creds.access_token as string | undefined;
+  if (!token) return fail("Slack token missing — reconnect Slack. Nothing was uploaded.");
+
+  // Step 1: reserve an upload URL + file id for this exact size.
+  let fileId: string;
+  let uploadUrl: string;
+  try {
+    const r = await fetchWithRetry("https://slack.com/api/files.getUploadURLExternal", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ filename, length: String(bytes.byteLength) }),
+    });
+    const b = await r.json().catch(() => ({}));
+    if (!r.ok || !b?.ok || !b?.upload_url || !b?.file_id) {
+      return fail(`Slack refused to reserve an upload: ${String(b?.error || `HTTP ${r.status}`)} — nothing was uploaded.`);
+    }
+    fileId = String(b.file_id);
+    uploadUrl = String(b.upload_url);
+  } catch (e) {
+    return fail(`Slack files.getUploadURLExternal failed: ${e instanceof Error ? e.message : String(e)} — nothing was uploaded.`);
+  }
+
+  // Step 2: POST the actual bytes to the reserved URL.
+  try {
+    const form = new FormData();
+    form.append("file", new Blob([bytes]), filename);
+    const r = await fetchWithRetry(uploadUrl, { method: "POST", body: form });
+    if (!r.ok) return fail(`Slack file upload HTTP ${r.status} — the file was NOT delivered.`);
+  } catch (e) {
+    return fail(`Slack file upload failed: ${e instanceof Error ? e.message : String(e)} — the file was NOT delivered.`);
+  }
+
+  // Step 3: complete the upload, sharing it into the channel.
+  let completed: Record<string, unknown>;
+  try {
+    const r = await fetchWithRetry("https://slack.com/api/files.completeUploadExternal", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({
+        files: [{ id: fileId, title }],
+        channel_id: channel,
+        ...(initialComment ? { initial_comment: initialComment } : {}),
+      }),
+    });
+    completed = await r.json().catch(() => ({}));
+    if (!r.ok || !completed?.ok) {
+      return fail(`Slack refused to complete the upload: ${String((completed as { error?: string })?.error || `HTTP ${r.status}`)} — the file was reserved but NOT shared.`);
+    }
+  } catch (e) {
+    return fail(`Slack files.completeUploadExternal failed: ${e instanceof Error ? e.message : String(e)} — the file was reserved but NOT shared.`);
+  }
+
+  // Verification: re-fetch the file by id and confirm it's really shared to this channel.
+  let permalink: string | null = null;
+  try {
+    const vr = await fetchWithRetry(`https://slack.com/api/files.info?file=${encodeURIComponent(fileId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const vb = await vr.json().catch(() => ({}));
+    const shares = (vb?.file?.shares as { public?: Record<string, unknown>; private?: Record<string, unknown> } | undefined);
+    const sharedHere = !!shares && (channel in (shares.public || {}) || channel in (shares.private || {}));
+    if (!vb?.ok || !sharedHere) {
+      return fail(`Slack file ${fileId} could NOT be verified as shared to ${channel} when re-read. Treat as failed.`, fileId, channel);
+    }
+    permalink = (vb.file?.permalink as string) || null;
+  } catch (e) {
+    return fail(`Slack file verification failed: ${e instanceof Error ? e.message : String(e)}. Treat as failed.`, fileId, channel);
+  }
+
+  return {
+    ok: true,
+    summary: `Uploaded "${filename}" to Slack ${channel} and verified it's really shared there (file ${fileId}).`,
+    ref: fileId,
+    url: permalink,
+    target: channel,
+  };
+}
+
+export async function slackUploadFile(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const channel = String(input.channel || "").trim();
+  const filename = String(input.filename || "").trim();
+  const content = String(input.content || "");
+  if (!channel || !filename || !content) {
+    return fail("slack_upload_file requires channel, filename and content.");
+  }
+  return await slackUploadBytes(admin, userId, agentId, {
+    channel, filename,
+    bytes: new TextEncoder().encode(content),
+    title: input.title ? String(input.title).slice(0, 200) : filename,
+    initialComment: input.initial_comment ? String(input.initial_comment).slice(0, 3000) : undefined,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// GOOGLE DRIVE → SLACK — export an existing Doc/Sheet to a real PDF/CSV file
+// and deliver it into Slack in one step. A raw Drive export with nowhere to
+// land is just bytes nobody sees; this makes the export itself an act of
+// delivery, reusing the exact same verified Slack upload path as
+// slack_upload_file so a founder gets a real file in a real channel, not a
+// promise that one was "generated".
+// ---------------------------------------------------------------------------
+const EXPORT_MIME: Record<string, string> = { pdf: "application/pdf", csv: "text/csv" };
+
+export async function exportGoogleFileToSlack(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const fileId = String(input.file_id || "").trim();
+  const format = String(input.format || "").trim().toLowerCase();
+  const channel = String(input.channel || "").trim();
+  if (!fileId) return fail("export_google_file requires a file_id.");
+  if (!EXPORT_MIME[format]) return fail(`export_google_file: format must be "pdf" or "csv" (got "${format || "none"}").`);
+  if (!channel) return fail("export_google_file requires a Slack channel to deliver into.");
+
+  const auth = await googleAccess(admin, userId, agentId);
+  if ("ok" in auth) return auth;
+
+  let bytes: Uint8Array;
+  let sourceTitle = fileId;
+  try {
+    const meta = await fetchWithRetry(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name`,
+      { headers: { Authorization: `Bearer ${auth.access}` } },
+    );
+    const metaBody = await gJson(meta);
+    if (meta.ok && typeof (metaBody as { name?: string }).name === "string") {
+      sourceTitle = (metaBody as { name: string }).name;
+    }
+    const er = await fetchWithRetry(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(EXPORT_MIME[format])}`,
+      { headers: { Authorization: `Bearer ${auth.access}` } },
+    );
+    if (!er.ok) {
+      const eb = await gJson(er);
+      return fail(`Google Drive refused to export file ${fileId} as ${format}: ${gErr(eb, er)}.`, fileId);
+    }
+    bytes = new Uint8Array(await er.arrayBuffer());
+    if (!bytes.byteLength) return fail(`Google Drive returned an empty export for file ${fileId} — nothing to deliver.`, fileId);
+  } catch (e) {
+    return fail(`Export from Google Drive failed: ${e instanceof Error ? e.message : String(e)} — nothing was delivered.`, fileId);
+  }
+
+  const filename = `${sourceTitle.replace(/[^\w.\- ]+/g, "_").slice(0, 150)}.${format}`;
+  const result = await slackUploadBytes(admin, userId, agentId, {
+    channel, filename, bytes, title: filename,
+    initialComment: `Exported from Google Drive as ${format.toUpperCase()}.`,
+  });
+  if (!result.ok) {
+    return fail(`Exported "${sourceTitle}" from Google Drive as ${format}, but delivering it to Slack failed: ${result.summary}`, fileId);
+  }
+  return {
+    ...result,
+    provider: "Slack",
+    summary: `Exported "${sourceTitle}" from Google Drive to ${format.toUpperCase()} and delivered it to Slack ${channel}, verified — ${result.summary}`,
+    target: fileId,
   };
 }
 
@@ -378,6 +562,82 @@ export async function canvaCreateDesign(
     ok: true,
     summary: `Created Canva design "${title}"${folderNote} and verified it by fetching design ${designId} back${url ? ` — ${url}` : ""}.`,
     ref: designId, url, target: title,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// CANVA — export a design to PNG/PDF via the Connect API's async export job
+// (POST /exports kicks off the job, GET /exports/{id} is polled to completion
+// since Canva renders it out of band — there is no synchronous "export now").
+// ---------------------------------------------------------------------------
+export async function canvaExportDesign(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const designId = String(input.design_id || "").trim();
+  if (!designId) return fail("canva_export_design requires a design_id.");
+  const format = String(input.format || "pdf").toLowerCase();
+  const allowed = new Set(["pdf", "png", "jpg"]);
+  if (!allowed.has(format)) return fail(`canva_export_design: unsupported format "${format}" — use pdf, png, or jpg.`);
+
+  const row = await loadProviderIntegration(admin, userId, agentId, "Canva");
+  if (!row) return notConnected("Canva", "canva_export_design");
+
+  const formatBody: Record<string, unknown> = format === "jpg"
+    ? { type: "jpg", quality: 100 }
+    : { type: format };
+
+  let job: Record<string, unknown>;
+  try {
+    const r = await canvaAuthedFetch(admin, row, "https://api.canva.com/rest/v1/exports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ design_id: designId, format: formatBody }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return fail(`Canva export NOT started for design ${designId}: ${String((body as { message?: string })?.message || `HTTP ${r.status}`)}`);
+    }
+    job = (body.job as Record<string, unknown>) || body;
+  } catch (e) {
+    return fail(`Canva export request failed: ${e instanceof Error ? e.message : String(e)} — nothing was exported.`);
+  }
+
+  const jobId = job?.id ? String(job.id) : "";
+  if (!jobId) return fail(`Canva returned no export job id for design ${designId} — treat the export as NOT started.`, designId);
+
+  // Canva renders asynchronously; poll GET /exports/{id} until it settles.
+  // Bounded to stay well inside the edge function's execution window.
+  let status = String((job.status as Record<string, unknown>)?.type || job.status || "in_progress");
+  let urls: string[] = [];
+  const deadline = Date.now() + 25_000;
+  while (status === "in_progress" && Date.now() < deadline) {
+    await new Promise((res) => setTimeout(res, 1500));
+    try {
+      const pr = await canvaAuthedFetch(admin, row, `https://api.canva.com/rest/v1/exports/${jobId}`, { method: "GET" });
+      const pb = await pr.json().catch(() => ({}));
+      if (!pr.ok) {
+        return fail(`Canva export ${jobId} for design ${designId} could NOT be polled: ${String((pb as { message?: string })?.message || `HTTP ${pr.status}`)}.`, jobId, designId);
+      }
+      const pjob = (pb.job as Record<string, unknown>) || pb;
+      status = String((pjob.status as Record<string, unknown>)?.type || pjob.status || status);
+      if (Array.isArray(pjob.urls)) urls = pjob.urls as string[];
+      if (status === "failed") {
+        const errMsg = (pjob.error as { message?: string } | undefined)?.message;
+        return fail(`Canva export ${jobId} for design ${designId} FAILED: ${String(errMsg || "no reason given")}.`, jobId, designId);
+      }
+    } catch (e) {
+      return fail(`Canva export ${jobId} polling failed: ${e instanceof Error ? e.message : String(e)}.`, jobId, designId);
+    }
+  }
+  if (status !== "success") {
+    return fail(`Canva export ${jobId} for design ${designId} did not finish within 25s (last status: ${status}) — treat as NOT delivered, do not claim success.`, jobId, designId);
+  }
+  if (!urls.length) return fail(`Canva export ${jobId} reported success but returned no download URLs — treat as failed.`, jobId, designId);
+
+  return {
+    ok: true,
+    summary: `Exported Canva design ${designId} to ${format.toUpperCase()} (job ${jobId}) — ${urls.length} file(s): ${urls.join(", ")}`,
+    ref: jobId, url: urls[0], target: designId,
   };
 }
 
@@ -780,6 +1040,28 @@ const gJson = async (r: Response) => await r.json().catch(() => ({} as Record<st
 const gErr = (b: Record<string, unknown>, r: Response) =>
   String((b?.error as { message?: string } | undefined)?.message || `HTTP ${r.status}`);
 
+// Recipient resolution: confirm the destination domain can actually receive
+// mail BEFORE attempting a real send. The `to` field is model-picked free
+// text -- syntactically-valid-but-wrong addresses (a typo'd domain, a
+// plausible-looking but made-up one) previously sailed straight through to
+// Gmail with no check that anything real was on the other end. An MX record
+// is the normal case; a domain with no MX but a working A record is still
+// valid per RFC 5321 §5.1 (mail goes to the host itself), so both are
+// accepted -- only a domain with neither is treated as unresolvable.
+async function domainCanReceiveMail(email: string): Promise<{ ok: boolean; reason?: string }> {
+  const at = email.lastIndexOf("@");
+  const domain = at >= 0 ? email.slice(at + 1).trim().toLowerCase() : "";
+  if (!domain) return { ok: false, reason: "the address has no domain to resolve" };
+  const [mx, a] = await Promise.allSettled([
+    Deno.resolveDns(domain, "MX"),
+    Deno.resolveDns(domain, "A"),
+  ]);
+  const hasMx = mx.status === "fulfilled" && mx.value.length > 0;
+  const hasA = a.status === "fulfilled" && a.value.length > 0;
+  if (hasMx || hasA) return { ok: true };
+  return { ok: false, reason: `"${domain}" has no mail server on record (no MX or A record) — this looks like a typo or an invented address` };
+}
+
 async function googleSendEmail(
   admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
 ): Promise<WriteResult> {
@@ -787,6 +1069,10 @@ async function googleSendEmail(
   const subject = String(input.subject || "").trim();
   const body = String(input.body || input.body_markdown || "").trim();
   if (!to || !subject || !body) return fail("send_email needs to, subject and body — nothing was sent.");
+  const domainCheck = await domainCanReceiveMail(to);
+  if (!domainCheck.ok) {
+    return fail(`send_email blocked before sending: ${domainCheck.reason}. Verify the recipient address before retrying — nothing was sent.`, null, to);
+  }
   const auth = await googleAccess(admin, userId, agentId);
   if ("ok" in auth) return auth;
   const { gmailSend } = await import("./gmail.ts");
@@ -810,11 +1096,78 @@ async function googleSendEmail(
   };
 }
 
+// ---------------------------------------------------------------------------
+// COMPOSITE — compose_and_deliver: writes the content AND delivers it via a
+// real channel in one guaranteed step. Two separate tool calls
+// (generate_report, then remember-to-also-send-it) let a model produce
+// real content that never actually reaches anyone if it skips or forgets
+// the second step; this collapses that into one action that can only
+// report ok:true once a real, verified send has happened — never for
+// having merely composed the content. Delegates to the already-verified
+// googleSendEmail / slackPostMessage executors rather than duplicating
+// their send+verify logic.
+export async function composeAndDeliver(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const via = String(input.via || "").trim().toLowerCase();
+  const title = String(input.title || input.subject || "").trim();
+  const body = String(input.body_markdown || input.body || "").trim();
+  if (!title || !body) return fail("compose_and_deliver needs a title/subject and body_markdown.");
+  if (!["email", "slack"].includes(via)) {
+    return fail(`compose_and_deliver: "via" must be "email" or "slack" (got "${via || "none"}").`);
+  }
+
+  if (via === "email") {
+    const to = String(input.to || "").trim();
+    if (!to) return fail("compose_and_deliver via \"email\" requires a to address.");
+    const result = await googleSendEmail(admin, userId, agentId, { to, subject: title, body });
+    return { ...result, provider: "Gmail" };
+  }
+
+  const channel = String(input.channel || "").trim();
+  if (!channel) return fail("compose_and_deliver via \"slack\" requires a channel.");
+  const text = `*${title}*\n\n${body}`.slice(0, 39000); // Slack's message length ceiling
+  const result = await slackPostMessage(admin, userId, agentId, { channel, text });
+  return { ...result, provider: "Slack" };
+}
+
+// Auto-share: a created Doc/Sheet used to sit in the agent's own Drive with
+// no path to the person it was actually meant for -- the founder had to
+// manually open it and share it themselves. Grants real Drive access via
+// the permissions API (with Drive's own notification email, so the
+// recipient hears about it immediately) and verifies the grant by
+// re-listing permissions rather than trusting a bare 200. Returns a plain
+// success/failure rather than throwing, so the caller can decide how a
+// failed share affects the overall result.
+async function driveShareFile(
+  h: Record<string, string>, fileId: string, email: string, role: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const allowedRoles = new Set(["reader", "commenter", "writer"]);
+  const safeRole = allowedRoles.has(role) ? role : "reader";
+  const cr = await fetchWithRetry(
+    `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?sendNotificationEmail=true`,
+    {
+      method: "POST", headers: h,
+      body: JSON.stringify({ type: "user", role: safeRole, emailAddress: email }),
+    },
+  );
+  const cb = await gJson(cr);
+  if (!cr.ok) return { ok: false, reason: gErr(cb, cr) };
+  const vr = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, { headers: h });
+  const vb = await gJson(vr);
+  const perms = (vb as { permissions?: { emailAddress?: string }[] }).permissions || [];
+  if (!vr.ok || !perms.some((p) => (p.emailAddress || "").toLowerCase() === email.toLowerCase())) {
+    return { ok: false, reason: "the share could not be verified when re-listing permissions" };
+  }
+  return { ok: true };
+}
+
 async function googleCreateDoc(
   admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
 ): Promise<WriteResult> {
   const title = String(input.title || "").trim();
   const text = String(input.body_markdown || input.body || "").trim();
+  const shareWith = String(input.share_with_email || "").trim();
   if (!title) return fail("create_doc needs a title — nothing was created.");
   const auth = await googleAccess(admin, userId, agentId);
   if ("ok" in auth) return auth;
@@ -838,6 +1191,18 @@ async function googleCreateDoc(
     return fail(`Doc creation could not be verified: ${gErr(vb, vr)}.`, docId);
   }
   const url = `https://docs.google.com/document/d/${docId}/edit`;
+  if (shareWith) {
+    const role = String(input.share_role || "reader");
+    const share = await driveShareFile(h, docId, shareWith, role);
+    if (!share.ok) {
+      return fail(`Google Doc "${title}" was created (${url}) but could NOT be shared with ${shareWith}: ${share.reason}. The doc exists but hasn't reached them.`, docId, title);
+    }
+    return {
+      ok: true,
+      summary: `Google Doc "${title}" was really created, verified, and shared with ${shareWith} (${role}) — they've been notified by Google.`,
+      ref: docId, url, target: title,
+    };
+  }
   return { ok: true, summary: `Google Doc "${title}" was really created and verified by re-reading it.`, ref: docId, url, target: title };
 }
 
@@ -886,6 +1251,7 @@ async function googleCreateSheet(
 ): Promise<WriteResult> {
   const title = String(input.title || "").trim();
   const rows = Array.isArray(input.rows) ? (input.rows as unknown[][]) : [];
+  const shareWith = String(input.share_with_email || "").trim();
   if (!title) return fail("create_sheet needs a title — nothing was created.");
   const auth = await googleAccess(admin, userId, agentId);
   if ("ok" in auth) return auth;
@@ -908,10 +1274,23 @@ async function googleCreateSheet(
   if (!vr.ok || (vb as { spreadsheetId?: string }).spreadsheetId !== sheetId) {
     return fail(`Sheet creation could not be verified: ${gErr(vb, vr)}.`, sheetId);
   }
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
+  if (shareWith) {
+    const role = String(input.share_role || "reader");
+    const share = await driveShareFile(h, sheetId, shareWith, role);
+    if (!share.ok) {
+      return fail(`Google Sheet "${title}" was created (${url}) but could NOT be shared with ${shareWith}: ${share.reason}. The sheet exists but hasn't reached them.`, sheetId, title);
+    }
+    return {
+      ok: true,
+      summary: `Google Sheet "${title}" was really created with ${rows.length} row(s), verified, and shared with ${shareWith} (${role}) — they've been notified by Google.`,
+      ref: sheetId, url, target: title,
+    };
+  }
   return {
     ok: true,
     summary: `Google Sheet "${title}" was really created with ${rows.length} row(s) and verified by re-reading it.`,
-    ref: sheetId, url: `https://docs.google.com/spreadsheets/d/${sheetId}/edit`, target: title,
+    ref: sheetId, url, target: title,
   };
 }
 
@@ -988,6 +1367,7 @@ async function googleCreateCalendarEvent(
 
 export const PROVIDER_WRITE_KINDS = new Set([
   "send_email",
+  "compose_and_deliver",
   "create_doc",
   "edit_doc",
   "create_sheet",
@@ -995,11 +1375,14 @@ export const PROVIDER_WRITE_KINDS = new Set([
   "create_calendar_event",
 
   "slack_post_message",
+  "slack_upload_file",
+  "export_google_file",
   "notion_create_page",
   "notion_update_page",
   "canva_create_design",
   "canva_list_designs",
   "canva_create_folder",
+  "canva_export_design",
   "shopify_create_draft_order",
   "shopify_update_product",
   "figma_post_comment",
@@ -1011,14 +1394,18 @@ export async function runProviderWrite(
 ): Promise<WriteResult> {
   switch (kind) {
     case "slack_post_message": return await slackPostMessage(admin, userId, agentId, input);
+    case "slack_upload_file": return await slackUploadFile(admin, userId, agentId, input);
+    case "export_google_file": return await exportGoogleFileToSlack(admin, userId, agentId, input);
     case "notion_create_page": return await notionCreatePage(admin, userId, agentId, input);
     case "notion_update_page": return await notionUpdatePage(admin, userId, agentId, input);
     case "canva_create_design": return await canvaCreateDesign(admin, userId, agentId, input);
     case "canva_list_designs": return await canvaListDesigns(admin, userId, agentId, input);
     case "canva_create_folder": return await canvaCreateFolder(admin, userId, agentId, input);
+    case "canva_export_design": return await canvaExportDesign(admin, userId, agentId, input);
     case "shopify_create_draft_order": return await shopifyCreateDraftOrder(admin, userId, agentId, input);
     case "shopify_update_product": return await shopifyUpdateProduct(admin, userId, agentId, input);
     case "figma_post_comment": return await figmaPostComment(admin, userId, agentId, input);
+    case "compose_and_deliver": return await composeAndDeliver(admin, userId, agentId, input);
     case "figma_create_dev_resource": return await figmaCreateDevResource(admin, userId, agentId, input);
     case "send_email": return await googleSendEmail(admin, userId, agentId, input);
     case "create_doc": return await googleCreateDoc(admin, userId, agentId, input);

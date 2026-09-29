@@ -20,6 +20,11 @@ export const SLACK_SCOPE_GROUPS: Record<string, string[]> = {
   // first, which is what a founder actually expects from "Post messages".
   // Private channels still require an explicit invite either way.
   chat_write: ["chat:write", "chat:write.public"],
+  // Required for slack_upload_file (files.getUploadURLExternal /
+  // files.completeUploadExternal). Missing from a connected workspace's
+  // token means every upload attempt fails with "missing_scope" --
+  // caught live while wiring the tool, before any actual test ran.
+  files_write: ["files:write"],
 };
 
 export const SLACK_DEFAULT_GROUPS = Object.keys(SLACK_SCOPE_GROUPS);

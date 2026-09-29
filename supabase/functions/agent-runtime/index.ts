@@ -440,9 +440,9 @@ serve(async (req) => {
       create_calendar_event: "calendar_event",
       send_email: "email", reply_email: "email",
       generate_report: "report",
-      slack_post_message: "message",
+      slack_post_message: "message", slack_upload_file: "file", export_google_file: "file",
       notion_create_page: "notion_page", notion_update_page: "notion_page",
-      canva_create_design: "design", canva_create_folder: "folder",
+      canva_create_design: "design", canva_create_folder: "folder", canva_export_design: "file",
       figma_post_comment: "comment", figma_create_dev_resource: "dev_resource",
       shopify_create_draft_order: "draft_order", shopify_update_product: "product",
     };
@@ -453,15 +453,36 @@ serve(async (req) => {
       create_calendar_event: "Google",
       send_email: "Gmail", reply_email: "Gmail",
       generate_report: null,
-      slack_post_message: "Slack",
+      slack_post_message: "Slack", slack_upload_file: "Slack", export_google_file: "Slack",
       notion_create_page: "Notion", notion_update_page: "Notion",
-      canva_create_design: "Canva", canva_create_folder: "Canva",
+      canva_create_design: "Canva", canva_create_folder: "Canva", canva_export_design: "Canva",
       figma_post_comment: "Figma", figma_create_dev_resource: "Figma",
       shopify_create_draft_order: "Shopify", shopify_update_product: "Shopify",
     };
     // Guards against double-recording when a tool emits both an `action` and a
     // `tool_result` event for the same deliverable.
     const recordedArtifacts = new Set<string>();
+    // Real (provider != null) deliverables made this run, collected for a
+    // single end-of-run confirmation email -- see the "delivered" digest
+    // below. Deliberately NOT one email per action: a run that sends 15
+    // Slack messages should produce one "here's what I actually did"
+    // summary, not 15 separate inbox pings.
+    const deliveredArtifacts: Array<{ label: string; provider: string; url: string | null; summary: string }> = [];
+    // Separate from recordedArtifacts on purpose: that set is intentionally
+    // cleared on an insert failure so a duplicate action/tool_result event
+    // for the same deliverable gets a second chance at the DB write. This
+    // one must NOT be cleared, or that same retry would queue the delivery
+    // into the digest twice.
+    const notifiedDeliveries = new Set<string>();
+    // Structured recovery for a failed real send: a permanently-failed real
+    // write (all of fetchWithRetry's transient-error retries already
+    // exhausted) used to just sit in the run log — nothing told the founder
+    // their invoice email or Slack update never actually went out unless
+    // they opened the cockpit and read events themselves. Keyed by
+    // kind+target so a LATER success for the same destination clears the
+    // failure (the agent retried it itself and it went through) instead of
+    // reporting a stale failure alongside the eventual success.
+    const failedDeliveries = new Map<string, { label: string; provider: string; summary: string }>();
 
     // Verified-action executor kinds subject to the daily action cap AND the
     // control-engine gate (kill switch, hard rules, circuit breaker, spend
@@ -472,19 +493,36 @@ serve(async (req) => {
     // perpetuating effects that used to run on nothing but their own local
     // guardrail, invisible to the kill switch).
     const ACTION_CAPPED_KINDS = new Set([
-      "send_email", "reply_email",
+      "send_email", "reply_email", "compose_and_deliver",
       "create_doc", "edit_doc",
       "create_sheet", "edit_sheet",
       "create_calendar_event",
       "upsert_client_note",
-      "slack_post_message",
+      "slack_post_message", "slack_upload_file", "export_google_file",
       "notion_create_page", "notion_update_page",
-      "canva_create_design", "canva_create_folder",
+      "canva_create_design", "canva_create_folder", "canva_export_design",
       "figma_post_comment", "figma_create_dev_resource",
       "shopify_create_draft_order", "shopify_update_product",
       "http_post", "schedule_followup",
     ]);
     const dailyActionCap = Math.max(0, Number((agent as { daily_action_cap?: number }).daily_action_cap ?? 20));
+    // Fan-out safety net: the daily action cap only limits TOTAL volume, so
+    // an agent that misreads its task as "email everyone in the list" could
+    // still legitimately blast up to the full daily cap of DIFFERENT people
+    // in one burst before anything stops it. This catches concentration
+    // into many distinct destinations, not just count -- after the first
+    // FANOUT_THRESHOLD distinct destinations for a kind in a single run,
+    // every NEW one is blocked until a human is involved. Repeats to an
+    // already-seen destination (retries, a follow-up in the same
+    // thread/channel) are never affected.
+    const FANOUT_KINDS: Record<string, string> = {
+      send_email: "to",
+      slack_post_message: "channel",
+      slack_upload_file: "channel",
+      export_google_file: "channel",
+    };
+    const FANOUT_THRESHOLD = 5;
+    const fanoutSeen = new Map<string, Set<string>>();
     // Confidence-escalation threshold (per-agent, default 60): any tool call or
     // decide block the model reports BELOW this score is paused for a human.
     const confidenceThreshold = Math.max(
@@ -687,12 +725,32 @@ serve(async (req) => {
       if (kind === "action" || kind === "tool_result") {
         const p = payload as Record<string, unknown>;
         const rawKind = String(p.type || p.kind || "");
-        const artifactKind = ARTIFACT_KINDS[rawKind];
+        // A composite kind like compose_and_deliver picks its own provider
+        // per call (email vs Slack) rather than having one fixed at the tool
+        // level, so the executor's own reported provider (p.provider) wins
+        // when present; every other kind falls back to the static maps as
+        // before.
+        const dynamicProvider = typeof p.provider === "string" ? p.provider : null;
+        const provider = dynamicProvider || ARTIFACT_PROVIDERS[rawKind] || null;
+        const artifactKind = ARTIFACT_KINDS[rawKind] ||
+          (dynamicProvider === "Gmail" ? "email" : dynamicProvider === "Slack" ? "message" : null);
+        const failureKey = `${rawKind}::${String(p.target ?? "")}`;
+        if (p.ok === false && provider && p.target) {
+          failedDeliveries.set(failureKey, {
+            label: String(p.target).slice(0, 200),
+            provider,
+            summary: typeof p.summary === "string" ? p.summary.slice(0, 500) : `${rawKind} failed.`,
+          });
+        } else if (p.ok === true && provider && p.target) {
+          // A later success for the same tool+target means the agent
+          // recovered on its own (e.g. retried with a corrected input) --
+          // don't report a failure that no longer reflects reality.
+          failedDeliveries.delete(failureKey);
+        }
         if (p.ok === true && artifactKind) {
           const dedupeKey = `${rawKind}::${String(p.result_ref ?? p.ref ?? p.url ?? p.target ?? p.summary ?? "")}`;
           if (!recordedArtifacts.has(dedupeKey)) {
             recordedArtifacts.add(dedupeKey);
-            const provider = ARTIFACT_PROVIDERS[rawKind] ?? null;
             const integ = provider
               ? connectedIntegrations.find((i) => String(i.provider) === provider ||
                   (provider === "Google" && String(i.provider).startsWith("Google")))
@@ -700,7 +758,7 @@ serve(async (req) => {
             const meta = (integ?.metadata as Record<string, unknown>) || {};
             const gmail = connectedIntegrations.find((i) => String(i.provider) === "Gmail");
             const gmailMeta = (gmail?.metadata as Record<string, unknown>) || {};
-            const { error: artErr } = await supabase.from("agent_artifacts").insert({
+            const artifactRow = {
               user_id: userId,
               agent_id: agentId,
               run_id: runId,
@@ -715,10 +773,31 @@ serve(async (req) => {
               },
               provider,
               account_email: (meta.account_email as string) || (gmailMeta.account_email as string) || null,
-            });
+            };
+            let { error: artErr } = await supabase.from("agent_artifacts").insert(artifactRow);
+            if (artErr) {
+              // One retry — a transient DB hiccup here must never make a real,
+              // already-delivered external effect (Slack/Gmail/etc. already
+              // confirmed it) simply vanish from the founder's Outcomes list.
+              ({ error: artErr } = await supabase.from("agent_artifacts").insert(artifactRow));
+            }
             if (artErr) {
               recordedArtifacts.delete(dedupeKey);
-              console.warn("agent_artifacts insert failed", rawKind, artErr.message);
+              console.warn("agent_artifacts insert failed twice", rawKind, artErr.message);
+            }
+            // Queue the end-of-run delivery digest regardless of whether the
+            // artifact bookkeeping row landed — the real-world send already
+            // happened (the executor already verified it before returning
+            // ok:true); our own DB write failing is never a reason to leave
+            // the founder thinking nothing was delivered.
+            if (provider && !notifiedDeliveries.has(dedupeKey)) {
+              notifiedDeliveries.add(dedupeKey);
+              deliveredArtifacts.push({
+                label: String(p.target || p.title || rawKind).slice(0, 200),
+                provider,
+                url: p.url ? String(p.url) : null,
+                summary: typeof p.summary === "string" ? p.summary.slice(0, 500) : `Delivered via ${provider}.`,
+              });
             }
           }
         }
@@ -1060,8 +1139,9 @@ serve(async (req) => {
       { name: "make_plan", kind: "make_plan", description: "Produce a concrete, numbered execution plan for a stated objective. Each step includes owner, tool/action to take, success criteria. Use before large multi-step work.", config: {} },
       { name: "send_email", kind: "send_email", description: "Send a real email via the agent-notification template. Requires an explicit guardrail allowing external sends; otherwise it will be queued for approval instead of sent.", config: {} },
       { name: "generate_report", kind: "generate_report", description: "Write a markdown report/digest/audit/plan as a durable artifact the operator can open later.", config: {} },
-      { name: "create_doc", kind: "create_doc", description: "Create a real Google Doc in the connected Google account (from the Gmail integration) with the given title and body text. Returns the doc URL.", config: {} },
-      { name: "create_sheet", kind: "create_sheet", description: "Create a real Google Sheet in the connected Google account (from the Gmail integration) with the given title and rows (2D array of cell values). Returns the sheet URL.", config: {} },
+      { name: "compose_and_deliver", kind: "compose_and_deliver", description: "Compose content AND deliver it via a real channel (email or Slack) in one guaranteed step — use this instead of generate_report when the point is for someone to actually receive it, not just to save it for later. Only reports success once the real send is verified; never claims delivery for content that was merely composed.", config: {} },
+      { name: "create_doc", kind: "create_doc", description: "Create a real Google Doc in the connected Google account (from the Gmail integration) with the given title and body text. Returns the doc URL. Optionally pass share_with_email (and share_role: reader|commenter|writer, default reader) to really share it with someone the moment it's created — Google emails them directly. If sharing is requested but fails, this reports failure even though the doc exists, since the point was for them to receive it.", config: {} },
+      { name: "create_sheet", kind: "create_sheet", description: "Create a real Google Sheet in the connected Google account (from the Gmail integration) with the given title and rows (2D array of cell values). Returns the sheet URL. Optionally pass share_with_email (and share_role: reader|commenter|writer, default reader) to really share it with someone the moment it's created — Google emails them directly. If sharing is requested but fails, this reports failure even though the sheet exists, since the point was for them to receive it.", config: {} },
       { name: "create_calendar_event", kind: "create_calendar_event", description: "Create a real event on the connected Google account's primary calendar. Requires ISO start/end times.", config: {} },
       { name: "edit_doc", kind: "edit_doc", description: "Edit an existing Google Doc by id — append to or replace its body content. Verifies the edit by re-reading the doc.", config: {} },
       { name: "edit_sheet", kind: "edit_sheet", description: "Update a range in an existing Google Sheet by id (e.g. Sheet1!A2:C10) with a 2D array of values. Verifies by re-reading the range.", config: {} },
@@ -1072,11 +1152,14 @@ serve(async (req) => {
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to any https URL — the escape hatch for reaching a system NazAI has no native integration for (a CRM's incoming webhook, Zapier, a custom endpoint, etc). Blocked from localhost/private/internal addresses (SSRF-safe DNS check), but NOT restricted to a specific domain otherwise. Queued for the operator's approval by default; sends immediately only if a manifest guardrail explicitly allows it or the agent has auto_approve_low_risk on.", config: {} },
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to any https URL, same SSRF-safe checks and approval gating.", config: {} },
       { name: "slack_post_message", kind: "slack_post_message", description: "Post a real message to a Slack channel via chat.postMessage using the connected workspace's bot token. Confirmed by Slack's own message receipt (ts) and a read-back where scopes allow.", config: {} },
+      { name: "slack_upload_file", kind: "slack_upload_file", description: "Upload a real text-based file (a report, a CSV, notes) and share it into a Slack channel using the connected workspace's bot token. Verified by re-fetching the file and confirming it's actually shared to that channel. Use this instead of pasting long content into a message when the founder expects a downloadable file.", config: {} },
+      { name: "export_google_file", kind: "export_google_file", description: "Export an existing Google Doc or Sheet (by file_id) to a real PDF or CSV file and deliver it into a Slack channel in one step, verified the same way slack_upload_file is. Use this to turn a Doc/Sheet you already created into a downloadable file someone actually receives, instead of just leaving it as a link.", config: {} },
       { name: "notion_create_page", kind: "notion_create_page", description: "Create a real Notion page under a parent page or database, then re-fetch the page to confirm it exists before reporting success.", config: {} },
       { name: "notion_update_page", kind: "notion_update_page", description: "Update an existing Notion page (title, archived state, or appended content) and re-fetch it to confirm the change landed.", config: {} },
       { name: "canva_create_design", kind: "canva_create_design", description: "Create a real Canva design via the Canva Connect API, then fetch the design back by id to confirm it exists. Returns the edit URL.", config: {} },
       { name: "canva_list_designs", kind: "canva_list_designs", description: "List the user's existing Canva designs (id, title, thumbnail, edit/view URLs) via the Canva Connect API.", config: {} },
       { name: "canva_create_folder", kind: "canva_create_folder", description: "Create a real Canva folder (project) via the Canva Connect API, then fetch it back by id to confirm it exists. Use its id as folder_id in canva_create_design.", config: {} },
+      { name: "canva_export_design", kind: "canva_export_design", description: "Export a real Canva design to PDF, PNG, or JPG via the Canva Connect API's async export job, polling until it succeeds and returning the real download URL(s). Requires an existing design_id (from canva_create_design or canva_list_designs).", config: {} },
       { name: "figma_post_comment", kind: "figma_post_comment", description: "Post a real comment on a Figma file (optionally pinned to a node), then re-read the file's comments to confirm it landed. Figma's API cannot create files or designs — use canva_create_design for real design creation.", config: {} },
       { name: "figma_create_dev_resource", kind: "figma_create_dev_resource", description: "Attach a real dev resource link to a Figma node, then re-read that node's dev resources to confirm it landed.", config: {} },
       { name: "shopify_create_draft_order", kind: "shopify_create_draft_order", description: "Create a real draft order in the connected Shopify store, then re-fetch it by id to confirm it exists. Returns the invoice URL.", config: {} },
@@ -1123,8 +1206,9 @@ serve(async (req) => {
         case "make_plan": usage = `make_plan(objective: string, constraints?: string)  // returns a numbered execution plan with success criteria`; break;
         case "send_email": usage = `send_email(to: string, subject: string, body: string)  // actually delivers an email unless guardrails require approval`; break;
         case "generate_report": usage = `generate_report(title: string, kind: "report"|"digest"|"audit"|"plan", body_markdown: string)  // saves a durable artifact`; break;
-        case "create_doc": usage = `create_doc(title: string, body_markdown: string)  // creates a real Google Doc in the connected Google account and returns { url, id }`; break;
-        case "create_sheet": usage = `create_sheet(title: string, rows: string[][])  // creates a real Google Sheet with the given rows and returns { url, id }`; break;
+        case "compose_and_deliver": usage = `compose_and_deliver(title: string, body_markdown: string, via: "email"|"slack", to?: string, channel?: string)  // composes AND really delivers in one step; to required for email, channel required for slack`; break;
+        case "create_doc": usage = `create_doc(title: string, body_markdown: string, share_with_email?: string, share_role?: "reader"|"commenter"|"writer")  // creates a real Google Doc, optionally really shares it (Google emails the recipient), returns { url, id }`; break;
+        case "create_sheet": usage = `create_sheet(title: string, rows: string[][], share_with_email?: string, share_role?: "reader"|"commenter"|"writer")  // creates a real Google Sheet, optionally really shares it (Google emails the recipient), returns { url, id }`; break;
         case "create_calendar_event": usage = `create_calendar_event(title: string, start_iso: string, end_iso: string, description?: string)  // creates an event on the primary Google Calendar and returns { url, id }`; break;
         case "edit_doc": usage = `edit_doc(doc_id: string, mode: "append"|"replace", body_markdown: string)  // edits an existing Google Doc by id and re-reads to verify`; break;
         case "edit_sheet": usage = `edit_sheet(sheet_id: string, range: string, values: string[][])  // updates a range (e.g. "Sheet1!A2:C10") in an existing Google Sheet and re-reads to verify`; break;
@@ -1135,11 +1219,14 @@ serve(async (req) => {
         
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to any https URL not on a private/internal address; queued for approval unless a guardrail auto-allows it. The escape hatch for integrations NazAI has no native connector for.`; break;
         case "slack_post_message": usage = `slack_post_message(channel: string, text: string, thread_ts?: string)  // really posts to Slack; verified by Slack's message receipt`; break;
+        case "slack_upload_file": usage = `slack_upload_file(channel: string, filename: string, content: string, title?: string, initial_comment?: string)  // uploads a real text file (report, CSV, notes) and shares it in the channel; verified by re-fetching it`; break;
+        case "export_google_file": usage = `export_google_file(file_id: string, format: "pdf"|"csv", channel: string)  // exports a real Google Doc/Sheet and delivers it as a real file into a Slack channel`; break;
         case "notion_create_page": usage = `notion_create_page(parent_id: string, parent_type?: "page"|"database", title: string, body_markdown?: string)  // creates a real Notion page, verified by re-fetching it`; break;
         case "notion_update_page": usage = `notion_update_page(page_id: string, title?: string, append_markdown?: string, archived?: boolean)  // updates a real Notion page, verified by re-fetching it`; break;
         case "canva_create_design": usage = `canva_create_design(title: string, design_type?: "presentation"|"doc"|"whiteboard", folder_id?: string)  // creates a real Canva design (optionally inside a folder), verified by fetching it back`; break;
         case "canva_list_designs": usage = `canva_list_designs(query?: string, folder_id?: string, limit?: number)  // lists the user's real Canva designs with ids, titles, thumbnails and URLs`; break;
         case "canva_create_folder": usage = `canva_create_folder(name: string, parent_folder_id?: string)  // creates a real Canva folder (project), verified by fetching it back`; break;
+        case "canva_export_design": usage = `canva_export_design(design_id: string, format?: "pdf"|"png"|"jpg")  // exports a real Canva design and returns real download URL(s)`; break;
         case "figma_post_comment": usage = `figma_post_comment(file_key: string, message: string, node_id?: string)  // really comments on a Figma file, verified by re-reading the file's comments`; break;
         case "figma_create_dev_resource": usage = `figma_create_dev_resource(file_key: string, node_id: string, name: string, url: string)  // really attaches a dev resource link to a Figma node, verified by re-reading it`; break;
         case "shopify_create_draft_order": usage = `shopify_create_draft_order(line_items: [{title?, price?, variant_id?, quantity}], email?: string, note?: string)  // creates a real Shopify draft order, verified by re-fetching it`; break;
@@ -1201,7 +1288,7 @@ ${toolDescriptions}
 \`\`\`json
 {"action":"tool","tool":"<name>","input":{...},"reasoning":"<one short sentence WHY you chose this action now>","alternatives_considered":["<other option you weighed and rejected>","..."],"confidence_score":0-100,"confidence":"high|medium|low"}
 \`\`\`
-For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, notion_create_page, notion_update_page, canva_create_design, canva_create_folder, figma_post_comment, figma_create_dev_resource, shopify_create_draft_order, shopify_update_product, http_post, schedule_followup) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
+For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, slack_upload_file, export_google_file, notion_create_page, notion_update_page, canva_create_design, canva_create_folder, canva_export_design, compose_and_deliver, figma_post_comment, figma_create_dev_resource, shopify_create_draft_order, shopify_update_product, http_post, schedule_followup) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
 Decision provenance (ALL tool + decide blocks): include "alternatives_considered" (the other tools/strategies/data sources you genuinely weighed for this step — empty array only if there truly was no alternative) and "confidence_score", an integer 0-100 that honestly reflects how certain YOU are in this specific choice given the data you actually have. Never emit a fixed or habitual number: lower it when data is stale, missing or ambiguous, raise it when you verified the inputs.
 \`\`\`json
 {"action":"decide","decision":"...","rationale":"...","alternatives_considered":["..."],"confidence_score":0-100}
@@ -1875,6 +1962,40 @@ Rules:
             await logEvent("action", { type: tool.kind, target: "cap", ok: false, result_ref: null, summary: msg });
             messages.push({ role: "user", content: `${msg}\n\nSummarize what you have and finish.` });
             continue;
+          }
+        }
+
+        // Fan-out safety gate — see FANOUT_KINDS/FANOUT_THRESHOLD above.
+        // compose_and_deliver picks its destination field dynamically (via
+        // its own `via` input) rather than having one fixed per kind.
+        {
+          const fanoutField = tool.kind === "compose_and_deliver"
+            ? (String((input as Record<string, unknown>).via || "").toLowerCase() === "slack" ? "channel" : "to")
+            : FANOUT_KINDS[tool.kind];
+          if (fanoutField) {
+            const dest = String((input as Record<string, unknown>)[fanoutField] || "").trim().toLowerCase();
+            if (dest) {
+              let seen = fanoutSeen.get(tool.kind);
+              if (!seen) { seen = new Set<string>(); fanoutSeen.set(tool.kind, seen); }
+              if (!seen.has(dest) && seen.size >= FANOUT_THRESHOLD) {
+                await logEvent("fanout_cap_reached", {
+                  reason: "Distinct-destination fan-out cap reached for this run",
+                  kind: tool.kind,
+                  threshold: FANOUT_THRESHOLD,
+                  destination: dest,
+                });
+                const destNoun = fanoutField === "to" ? "recipients" : "channels";
+                const msg = `Mass-send protection: this run has already reached ${FANOUT_THRESHOLD} different ${destNoun} for ${tool.kind}. Sending to a new one ("${dest}") needs a human's go-ahead first — this call was blocked, nothing was sent.`;
+                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                await logEvent("action", { type: tool.kind, target: dest, ok: false, result_ref: null, summary: msg });
+                messages.push({
+                  role: "user",
+                  content: `${msg}\n\nAsk the user for explicit confirmation before sending to any new ${destNoun} this run, or finish with what's already been sent.`,
+                });
+                continue;
+              }
+              seen.add(dest);
+            }
           }
         }
 
@@ -3095,6 +3216,7 @@ Rules:
             result_ref: writeResult.ref ?? null,
             summary: writeResult.summary,
             url: writeResult.url ?? null,
+            provider: writeResult.provider ?? null,
           });
           if (gateAttempt) {
             await gateAttempt(!writeResult.ok, writeResult.ok ? "ok" : writeResult.summary).catch(() => null);
@@ -3319,6 +3441,56 @@ Reply with ONE fenced JSON block:
       hit_step_limit: hitStepLimit,
       steps,
     });
+
+    // ---- Delivery-confirmation digest --------------------------------------
+    // A founder previously had no way to know real work actually happened
+    // (or DIDN'T happen) out in the world short of opening the cockpit and
+    // reading the run log. One best-effort email per run, listing what was
+    // genuinely delivered and, separately, what a real send permanently
+    // failed to deliver (structured recovery: the founder learns about it
+    // immediately and can act, instead of silently assuming success) —
+    // never one email per action (see deliveredArtifacts/failedDeliveries
+    // above). Never let a notification failure affect the run's own status.
+    const stillFailed = [...failedDeliveries.values()];
+    if (deliveredArtifacts.length > 0 || stillFailed.length > 0) {
+      try {
+        const { data: ownerUser } = await supabase.auth.admin.getUserById(userId);
+        const ownerEmail = ownerUser?.user?.email;
+        if (ownerEmail) {
+          const sections: string[] = [];
+          if (deliveredArtifacts.length > 0) {
+            sections.push([
+              `Delivered for real (${deliveredArtifacts.length}):`,
+              ...deliveredArtifacts.map((d) => `• [${d.provider}] ${d.label} — ${d.summary}${d.url ? `\n  ${d.url}` : ""}`),
+            ].join("\n"));
+          }
+          if (stillFailed.length > 0) {
+            sections.push([
+              `Did NOT go through (${stillFailed.length}) — needs your attention:`,
+              ...stillFailed.map((d) => `• [${d.provider}] ${d.label} — ${d.summary}`),
+            ].join("\n"));
+          }
+          const subjectParts: string[] = [];
+          if (deliveredArtifacts.length > 0) subjectParts.push(`delivered ${deliveredArtifacts.length}`);
+          if (stillFailed.length > 0) subjectParts.push(`${stillFailed.length} failed`);
+          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+            body: JSON.stringify({
+              templateName: "agent-notification",
+              recipientEmail: ownerEmail,
+              templateData: {
+                subject: `${manifest.name || "Your agent"}: ${subjectParts.join(", ")}`,
+                body: `${sections.join("\n\n")}\n\nView the full run: https://www.nazai.net/generated/agent/${agentId}`,
+                agentName: manifest.name,
+              },
+            }),
+          });
+        }
+      } catch (e) {
+        console.warn("agent-runtime: delivery digest notification failed", e);
+      }
+    }
 
     await supabase.from("agent_runs").update({
       status: runStatus,
