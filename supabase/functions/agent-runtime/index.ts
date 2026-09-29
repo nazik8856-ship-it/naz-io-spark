@@ -468,6 +468,12 @@ serve(async (req) => {
     // Slack messages should produce one "here's what I actually did"
     // summary, not 15 separate inbox pings.
     const deliveredArtifacts: Array<{ label: string; provider: string; url: string | null; summary: string }> = [];
+    // Separate from recordedArtifacts on purpose: that set is intentionally
+    // cleared on an insert failure so a duplicate action/tool_result event
+    // for the same deliverable gets a second chance at the DB write. This
+    // one must NOT be cleared, or that same retry would queue the delivery
+    // into the digest twice.
+    const notifiedDeliveries = new Set<string>();
 
     // Verified-action executor kinds subject to the daily action cap AND the
     // control-engine gate (kill switch, hard rules, circuit breaker, spend
@@ -722,7 +728,7 @@ serve(async (req) => {
             const meta = (integ?.metadata as Record<string, unknown>) || {};
             const gmail = connectedIntegrations.find((i) => String(i.provider) === "Gmail");
             const gmailMeta = (gmail?.metadata as Record<string, unknown>) || {};
-            const { error: artErr } = await supabase.from("agent_artifacts").insert({
+            const artifactRow = {
               user_id: userId,
               agent_id: agentId,
               run_id: runId,
@@ -737,11 +743,25 @@ serve(async (req) => {
               },
               provider,
               account_email: (meta.account_email as string) || (gmailMeta.account_email as string) || null,
-            });
+            };
+            let { error: artErr } = await supabase.from("agent_artifacts").insert(artifactRow);
+            if (artErr) {
+              // One retry — a transient DB hiccup here must never make a real,
+              // already-delivered external effect (Slack/Gmail/etc. already
+              // confirmed it) simply vanish from the founder's Outcomes list.
+              ({ error: artErr } = await supabase.from("agent_artifacts").insert(artifactRow));
+            }
             if (artErr) {
               recordedArtifacts.delete(dedupeKey);
-              console.warn("agent_artifacts insert failed", rawKind, artErr.message);
-            } else if (provider) {
+              console.warn("agent_artifacts insert failed twice", rawKind, artErr.message);
+            }
+            // Queue the end-of-run delivery digest regardless of whether the
+            // artifact bookkeeping row landed — the real-world send already
+            // happened (the executor already verified it before returning
+            // ok:true); our own DB write failing is never a reason to leave
+            // the founder thinking nothing was delivered.
+            if (provider && !notifiedDeliveries.has(dedupeKey)) {
+              notifiedDeliveries.add(dedupeKey);
               deliveredArtifacts.push({
                 label: String(p.target || p.title || rawKind).slice(0, 200),
                 provider,
