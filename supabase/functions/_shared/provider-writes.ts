@@ -132,28 +132,26 @@ export async function slackPostMessage(
 
 // Slack's old files.upload endpoint is deprecated -- files now go through a
 // 3-step external-upload flow: reserve a URL, POST the bytes to it, then
-// complete the upload with the channel/comment to actually share it. Lets an
-// agent deliver a real generated file (a report, a CSV) into a channel
-// instead of only ever being able to describe it in message text.
-export async function slackUploadFile(
-  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+// complete the upload with the channel/comment to actually share it. Split
+// out from slackUploadFile so export_google_file can push real binary bytes
+// (a PDF/CSV pulled from Drive) through the exact same verified path,
+// instead of only ever handling text content.
+async function slackUploadBytes(
+  admin: SupabaseClient, userId: string, agentId: string,
+  opts: { channel: string; filename: string; bytes: Uint8Array; title?: string; initialComment?: string },
 ): Promise<WriteResult> {
-  const channel = String(input.channel || "").trim();
-  const filename = String(input.filename || "").trim();
-  const content = String(input.content || "");
-  const title = input.title ? String(input.title).slice(0, 200) : filename;
-  const initialComment = input.initial_comment ? String(input.initial_comment).slice(0, 3000) : undefined;
-  if (!channel || !filename || !content) {
-    return fail("slack_upload_file requires channel, filename and content.");
+  const { channel, filename, bytes } = opts;
+  const title = opts.title || filename;
+  const initialComment = opts.initialComment;
+  if (!channel || !filename || !bytes.byteLength) {
+    return fail("Slack upload requires a channel, filename and non-empty content.");
   }
 
   const row = await loadProviderIntegration(admin, userId, agentId, "Slack");
-  if (!row) return notConnected("Slack", "slack_upload_file");
+  if (!row) return notConnected("Slack", "file upload");
   const creds = await readSecret(admin, row.credentials_secret_id);
   const token = creds.access_token as string | undefined;
   if (!token) return fail("Slack token missing — reconnect Slack. Nothing was uploaded.");
-
-  const bytes = new TextEncoder().encode(content);
 
   // Step 1: reserve an upload URL + file id for this exact size.
   let fileId: string;
@@ -227,6 +225,87 @@ export async function slackUploadFile(
     ref: fileId,
     url: permalink,
     target: channel,
+  };
+}
+
+export async function slackUploadFile(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const channel = String(input.channel || "").trim();
+  const filename = String(input.filename || "").trim();
+  const content = String(input.content || "");
+  if (!channel || !filename || !content) {
+    return fail("slack_upload_file requires channel, filename and content.");
+  }
+  return await slackUploadBytes(admin, userId, agentId, {
+    channel, filename,
+    bytes: new TextEncoder().encode(content),
+    title: input.title ? String(input.title).slice(0, 200) : filename,
+    initialComment: input.initial_comment ? String(input.initial_comment).slice(0, 3000) : undefined,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// GOOGLE DRIVE → SLACK — export an existing Doc/Sheet to a real PDF/CSV file
+// and deliver it into Slack in one step. A raw Drive export with nowhere to
+// land is just bytes nobody sees; this makes the export itself an act of
+// delivery, reusing the exact same verified Slack upload path as
+// slack_upload_file so a founder gets a real file in a real channel, not a
+// promise that one was "generated".
+// ---------------------------------------------------------------------------
+const EXPORT_MIME: Record<string, string> = { pdf: "application/pdf", csv: "text/csv" };
+
+export async function exportGoogleFileToSlack(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const fileId = String(input.file_id || "").trim();
+  const format = String(input.format || "").trim().toLowerCase();
+  const channel = String(input.channel || "").trim();
+  if (!fileId) return fail("export_google_file requires a file_id.");
+  if (!EXPORT_MIME[format]) return fail(`export_google_file: format must be "pdf" or "csv" (got "${format || "none"}").`);
+  if (!channel) return fail("export_google_file requires a Slack channel to deliver into.");
+
+  const auth = await googleAccess(admin, userId, agentId);
+  if ("ok" in auth) return auth;
+
+  let bytes: Uint8Array;
+  let sourceTitle = fileId;
+  try {
+    const meta = await fetchWithRetry(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name`,
+      { headers: { Authorization: `Bearer ${auth.access}` } },
+    );
+    const metaBody = await gJson(meta);
+    if (meta.ok && typeof (metaBody as { name?: string }).name === "string") {
+      sourceTitle = (metaBody as { name: string }).name;
+    }
+    const er = await fetchWithRetry(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(EXPORT_MIME[format])}`,
+      { headers: { Authorization: `Bearer ${auth.access}` } },
+    );
+    if (!er.ok) {
+      const eb = await gJson(er);
+      return fail(`Google Drive refused to export file ${fileId} as ${format}: ${gErr(eb, er)}.`, fileId);
+    }
+    bytes = new Uint8Array(await er.arrayBuffer());
+    if (!bytes.byteLength) return fail(`Google Drive returned an empty export for file ${fileId} — nothing to deliver.`, fileId);
+  } catch (e) {
+    return fail(`Export from Google Drive failed: ${e instanceof Error ? e.message : String(e)} — nothing was delivered.`, fileId);
+  }
+
+  const filename = `${sourceTitle.replace(/[^\w.\- ]+/g, "_").slice(0, 150)}.${format}`;
+  const result = await slackUploadBytes(admin, userId, agentId, {
+    channel, filename, bytes, title: filename,
+    initialComment: `Exported from Google Drive as ${format.toUpperCase()}.`,
+  });
+  if (!result.ok) {
+    return fail(`Exported "${sourceTitle}" from Google Drive as ${format}, but delivering it to Slack failed: ${result.summary}`, fileId);
+  }
+  return {
+    ...result,
+    provider: "Slack",
+    summary: `Exported "${sourceTitle}" from Google Drive to ${format.toUpperCase()} and delivered it to Slack ${channel}, verified — ${result.summary}`,
+    target: fileId,
   };
 }
 
@@ -1052,11 +1131,43 @@ export async function composeAndDeliver(
   return { ...result, provider: "Slack" };
 }
 
+// Auto-share: a created Doc/Sheet used to sit in the agent's own Drive with
+// no path to the person it was actually meant for -- the founder had to
+// manually open it and share it themselves. Grants real Drive access via
+// the permissions API (with Drive's own notification email, so the
+// recipient hears about it immediately) and verifies the grant by
+// re-listing permissions rather than trusting a bare 200. Returns a plain
+// success/failure rather than throwing, so the caller can decide how a
+// failed share affects the overall result.
+async function driveShareFile(
+  h: Record<string, string>, fileId: string, email: string, role: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const allowedRoles = new Set(["reader", "commenter", "writer"]);
+  const safeRole = allowedRoles.has(role) ? role : "reader";
+  const cr = await fetchWithRetry(
+    `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?sendNotificationEmail=true`,
+    {
+      method: "POST", headers: h,
+      body: JSON.stringify({ type: "user", role: safeRole, emailAddress: email }),
+    },
+  );
+  const cb = await gJson(cr);
+  if (!cr.ok) return { ok: false, reason: gErr(cb, cr) };
+  const vr = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, { headers: h });
+  const vb = await gJson(vr);
+  const perms = (vb as { permissions?: { emailAddress?: string }[] }).permissions || [];
+  if (!vr.ok || !perms.some((p) => (p.emailAddress || "").toLowerCase() === email.toLowerCase())) {
+    return { ok: false, reason: "the share could not be verified when re-listing permissions" };
+  }
+  return { ok: true };
+}
+
 async function googleCreateDoc(
   admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
 ): Promise<WriteResult> {
   const title = String(input.title || "").trim();
   const text = String(input.body_markdown || input.body || "").trim();
+  const shareWith = String(input.share_with_email || "").trim();
   if (!title) return fail("create_doc needs a title — nothing was created.");
   const auth = await googleAccess(admin, userId, agentId);
   if ("ok" in auth) return auth;
@@ -1080,6 +1191,18 @@ async function googleCreateDoc(
     return fail(`Doc creation could not be verified: ${gErr(vb, vr)}.`, docId);
   }
   const url = `https://docs.google.com/document/d/${docId}/edit`;
+  if (shareWith) {
+    const role = String(input.share_role || "reader");
+    const share = await driveShareFile(h, docId, shareWith, role);
+    if (!share.ok) {
+      return fail(`Google Doc "${title}" was created (${url}) but could NOT be shared with ${shareWith}: ${share.reason}. The doc exists but hasn't reached them.`, docId, title);
+    }
+    return {
+      ok: true,
+      summary: `Google Doc "${title}" was really created, verified, and shared with ${shareWith} (${role}) — they've been notified by Google.`,
+      ref: docId, url, target: title,
+    };
+  }
   return { ok: true, summary: `Google Doc "${title}" was really created and verified by re-reading it.`, ref: docId, url, target: title };
 }
 
@@ -1128,6 +1251,7 @@ async function googleCreateSheet(
 ): Promise<WriteResult> {
   const title = String(input.title || "").trim();
   const rows = Array.isArray(input.rows) ? (input.rows as unknown[][]) : [];
+  const shareWith = String(input.share_with_email || "").trim();
   if (!title) return fail("create_sheet needs a title — nothing was created.");
   const auth = await googleAccess(admin, userId, agentId);
   if ("ok" in auth) return auth;
@@ -1150,10 +1274,23 @@ async function googleCreateSheet(
   if (!vr.ok || (vb as { spreadsheetId?: string }).spreadsheetId !== sheetId) {
     return fail(`Sheet creation could not be verified: ${gErr(vb, vr)}.`, sheetId);
   }
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
+  if (shareWith) {
+    const role = String(input.share_role || "reader");
+    const share = await driveShareFile(h, sheetId, shareWith, role);
+    if (!share.ok) {
+      return fail(`Google Sheet "${title}" was created (${url}) but could NOT be shared with ${shareWith}: ${share.reason}. The sheet exists but hasn't reached them.`, sheetId, title);
+    }
+    return {
+      ok: true,
+      summary: `Google Sheet "${title}" was really created with ${rows.length} row(s), verified, and shared with ${shareWith} (${role}) — they've been notified by Google.`,
+      ref: sheetId, url, target: title,
+    };
+  }
   return {
     ok: true,
     summary: `Google Sheet "${title}" was really created with ${rows.length} row(s) and verified by re-reading it.`,
-    ref: sheetId, url: `https://docs.google.com/spreadsheets/d/${sheetId}/edit`, target: title,
+    ref: sheetId, url, target: title,
   };
 }
 
@@ -1239,6 +1376,7 @@ export const PROVIDER_WRITE_KINDS = new Set([
 
   "slack_post_message",
   "slack_upload_file",
+  "export_google_file",
   "notion_create_page",
   "notion_update_page",
   "canva_create_design",
@@ -1257,6 +1395,7 @@ export async function runProviderWrite(
   switch (kind) {
     case "slack_post_message": return await slackPostMessage(admin, userId, agentId, input);
     case "slack_upload_file": return await slackUploadFile(admin, userId, agentId, input);
+    case "export_google_file": return await exportGoogleFileToSlack(admin, userId, agentId, input);
     case "notion_create_page": return await notionCreatePage(admin, userId, agentId, input);
     case "notion_update_page": return await notionUpdatePage(admin, userId, agentId, input);
     case "canva_create_design": return await canvaCreateDesign(admin, userId, agentId, input);

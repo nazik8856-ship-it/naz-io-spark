@@ -440,7 +440,7 @@ serve(async (req) => {
       create_calendar_event: "calendar_event",
       send_email: "email", reply_email: "email",
       generate_report: "report",
-      slack_post_message: "message", slack_upload_file: "file",
+      slack_post_message: "message", slack_upload_file: "file", export_google_file: "file",
       notion_create_page: "notion_page", notion_update_page: "notion_page",
       canva_create_design: "design", canva_create_folder: "folder", canva_export_design: "file",
       figma_post_comment: "comment", figma_create_dev_resource: "dev_resource",
@@ -453,7 +453,7 @@ serve(async (req) => {
       create_calendar_event: "Google",
       send_email: "Gmail", reply_email: "Gmail",
       generate_report: null,
-      slack_post_message: "Slack", slack_upload_file: "Slack",
+      slack_post_message: "Slack", slack_upload_file: "Slack", export_google_file: "Slack",
       notion_create_page: "Notion", notion_update_page: "Notion",
       canva_create_design: "Canva", canva_create_folder: "Canva", canva_export_design: "Canva",
       figma_post_comment: "Figma", figma_create_dev_resource: "Figma",
@@ -498,7 +498,7 @@ serve(async (req) => {
       "create_sheet", "edit_sheet",
       "create_calendar_event",
       "upsert_client_note",
-      "slack_post_message", "slack_upload_file",
+      "slack_post_message", "slack_upload_file", "export_google_file",
       "notion_create_page", "notion_update_page",
       "canva_create_design", "canva_create_folder", "canva_export_design",
       "figma_post_comment", "figma_create_dev_resource",
@@ -519,6 +519,7 @@ serve(async (req) => {
       send_email: "to",
       slack_post_message: "channel",
       slack_upload_file: "channel",
+      export_google_file: "channel",
     };
     const FANOUT_THRESHOLD = 5;
     const fanoutSeen = new Map<string, Set<string>>();
@@ -1139,8 +1140,8 @@ serve(async (req) => {
       { name: "send_email", kind: "send_email", description: "Send a real email via the agent-notification template. Requires an explicit guardrail allowing external sends; otherwise it will be queued for approval instead of sent.", config: {} },
       { name: "generate_report", kind: "generate_report", description: "Write a markdown report/digest/audit/plan as a durable artifact the operator can open later.", config: {} },
       { name: "compose_and_deliver", kind: "compose_and_deliver", description: "Compose content AND deliver it via a real channel (email or Slack) in one guaranteed step — use this instead of generate_report when the point is for someone to actually receive it, not just to save it for later. Only reports success once the real send is verified; never claims delivery for content that was merely composed.", config: {} },
-      { name: "create_doc", kind: "create_doc", description: "Create a real Google Doc in the connected Google account (from the Gmail integration) with the given title and body text. Returns the doc URL.", config: {} },
-      { name: "create_sheet", kind: "create_sheet", description: "Create a real Google Sheet in the connected Google account (from the Gmail integration) with the given title and rows (2D array of cell values). Returns the sheet URL.", config: {} },
+      { name: "create_doc", kind: "create_doc", description: "Create a real Google Doc in the connected Google account (from the Gmail integration) with the given title and body text. Returns the doc URL. Optionally pass share_with_email (and share_role: reader|commenter|writer, default reader) to really share it with someone the moment it's created — Google emails them directly. If sharing is requested but fails, this reports failure even though the doc exists, since the point was for them to receive it.", config: {} },
+      { name: "create_sheet", kind: "create_sheet", description: "Create a real Google Sheet in the connected Google account (from the Gmail integration) with the given title and rows (2D array of cell values). Returns the sheet URL. Optionally pass share_with_email (and share_role: reader|commenter|writer, default reader) to really share it with someone the moment it's created — Google emails them directly. If sharing is requested but fails, this reports failure even though the sheet exists, since the point was for them to receive it.", config: {} },
       { name: "create_calendar_event", kind: "create_calendar_event", description: "Create a real event on the connected Google account's primary calendar. Requires ISO start/end times.", config: {} },
       { name: "edit_doc", kind: "edit_doc", description: "Edit an existing Google Doc by id — append to or replace its body content. Verifies the edit by re-reading the doc.", config: {} },
       { name: "edit_sheet", kind: "edit_sheet", description: "Update a range in an existing Google Sheet by id (e.g. Sheet1!A2:C10) with a 2D array of values. Verifies by re-reading the range.", config: {} },
@@ -1152,6 +1153,7 @@ serve(async (req) => {
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to any https URL, same SSRF-safe checks and approval gating.", config: {} },
       { name: "slack_post_message", kind: "slack_post_message", description: "Post a real message to a Slack channel via chat.postMessage using the connected workspace's bot token. Confirmed by Slack's own message receipt (ts) and a read-back where scopes allow.", config: {} },
       { name: "slack_upload_file", kind: "slack_upload_file", description: "Upload a real text-based file (a report, a CSV, notes) and share it into a Slack channel using the connected workspace's bot token. Verified by re-fetching the file and confirming it's actually shared to that channel. Use this instead of pasting long content into a message when the founder expects a downloadable file.", config: {} },
+      { name: "export_google_file", kind: "export_google_file", description: "Export an existing Google Doc or Sheet (by file_id) to a real PDF or CSV file and deliver it into a Slack channel in one step, verified the same way slack_upload_file is. Use this to turn a Doc/Sheet you already created into a downloadable file someone actually receives, instead of just leaving it as a link.", config: {} },
       { name: "notion_create_page", kind: "notion_create_page", description: "Create a real Notion page under a parent page or database, then re-fetch the page to confirm it exists before reporting success.", config: {} },
       { name: "notion_update_page", kind: "notion_update_page", description: "Update an existing Notion page (title, archived state, or appended content) and re-fetch it to confirm the change landed.", config: {} },
       { name: "canva_create_design", kind: "canva_create_design", description: "Create a real Canva design via the Canva Connect API, then fetch the design back by id to confirm it exists. Returns the edit URL.", config: {} },
@@ -1205,8 +1207,8 @@ serve(async (req) => {
         case "send_email": usage = `send_email(to: string, subject: string, body: string)  // actually delivers an email unless guardrails require approval`; break;
         case "generate_report": usage = `generate_report(title: string, kind: "report"|"digest"|"audit"|"plan", body_markdown: string)  // saves a durable artifact`; break;
         case "compose_and_deliver": usage = `compose_and_deliver(title: string, body_markdown: string, via: "email"|"slack", to?: string, channel?: string)  // composes AND really delivers in one step; to required for email, channel required for slack`; break;
-        case "create_doc": usage = `create_doc(title: string, body_markdown: string)  // creates a real Google Doc in the connected Google account and returns { url, id }`; break;
-        case "create_sheet": usage = `create_sheet(title: string, rows: string[][])  // creates a real Google Sheet with the given rows and returns { url, id }`; break;
+        case "create_doc": usage = `create_doc(title: string, body_markdown: string, share_with_email?: string, share_role?: "reader"|"commenter"|"writer")  // creates a real Google Doc, optionally really shares it (Google emails the recipient), returns { url, id }`; break;
+        case "create_sheet": usage = `create_sheet(title: string, rows: string[][], share_with_email?: string, share_role?: "reader"|"commenter"|"writer")  // creates a real Google Sheet, optionally really shares it (Google emails the recipient), returns { url, id }`; break;
         case "create_calendar_event": usage = `create_calendar_event(title: string, start_iso: string, end_iso: string, description?: string)  // creates an event on the primary Google Calendar and returns { url, id }`; break;
         case "edit_doc": usage = `edit_doc(doc_id: string, mode: "append"|"replace", body_markdown: string)  // edits an existing Google Doc by id and re-reads to verify`; break;
         case "edit_sheet": usage = `edit_sheet(sheet_id: string, range: string, values: string[][])  // updates a range (e.g. "Sheet1!A2:C10") in an existing Google Sheet and re-reads to verify`; break;
@@ -1218,6 +1220,7 @@ serve(async (req) => {
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to any https URL not on a private/internal address; queued for approval unless a guardrail auto-allows it. The escape hatch for integrations NazAI has no native connector for.`; break;
         case "slack_post_message": usage = `slack_post_message(channel: string, text: string, thread_ts?: string)  // really posts to Slack; verified by Slack's message receipt`; break;
         case "slack_upload_file": usage = `slack_upload_file(channel: string, filename: string, content: string, title?: string, initial_comment?: string)  // uploads a real text file (report, CSV, notes) and shares it in the channel; verified by re-fetching it`; break;
+        case "export_google_file": usage = `export_google_file(file_id: string, format: "pdf"|"csv", channel: string)  // exports a real Google Doc/Sheet and delivers it as a real file into a Slack channel`; break;
         case "notion_create_page": usage = `notion_create_page(parent_id: string, parent_type?: "page"|"database", title: string, body_markdown?: string)  // creates a real Notion page, verified by re-fetching it`; break;
         case "notion_update_page": usage = `notion_update_page(page_id: string, title?: string, append_markdown?: string, archived?: boolean)  // updates a real Notion page, verified by re-fetching it`; break;
         case "canva_create_design": usage = `canva_create_design(title: string, design_type?: "presentation"|"doc"|"whiteboard", folder_id?: string)  // creates a real Canva design (optionally inside a folder), verified by fetching it back`; break;
@@ -1285,7 +1288,7 @@ ${toolDescriptions}
 \`\`\`json
 {"action":"tool","tool":"<name>","input":{...},"reasoning":"<one short sentence WHY you chose this action now>","alternatives_considered":["<other option you weighed and rejected>","..."],"confidence_score":0-100,"confidence":"high|medium|low"}
 \`\`\`
-For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, slack_upload_file, notion_create_page, notion_update_page, canva_create_design, canva_create_folder, canva_export_design, compose_and_deliver, figma_post_comment, figma_create_dev_resource, shopify_create_draft_order, shopify_update_product, http_post, schedule_followup) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
+For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, slack_upload_file, export_google_file, notion_create_page, notion_update_page, canva_create_design, canva_create_folder, canva_export_design, compose_and_deliver, figma_post_comment, figma_create_dev_resource, shopify_create_draft_order, shopify_update_product, http_post, schedule_followup) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
 Decision provenance (ALL tool + decide blocks): include "alternatives_considered" (the other tools/strategies/data sources you genuinely weighed for this step — empty array only if there truly was no alternative) and "confidence_score", an integer 0-100 that honestly reflects how certain YOU are in this specific choice given the data you actually have. Never emit a fixed or habitual number: lower it when data is stale, missing or ambiguous, raise it when you verified the inputs.
 \`\`\`json
 {"action":"decide","decision":"...","rationale":"...","alternatives_considered":["..."],"confidence_score":0-100}

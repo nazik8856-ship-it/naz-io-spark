@@ -84,17 +84,29 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
   create_doc: z.object({
     title: nonEmpty("title").max(300),
     body_markdown: nonEmpty("body_markdown"),
+    share_with_email: z.string().trim().email("must be a valid email address").optional(),
+    share_role: z.enum(["reader", "commenter", "writer"]).optional(),
   }).passthrough(),
   edit_doc: z.object({
     doc_id: nonEmpty("doc_id"),
     mode: z.enum(["append", "replace"]),
     body_markdown: nonEmpty("body_markdown"),
   }).passthrough(),
-  create_sheet: z.object({ title: nonEmpty("title").max(300), rows }).passthrough(),
+  create_sheet: z.object({
+    title: nonEmpty("title").max(300),
+    rows,
+    share_with_email: z.string().trim().email("must be a valid email address").optional(),
+    share_role: z.enum(["reader", "commenter", "writer"]).optional(),
+  }).passthrough(),
   edit_sheet: z.object({
     sheet_id: nonEmpty("sheet_id"),
     range: nonEmpty("range").regex(/.+![A-Z]+\d*(:[A-Z]+\d*)?$/i, 'must look like "Sheet1!A2:C10"'),
     values: rows,
+  }).passthrough(),
+  export_google_file: z.object({
+    file_id: nonEmpty("file_id"),
+    format: z.enum(["pdf", "csv"]),
+    channel: nonEmpty("channel"),
   }).passthrough(),
   create_calendar_event: z.object({
     title: nonEmpty("title").max(300),
@@ -386,6 +398,10 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
   create_sheet: {
     required: ["target", "result_ref", "url"],
     labels: { target: "spreadsheet title", result_ref: "Google Sheet ID", url: "shareable spreadsheet link" },
+  },
+  export_google_file: {
+    required: ["target", "result_ref", "url"],
+    labels: { target: "source Google file ID", result_ref: "Slack file ID", url: "link to the exported file in Slack" },
   },
   edit_sheet: {
     required: ["result_ref", "url"],

@@ -551,6 +551,8 @@ function describeApprovalAction(action: string | undefined, payload: unknown): s
       return `Upload a file to Slack${p.channel ? ` in ${p.channel}` : ""}${p.filename ? ` ("${String(p.filename).slice(0, 60)}")` : ""}`;
     case "canva_export_design":
       return `Export a Canva design${p.format ? ` to ${String(p.format).toUpperCase()}` : ""}`;
+    case "export_google_file":
+      return `Export a Google file to ${p.format ? String(p.format).toUpperCase() : "a file"}${p.channel ? ` in Slack (${p.channel})` : ""}`;
     case "compose_and_deliver":
       return `Compose and deliver${p.via === "slack" ? ` to Slack${p.channel ? ` (${p.channel})` : ""}` : ` by email${p.to ? ` to ${p.to}` : ""}`}${p.title ? `: "${String(p.title).slice(0, 60)}"` : ""}`;
     case "create_calendar_event":

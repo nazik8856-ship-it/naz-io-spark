@@ -151,8 +151,8 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
   create_doc: {
     kind: "create_doc", provider: "Google Docs", providerAliases: ["Google Drive", "Gmail"],
     implemented: true, verified: true, mode: "write",
-    verification: "document re-fetched via the Docs API after creation",
-    honesty: "I can really create Google Docs.",
+    verification: "document re-fetched via the Docs API after creation; a requested share is re-verified by re-listing Drive permissions",
+    honesty: "I can really create Google Docs, and really share them with someone (Google emails them directly) the moment I do.",
   },
   edit_doc: {
     kind: "edit_doc", provider: "Google Docs", providerAliases: ["Google Drive", "Gmail"],
@@ -163,8 +163,14 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
   create_sheet: {
     kind: "create_sheet", provider: "Google Sheets", providerAliases: ["Google Drive", "Gmail"],
     implemented: true, verified: true, mode: "write",
-    verification: "spreadsheet re-fetched after creation",
-    honesty: "I can really create Google Sheets.",
+    verification: "spreadsheet re-fetched after creation; a requested share is re-verified by re-listing Drive permissions",
+    honesty: "I can really create Google Sheets, and really share them with someone (Google emails them directly) the moment I do.",
+  },
+  export_google_file: {
+    kind: "export_google_file", provider: "Google Drive", providerAliases: ["Slack"],
+    implemented: true, verified: true, mode: "write",
+    verification: "the exported bytes are non-empty and the resulting Slack file is re-fetched and confirmed shared to the channel",
+    honesty: "I can really export an existing Doc/Sheet to PDF/CSV and deliver it as a real file in Slack, not just leave it as a link.",
   },
   edit_sheet: {
     kind: "edit_sheet", provider: "Google Sheets", providerAliases: ["Google Drive", "Gmail"],
