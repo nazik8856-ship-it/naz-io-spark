@@ -130,8 +130,8 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
   // ---------- Google (real API calls, all read-back verified) ----------
   send_email: {
     kind: "send_email", provider: "Gmail", implemented: true, verified: true, mode: "write",
-    verification: "sent message re-fetched from Gmail by id",
-    honesty: "I can really send email from your Gmail account.",
+    verification: "recipient domain resolved (MX/A record) before sending; sent message re-fetched from Gmail by id",
+    honesty: "I can really send email from your Gmail account, and I check the recipient's domain can actually receive mail before I try.",
   },
   reply_email: {
     kind: "reply_email", provider: "Gmail", implemented: true, verified: true, mode: "write",

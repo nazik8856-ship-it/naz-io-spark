@@ -956,6 +956,28 @@ const gJson = async (r: Response) => await r.json().catch(() => ({} as Record<st
 const gErr = (b: Record<string, unknown>, r: Response) =>
   String((b?.error as { message?: string } | undefined)?.message || `HTTP ${r.status}`);
 
+// Recipient resolution: confirm the destination domain can actually receive
+// mail BEFORE attempting a real send. The `to` field is model-picked free
+// text -- syntactically-valid-but-wrong addresses (a typo'd domain, a
+// plausible-looking but made-up one) previously sailed straight through to
+// Gmail with no check that anything real was on the other end. An MX record
+// is the normal case; a domain with no MX but a working A record is still
+// valid per RFC 5321 §5.1 (mail goes to the host itself), so both are
+// accepted -- only a domain with neither is treated as unresolvable.
+async function domainCanReceiveMail(email: string): Promise<{ ok: boolean; reason?: string }> {
+  const at = email.lastIndexOf("@");
+  const domain = at >= 0 ? email.slice(at + 1).trim().toLowerCase() : "";
+  if (!domain) return { ok: false, reason: "the address has no domain to resolve" };
+  const [mx, a] = await Promise.allSettled([
+    Deno.resolveDns(domain, "MX"),
+    Deno.resolveDns(domain, "A"),
+  ]);
+  const hasMx = mx.status === "fulfilled" && mx.value.length > 0;
+  const hasA = a.status === "fulfilled" && a.value.length > 0;
+  if (hasMx || hasA) return { ok: true };
+  return { ok: false, reason: `"${domain}" has no mail server on record (no MX or A record) — this looks like a typo or an invented address` };
+}
+
 async function googleSendEmail(
   admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
 ): Promise<WriteResult> {
@@ -963,6 +985,10 @@ async function googleSendEmail(
   const subject = String(input.subject || "").trim();
   const body = String(input.body || input.body_markdown || "").trim();
   if (!to || !subject || !body) return fail("send_email needs to, subject and body — nothing was sent.");
+  const domainCheck = await domainCanReceiveMail(to);
+  if (!domainCheck.ok) {
+    return fail(`send_email blocked before sending: ${domainCheck.reason}. Verify the recipient address before retrying — nothing was sent.`, null, to);
+  }
   const auth = await googleAccess(admin, userId, agentId);
   if ("ok" in auth) return auth;
   const { gmailSend } = await import("./gmail.ts");
