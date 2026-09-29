@@ -186,6 +186,11 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
     verification: "Slack's own chat.postMessage receipt (ok:true + message ts), plus a channel read-back where scopes allow",
     honesty: "I can really post messages to Slack channels.",
   },
+  slack_upload_file: {
+    kind: "slack_upload_file", provider: "Slack", implemented: true, verified: true, mode: "write",
+    verification: "the file is re-fetched by id and confirmed as actually shared to the target channel",
+    honesty: "I can really upload a text-based file (a report, a CSV, notes) and share it into a Slack channel.",
+  },
   canva_create_design: {
     kind: "canva_create_design", provider: "Canva", implemented: true, verified: true, mode: "write",
     verification: "design fetched back by id from the Canva Connect API",

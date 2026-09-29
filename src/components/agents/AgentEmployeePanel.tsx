@@ -547,6 +547,8 @@ function describeApprovalAction(action: string | undefined, payload: unknown): s
       return `Send data to ${p.url || "an external system"}`;
     case "slack_post_message":
       return `Post a Slack message${p.channel ? ` in ${p.channel}` : ""}`;
+    case "slack_upload_file":
+      return `Upload a file to Slack${p.channel ? ` in ${p.channel}` : ""}${p.filename ? ` ("${String(p.filename).slice(0, 60)}")` : ""}`;
     case "create_calendar_event":
       return `Create a calendar event${p.summary ? `: "${String(p.summary).slice(0, 60)}"` : ""}`;
     default:

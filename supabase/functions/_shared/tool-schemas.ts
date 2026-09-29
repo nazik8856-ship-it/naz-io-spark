@@ -115,6 +115,13 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
     text: nonEmpty("text").max(4000),
     thread_ts: str.optional(),
   }).passthrough(),
+  slack_upload_file: z.object({
+    channel: nonEmpty("channel"),
+    filename: nonEmpty("filename"),
+    content: nonEmpty("content").max(200_000),
+    title: str.optional(),
+    initial_comment: str.optional(),
+  }).passthrough(),
   notion_create_page: z.object({
     parent_id: nonEmpty("parent_id"),
     parent_type: z.enum(["page", "database"]).optional(),
@@ -401,6 +408,10 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
   slack_post_message: {
     required: ["target", "result_ref"],
     labels: { target: "Slack channel", result_ref: "Slack message timestamp (ts)" },
+  },
+  slack_upload_file: {
+    required: ["target", "result_ref", "url"],
+    labels: { target: "Slack channel", result_ref: "Slack file ID", url: "link to the uploaded file" },
   },
   notion_create_page: {
     required: ["target", "result_ref", "url"],

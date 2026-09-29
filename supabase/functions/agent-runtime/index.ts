@@ -440,7 +440,7 @@ serve(async (req) => {
       create_calendar_event: "calendar_event",
       send_email: "email", reply_email: "email",
       generate_report: "report",
-      slack_post_message: "message",
+      slack_post_message: "message", slack_upload_file: "file",
       notion_create_page: "notion_page", notion_update_page: "notion_page",
       canva_create_design: "design", canva_create_folder: "folder",
       figma_post_comment: "comment", figma_create_dev_resource: "dev_resource",
@@ -453,7 +453,7 @@ serve(async (req) => {
       create_calendar_event: "Google",
       send_email: "Gmail", reply_email: "Gmail",
       generate_report: null,
-      slack_post_message: "Slack",
+      slack_post_message: "Slack", slack_upload_file: "Slack",
       notion_create_page: "Notion", notion_update_page: "Notion",
       canva_create_design: "Canva", canva_create_folder: "Canva",
       figma_post_comment: "Figma", figma_create_dev_resource: "Figma",
@@ -477,7 +477,7 @@ serve(async (req) => {
       "create_sheet", "edit_sheet",
       "create_calendar_event",
       "upsert_client_note",
-      "slack_post_message",
+      "slack_post_message", "slack_upload_file",
       "notion_create_page", "notion_update_page",
       "canva_create_design", "canva_create_folder",
       "figma_post_comment", "figma_create_dev_resource",
@@ -1072,6 +1072,7 @@ serve(async (req) => {
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to any https URL — the escape hatch for reaching a system NazAI has no native integration for (a CRM's incoming webhook, Zapier, a custom endpoint, etc). Blocked from localhost/private/internal addresses (SSRF-safe DNS check), but NOT restricted to a specific domain otherwise. Queued for the operator's approval by default; sends immediately only if a manifest guardrail explicitly allows it or the agent has auto_approve_low_risk on.", config: {} },
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to any https URL, same SSRF-safe checks and approval gating.", config: {} },
       { name: "slack_post_message", kind: "slack_post_message", description: "Post a real message to a Slack channel via chat.postMessage using the connected workspace's bot token. Confirmed by Slack's own message receipt (ts) and a read-back where scopes allow.", config: {} },
+      { name: "slack_upload_file", kind: "slack_upload_file", description: "Upload a real text-based file (a report, a CSV, notes) and share it into a Slack channel using the connected workspace's bot token. Verified by re-fetching the file and confirming it's actually shared to that channel. Use this instead of pasting long content into a message when the founder expects a downloadable file.", config: {} },
       { name: "notion_create_page", kind: "notion_create_page", description: "Create a real Notion page under a parent page or database, then re-fetch the page to confirm it exists before reporting success.", config: {} },
       { name: "notion_update_page", kind: "notion_update_page", description: "Update an existing Notion page (title, archived state, or appended content) and re-fetch it to confirm the change landed.", config: {} },
       { name: "canva_create_design", kind: "canva_create_design", description: "Create a real Canva design via the Canva Connect API, then fetch the design back by id to confirm it exists. Returns the edit URL.", config: {} },
@@ -1135,6 +1136,7 @@ serve(async (req) => {
         
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to any https URL not on a private/internal address; queued for approval unless a guardrail auto-allows it. The escape hatch for integrations NazAI has no native connector for.`; break;
         case "slack_post_message": usage = `slack_post_message(channel: string, text: string, thread_ts?: string)  // really posts to Slack; verified by Slack's message receipt`; break;
+        case "slack_upload_file": usage = `slack_upload_file(channel: string, filename: string, content: string, title?: string, initial_comment?: string)  // uploads a real text file (report, CSV, notes) and shares it in the channel; verified by re-fetching it`; break;
         case "notion_create_page": usage = `notion_create_page(parent_id: string, parent_type?: "page"|"database", title: string, body_markdown?: string)  // creates a real Notion page, verified by re-fetching it`; break;
         case "notion_update_page": usage = `notion_update_page(page_id: string, title?: string, append_markdown?: string, archived?: boolean)  // updates a real Notion page, verified by re-fetching it`; break;
         case "canva_create_design": usage = `canva_create_design(title: string, design_type?: "presentation"|"doc"|"whiteboard", folder_id?: string)  // creates a real Canva design (optionally inside a folder), verified by fetching it back`; break;
@@ -1201,7 +1203,7 @@ ${toolDescriptions}
 \`\`\`json
 {"action":"tool","tool":"<name>","input":{...},"reasoning":"<one short sentence WHY you chose this action now>","alternatives_considered":["<other option you weighed and rejected>","..."],"confidence_score":0-100,"confidence":"high|medium|low"}
 \`\`\`
-For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, notion_create_page, notion_update_page, canva_create_design, canva_create_folder, figma_post_comment, figma_create_dev_resource, shopify_create_draft_order, shopify_update_product, http_post, schedule_followup) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
+For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, slack_upload_file, notion_create_page, notion_update_page, canva_create_design, canva_create_folder, figma_post_comment, figma_create_dev_resource, shopify_create_draft_order, shopify_update_product, http_post, schedule_followup) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
 Decision provenance (ALL tool + decide blocks): include "alternatives_considered" (the other tools/strategies/data sources you genuinely weighed for this step — empty array only if there truly was no alternative) and "confidence_score", an integer 0-100 that honestly reflects how certain YOU are in this specific choice given the data you actually have. Never emit a fixed or habitual number: lower it when data is stale, missing or ambiguous, raise it when you verified the inputs.
 \`\`\`json
 {"action":"decide","decision":"...","rationale":"...","alternatives_considered":["..."],"confidence_score":0-100}

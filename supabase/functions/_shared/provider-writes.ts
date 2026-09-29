@@ -125,6 +125,106 @@ export async function slackPostMessage(
   };
 }
 
+// Slack's old files.upload endpoint is deprecated -- files now go through a
+// 3-step external-upload flow: reserve a URL, POST the bytes to it, then
+// complete the upload with the channel/comment to actually share it. Lets an
+// agent deliver a real generated file (a report, a CSV) into a channel
+// instead of only ever being able to describe it in message text.
+export async function slackUploadFile(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const channel = String(input.channel || "").trim();
+  const filename = String(input.filename || "").trim();
+  const content = String(input.content || "");
+  const title = input.title ? String(input.title).slice(0, 200) : filename;
+  const initialComment = input.initial_comment ? String(input.initial_comment).slice(0, 3000) : undefined;
+  if (!channel || !filename || !content) {
+    return fail("slack_upload_file requires channel, filename and content.");
+  }
+
+  const row = await loadProviderIntegration(admin, userId, agentId, "Slack");
+  if (!row) return notConnected("Slack", "slack_upload_file");
+  const creds = await readSecret(admin, row.credentials_secret_id);
+  const token = creds.access_token as string | undefined;
+  if (!token) return fail("Slack token missing — reconnect Slack. Nothing was uploaded.");
+
+  const bytes = new TextEncoder().encode(content);
+
+  // Step 1: reserve an upload URL + file id for this exact size.
+  let fileId: string;
+  let uploadUrl: string;
+  try {
+    const r = await fetchWithRetry("https://slack.com/api/files.getUploadURLExternal", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ filename, length: String(bytes.byteLength) }),
+    });
+    const b = await r.json().catch(() => ({}));
+    if (!r.ok || !b?.ok || !b?.upload_url || !b?.file_id) {
+      return fail(`Slack refused to reserve an upload: ${String(b?.error || `HTTP ${r.status}`)} — nothing was uploaded.`);
+    }
+    fileId = String(b.file_id);
+    uploadUrl = String(b.upload_url);
+  } catch (e) {
+    return fail(`Slack files.getUploadURLExternal failed: ${e instanceof Error ? e.message : String(e)} — nothing was uploaded.`);
+  }
+
+  // Step 2: POST the actual bytes to the reserved URL.
+  try {
+    const form = new FormData();
+    form.append("file", new Blob([bytes]), filename);
+    const r = await fetchWithRetry(uploadUrl, { method: "POST", body: form });
+    if (!r.ok) return fail(`Slack file upload HTTP ${r.status} — the file was NOT delivered.`);
+  } catch (e) {
+    return fail(`Slack file upload failed: ${e instanceof Error ? e.message : String(e)} — the file was NOT delivered.`);
+  }
+
+  // Step 3: complete the upload, sharing it into the channel.
+  let completed: Record<string, unknown>;
+  try {
+    const r = await fetchWithRetry("https://slack.com/api/files.completeUploadExternal", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({
+        files: [{ id: fileId, title }],
+        channel_id: channel,
+        ...(initialComment ? { initial_comment: initialComment } : {}),
+      }),
+    });
+    completed = await r.json().catch(() => ({}));
+    if (!r.ok || !completed?.ok) {
+      return fail(`Slack refused to complete the upload: ${String((completed as { error?: string })?.error || `HTTP ${r.status}`)} — the file was reserved but NOT shared.`);
+    }
+  } catch (e) {
+    return fail(`Slack files.completeUploadExternal failed: ${e instanceof Error ? e.message : String(e)} — the file was reserved but NOT shared.`);
+  }
+
+  // Verification: re-fetch the file by id and confirm it's really shared to this channel.
+  let permalink: string | null = null;
+  try {
+    const vr = await fetchWithRetry(`https://slack.com/api/files.info?file=${encodeURIComponent(fileId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const vb = await vr.json().catch(() => ({}));
+    const shares = (vb?.file?.shares as { public?: Record<string, unknown>; private?: Record<string, unknown> } | undefined);
+    const sharedHere = !!shares && (channel in (shares.public || {}) || channel in (shares.private || {}));
+    if (!vb?.ok || !sharedHere) {
+      return fail(`Slack file ${fileId} could NOT be verified as shared to ${channel} when re-read. Treat as failed.`, fileId, channel);
+    }
+    permalink = (vb.file?.permalink as string) || null;
+  } catch (e) {
+    return fail(`Slack file verification failed: ${e instanceof Error ? e.message : String(e)}. Treat as failed.`, fileId, channel);
+  }
+
+  return {
+    ok: true,
+    summary: `Uploaded "${filename}" to Slack ${channel} and verified it's really shared there (file ${fileId}).`,
+    ref: fileId,
+    url: permalink,
+    target: channel,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // NOTION — create/update a page, then GET the page back to confirm.
 // ---------------------------------------------------------------------------
@@ -995,6 +1095,7 @@ export const PROVIDER_WRITE_KINDS = new Set([
   "create_calendar_event",
 
   "slack_post_message",
+  "slack_upload_file",
   "notion_create_page",
   "notion_update_page",
   "canva_create_design",
@@ -1011,6 +1112,7 @@ export async function runProviderWrite(
 ): Promise<WriteResult> {
   switch (kind) {
     case "slack_post_message": return await slackPostMessage(admin, userId, agentId, input);
+    case "slack_upload_file": return await slackUploadFile(admin, userId, agentId, input);
     case "notion_create_page": return await notionCreatePage(admin, userId, agentId, input);
     case "notion_update_page": return await notionUpdatePage(admin, userId, agentId, input);
     case "canva_create_design": return await canvaCreateDesign(admin, userId, agentId, input);
