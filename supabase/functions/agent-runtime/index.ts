@@ -491,6 +491,22 @@ serve(async (req) => {
       "http_post", "schedule_followup",
     ]);
     const dailyActionCap = Math.max(0, Number((agent as { daily_action_cap?: number }).daily_action_cap ?? 20));
+    // Fan-out safety net: the daily action cap only limits TOTAL volume, so
+    // an agent that misreads its task as "email everyone in the list" could
+    // still legitimately blast up to the full daily cap of DIFFERENT people
+    // in one burst before anything stops it. This catches concentration
+    // into many distinct destinations, not just count -- after the first
+    // FANOUT_THRESHOLD distinct destinations for a kind in a single run,
+    // every NEW one is blocked until a human is involved. Repeats to an
+    // already-seen destination (retries, a follow-up in the same
+    // thread/channel) are never affected.
+    const FANOUT_KINDS: Record<string, string> = {
+      send_email: "to",
+      slack_post_message: "channel",
+      slack_upload_file: "channel",
+    };
+    const FANOUT_THRESHOLD = 5;
+    const fanoutSeen = new Map<string, Set<string>>();
     // Confidence-escalation threshold (per-agent, default 60): any tool call or
     // decide block the model reports BELOW this score is paused for a human.
     const confidenceThreshold = Math.max(
@@ -1892,6 +1908,36 @@ Rules:
             await logEvent("action", { type: tool.kind, target: "cap", ok: false, result_ref: null, summary: msg });
             messages.push({ role: "user", content: `${msg}\n\nSummarize what you have and finish.` });
             continue;
+          }
+        }
+
+        // Fan-out safety gate — see FANOUT_KINDS/FANOUT_THRESHOLD above.
+        {
+          const fanoutField = FANOUT_KINDS[tool.kind];
+          if (fanoutField) {
+            const dest = String((input as Record<string, unknown>)[fanoutField] || "").trim().toLowerCase();
+            if (dest) {
+              let seen = fanoutSeen.get(tool.kind);
+              if (!seen) { seen = new Set<string>(); fanoutSeen.set(tool.kind, seen); }
+              if (!seen.has(dest) && seen.size >= FANOUT_THRESHOLD) {
+                await logEvent("fanout_cap_reached", {
+                  reason: "Distinct-destination fan-out cap reached for this run",
+                  kind: tool.kind,
+                  threshold: FANOUT_THRESHOLD,
+                  destination: dest,
+                });
+                const destNoun = fanoutField === "to" ? "recipients" : "channels";
+                const msg = `Mass-send protection: this run has already reached ${FANOUT_THRESHOLD} different ${destNoun} for ${tool.kind}. Sending to a new one ("${dest}") needs a human's go-ahead first — this call was blocked, nothing was sent.`;
+                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                await logEvent("action", { type: tool.kind, target: dest, ok: false, result_ref: null, summary: msg });
+                messages.push({
+                  role: "user",
+                  content: `${msg}\n\nAsk the user for explicit confirmation before sending to any new ${destNoun} this run, or finish with what's already been sent.`,
+                });
+                continue;
+              }
+              seen.add(dest);
+            }
           }
         }
 
