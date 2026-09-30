@@ -23,7 +23,13 @@
 // Spend caps, the circuit breaker, and the anomaly detector are NOT wired
 // into this path -- content review has no execution outcome (success/
 // failure) for a breaker or anomaly baseline to key off, and incurs no AI
-// spend of its own in v1 (pure pattern matching, no LLM call).
+// spend of its own in v1 (pure pattern matching, no LLM call). Task #52:
+// anything the safety scanner actually flags (never a clean allow, matching
+// the action-shaped gate's own posture) gets a real agent_decisions row and
+// is embedded via decision-embeddings.ts the same way an external-api
+// action's own gate stop already is, so Outer Control's own history builds
+// real precedent (findPrecedent/evaluatePrecedentForAutoApprove) instead of
+// every call being judged in isolation from every one before it.
 //
 // content_kind='action' (v2): a structured *proposed action* from an
 // external AI -- action_type/provider/description/params, same shape
@@ -62,6 +68,7 @@ import { parseControlApiAction } from "../_shared/control-api-action.ts";
 import { checkKillSwitches, createPendingApproval, matchHardRule, runControlGate } from "../_shared/control-gate.ts";
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
+import { embedDecisionIfExternal } from "../_shared/decision-embeddings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -169,7 +176,7 @@ async function logTextGateDecision(
     content: string;
     decision: string;
     reasoning: string;
-    source: "platform_kill_switch" | "kill_switch" | "agent_kill_switch" | "hard_rule";
+    source: "platform_kill_switch" | "kill_switch" | "agent_kill_switch" | "hard_rule" | "safety_scanner";
     escalated: boolean;
     hardRuleId?: string | null;
     policyVersion?: number | null;
@@ -500,6 +507,32 @@ Deno.serve(async (req) => {
         : null; // block / escalate: nothing safe to hand back yet.
     const summary = scan.summary ?? "No safety-criteria issues found in this external output.";
 
+    // Task #52: a clean allow gets no agent_decisions row here, matching the
+    // same "a clean pass isn't worth an audit row" posture the action-shaped
+    // gate already holds to (runControlGateInner's own clean-allow fallthrough
+    // returns decisionId: null too -- see its last line). Anything the
+    // safety-rules scan actually flagged (modify/escalate/block) now gets a
+    // real one, source "safety_scanner" to match the equivalent branch of the
+    // action-shaped gate, and is embedded the exact same way that gate's own
+    // logStop already embeds an external-api decision -- so a source model
+    // that keeps tripping the same pattern builds real precedent (findPrecedent/
+    // evaluatePrecedentForAutoApprove) instead of every text evaluation being
+    // judged in total isolation from every other one that came before it.
+    let textDecisionId: string | null = null;
+    if (verdict !== "allow") {
+      textDecisionId = await logTextGateDecision(admin, {
+        userId: auth.userId, agentId, apiKeyId: auth.keyId, isTest: auth.isTest, sourceModel, content,
+        decision: `${verdict.toUpperCase()} text_review (${sourceModel})`, reasoning: summary,
+        source: "safety_scanner", escalated: verdict === "escalate",
+      });
+      if (textDecisionId) {
+        await embedDecisionIfExternal(admin, {
+          decisionId: textDecisionId, apiKeyId: auth.keyId, userId: auth.userId,
+          actionType: TEXT_REVIEW_ACTION_TYPE, provider: sourceModel, description: content, params: null,
+        });
+      }
+    }
+
     const { data: evalRow, error: insertError } = await admin
       .from("outer_control_evaluations")
       .insert({
@@ -510,6 +543,7 @@ Deno.serve(async (req) => {
         content_kind: "text",
         input_excerpt: content.slice(0, 4000),
         output_text: outputText,
+        decision_id: textDecisionId,
         verdict,
         trust_score: trustScore,
         matches: scan.matches,
