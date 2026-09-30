@@ -621,6 +621,34 @@ serve(async (req) => {
     const { data: userData } = await supabase.auth.getUser();
     const user = userData?.user;
 
+    // Blueprint task #2: give page generation the same account-rules-
+    // awareness compile-agent-manifest's Generator got (task #49). A
+    // generated page could otherwise promise something ("book instantly",
+    // "chat with our AI agent", a specific integration or claim) that an
+    // account-wide hard/safety rule would block the moment an agent tried to
+    // act on it -- the site and the rules that govern the business behind it
+    // must read as one system, not two unrelated tools. Only account-wide
+    // rules (agent_id IS NULL) apply here, same scoping as task #49.
+    let accountRulesBlock = "";
+    if (user) {
+      const [{ data: hardRules }, { data: safetyRules }] = await Promise.all([
+        supabase.from("hard_rules").select("rule_text, action_type_pattern, effect, provider")
+          .eq("user_id", user.id).is("agent_id", null).eq("enabled", true),
+        supabase.from("safety_rules").select("name, category, severity").eq("user_id", user.id).eq("enabled", true),
+      ]);
+      const hr = (hardRules ?? []) as { rule_text: string; action_type_pattern: string; effect: string; provider: string | null }[];
+      const sr = (safetyRules ?? []) as { name: string; category: string; severity: string }[];
+      if (hr.length || sr.length) {
+        accountRulesBlock = `\n\nEXISTING ACCOUNT-WIDE RULES (already enforced for every agent and automation on this account -- do not design copy, forms, or CTAs that promise something one of these rules would block, e.g. an "always_block" rule on a booking/send action while the page's CTA promises instant booking/sending):` +
+          (hr.length
+            ? `\nHard rules:\n${hr.map((r) => `- [${r.effect}] pattern "${r.action_type_pattern}"${r.provider ? ` (provider: ${r.provider})` : ""}: ${r.rule_text}`).join("\n")}`
+            : "") +
+          (sr.length
+            ? `\nSafety rules: ${sr.map((r) => `${r.name} (${r.category}, ${r.severity})`).join("; ")}`
+            : "");
+      }
+    }
+
     // A chat edit on an existing website REQUIRES a resolved user -- without
     // one, refine/previousWebsiteId used to fall straight through both refine
     // blocks below into the fresh-compile path, which has no idea an edit was
@@ -694,10 +722,10 @@ serve(async (req) => {
               role: "user",
               content: visualAttachments.length
                 ? [
-                    { type: "text", text: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nAttached images are shown below — copy their exact URLs byte-for-byte into the target section/item's asset_url so they render in the site. First infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, identifiedEdits, summary, manifest }.${loopClause}` },
+                    { type: "text", text: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}${accountRulesBlock}\n\nAttached images are shown below — copy their exact URLs byte-for-byte into the target section/item's asset_url so they render in the site. First infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, identifiedEdits, summary, manifest }.${loopClause}` },
                     ...visualAttachments.map((a: any) => ({ type: "image_url", image_url: { url: a.assetUrl || a.url } })),
                   ]
-                : `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nFirst infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, identifiedEdits, summary, manifest }.${loopClause}`,
+                : `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}${accountRulesBlock}\n\nFirst infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, identifiedEdits, summary, manifest }.${loopClause}`,
             },
           ],
           temperature: isRepeatedRequest ? 0.2 : 0.4,
@@ -859,7 +887,7 @@ serve(async (req) => {
         model: gw.deepModel,
         messages: [
           { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}` },
-          { role: "user", content: `Compile this website brief into the JSON manifest. Follow user-specified style STRICTLY; invent a distinct identity where the brief is silent. Return only the JSON object.\n\nBRIEF:\n${compilePrompt}` },
+          { role: "user", content: `Compile this website brief into the JSON manifest. Follow user-specified style STRICTLY; invent a distinct identity where the brief is silent. Return only the JSON object.\n\nBRIEF:\n${compilePrompt}${accountRulesBlock}` },
         ],
         temperature: 0.85,
         // Was missing here (present on the refine and intent-routing calls)
