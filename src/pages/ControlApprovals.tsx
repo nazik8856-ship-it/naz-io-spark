@@ -111,6 +111,11 @@ export default function ControlApprovals() {
   const [events, setEvents] = useState<Record<string, ApprovalEvent[]>>({});
   const [reassigning, setReassigning] = useState<string | null>(null);
   const [linkedDecisions, setLinkedDecisions] = useState<Record<string, LinkedDecision>>({});
+  // Task #47: agent_id was fetched into every row already, but never
+  // resolved to a name or link -- an approver had no way to tell WHICH
+  // agent an approval was for, let alone jump to it, without leaving this
+  // page to search for it.
+  const [agentNames, setAgentNames] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleExplain = (id: string) =>
     setExpanded((prev) => {
@@ -174,6 +179,16 @@ export default function ControlApprovals() {
       setLinkedDecisions(byId);
     } else {
       setLinkedDecisions({});
+    }
+
+    const agentIds = [...new Set(rows.map((r) => r.agent_id).filter((id): id is string => !!id))];
+    if (agentIds.length) {
+      const { data: agentRows } = await anyDb.from("agents").select("id, name").in("id", agentIds);
+      const byId: Record<string, string> = {};
+      for (const a of (agentRows ?? []) as { id: string; name: string }[]) byId[a.id] = a.name;
+      setAgentNames(byId);
+    } else {
+      setAgentNames({});
     }
     setLoading(false);
   }, [user, accountId]);
@@ -325,6 +340,16 @@ export default function ControlApprovals() {
         )}
         <span className="font-mono text-xs uppercase tracking-wider text-cyan-300">{row.action_type}</span>
         <span className="text-xs text-zinc-500">· {row.provider}</span>
+        {row.agent_id && (
+          <button
+            type="button"
+            onClick={() => navigate(`/generated/agent/${row.agent_id}`)}
+            title="Open this agent"
+            className="rounded border border-white/10 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-400 underline decoration-dotted hover:text-cyan-300"
+          >
+            {agentNames[row.agent_id] ?? "agent"}
+          </button>
+        )}
         <span className={`ml-auto rounded border px-2 py-0.5 text-[10px] font-mono uppercase ${RISK_STYLE[row.risk_tier] ?? RISK_STYLE.medium}`}>
           {row.risk_tier} risk
         </span>
