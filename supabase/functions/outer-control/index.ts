@@ -124,6 +124,12 @@ async function buildSuggestedCorrection(
   const original = params as Record<string, unknown>;
   const stricter = buildSecondNarrowingAttempt(original, { kind: "safety_scanner", matches });
   if (!stricter) return null;
+  // A flagged field can BE the entire action (a body-only email whose one
+  // field triggered "destructive wording") -- stripping it then leaves an
+  // empty object, which isn't a corrected action, it's no action at all.
+  // Confirmed live: exactly this happened for a single-field destructive-
+  // wording match. Never suggest a result with nothing left in it.
+  if (Object.keys(stricter).length === 0) return null;
   const removedFields = Object.keys(original).filter((k) => !(k in stricter));
   const recheck = await scanAction(admin, userId, stricter, description, null, agentId);
   return { params: stricter, removed_fields: removedFields, verified_clean: !recheck.matched };
