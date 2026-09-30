@@ -27,6 +27,7 @@ import {
   Undo2,
   X,
   Inbox,
+  ShieldCheck,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -844,6 +845,13 @@ export default function GeneratedDashboard() {
             >
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
+            <button
+              onClick={() => navigate("/control-system")}
+              title="View this project's rules and control status in Control System"
+              className="p-1.5 rounded-md text-white/50 hover:text-white hover:bg-white/[0.06] transition"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+            </button>
             <div className="h-4 w-px bg-white/10 mx-1" />
             <button
               onClick={copyShare}
@@ -868,7 +876,18 @@ export default function GeneratedDashboard() {
             Back
           </button>
           <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/40">{kind} · workspace</div>
-          <div className="w-16" />
+          {kind === "agent" && id ? (
+            <button
+              onClick={() => navigate(`/control-system/agent-policy?agent=${id}`)}
+              title="View this agent's rules and control status in Control System"
+              className="flex items-center gap-1.5 text-white/50 hover:text-white transition text-xs"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Control System
+            </button>
+          ) : (
+            <div className="w-16" />
+          )}
         </header>
       )}
 
