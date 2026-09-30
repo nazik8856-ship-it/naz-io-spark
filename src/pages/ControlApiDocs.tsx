@@ -115,10 +115,54 @@ const EXAMPLE_OUTER_CONTROL_RESPONSE = `{
     { "rule_id": "builtin:refund_no_id", "category": "financial", "severity": "require_approval", "matched_on": "value", "sample": "refund" }
   ],
   "summary": "Needs your approval — the safety scanner flagged: Refund or cancellation without a specific reference (...).",
+  "suggested_correction": null,
   "provenance": {
     "source_model": "chatgpt",
     "evaluated_at": "2026-09-26T02:15:00.000Z",
     "criteria": "inner_control_safety_rules_v1"
+  }
+}`;
+
+// Task #53: content_kind='action' has been live since handleActionEvaluation
+// shipped, but this page only ever documented content_kind='text' -- an
+// integrator reading only this page would reasonably conclude Outer Control
+// can't judge a structured proposed action at all, when it's routed through
+// the exact same full control gate (spend caps, kill switch, hard rules,
+// circuit breaker, safety scanner, anomaly detector) NazAI's own agents go
+// through.
+const EXAMPLE_OUTER_CONTROL_ACTION_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/outer-control/evaluate" \\
+  -H "Authorization: Bearer nazai_sk_<your key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "source_model": "chatgpt",
+    "content_kind": "action",
+    "action_type": "send_email",
+    "provider": "Gmail",
+    "description": "Reply to a customer refund request.",
+    "params": { "to": "customer@example.com", "body": "Sure, I issued a full refund." }
+  }'`;
+
+const EXAMPLE_OUTER_CONTROL_ACTION_RESPONSE = `{
+  "ok": false,
+  "id": "a91f...",
+  "verdict": "escalate",
+  "trust_score": 60,
+  "matches": [
+    { "rule_id": "builtin:refund_no_id", "category": "financial", "severity": "require_approval", "matched_on": "body", "sample": "refund" }
+  ],
+  "summary": "Needs your approval — the safety scanner flagged: Refund or cancellation without a specific reference (...).",
+  "executed": false,
+  "execution": null,
+  "approval_id": "3fe2...",
+  "suggested_correction": {
+    "params": { "to": "customer@example.com" },
+    "removed_fields": ["body"],
+    "verified_clean": true
+  },
+  "provenance": {
+    "source_model": "chatgpt",
+    "evaluated_at": "2026-09-30T02:00:00.000Z",
+    "criteria": "inner_control_gate_v1"
   }
 }`;
 
@@ -423,6 +467,43 @@ export default function ControlApiDocs() {
             to act on yet. Every call is logged to your account's Outer Control dashboard with a trust score and
             full provenance, whether it came from the API or from NazAI's own internal use of a connected tool.
           </p>
+        </Section>
+
+        <Section title="Outer Control: judge a structured proposed action">
+          <p>
+            The text form above is for free-text output. When the external AI is instead proposing a concrete,
+            structured action — not just a message to a person — send{" "}
+            <span className="font-mono text-cyan-300">content_kind: "action"</span> with the same shape this page's
+            first example already uses (<span className="font-mono">action_type</span>,{" "}
+            <span className="font-mono">provider</span>, <span className="font-mono">description</span>,{" "}
+            <span className="font-mono">params</span>). It's routed through the exact same deterministic gate your
+            own agents go through — spend caps, kill switch, hard rules, circuit breaker, safety scanner, anomaly
+            detector — using this account's real rules, not a separate text-only pattern check.
+          </p>
+          <p className="mt-3">Example:</p>
+          <CodeBlock>{EXAMPLE_OUTER_CONTROL_ACTION_CURL}</CodeBlock>
+          <p className="mt-3">Response:</p>
+          <CodeBlock>{EXAMPLE_OUTER_CONTROL_ACTION_RESPONSE}</CodeBlock>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-zinc-400">
+            <li>
+              An <span className="font-mono text-cyan-300">allow</span> verdict is carried out for real only when
+              your key was explicitly granted the <span className="font-mono">outer_control:execute</span> scope —
+              otherwise it's judged but not run, and <span className="font-mono">executed</span> stays{" "}
+              <span className="font-mono">false</span>.
+            </li>
+            <li>
+              An <span className="font-mono text-cyan-300">escalate</span> verdict already has a real pending
+              approval queued in your account (<span className="font-mono">approval_id</span>) — no separate
+              integration step needed to get a human in the loop.
+            </li>
+            <li>
+              When a <span className="font-mono text-cyan-300">block</span> or{" "}
+              <span className="font-mono">escalate</span> was caused specifically by the safety scanner flagging a
+              real field in <span className="font-mono">params</span>, <span className="font-mono">suggested_correction</span>{" "}
+              gives you that field removed and re-verified clean — something you can retry with, not just a
+              rejection. It's advisory only: NazAI never resubmits it on your behalf.
+            </li>
+          </ul>
         </Section>
 
         <Section id="custom-gpt-action" title="Connect a ChatGPT Custom GPT Action (copy-paste)">

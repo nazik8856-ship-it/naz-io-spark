@@ -4,15 +4,19 @@
 -- external AI tool's output through this before trusting it) or from an
 -- external caller hitting the outer-control API directly with an API key.
 --
--- content_kind is 'text' for v1 -- a free-text response from an external
--- AI (support bot, ChatGPT, a connected CRM AI) run through the same
+-- content_kind='text' is v1 -- a free-text response from an external AI
+-- (support bot, ChatGPT, a connected CRM AI) run through the same
 -- safety_rules/hard_rules pattern scanning Inner Control's safety-scanner
 -- already does on action params, since that scanner is content-agnostic
--- (it flattens whatever it's given and pattern-matches). 'action' is
--- reserved for a later round that reuses control-gate's structured
--- hard-rule/circuit-breaker checks against a proposed EXTERNAL action, not
--- just free text -- not yet implemented, the check constraint just leaves
--- room for it so this table doesn't need a shape migration when it lands.
+-- (it flattens whatever it's given and pattern-matches).
+--
+-- content_kind='action' (v2, shipped in outer-control/index.ts's
+-- handleActionEvaluation): a structured proposed action from an external
+-- AI, routed through control-gate.ts's full runControlGate -- spend caps,
+-- kill switch, hard rules, circuit breaker, safety scanner, anomaly
+-- detector, the exact same deterministic gate NazAI's own agents go
+-- through. The check constraint below already allowed for this from day
+-- one, so no shape migration was needed when it landed.
 CREATE TABLE public.outer_control_evaluations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
