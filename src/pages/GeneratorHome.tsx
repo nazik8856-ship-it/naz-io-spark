@@ -8,6 +8,7 @@ import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
+import MissionGovernanceStrip from "@/components/generator/MissionGovernanceStrip";
 import { RecentOutcomes } from "@/components/agents/RunOutcomes";
 import { computeRunOutcome, type Outcome } from "@/lib/agent-outcome";
 import {
@@ -590,6 +591,7 @@ export default function GeneratorHome() {
             </button>
           </div>
         </div>
+        <MissionGovernanceStrip userId={user?.id} />
 
         {/* Recent */}
         <div className="mt-16">

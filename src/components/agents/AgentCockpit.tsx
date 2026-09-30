@@ -16,6 +16,7 @@ import AskUserPrompt from "./AskUserPrompt";
 import { pendingClarification } from "@/lib/agent-clarifications";
 import AgentHealthBadge from "./AgentHealthBadge";
 import AgentSpendSafetyBadge from "./AgentSpendSafetyBadge";
+import RunControlReport from "./RunControlReport";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type OutputItem = {
@@ -66,7 +67,7 @@ type AgentEvent = {
 };
 
 /** One row of decision provenance — "why did the agent do this?" */
-type DecisionRow = {
+export type DecisionRow = {
   id: string;
   agent_run_id: string | null;
   decision: string;
@@ -74,6 +75,21 @@ type DecisionRow = {
   alternatives_considered: unknown;
   confidence_score: number | null;
   created_at: string;
+  // Blueprint task #4: the control report needs to say WHICH rule fired and
+  // WHAT kind of stop it was, not just that some decision happened — these
+  // already exist on every row (agent_decisions never logs a clean allow,
+  // so every row here is itself a governance event worth reporting), just
+  // not previously selected here.
+  source: string | null;
+  escalated: boolean | null;
+  action_type: string | null;
+  hard_rule_id: string | null;
+  modified_params: unknown;
+  provider: string | null;
+  human_response: string | null;
+  gate_trace: unknown;
+  precedent_citations: unknown;
+  deferred_detail: unknown;
 };
 
 
@@ -136,10 +152,13 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
   }, [agentId]);
 
   // Decision provenance: why the agent chose each step (see agent_decisions).
+  // modified_params/deferred_detail aren't in the generated Supabase types
+  // yet (same staleness ControlDecisionHistory.tsx already works around the
+  // same way) -- cast this one query rather than regenerate the whole file.
   const loadDecisions = useCallback(async () => {
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from("agent_decisions")
-      .select("id, agent_run_id, decision, reasoning, alternatives_considered, confidence_score, created_at")
+      .select("id, agent_run_id, decision, reasoning, alternatives_considered, confidence_score, created_at, source, escalated, action_type, hard_rule_id, modified_params, provider, human_response, gate_trace, precedent_citations, deferred_detail")
       .eq("agent_id", agentId)
       .order("created_at", { ascending: true })
       .limit(200);
@@ -463,6 +482,29 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
     return steps;
   }, [events, decisions]);
 
+  // Blueprint task #4: a real control report for the CURRENT run -- what
+  // rules were checked, what fired, what was blocked/modified -- delivered
+  // right here at the point of run delivery instead of requiring a trip to
+  // the separate Control System pages to piece it together. agent_decisions
+  // never logs a clean allow (see control-gate.ts's own comment on this),
+  // so every row for this run's id IS a governance event worth reporting.
+  const currentRunId = useMemo(() => {
+    if (!events.length) return null;
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].kind === "run_started") return events[i].run_id;
+    }
+    return null;
+  }, [events]);
+
+  const runReportDecisions = useMemo(
+    () => decisions.filter((d) => !currentRunId || d.agent_run_id === currentRunId),
+    [decisions, currentRunId],
+  );
+
+  const runActionCount = useMemo(
+    () => events.filter((e) => (!currentRunId || e.run_id === currentRunId) && e.kind === "action").length,
+    [events, currentRunId],
+  );
 
   // The live ask_user request (if any) — rendered as a real input widget.
   const pendingAsk = useMemo(() => pendingClarification(events, agentId), [events, agentId]);
@@ -682,6 +724,10 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
           title={running ? "Live execution" : "Last run"}
           accent="#34d399"
         />
+      )}
+
+      {liveSteps.length > 0 && (
+        <RunControlReport decisions={runReportDecisions} actionCount={runActionCount} />
       )}
 
       {outputsOpen && (

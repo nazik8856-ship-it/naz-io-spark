@@ -13,6 +13,7 @@ import {
 } from "../_shared/tool-retry.ts";
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
+import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
@@ -3113,7 +3114,33 @@ Rules:
               });
               clearTimeout(to);
               const respText = (await r.text().catch(() => "")).slice(0, 200);
-              const summary = `${r.status} ${respText}`;
+              // Blueprint task #3: http_post is documented as "the escape
+              // hatch for integrations NazAI has no native connector for" --
+              // in practice this can BE another AI service, and its raw
+              // response used to go straight into `messages`, re-entering
+              // this agent's own reasoning loop with zero governance. Route
+              // it through the exact same kill-switch/hard-rule/safety-rules
+              // gate Outer Control's public text-review API runs on any
+              // other external AI's output, before any of it reaches the
+              // model again.
+              let outerVerdict: "allow" | "modify" | "block" | "escalate" = "allow";
+              let outerSummary = "";
+              let gatedText = respText;
+              if (respText.trim()) {
+                try {
+                  const host = (() => { try { return new URL(url).hostname; } catch { return "unknown"; } })();
+                  const review = await evaluateExternalText(supabase, {
+                    userId, agentId, apiKeyId: null, isTest: false,
+                    sourceModel: `http_post:${host}`, content: respText, origin: "agent-runtime",
+                  });
+                  outerVerdict = review.verdict;
+                  outerSummary = review.summary;
+                  gatedText = review.output ?? "";
+                } catch { /* a gate hiccup must never crash the run -- fails open to the unfiltered response, same posture other best-effort infra calls in this codebase already take */ }
+              }
+              const summary = outerVerdict === "block" || outerVerdict === "escalate"
+                ? `${r.status} — response withheld by Outer Control: ${outerSummary}`
+                : `${r.status} ${gatedText}`;
               await logEvent("tool_result", { tool: tool.name, ok: r.ok, summary });
               await logEvent("action", { type: "http_post", target: url, ok: r.ok, result_ref: null, summary });
               messages.push({ role: "user", content: `http_post → ${summary}\n\nContinue.` });

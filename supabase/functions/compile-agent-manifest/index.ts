@@ -10,6 +10,7 @@ import { pickRole } from "../_shared/agent-role-classifier.ts";
 import { deriveCronLabel, nextRunFromCron } from "../_shared/agent-schedule.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 import { reconcileGuardrailsToHardRules } from "../_shared/guardrail-reconciliation.ts";
+import { ruleMatchesAction } from "../_shared/rule-matching.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -282,6 +283,11 @@ serve(async (req) => {
     // account-wide rules (agent_id IS NULL) apply here -- another agent's
     // own agent-scoped rule has no bearing on THIS new agent.
     let accountRulesBlock = "";
+    // Blueprint task #5: this array is also handed to the deterministic
+    // gate further down -- accountRulesBlock only ever STEERS the model, it
+    // can't stop it from ignoring the warning and shipping a tool an
+    // "always_block" rule below would kill on its first real attempt.
+    let accountHardRules: { rule_text: string; action_type_pattern: string; effect: string; provider: string | null }[] = [];
     if (user) {
       const [{ data: hardRules }, { data: safetyRules }] = await Promise.all([
         supabase.from("hard_rules").select("rule_text, action_type_pattern, effect, provider")
@@ -290,6 +296,7 @@ serve(async (req) => {
       ]);
       const hr = (hardRules ?? []) as { rule_text: string; action_type_pattern: string; effect: string; provider: string | null }[];
       const sr = (safetyRules ?? []) as { name: string; category: string; severity: string }[];
+      accountHardRules = hr;
       if (hr.length || sr.length) {
         accountRulesBlock = `\n\nEXISTING ACCOUNT-WIDE RULES (already enforced for EVERY agent on this account, including this new one -- do not restate one of these as this agent's own guardrail, and do not design a tool or automation an "always_block" rule below would stop on its first real attempt):` +
           (hr.length
@@ -436,6 +443,41 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       uiObj.widgets = ordered;
       void kinds;
     }
+
+    // Blueprint task #5: close the "no bypass" gap. accountRulesBlock above
+    // only ever STEERS the model -- nothing stopped it from ignoring the
+    // warning and shipping a tool an "always_block" hard rule would kill on
+    // its very first real attempt (control-gate.ts's runControlGateInner
+    // would deterministically block it every single time). Strip any such
+    // tool here, deterministically, regardless of what the model did --
+    // only when the matching rule has NO provider restriction (a
+    // provider-scoped rule can't be judged dead-on-arrival without knowing
+    // which provider this tool will actually run against, so those are left
+    // to the soft warning + real-time enforcement, same as today). Every
+    // removal is recorded as a real guardrail entry so it's visible on the
+    // agent's own dashboard, not a silent change the operator never sees.
+    if (accountHardRules.length) {
+      const kept: Tool[] = [];
+      const blockedNotes: string[] = [];
+      for (const t of normalized.tools) {
+        const blocker = accountHardRules.find((r) =>
+          r.effect === "always_block" && ruleMatchesAction({ action_type_pattern: r.action_type_pattern, provider: r.provider }, t.kind, ""),
+        );
+        if (blocker) {
+          blockedNotes.push(`"${t.name}" (${t.kind}) was removed at generation time -- your account-wide hard rule "${blocker.rule_text}" always blocks this action, so it could never run for real.`);
+        } else {
+          kept.push(t);
+        }
+      }
+      if (blockedNotes.length) {
+        normalized.tools = kept;
+        normalized.guardrails = [
+          ...normalized.guardrails,
+          ...blockedNotes.map((rule) => ({ rule, requiresApproval: false })),
+        ];
+      }
+    }
+
     // Stamp role onto the manifest so the Integrations panel picks the right
     // platform recommendations even when it only receives the manifest.
     (normalized as unknown as Record<string, unknown>).role = role;
