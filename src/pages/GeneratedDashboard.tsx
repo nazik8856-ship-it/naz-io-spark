@@ -848,9 +848,10 @@ export default function GeneratedDashboard() {
             <button
               onClick={() => navigate("/control-system")}
               title="Open Control System — this account's rules (pages aren't individually rule-scoped yet)"
-              className="p-1.5 rounded-md text-white/50 hover:text-white hover:bg-white/[0.06] transition"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/40 transition"
             >
               <ShieldCheck className="h-3.5 w-3.5" />
+              Control System
             </button>
             <div className="h-4 w-px bg-white/10 mx-1" />
             <button
@@ -881,7 +882,7 @@ export default function GeneratedDashboard() {
               <button
                 onClick={() => navigate(`/control-system/agent-policy?agent=${id}`)}
                 title="View this agent's rules and control status in Control System"
-                className="flex items-center gap-1.5 text-white/50 hover:text-white transition text-xs"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/40 transition"
               >
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Control System
