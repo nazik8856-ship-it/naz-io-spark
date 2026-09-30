@@ -38,7 +38,16 @@
 // was explicitly granted the outer_control:execute scope (opt-in, never
 // implied by a plain verdict-only key); otherwise it's judged but not run,
 // exactly like a key without that scope asking Inner Control to execute
-// something.
+// something. Task #45: a block/escalate verdict caused ONLY by the safety
+// scanner matching real top-level params fields also comes back with a
+// suggested_correction -- those fields stripped and the result RE-VERIFIED
+// clean against the same scanner before ever being suggested (reuses
+// auto-narrow-retry.ts's buildSecondNarrowingAttempt, the exact mechanism
+// Inner Control's own auto_narrow on_uncertain policy already relies on).
+// A hard rule, kill switch, spend cap, or circuit breaker stop has nothing
+// analogous to strip, so suggested_correction is always null there -- a
+// bare verdict was the ENTIRE response before this, so even a null here is
+// an explicit "nothing correctable" rather than a missing field.
 //
 // verify_jwt = false, same as control-api/agent-runtime -- auth is the
 // Authorization: Bearer nazai_sk_... header via resolveApiKeyAuth, not a
@@ -46,7 +55,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { checkRateLimit, checkIpRateLimit } from "../_shared/rate-limit.ts";
-import { loadSafetyRules, scanWithRules } from "../_shared/safety-scanner.ts";
+import { loadSafetyRules, scanAction, scanWithRules, type SafetyMatch } from "../_shared/safety-scanner.ts";
+import { buildSecondNarrowingAttempt } from "../_shared/auto-narrow-retry.ts";
 import { computeTrustScore, decideVerdict, redactContent } from "../_shared/outer-control-scoring.ts";
 import { parseControlApiAction } from "../_shared/control-api-action.ts";
 import { checkKillSwitches, createPendingApproval, matchHardRule, runControlGate } from "../_shared/control-gate.ts";
@@ -81,6 +91,49 @@ const TEXT_REVIEW_ACTION_TYPE = "outer_control_text_review";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
+
+export type SuggestedCorrection = {
+  params: Record<string, unknown>;
+  removed_fields: string[];
+  verified_clean: boolean;
+};
+
+/**
+ * Task #45: a stopped action currently comes back as a bare verdict --
+ * "block"/"escalate" and a reason, nothing the caller can act on besides
+ * giving up or waiting for a human. When the ONLY reason was the safety
+ * scanner matching real top-level params fields (never a hard rule, spend
+ * cap, kill switch, or circuit breaker -- none of those have anything
+ * analogous to strip, same reasoning buildSecondNarrowingAttempt's own doc
+ * comment already gives for Inner Control's auto_narrow retry), this
+ * builds a corrected candidate by removing exactly the flagged field(s),
+ * then RE-RUNS the same deterministic safety scanner against it before
+ * ever suggesting it back -- never hands the caller a "fix" that wasn't
+ * itself verified clean. This is advisory only: NazAI never resubmits or
+ * executes the suggestion on the caller's behalf.
+ */
+async function buildSuggestedCorrection(
+  admin: AnyAdmin,
+  userId: string,
+  agentId: string | null,
+  description: string,
+  params: unknown,
+  matches: SafetyMatch[],
+): Promise<SuggestedCorrection | null> {
+  if (!params || typeof params !== "object" || Array.isArray(params)) return null;
+  const original = params as Record<string, unknown>;
+  const stricter = buildSecondNarrowingAttempt(original, { kind: "safety_scanner", matches });
+  if (!stricter) return null;
+  // A flagged field can BE the entire action (a body-only email whose one
+  // field triggered "destructive wording") -- stripping it then leaves an
+  // empty object, which isn't a corrected action, it's no action at all.
+  // Confirmed live: exactly this happened for a single-field destructive-
+  // wording match. Never suggest a result with nothing left in it.
+  if (Object.keys(stricter).length === 0) return null;
+  const removedFields = Object.keys(original).filter((k) => !(k in stricter));
+  const recheck = await scanAction(admin, userId, stricter, description, null, agentId);
+  return { params: stricter, removed_fields: removedFields, verified_clean: !recheck.matched };
+}
 
 /** Shared outer_control_evaluations insert for every text-path response below -- kill-switch stop, hard-rule stop, or the existing safety-rules scan. */
 async function recordEvaluation(
@@ -220,6 +273,14 @@ async function handleActionEvaluation(
       ? gate.reason ?? "Held for human approval."
       : executionSummary ?? "No safety-criteria issues found in this proposed action.";
 
+  // Task #45: only ever attempted when the safety scanner itself is what
+  // stopped this action -- a hard rule, spend cap, kill switch, or circuit
+  // breaker block has nothing analogous to strip from params, same as
+  // Inner Control's own auto_narrow retry already reasons.
+  const suggestedCorrection = verdict !== "allow" && gate.source === "safety_scanner"
+    ? await buildSuggestedCorrection(admin, auth.userId, agentId, description, params, gate.safety.matches)
+    : null;
+
   const { data: evalRow, error: insertError } = await admin
     .from("outer_control_evaluations")
     .insert({
@@ -259,6 +320,7 @@ async function handleActionEvaluation(
     executed,
     execution: executed || executionSummary ? { summary: executionSummary, ref: executionRef, url: executionUrl } : null,
     approval_id: gate.approvalId,
+    suggested_correction: suggestedCorrection,
     provenance: {
       source_model: sourceModel,
       evaluated_at: evalRow.created_at,
@@ -349,8 +411,13 @@ Deno.serve(async (req) => {
         verdict: "block", trust_score: 0, matches: [], summary: killCheck.reason,
       });
       if (!evalRow) return json({ error: "internal_error", message: "Could not record this evaluation." }, 500);
+      // suggested_correction (task #45) is action-path-only -- a kill switch
+      // has nothing to do with THIS content's shape, there's no params field
+      // to strip. Included as null so every text-path response shares the
+      // same schema as the action path's.
       return json({
         ok: true, id: evalRow.id, verdict: "block", trust_score: 0, output: null, matches: [], summary: killCheck.reason,
+        suggested_correction: null,
         provenance: { source_model: sourceModel, evaluated_at: evalRow.created_at, criteria: "inner_control_gate_v1" },
       });
     }
@@ -384,6 +451,7 @@ Deno.serve(async (req) => {
         if (!evalRow) return json({ error: "internal_error", message: "Could not record this evaluation." }, 500);
         return json({
           ok: true, id: evalRow.id, verdict: "block", trust_score: 0, output: null, matches: [], summary: reason,
+          suggested_correction: null,
           provenance: { source_model: sourceModel, evaluated_at: evalRow.created_at, criteria: "inner_control_gate_v1" },
         });
       }
@@ -414,6 +482,7 @@ Deno.serve(async (req) => {
       return json({
         ok: true, id: evalRow.id, verdict, trust_score: trustScore, output: outputText, matches: [], summary,
         approval_id: outcome.approvalId,
+        suggested_correction: null,
         provenance: { source_model: sourceModel, evaluated_at: evalRow.created_at, criteria: "inner_control_gate_v1" },
       });
     }
@@ -458,9 +527,14 @@ Deno.serve(async (req) => {
       id: evalRow.id,
       verdict,
       trust_score: trustScore,
+      // For text, the "corrected result" the spec asks for is already this
+      // `output` field (redacted content on a "modify" verdict) -- there's
+      // no separate structured params object to suggest a fix for, unlike
+      // the action path's suggested_correction below.
       output: outputText,
       matches: scan.matches,
       summary,
+      suggested_correction: null,
       provenance: {
         source_model: sourceModel,
         evaluated_at: evalRow.created_at,
