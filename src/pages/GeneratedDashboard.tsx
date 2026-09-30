@@ -847,7 +847,7 @@ export default function GeneratedDashboard() {
             </a>
             <button
               onClick={() => navigate("/control-system")}
-              title="View this project's rules and control status in Control System"
+              title="Open Control System — this account's rules (pages aren't individually rule-scoped yet)"
               className="p-1.5 rounded-md text-white/50 hover:text-white hover:bg-white/[0.06] transition"
             >
               <ShieldCheck className="h-3.5 w-3.5" />
@@ -870,24 +870,24 @@ export default function GeneratedDashboard() {
           </div>
         </header>
       ) : (
-        <header className="shrink-0 backdrop-blur-xl bg-[#020617]/70 border-b border-white/5 px-6 py-3 flex items-center justify-between">
-          <button onClick={() => navigate("/generator-home")} className="flex items-center gap-2 text-white/60 hover:text-white transition text-sm">
+        <header className="shrink-0 backdrop-blur-xl bg-[#020617]/70 border-b border-white/5 px-6 py-3 grid grid-cols-[1fr_auto_1fr] items-center">
+          <button onClick={() => navigate("/generator-home")} className="justify-self-start flex items-center gap-2 text-white/60 hover:text-white transition text-sm">
             <ArrowLeft className="h-4 w-4" />
             Back
           </button>
-          <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/40">{kind} · workspace</div>
-          {kind === "agent" && id ? (
-            <button
-              onClick={() => navigate(`/control-system/agent-policy?agent=${id}`)}
-              title="View this agent's rules and control status in Control System"
-              className="flex items-center gap-1.5 text-white/50 hover:text-white transition text-xs"
-            >
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Control System
-            </button>
-          ) : (
-            <div className="w-16" />
-          )}
+          <div className="justify-self-center text-[10px] font-mono uppercase tracking-[0.3em] text-white/40">{kind} · workspace</div>
+          <div className="justify-self-end">
+            {kind === "agent" && id && (
+              <button
+                onClick={() => navigate(`/control-system/agent-policy?agent=${id}`)}
+                title="View this agent's rules and control status in Control System"
+                className="flex items-center gap-1.5 text-white/50 hover:text-white transition text-xs"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Control System
+              </button>
+            )}
+          </div>
         </header>
       )}
 
