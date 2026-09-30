@@ -13,7 +13,17 @@ export type AgentSpendSafetyStatus = {
   pct: number;
   agentKillSwitchOn: boolean;
   accountKillSwitchOn: boolean;
+  // Task #46: a platform operator's emergency stop across every account at
+  // once (checked first in control-gate.ts's own runControlGateInner, ahead
+  // of even the account kill switch) had no visibility here at all -- an
+  // agent's page could show a clean, all-green status while a platform-wide
+  // pause meant nothing was actually going to run.
+  platformKillSwitchOn: boolean;
   trippedBreakerCount: number;
+  // Task #46: the other half of "live control status" this page was
+  // missing -- a real pending_approvals row waiting on a human for THIS
+  // agent specifically wasn't visible without leaving the page.
+  pendingApprovalCount: number;
 };
 
 /**
@@ -32,20 +42,24 @@ export function useAgentSpendSafetyStatus(accountId: string | undefined, agentId
   const [capIsAgentOwn, setCapIsAgentOwn] = useState(false);
   const [agentKillSwitchOn, setAgentKillSwitchOn] = useState(false);
   const [accountKillSwitchOn, setAccountKillSwitchOn] = useState(false);
+  const [platformKillSwitchOn, setPlatformKillSwitchOn] = useState(false);
   const [trippedBreakerCount, setTrippedBreakerCount] = useState(0);
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
 
   const load = useCallback(async () => {
     if (!accountId || !agentId) return;
     setLoading(true);
     const day = new Date().toISOString().slice(0, 10);
-    const [agentCapRes, accountCapRes, agentSpendRes, accountSpendRes, agentRes, profileRes, breakerRes] = await Promise.all([
+    const [agentCapRes, accountCapRes, agentSpendRes, accountSpendRes, agentRes, profileRes, platformRes, breakerRes, approvalRes] = await Promise.all([
       anyDb.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).eq("agent_id", agentId).maybeSingle(),
       anyDb.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).is("agent_id", null).maybeSingle(),
       anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).eq("agent_id", agentId).eq("day", day).maybeSingle(),
       anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).eq("day", day).maybeSingle(),
       anyDb.from("agents").select("kill_switch").eq("id", agentId).maybeSingle(),
       anyDb.from("profiles").select("kill_switch").eq("id", accountId).maybeSingle(),
+      anyDb.from("platform_settings").select("kill_switch").eq("id", 1).maybeSingle(),
       anyDb.from("circuit_breakers").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("agent_id", agentId).eq("tripped", true),
+      anyDb.from("pending_approvals").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("agent_id", agentId).eq("status", "pending"),
     ]);
     const hasOwnCap = !!agentCapRes.data;
     setCapIsAgentOwn(hasOwnCap);
@@ -53,7 +67,9 @@ export function useAgentSpendSafetyStatus(accountId: string | undefined, agentId
     setSpentToday(Number((hasOwnCap ? agentSpendRes.data?.cost_usd : accountSpendRes.data?.cost_usd) ?? 0));
     setAgentKillSwitchOn(Boolean(agentRes.data?.kill_switch));
     setAccountKillSwitchOn(Boolean(profileRes.data?.kill_switch));
+    setPlatformKillSwitchOn(Boolean(platformRes.data?.kill_switch));
     setTrippedBreakerCount(breakerRes.count ?? 0);
+    setPendingApprovalCount(approvalRes.count ?? 0);
     setLoading(false);
   }, [accountId, agentId]);
 
@@ -61,5 +77,9 @@ export function useAgentSpendSafetyStatus(accountId: string | undefined, agentId
 
   const pct = cap > 0 ? Math.min(100, (spentToday / cap) * 100) : 0;
 
-  return { loading, spentToday, cap, capIsAgentOwn, pct, agentKillSwitchOn, accountKillSwitchOn, trippedBreakerCount };
+  return {
+    loading, spentToday, cap, capIsAgentOwn, pct,
+    agentKillSwitchOn, accountKillSwitchOn, platformKillSwitchOn,
+    trippedBreakerCount, pendingApprovalCount,
+  };
 }
