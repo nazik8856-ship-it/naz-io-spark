@@ -50,6 +50,38 @@ const OUTCOME_STYLE: Record<DecisionOutcome, string> = {
   other: "text-zinc-400 border-white/15 bg-white/5",
 };
 
+// Task #51: Inner Control (NazAI's own agents, agent_decisions) and Outer
+// Control (external AI responses/actions, outer_control_evaluations) were
+// two completely separate feeds, on two separate pages with two separate
+// visual languages -- the product's own stated vision is "clients must feel
+// these three parts working together as one controlled machine, not three
+// separate tools." An owner who wanted to see everything happening across
+// their account had to check two places and mentally interleave them.
+type OuterVerdict = "allow" | "modify" | "block" | "escalate";
+type OuterEvalRow = {
+  id: string;
+  source_model: string;
+  verdict: OuterVerdict;
+  trust_score: number;
+  summary: string | null;
+  created_at: string;
+  content_kind: "text" | "action";
+  action_type: string | null;
+  executed: boolean;
+};
+const OUTER_VERDICT_STYLE: Record<OuterVerdict, string> = {
+  allow: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10",
+  modify: "text-cyan-300 border-cyan-500/40 bg-cyan-500/10",
+  escalate: "text-amber-300 border-amber-500/40 bg-amber-500/10",
+  block: "text-rose-300 border-rose-500/40 bg-rose-500/10",
+};
+
+type FeedItem =
+  | { kind: "inner"; id: string; created_at: string; row: DecisionRow }
+  | { kind: "outer"; id: string; created_at: string; row: OuterEvalRow };
+
+const byNewest = (a: FeedItem, b: FeedItem) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+
 /**
  * LIVE DECISION FEED — decisions as they happen, via Supabase Realtime on
  * agent_decisions (already publication-enabled since this table's
@@ -61,10 +93,11 @@ export default function ControlLiveFeed() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { accountId } = useActiveAccount();
-  const [rows, setRows] = useState<DecisionRow[]>([]);
+  const [rows, setRows] = useState<FeedItem[]>([]);
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [paused, setPaused] = useState(false);
-  const [connected, setConnected] = useState(false);
+  const [innerConnected, setInnerConnected] = useState(false);
+  const [outerConnected, setOuterConnected] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
@@ -80,16 +113,28 @@ export default function ControlLiveFeed() {
 
   const loadRecent = useCallback(async () => {
     if (!accountId) return;
-    const [{ data }, { data: agentRows }] = await Promise.all([
+    // anyDb: outer_control_evaluations isn't in the generated Supabase
+    // types yet -- same established workaround every other page touching
+    // this table already uses (OuterControlSystem.tsx).
+    const anyDb = supabase as any;
+    const [{ data: inner }, { data: outer }, { data: agentRows }] = await Promise.all([
       supabase
         .from("agent_decisions")
         .select("id, decision, reasoning, source, escalated, confidence_score, agent_id, created_at, gate_trace, human_response, action_type, provider, precedent_citations, deferred_detail, modified_params")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false })
         .limit(50),
+      anyDb
+        .from("outer_control_evaluations")
+        .select("id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed")
+        .eq("user_id", accountId)
+        .order("created_at", { ascending: false })
+        .limit(50),
       supabase.from("agents").select("id, name").eq("user_id", accountId),
     ]);
-    setRows((data ?? []) as DecisionRow[]);
+    const innerItems: FeedItem[] = ((inner ?? []) as DecisionRow[]).map((row) => ({ kind: "inner", id: row.id, created_at: row.created_at, row }));
+    const outerItems: FeedItem[] = ((outer ?? []) as OuterEvalRow[]).map((row) => ({ kind: "outer", id: row.id, created_at: row.created_at, row }));
+    setRows([...innerItems, ...outerItems].sort(byNewest).slice(0, MAX_ROWS));
     setAgents((agentRows ?? []) as AgentOption[]);
   }, [accountId]);
 
@@ -97,19 +142,34 @@ export default function ControlLiveFeed() {
 
   useEffect(() => {
     if (!accountId) return;
-    const channel = supabase
+    const innerChannel = supabase
       .channel(`live-decisions-${accountId}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "agent_decisions", filter: `user_id=eq.${accountId}` },
         (payload) => {
           if (pausedRef.current) return;
-          setRows((prev) => [payload.new as DecisionRow, ...prev].slice(0, MAX_ROWS));
+          const row = payload.new as DecisionRow;
+          setRows((prev) => [{ kind: "inner", id: row.id, created_at: row.created_at, row }, ...prev].sort(byNewest).slice(0, MAX_ROWS));
         },
       )
-      .subscribe((status) => setConnected(status === "SUBSCRIBED"));
-    return () => { void supabase.removeChannel(channel); };
+      .subscribe((status) => setInnerConnected(status === "SUBSCRIBED"));
+    const outerChannel = supabase
+      .channel(`live-outer-evaluations-${accountId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "outer_control_evaluations", filter: `user_id=eq.${accountId}` },
+        (payload) => {
+          if (pausedRef.current) return;
+          const row = payload.new as OuterEvalRow;
+          setRows((prev) => [{ kind: "outer", id: row.id, created_at: row.created_at, row }, ...prev].sort(byNewest).slice(0, MAX_ROWS));
+        },
+      )
+      .subscribe((status) => setOuterConnected(status === "SUBSCRIBED"));
+    return () => { void supabase.removeChannel(innerChannel); void supabase.removeChannel(outerChannel); };
   }, [accountId]);
+
+  const connected = innerConnected && outerConnected;
 
   const resume = () => {
     setPaused(false);
@@ -134,7 +194,7 @@ export default function ControlLiveFeed() {
       <main className="mx-auto w-full max-w-3xl px-6 py-8">
         <div className="flex items-center justify-between gap-3">
           <h1 className="flex items-center gap-2 text-xl font-semibold">
-            <Radio className={`h-5 w-5 ${connected ? "text-emerald-400" : "text-zinc-500"}`} /> Live decision feed
+            <Radio className={`h-5 w-5 ${connected ? "text-emerald-400" : "text-zinc-500"}`} /> Live activity feed
           </h1>
           <button
             onClick={() => (paused ? resume() : setPaused(true))}
@@ -145,8 +205,8 @@ export default function ControlLiveFeed() {
           </button>
         </div>
         <p className="mt-1 text-sm text-zinc-400">
-          Decisions as they happen, streamed live. {connected ? "Connected." : "Connecting…"}
-          {paused && " Paused — new decisions aren't appearing until you resume."}
+          Inner Control (your own agents) and Outer Control (connected external AI), streamed live in one place. {connected ? "Connected." : "Connecting…"}
+          {paused && " Paused — new activity isn't appearing until you resume."}
         </p>
 
         <ul className="mt-6 space-y-2">
@@ -154,11 +214,36 @@ export default function ControlLiveFeed() {
             <p className="rounded-lg border border-white/10 bg-white/[0.02] p-4 text-sm text-zinc-500">
               Nothing yet.
             </p>
-          ) : rows.map((r) => {
+          ) : rows.map((item) => {
+            if (item.kind === "outer") {
+              const r = item.row;
+              return (
+                <li key={item.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded border border-cyan-500/40 bg-cyan-500/10 px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wide text-cyan-300">Outer</span>
+                    <span className={`rounded border px-2 py-0.5 text-[10px] font-mono uppercase ${OUTER_VERDICT_STYLE[r.verdict]}`}>{r.verdict}</span>
+                    <span className="font-mono text-xs text-zinc-300">
+                      {r.content_kind === "action" && r.action_type ? r.action_type : "text review"}
+                    </span>
+                    <span className="ml-auto text-[11px] text-zinc-500">{new Date(r.created_at).toLocaleTimeString()}</span>
+                  </div>
+                  {r.summary && <p className="mt-1 text-xs text-zinc-400">{r.summary}</p>}
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-mono uppercase text-zinc-500">
+                    <span className="text-cyan-400">external AI: {r.source_model}</span>
+                    <span>· trust {r.trust_score}</span>
+                    {r.content_kind === "action" && (
+                      <span className={r.executed ? "text-emerald-300" : undefined}>· {r.executed ? "executed" : "evaluated only"}</span>
+                    )}
+                  </div>
+                </li>
+              );
+            }
+            const r = item.row;
             const outcome = classifyDecisionOutcome(r.decision);
             return (
-              <li key={r.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+              <li key={item.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded border border-white/15 bg-white/5 px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wide text-zinc-400">Inner</span>
                   <span className={`rounded border px-2 py-0.5 text-[10px] font-mono uppercase ${OUTCOME_STYLE[outcome]}`}>{outcome.replace("_", " ")}</span>
                   <span className="font-mono text-xs text-zinc-300">{r.decision}</span>
                   <span className="ml-auto text-[11px] text-zinc-500">{new Date(r.created_at).toLocaleTimeString()}</span>
@@ -180,13 +265,13 @@ export default function ControlLiveFeed() {
                     real narrative from whatever the row actually has, gate
                     trace or not, so this is now unconditional. */}
                 <button
-                  onClick={() => toggleTrace(r.id)}
+                  onClick={() => toggleTrace(item.id)}
                   className="mt-1 flex items-center gap-1 font-mono text-[10px] uppercase text-zinc-500 hover:text-zinc-300"
                 >
-                  {expanded.has(r.id) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  {expanded.has(item.id) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                   Why
                 </button>
-                {expanded.has(r.id) && (
+                {expanded.has(item.id) && (
                   <DecisionExplanationPanel
                     decision={r.decision}
                     reasoning={r.reasoning}
