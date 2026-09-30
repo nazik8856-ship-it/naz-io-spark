@@ -208,7 +208,16 @@ function SetupRequired({ navigate }: { navigate: ReturnType<typeof useNavigate> 
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5 text-xs font-mono text-zinc-300">2</div>
             <div>
               <div className="text-sm font-medium text-zinc-200 flex items-center gap-1.5"><Plug className="h-3.5 w-3.5 text-cyan-300" /> Paste it wherever your external AI actually lives</div>
-              <div className="text-xs text-zinc-500">A custom GPT action, a CRM's webhook step, a support bot's post-processing hook — or call it directly from your own backend.</div>
+              <div className="text-xs text-zinc-500">
+                A custom GPT action, a CRM's webhook step, a support bot's post-processing hook — or call it directly
+                from your own backend.{" "}
+                <button
+                  onClick={() => navigate("/control-system/api-docs#custom-gpt-action")}
+                  className="text-cyan-300 underline decoration-dotted hover:text-cyan-200"
+                >
+                  Copy-paste ChatGPT setup →
+                </button>
+              </div>
             </div>
           </div>
           <div className="flex gap-3">
