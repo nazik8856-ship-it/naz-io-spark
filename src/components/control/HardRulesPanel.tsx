@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Gavel, Plus, Trash2, ChevronDown, Eye, ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
@@ -50,6 +51,7 @@ const SCOPES: { label: string; pattern: string }[] = [
  * so you can see the impact before promoting one to live.
  */
 export default function HardRulesPanel() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { accountId, role, permissions } = useActiveAccount();
   const canWrite = hasPermission(role, permissions, "policy");
@@ -361,7 +363,21 @@ export default function HardRulesPanel() {
                           ? "always blocked"
                           : `approval required (${r.required_approvals ?? 2} approver${(r.required_approvals ?? 2) === 1 ? "" : "s"})`}
                         {" · "}
-                        <span className={r.agent_id ? "text-cyan-400" : ""}>{agentName(r.agent_id)}</span>
+                        {r.agent_id ? (
+                          // Task #47: this rule's own scoping already knew which
+                          // agent it protects -- previously shown as inert text,
+                          // with no way to actually get to that agent's page.
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/generated/agent/${r.agent_id}`)}
+                            title="Open this agent"
+                            className="text-cyan-400 underline decoration-dotted hover:text-cyan-300"
+                          >
+                            {agentName(r.agent_id)}
+                          </button>
+                        ) : (
+                          <span>{agentName(r.agent_id)}</span>
+                        )}
                       </p>
                       {r.shadow_mode && (
                         <div className="mt-1.5 space-y-1.5">
