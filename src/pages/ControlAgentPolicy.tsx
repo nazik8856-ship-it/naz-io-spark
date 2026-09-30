@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Bot, Copy } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
@@ -39,8 +39,12 @@ export default function ControlAgentPolicy() {
   const { user } = useAuth();
   const { accountId, role } = useActiveAccount();
   const canWrite = canWriteAsOwner(role);
+  const [searchParams] = useSearchParams();
   const [agents, setAgents] = useState<AgentOption[]>([]);
-  const [agentId, setAgentId] = useState("");
+  // Deep-linkable via ?agent=<id> -- lets a generated agent's own page
+  // (GeneratedDashboard.tsx's "View in Control System" button) land
+  // directly on that agent's effective policy instead of an empty picker.
+  const [agentId, setAgentId] = useState(() => searchParams.get("agent") ?? "");
   const [cloneTargetId, setCloneTargetId] = useState("");
   const [cloning, setCloning] = useState(false);
 
