@@ -9,6 +9,7 @@ import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { pickRole } from "../_shared/agent-role-classifier.ts";
 import { deriveCronLabel, nextRunFromCron } from "../_shared/agent-schedule.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
+import { reconcileGuardrailsToHardRules } from "../_shared/guardrail-reconciliation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -557,6 +558,19 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
         }
         if (memRows.length) await supabase.from("agent_memory").insert(memRows);
       }
+
+      // Task #48: reconcile the manifest's OWN guardrails with the real
+      // enforcement engine. Every generated agent ships with 2-6 guardrails
+      // like "Never send outbound emails without explicit approval" or
+      // "Never charge customers or move funds without approval" -- shown
+      // proudly on the agent's dashboard (GeneratedAgentDashboard.tsx), but
+      // purely cosmetic: nothing ever inserted a matching row into
+      // hard_rules, the table control-gate.ts's runControlGateInner
+      // actually reads. An account could see a guardrail listed and
+      // reasonably believe it was enforced when it never was.
+      if (agentId) {
+        await reconcileGuardrailsToHardRules(supabase, user.id, agentId, normalized.guardrails);
+      }
     }
 
     return json({ manifest: normalized, agentId, mode, role, schedule_cron: finalScheduleCron, schedule_label: finalScheduleLabel, usedFallback });
@@ -566,6 +580,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
   }
 });
 
+// reconcileGuardrailsToHardRules lives in ../_shared/guardrail-reconciliation.ts
 // deriveCronLabel / nextRunFromCron live in ../_shared/agent-schedule.ts
 // (with real test coverage) for the same reason as pickRole above.
 
