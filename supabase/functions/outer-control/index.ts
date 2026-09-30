@@ -10,11 +10,20 @@
 // connected external model and needs to trust what comes back before using
 // it.
 //
-// content_kind='text' (v1): free-text output, scanned with the SAME
-// safety_rules/hard_rules criteria pattern Inner Control's safety-scanner
-// already applies to action params (that scanner is content-agnostic -- a
-// plain string flattens to one field there, so it's reused as-is via
-// scanWithRules rather than duplicated).
+// content_kind='text' (v1): free-text output, judged in the SAME precedence
+// order the action-shaped gate below holds to -- kill switches (platform,
+// account, agent) first, then hard rules (task #44: matched against a
+// synthetic "outer_control_text_review" action_type/source_model pair via
+// checkKillSwitches/matchHardRule, so a rule scoped by provider or agent
+// behaves identically to how it already governs a real action) -- and only
+// once neither stops it, scanned with the safety_rules criteria pattern
+// Inner Control's safety-scanner already applies to action params (that
+// scanner is content-agnostic -- a plain string flattens to one field
+// there, so it's reused as-is via scanWithRules rather than duplicated).
+// Spend caps, the circuit breaker, and the anomaly detector are NOT wired
+// into this path -- content review has no execution outcome (success/
+// failure) for a breaker or anomaly baseline to key off, and incurs no AI
+// spend of its own in v1 (pure pattern matching, no LLM call).
 //
 // content_kind='action' (v2): a structured *proposed action* from an
 // external AI -- action_type/provider/description/params, same shape
@@ -40,8 +49,9 @@ import { checkRateLimit, checkIpRateLimit } from "../_shared/rate-limit.ts";
 import { loadSafetyRules, scanWithRules } from "../_shared/safety-scanner.ts";
 import { computeTrustScore, decideVerdict, redactContent } from "../_shared/outer-control-scoring.ts";
 import { parseControlApiAction } from "../_shared/control-api-action.ts";
-import { runControlGate } from "../_shared/control-gate.ts";
+import { checkKillSwitches, createPendingApproval, matchHardRule, runControlGate } from "../_shared/control-gate.ts";
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
+import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -61,8 +71,78 @@ const PRE_AUTH_RATE_LIMIT_PER_MINUTE = 60;
 const RATE_LIMIT_PER_MINUTE = 60;
 const MAX_CONTENT_LENGTH = 20_000;
 
+// Synthetic action_type/provider pair used ONLY to let checkKillSwitches /
+// matchHardRule (task #44) reuse the same account_type_pattern glob-matching
+// and agent-scoping a real action already gets -- a text evaluation has no
+// real action_type of its own. "outer_control_text_review" as the pattern
+// target, source_model as the provider, so a rule scoped to a specific
+// provider (e.g. "ChatGPT") only fires for text attributed to that model.
+const TEXT_REVIEW_ACTION_TYPE = "outer_control_text_review";
+
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
+
+/** Shared outer_control_evaluations insert for every text-path response below -- kill-switch stop, hard-rule stop, or the existing safety-rules scan. */
+async function recordEvaluation(
+  admin: AnyAdmin,
+  row: Record<string, unknown>,
+): Promise<{ id: string; created_at: string } | null> {
+  const { data, error } = await admin
+    .from("outer_control_evaluations")
+    .insert(row)
+    .select("id, created_at")
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as { id: string; created_at: string };
+}
+
+/**
+ * Audit-trail parity with the action-shaped gate: a text evaluation that a
+ * kill switch or hard rule stops now gets a real agent_decisions row too
+ * (source values already covered by control-gate.ts's own
+ * AGENT_DECISION_SOURCES), not just an outer_control_evaluations one -- so
+ * it shows up wherever the account already looks for gate activity (the
+ * kill-switch/hard-rule effectiveness views, the decisions feed), the same
+ * as an action NazAI's own agents proposed would.
+ */
+async function logTextGateDecision(
+  admin: AnyAdmin,
+  input: {
+    userId: string;
+    agentId: string | null;
+    apiKeyId: string | null;
+    isTest: boolean;
+    sourceModel: string;
+    content: string;
+    decision: string;
+    reasoning: string;
+    source: "platform_kill_switch" | "kill_switch" | "agent_kill_switch" | "hard_rule";
+    escalated: boolean;
+    hardRuleId?: string | null;
+    policyVersion?: number | null;
+  },
+): Promise<string | null> {
+  try {
+    const { data } = await admin.from("agent_decisions").insert({
+      user_id: input.userId,
+      agent_id: input.agentId,
+      decision: input.decision.slice(0, 400),
+      reasoning: input.reasoning.slice(0, 800),
+      source: input.source,
+      escalated: input.escalated,
+      policy_version: input.policyVersion ?? null,
+      hard_rule_id: input.hardRuleId ?? null,
+      action_type: TEXT_REVIEW_ACTION_TYPE,
+      provider: input.sourceModel,
+      description: input.content.slice(0, 800),
+      api_key_id: input.apiKeyId,
+      is_test: input.isTest,
+    }).select("id").maybeSingle();
+    return (data as { id?: string } | null)?.id ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * content_kind='action': a structured proposed action from an external AI,
@@ -247,6 +327,95 @@ Deno.serve(async (req) => {
     }
     if (content.length > MAX_CONTENT_LENGTH) {
       return json({ error: "content_too_long", message: `content must be ${MAX_CONTENT_LENGTH} characters or fewer.` }, 400);
+    }
+
+    // ---- Full control gate, text path (task #44) -----------------------------
+    // Same precedence order the action-shaped gate holds to: kill switches,
+    // then hard rules, BEFORE the safety scanner further down ever runs.
+    // Previously this path ran ONLY the safety scanner -- an account with its
+    // kill switch on, or a hard rule written specifically to catch this kind
+    // of content, had zero effect on an incoming external-AI text evaluation.
+    const killCheck = await checkKillSwitches(admin, auth.userId, agentId);
+    if (killCheck.killed) {
+      const decisionId = await logTextGateDecision(admin, {
+        userId: auth.userId, agentId, apiKeyId: auth.keyId, isTest: auth.isTest, sourceModel, content,
+        decision: `BLOCK text_review (${sourceModel})`, reasoning: killCheck.reason ?? "Kill switch active.",
+        source: killCheck.source ?? "kill_switch", escalated: false,
+      });
+      const evalRow = await recordEvaluation(admin, {
+        user_id: auth.userId, api_key_id: auth.keyId, agent_id: agentId, source_model: sourceModel,
+        content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: null,
+        action_type: TEXT_REVIEW_ACTION_TYPE, action_provider: sourceModel, decision_id: decisionId,
+        verdict: "block", trust_score: 0, matches: [], summary: killCheck.reason,
+      });
+      if (!evalRow) return json({ error: "internal_error", message: "Could not record this evaluation." }, 500);
+      return json({
+        ok: true, id: evalRow.id, verdict: "block", trust_score: 0, output: null, matches: [], summary: killCheck.reason,
+        provenance: { source_model: sourceModel, evaluated_at: evalRow.created_at, criteria: "inner_control_gate_v1" },
+      });
+    }
+
+    const hardRuleMatch = await matchHardRule(admin, auth.userId, TEXT_REVIEW_ACTION_TYPE, sourceModel, agentId);
+    if (hardRuleMatch.rule) {
+      const rule = hardRuleMatch.rule;
+      const blocking = rule.effect === "always_block";
+      const why = rule.rationale ? ` Why this rule exists: ${rule.rationale}` : "";
+      const reason = blocking
+        ? `Blocked by your hard rule: "${rule.rule_text}".${why} This was enforced by your rule, not judged by the model.`
+        : `Your hard rule requires approval first: "${rule.rule_text}".${why} Nothing was returned — approve it explicitly to proceed.`;
+      const decisionId = await logTextGateDecision(admin, {
+        userId: auth.userId, agentId, apiKeyId: auth.keyId, isTest: auth.isTest, sourceModel, content,
+        decision: `${blocking ? "BLOCK" : "APPROVAL_REQUIRED"} text_review (${sourceModel})`, reasoning: reason,
+        source: "hard_rule", escalated: !blocking, hardRuleId: rule.id, policyVersion: hardRuleMatch.policyVersion,
+      });
+
+      if (blocking) {
+        await sendCriticalAlert(admin, auth.userId, {
+          event: "hard_rule_block",
+          summary: `An external AI's text output was blocked by the hard rule "${rule.rule_text}". Nothing was scored or returned.`,
+          decisionId, actionType: TEXT_REVIEW_ACTION_TYPE, provider: sourceModel,
+        });
+        const evalRow = await recordEvaluation(admin, {
+          user_id: auth.userId, api_key_id: auth.keyId, agent_id: agentId, source_model: sourceModel,
+          content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: null,
+          action_type: TEXT_REVIEW_ACTION_TYPE, action_provider: sourceModel, decision_id: decisionId,
+          verdict: "block", trust_score: 0, matches: [], summary: reason,
+        });
+        if (!evalRow) return json({ error: "internal_error", message: "Could not record this evaluation." }, 500);
+        return json({
+          ok: true, id: evalRow.id, verdict: "block", trust_score: 0, output: null, matches: [], summary: reason,
+          provenance: { source_model: sourceModel, evaluated_at: evalRow.created_at, criteria: "inner_control_gate_v1" },
+        });
+      }
+
+      // require_approval: a real pending_approvals row (or an api key's own
+      // on_uncertain policy auto-resolving it) exactly as the action-shaped
+      // gate already does -- createPendingApproval is action-shape-agnostic.
+      const outcome = await createPendingApproval(admin, {
+        userId: auth.userId, decisionId, agentId, actionType: TEXT_REVIEW_ACTION_TYPE, provider: sourceModel,
+        description: content, reason, riskTier: "high", origin: "external-api", apiKeyId: auth.keyId,
+        requiredApprovals: rule.required_approvals ?? undefined,
+      });
+      const verdict: "allow" | "block" | "escalate" = outcome.autoResolved
+        ? (outcome.resolution === "approved" ? "allow" : "block")
+        : "escalate";
+      const summary = outcome.autoResolved
+        ? `Resolved automatically to ${outcome.resolution} by this API key's configured policy — no human reviewed this.`
+        : reason;
+      const outputText = verdict === "allow" ? content : null;
+      const trustScore = verdict === "block" ? 0 : verdict === "escalate" ? 50 : 100;
+      const evalRow = await recordEvaluation(admin, {
+        user_id: auth.userId, api_key_id: auth.keyId, agent_id: agentId, source_model: sourceModel,
+        content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: outputText,
+        action_type: TEXT_REVIEW_ACTION_TYPE, action_provider: sourceModel, decision_id: decisionId,
+        verdict, trust_score: trustScore, matches: [], summary,
+      });
+      if (!evalRow) return json({ error: "internal_error", message: "Could not record this evaluation." }, 500);
+      return json({
+        ok: true, id: evalRow.id, verdict, trust_score: trustScore, output: outputText, matches: [], summary,
+        approval_id: outcome.approvalId,
+        provenance: { source_model: sourceModel, evaluated_at: evalRow.created_at, criteria: "inner_control_gate_v1" },
+      });
     }
 
     const rules = await loadSafetyRules(admin, auth.userId, agentId);

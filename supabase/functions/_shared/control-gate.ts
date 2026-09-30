@@ -194,7 +194,7 @@ export type GateResult = {
 };
 
 
-type HardRule = {
+export type HardRule = {
   id: string;
   rule_text: string;
   action_type_pattern: string;
@@ -215,7 +215,7 @@ type HardRule = {
 };
 
 /** Shape of a policy_versions.snapshot row (built by build_policy_snapshot). */
-type PolicySnapshot = {
+export type PolicySnapshot = {
   hard_rules?: unknown;
   safety_rules?: unknown;
   thresholds?: unknown;
@@ -223,6 +223,115 @@ type PolicySnapshot = {
   captured_at?: string;
 };
 
+export type KillSwitchCheck = {
+  killed: boolean;
+  reason: string | null;
+  source: "platform_kill_switch" | "kill_switch" | "agent_kill_switch" | null;
+};
+
+/**
+ * Standalone platform + account + (optional) agent kill-switch check, for a
+ * caller that needs kill-switch enforcement WITHOUT the rest of the
+ * action-shaped gate (spend caps, hard rules keyed by action_type, circuit
+ * breaker, anomaly detector) -- e.g. Outer Control's free-text evaluation
+ * path (task #44), which judges arbitrary external content rather than a
+ * structured action, so those action-shaped layers don't have a natural
+ * signal to key off (there's no action_type to trip a breaker on, no
+ * execution outcome to feed the anomaly detector). Kill switches have no
+ * such mismatch -- "halt every AI action for this account" applies just as
+ * much to judging external content as to running one of NazAI's own.
+ *
+ * Deliberately NOT a refactor of runControlGateInner's own inline platform/
+ * account/agent kill-switch checks above -- those are exercised by every
+ * real action this platform runs; re-pointing them at a shared helper is a
+ * real DRY win but not worth the regression risk for what this only needs
+ * read-only. Same three reads, same fail-closed posture, kept separate.
+ */
+export async function checkKillSwitches(
+  admin: SupabaseClient,
+  userId: string,
+  agentId?: string | null,
+): Promise<KillSwitchCheck> {
+  try {
+    const { data: platformRow } = await admin
+      .from("platform_settings").select("kill_switch").eq("id", 1).maybeSingle();
+    if ((platformRow as { kill_switch?: boolean } | null)?.kill_switch === true) {
+      return {
+        killed: true,
+        reason: "Blocked — a platform operator has paused every account. This isn't specific to your account; try again shortly.",
+        source: "platform_kill_switch",
+      };
+    }
+    const { data: killRow } = await admin
+      .from("profiles").select("kill_switch").eq("id", userId).maybeSingle();
+    if ((killRow as { kill_switch?: boolean } | null)?.kill_switch === true) {
+      return { killed: true, reason: "Blocked — kill switch active. All AI actions are halted for this account.", source: "kill_switch" };
+    }
+    if (agentId) {
+      const { data: agentKillRow } = await admin
+        .from("agents").select("kill_switch").eq("id", agentId).maybeSingle();
+      if ((agentKillRow as { kill_switch?: boolean } | null)?.kill_switch === true) {
+        return {
+          killed: true,
+          reason: "Blocked — this agent's own kill switch is active. Other agents on this account are unaffected.",
+          source: "agent_kill_switch",
+        };
+      }
+    }
+    return { killed: false, reason: null, source: null };
+  } catch {
+    // Fail CLOSED, same posture the rest of this file's gate holds to.
+    return { killed: true, reason: "Could not verify kill-switch state; failing closed.", source: "kill_switch" };
+  }
+}
+
+export type HardRuleMatchResult = {
+  rule: HardRule | null;
+  policyVersion: number | null;
+};
+
+/**
+ * Loads the account's currently-active hard rules (pinned policy snapshot
+ * first, live table fallback -- same source-of-truth order the action gate
+ * uses) and returns the first non-shadow rule matching this action_type/
+ * provider pair. Reuses the exact same ruleMatchesAction/selectRulesForAgent
+ * primitives runControlGateInner's own inline hard-rule step already uses,
+ * so a glob pattern or agent-scoping behaves identically for a caller that
+ * doesn't go through the full action-shaped gate (see checkKillSwitches'
+ * doc comment above for why Outer Control's text path is that caller).
+ * Shadow-mode rules are excluded (never enforced) -- shadow-hit telemetry
+ * for text content isn't built yet, v1 scope.
+ */
+export async function matchHardRule(
+  admin: SupabaseClient,
+  userId: string,
+  actionType: string,
+  provider: string,
+  agentId?: string | null,
+): Promise<HardRuleMatchResult> {
+  let policyVersion: number | null = null;
+  let snapshotRules: HardRule[] | null = null;
+  try {
+    const { data: pv } = await admin.rpc("get_active_policy_version", { _user_id: userId });
+    const row = (Array.isArray(pv) ? pv[0] : pv) as { version?: number; snapshot?: PolicySnapshot } | null;
+    if (row) {
+      policyVersion = typeof row.version === "number" ? row.version : null;
+      const snap = (row.snapshot ?? {}) as PolicySnapshot;
+      snapshotRules = Array.isArray(snap.hard_rules) ? (snap.hard_rules as HardRule[]) : null;
+    }
+  } catch { /* fall back to the live table below */ }
+  if (!snapshotRules) {
+    const { data } = await admin
+      .from("hard_rules")
+      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, rationale, required_approvals")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true });
+    snapshotRules = (data ?? []) as HardRule[];
+  }
+  const allRules = selectRulesForAgent(snapshotRules, agentId ?? null).filter((r) => (r as { enabled?: boolean }).enabled !== false);
+  const matched = allRules.find((r) => !r.shadow_mode && ruleMatchesAction(r, actionType, provider)) ?? null;
+  return { rule: matched, policyVersion };
+}
 
 export type PendingApprovalOutcome = {
   approvalId: string | null;
