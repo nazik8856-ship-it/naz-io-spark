@@ -175,6 +175,7 @@ Rules:
 - 2-4 guardrails. Mark requiresApproval=true for anything external/spend/messages.
 - 6-10 widgets tuned to the role's day-to-day surface (Sales: pipeline + approvals; Support: queue + drafts + escalations; etc.). ALWAYS include one automation_rules widget and one workflow_summary widget so the operator sees how their workflow is automated. Title the automation_rules widget as a plan/playbook (e.g. "Automation playbook"), never as "Active"/"Live" automations — the agent reasons through each run dynamically rather than executing this list on a fixed schedule.
 - workflowSummary: 2-4 sentences in plain English describing how the agent automates the operator's daily/weekly workflow end-to-end.
+- If EXISTING ACCOUNT-WIDE RULES are provided below, they already govern every agent on this account, including this new one — never restate one as this agent's own guardrail, and never give this agent a tool/automation an "always_block" rule there would stop on its first real attempt.
 - automations: 3-6 entries. Each is a real "MONITORS source → IF condition → THEN action" rule. The "integrations" array may ONLY name tools NazAI can actually connect and act on today: Gmail, Google Docs, Google Sheets, Google Calendar, Slack, Notion, Canva, Shopify, Figma (plus GA4 and Stripe for READ-ONLY data in a report, never as a write/send/charge/post action). Never name HubSpot, Apollo, Zendesk, Intercom, Meta Ads, Google Ads, QuickBooks, Xero, Klaviyo, WooCommerce, Buffer, X/Twitter, or any other tool NazAI has no real connector for — an operator will believe whatever is listed here actually runs. If the business genuinely needs one of those, describe the gap in workflowSummary instead of inventing an automation for it — unless that system accepts an incoming webhook or API call the operator can supply a URL for, in which case use an "http_post" tool pointed at it (queued for the operator's approval, since NazAI can't verify what an unfamiliar endpoint does) and call it out as a webhook, not as if NazAI has a native connector for that product. Mark requiresApproval=true for anything that sends/charges/posts externally.
 - Never reveal it is an LLM. Always act in-character.`;
 
@@ -273,6 +274,33 @@ serve(async (req) => {
         }).slice(0, 2500)}`
       : "";
 
+    // Task #49: the Generator designed every agent with zero knowledge of
+    // what the account had ALREADY locked down account-wide -- a new agent
+    // could be handed a tool an "always_block" hard rule would stop on its
+    // very first real attempt, or list a guardrail that just restates a
+    // rule already enforced for every agent on the account. Only
+    // account-wide rules (agent_id IS NULL) apply here -- another agent's
+    // own agent-scoped rule has no bearing on THIS new agent.
+    let accountRulesBlock = "";
+    if (user) {
+      const [{ data: hardRules }, { data: safetyRules }] = await Promise.all([
+        supabase.from("hard_rules").select("rule_text, action_type_pattern, effect, provider")
+          .eq("user_id", user.id).is("agent_id", null).eq("enabled", true),
+        supabase.from("safety_rules").select("name, category, severity").eq("user_id", user.id).eq("enabled", true),
+      ]);
+      const hr = (hardRules ?? []) as { rule_text: string; action_type_pattern: string; effect: string; provider: string | null }[];
+      const sr = (safetyRules ?? []) as { name: string; category: string; severity: string }[];
+      if (hr.length || sr.length) {
+        accountRulesBlock = `\n\nEXISTING ACCOUNT-WIDE RULES (already enforced for EVERY agent on this account, including this new one -- do not restate one of these as this agent's own guardrail, and do not design a tool or automation an "always_block" rule below would stop on its first real attempt):` +
+          (hr.length
+            ? `\nHard rules:\n${hr.map((r) => `- [${r.effect}] pattern "${r.action_type_pattern}"${r.provider ? ` (provider: ${r.provider})` : ""}: ${r.rule_text}`).join("\n")}`
+            : "") +
+          (sr.length
+            ? `\nSafety rules (pattern-matched automatically on every action, no need to restate as a guardrail): ${sr.map((r) => `${r.name} (${r.category}, ${r.severity})`).join("; ")}`
+            : "");
+      }
+    }
+
     const blueprintBlock = `\n\nROLE BLUEPRINT (${role}) — use as a strong starting point, tailored to the business:
 goal: ${blueprint.goal}
 decisionPolicy: ${blueprint.decisionPolicy}
@@ -301,7 +329,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
         model: gw.deepModel,
         messages: [
           { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
-          { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${effectivePlan}${loopClause}` },
+          { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${accountRulesBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${effectivePlan}${loopClause}` },
         ],
         temperature: isRepeatedRequest ? 0.1 : 0.2,
         response_format: { type: "json_object" },
