@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, BookOpen } from "lucide-react";
 import { SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 
@@ -11,9 +11,9 @@ function CodeBlock({ children }: { children: string }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ id, title, children }: { id?: string; title: string; children: ReactNode }) {
   return (
-    <section className="mt-8">
+    <section id={id} className="mt-8 scroll-mt-20">
       <h2 className="text-sm font-semibold uppercase tracking-wider text-cyan-400">{title}</h2>
       <div className="mt-2 text-sm text-zinc-300">{children}</div>
     </section>
@@ -57,6 +57,53 @@ const EXAMPLE_OUTER_CONTROL_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/oute
     "source_model": "chatgpt",
     "content": "Sure, I went ahead and issued a refund for your order."
   }'`;
+
+// Task #50: "paste it into that tool's own settings" was the entire prior
+// onboarding for a Custom GPT Action -- true, but not something a non-
+// technical operator could actually act on without knowing what a GPT
+// Action's own schema field expects. A real OpenAPI 3.1 schema, ready to
+// paste as-is, turns that into a literal copy-paste-done step. The account's
+// own key is deliberately NOT embedded in the schema -- ChatGPT's own
+// Authentication section (API Key / Bearer) is where that belongs, kept
+// separate from a document like this that could end up shared or screenshot.
+const EXAMPLE_OUTER_CONTROL_GPT_ACTION_SCHEMA = `{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NazAI Outer Control",
+    "description": "Checks a response this GPT is about to give against the account's configured hard rules and safety rules before it's used.",
+    "version": "1.0.0"
+  },
+  "servers": [{ "url": "${SUPABASE_FUNCTIONS_URL}" }],
+  "paths": {
+    "/outer-control/evaluate": {
+      "post": {
+        "operationId": "evaluateResponse",
+        "summary": "Evaluate a response against this account's rules before using it",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["source_model", "content"],
+                "properties": {
+                  "source_model": { "type": "string", "description": "Which AI produced this, e.g. \\"chatgpt\\"." },
+                  "content": { "type": "string", "description": "The raw response text to check, up to 20,000 characters." }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "verdict is allow, modify, block, or escalate. On modify, use output (redacted) instead of the original. On block or escalate, output is null -- don't use the original either.",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          }
+        }
+      }
+    }
+  }
+}`;
 
 const EXAMPLE_OUTER_CONTROL_RESPONSE = `{
   "ok": true,
@@ -156,6 +203,16 @@ const EXAMPLE_RESPOND_RESPONSE = `{
  */
 export default function ControlApiDocs() {
   const navigate = useNavigate();
+  const { hash } = useLocation();
+
+  // Task #50: a client-side route change doesn't trigger the browser's own
+  // native #anchor scroll the way a full page load does -- deep-linking
+  // here from OuterControlSystem.tsx's setup flow needs this explicitly.
+  useEffect(() => {
+    if (!hash) return;
+    const el = document.querySelector(hash);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [hash]);
 
   return (
     <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#020617" }}>
@@ -365,6 +422,26 @@ export default function ControlApiDocs() {
             <span className="font-mono">output</span> is <span className="font-mono">null</span> — nothing is safe
             to act on yet. Every call is logged to your account's Outer Control dashboard with a trust score and
             full provenance, whether it came from the API or from NazAI's own internal use of a connected tool.
+          </p>
+        </Section>
+
+        <Section id="custom-gpt-action" title="Connect a ChatGPT Custom GPT Action (copy-paste)">
+          <p>
+            The most common "external AI" an account connects is a Custom GPT — this is that setup, start to finish,
+            no code:
+          </p>
+          <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-xs text-zinc-400">
+            <li>In ChatGPT, go to <span className="text-zinc-200">Explore GPTs → Create</span>, then open the <span className="text-zinc-200">Configure</span> tab.</li>
+            <li>Scroll to <span className="text-zinc-200">Actions</span> → <span className="text-zinc-200">Create new action</span>.</li>
+            <li>Paste the schema below into the <span className="text-zinc-200">Schema</span> box exactly as-is.</li>
+            <li>Under <span className="text-zinc-200">Authentication</span>, choose <span className="text-zinc-200">API Key</span>, Auth Type <span className="text-zinc-200">Bearer</span>, and paste your NazAI key there — never into the schema itself.</li>
+            <li>Save. Ask the GPT to check a response before it sends one, and it'll call this automatically.</li>
+          </ol>
+          <CodeBlock>{EXAMPLE_OUTER_CONTROL_GPT_ACTION_SCHEMA}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            Any other tool that can call a webhook or a custom action (a CRM's automation step, a support bot's
+            post-processing hook, your own backend) uses the exact same endpoint and body shown above — this schema
+            is specifically for a tool that expects an OpenAPI definition, which ChatGPT's Custom GPT Actions do.
           </p>
         </Section>
 
