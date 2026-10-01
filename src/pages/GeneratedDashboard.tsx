@@ -33,6 +33,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockpit";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
+import WebsiteControlReport from "@/components/websites/WebsiteControlReport";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
 import { cn } from "@/lib/utils";
 import ExecutionLog from "@/components/execution/ExecutionLog";
@@ -328,6 +329,7 @@ export default function GeneratedDashboard() {
           title: manifest.name,
           tagline: manifest.tagline,
           theme: manifest.theme,
+          generation_notes: Array.isArray(responseData.generation_notes) ? responseData.generation_notes : [],
         };
         const immediatePages = manifest.pages.map((page: any, index: number) => ({
           ...page,
@@ -954,6 +956,7 @@ export default function GeneratedDashboard() {
         <section className="flex-1 flex flex-col min-w-0 bg-[#0a0f1e]">
           {kind === "website" && (
             <div className="flex-1 min-h-0 flex flex-col">
+              <WebsiteControlReport notes={website?.generation_notes} />
               {webView === "preview" && id && (
                 // Explicit absolute positioning + fixed inset guarantees the
                 // iframe fills the pane. Prior `h-full` on a flex item under
