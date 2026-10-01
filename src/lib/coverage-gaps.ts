@@ -58,3 +58,30 @@ export function findCoverageGaps(
   const liveRules = scopedRules.filter((r) => r.enabled !== false && !r.shadow_mode);
   return capabilities.filter((cap) => !liveRules.some((r) => ruleCovers(r, cap.kind, cap.provider)));
 }
+
+export type CoverageCellStatus = "covered" | "shadow" | "gap";
+
+/**
+ * Pure — the same coverage question as findCoverageGaps, but per-capability
+ * and three-valued instead of a single blind-spot list: "covered" (a live,
+ * enabled, non-shadow rule matches), "shadow" (a rule matches but it's
+ * disabled or in shadow mode -- it's drafted, not actually enforcing yet),
+ * or "gap" (nothing matches at all, same as findCoverageGaps). Built for the
+ * Control System dashboard's hex-grid visualization (blueprint task #63
+ * follow-up) -- one cell per real capability, colored by this status.
+ */
+export function classifyCoverage(
+  capabilities: CapabilityForCoverage[],
+  hardRules: HardRuleForCoverage[],
+  agentId?: string | null,
+): (CapabilityForCoverage & { status: CoverageCellStatus })[] {
+  const scopedRules = agentId === undefined
+    ? hardRules
+    : hardRules.filter((r) => r.agent_id == null || r.agent_id === agentId);
+  const liveRules = scopedRules.filter((r) => r.enabled !== false && !r.shadow_mode);
+  return capabilities.map((cap) => {
+    if (liveRules.some((r) => ruleCovers(r, cap.kind, cap.provider))) return { ...cap, status: "covered" as const };
+    if (scopedRules.some((r) => ruleCovers(r, cap.kind, cap.provider))) return { ...cap, status: "shadow" as const };
+    return { ...cap, status: "gap" as const };
+  });
+}

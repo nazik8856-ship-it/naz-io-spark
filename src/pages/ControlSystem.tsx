@@ -259,6 +259,7 @@ export default function ControlSystem() {
               coveragePct={dashboard.coveragePct}
               coverageGapCount={dashboard.coverageGapCount}
               coverageTotal={dashboard.coverageTotal}
+              coverageCells={dashboard.coverageCells}
               healthPct={dashboard.healthPct}
               onCoverageClick={() => navigate("/control-system/coverage")}
               onHealthClick={() => navigate("/control-system/health")}
