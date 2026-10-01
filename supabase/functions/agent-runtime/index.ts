@@ -1138,7 +1138,7 @@ serve(async (req) => {
       { name: "deep_analyze", kind: "deep_analyze", description: "Run deep multi-step reasoning on a subject using a stronger model. Returns a structured diagnosis: findings, root causes, risks, concrete fixes with priority. Use for audits, debugging, competitive analysis, or any problem needing serious thinking.", config: {} },
       { name: "audit_url", kind: "audit_url", description: "Fetch a webpage/document URL and produce a concrete audit: what's wrong, what's missing, prioritized fixes with rationale. Use for website reviews, landing-page audits, doc reviews, competitor teardowns.", config: {} },
       { name: "make_plan", kind: "make_plan", description: "Produce a concrete, numbered execution plan for a stated objective. Each step includes owner, tool/action to take, success criteria. Use before large multi-step work.", config: {} },
-      { name: "send_email", kind: "send_email", description: "Send a real email via the agent-notification template. Requires an explicit guardrail allowing external sends; otherwise it will be queued for approval instead of sent.", config: {} },
+      { name: "send_email", kind: "send_email", description: "Send a real email via the agent-notification template. Requires an explicit guardrail allowing external sends; otherwise it will be queued for approval instead of sent. Optionally pass attachments (filename + text content, e.g. a generated report or CSV) to send real files — requires a connected Gmail account.", config: {} },
       { name: "generate_report", kind: "generate_report", description: "Write a markdown report/digest/audit/plan as a durable artifact the operator can open later.", config: {} },
       { name: "compose_and_deliver", kind: "compose_and_deliver", description: "Compose content AND deliver it via a real channel (email or Slack) in one guaranteed step — use this instead of generate_report when the point is for someone to actually receive it, not just to save it for later. Only reports success once the real send is verified; never claims delivery for content that was merely composed.", config: {} },
       { name: "create_doc", kind: "create_doc", description: "Create a real Google Doc in the connected Google account (from the Gmail integration) with the given title and body text. Returns the doc URL. Optionally pass share_with_email (and share_role: reader|commenter|writer, default reader) to really share it with someone the moment it's created — Google emails them directly. If sharing is requested but fails, this reports failure even though the doc exists, since the point was for them to receive it.", config: {} },
@@ -1147,7 +1147,7 @@ serve(async (req) => {
       { name: "edit_doc", kind: "edit_doc", description: "Edit an existing Google Doc by id — append to or replace its body content. Verifies the edit by re-reading the doc.", config: {} },
       { name: "edit_sheet", kind: "edit_sheet", description: "Update a range in an existing Google Sheet by id (e.g. Sheet1!A2:C10) with a 2D array of values. Verifies by re-reading the range.", config: {} },
       { name: "read_email", kind: "read_email", description: "Read the full body/thread of a Gmail message. Give a message_id, thread_id, or a Gmail search query (e.g. 'from:x@y.com newer_than:2d'). Returns decoded plain-text content, not just metadata.", config: {} },
-      { name: "reply_email", kind: "reply_email", description: "Reply inside an existing Gmail thread by thread_id (proper In-Reply-To/References headers). Same approval-gating as send_email.", config: {} },
+      { name: "reply_email", kind: "reply_email", description: "Reply inside an existing Gmail thread by thread_id (proper In-Reply-To/References headers). Same approval-gating as send_email. Optionally pass attachments (filename + text content) to attach real files to the reply.", config: {} },
       { name: "read_analytics", kind: "read_analytics", description: "Fetch last 30 days of sessions and users from a Google Analytics 4 property via the GA4 Data API. Requires property_id.", config: {} },
       
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to any https URL — the escape hatch for reaching a system NazAI has no native integration for (a CRM's incoming webhook, Zapier, a custom endpoint, etc). Blocked from localhost/private/internal addresses (SSRF-safe DNS check), but NOT restricted to a specific domain otherwise. Queued for the operator's approval by default; sends immediately only if a manifest guardrail explicitly allows it or the agent has auto_approve_low_risk on.", config: {} },
@@ -1205,7 +1205,7 @@ serve(async (req) => {
         case "deep_analyze": usage = `deep_analyze(subject: string, context?: string, focus?: string)  // deep structured diagnosis using a stronger reasoning model`; break;
         case "audit_url": usage = `audit_url(url: string, focus?: string)  // fetches the page and returns a concrete prioritized audit`; break;
         case "make_plan": usage = `make_plan(objective: string, constraints?: string)  // returns a numbered execution plan with success criteria`; break;
-        case "send_email": usage = `send_email(to: string, subject: string, body: string)  // actually delivers an email unless guardrails require approval`; break;
+        case "send_email": usage = `send_email(to: string, subject: string, body: string, attachments?: {filename: string, content: string, mime_type?: string}[])  // actually delivers an email unless guardrails require approval; attachments requires a connected Gmail account (max 5 files)`; break;
         case "generate_report": usage = `generate_report(title: string, kind: "report"|"digest"|"audit"|"plan", body_markdown: string)  // saves a durable artifact`; break;
         case "compose_and_deliver": usage = `compose_and_deliver(title: string, body_markdown: string, via: "email"|"slack", to?: string, channel?: string)  // composes AND really delivers in one step; to required for email, channel required for slack`; break;
         case "create_doc": usage = `create_doc(title: string, body_markdown: string, share_with_email?: string, share_role?: "reader"|"commenter"|"writer")  // creates a real Google Doc, optionally really shares it (Google emails the recipient), returns { url, id }`; break;
@@ -1214,7 +1214,7 @@ serve(async (req) => {
         case "edit_doc": usage = `edit_doc(doc_id: string, mode: "append"|"replace", body_markdown: string)  // edits an existing Google Doc by id and re-reads to verify`; break;
         case "edit_sheet": usage = `edit_sheet(sheet_id: string, range: string, values: string[][])  // updates a range (e.g. "Sheet1!A2:C10") in an existing Google Sheet and re-reads to verify`; break;
         case "read_email": usage = `read_email(message_id?: string, thread_id?: string, query?: string, max?: number)  // returns full decoded body/thread content, not just unread counts`; break;
-        case "reply_email": usage = `reply_email(thread_id: string, body: string, subject?: string)  // replies inside an existing Gmail thread with proper threading headers; approval-gated like send_email`; break;
+        case "reply_email": usage = `reply_email(thread_id: string, body: string, subject?: string, attachments?: {filename: string, content: string, mime_type?: string}[])  // replies inside an existing Gmail thread with proper threading headers; approval-gated like send_email`; break;
 
         case "read_analytics": usage = `read_analytics(property_id: string)  // GA4 Data API: last 30 days sessions & totalUsers for the given property`; break;
         
@@ -2211,6 +2211,15 @@ Rules:
             messages.push({ role: "user", content: `${msg} Continue.` });
             continue;
           }
+          const { parseEmailAttachments } = await import("../_shared/gmail.ts");
+          const { attachments: emailAttachments, error: attachmentsErr } = parseEmailAttachments(input.attachments);
+          if (attachmentsErr) {
+            const msg = `send_email: ${attachmentsErr} — nothing was sent.`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "send_email", target: to, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
           const emailGuard = (manifest.guardrails || []).find((g) => {
             const r = (g.rule || "").toLowerCase();
             return g.requiresApproval && (r.includes("email") || r.includes("send") || r.includes("external"));
@@ -2233,7 +2242,7 @@ Rules:
           }
           // Real-action idempotency claim -- see buildRealActionKey's own
           // comment for exactly what this does and doesn't protect against.
-          const emailActionKey = await buildRealActionKey(runId, "send_email", { to, subject, body });
+          const emailActionKey = await buildRealActionKey(runId, "send_email", { to, subject, body, attachments: emailAttachments });
           const emailClaim = await claimIdempotencyKey(supabase, userId, emailActionKey);
           if (emailClaim.status !== "claimed") {
             const cached = emailClaim.status === "replay" ? emailClaim.response as { ok?: boolean; summary?: string } : null;
@@ -2262,6 +2271,10 @@ Rules:
             let summary = "";
             let messageId: string | null = null;
 
+            const attachmentNote = emailAttachments.length
+              ? ` with ${emailAttachments.length} attachment${emailAttachments.length === 1 ? "" : "s"} (${emailAttachments.map((a) => a.filename).join(", ")})`
+              : "";
+
             if (gmail) {
               const { ensureAccessToken, gmailSend } = await import("../_shared/gmail.ts");
               const access = await ensureAccessToken(admin, { id: gmail.id, credentials_secret_id: (gmail.credentials_secret_id as string | null) ?? null });
@@ -2270,7 +2283,7 @@ Rules:
               } else {
                 const creds = await readSecret(admin, (gmail.credentials_secret_id as string | null) ?? null);
                 const from = String(creds.email || "me");
-                const result = await gmailSend(access, from, to, subject, body);
+                const result = await gmailSend(access, from, to, subject, body, emailAttachments);
                 ok = result.ok;
                 messageId = result.id || null;
                 if (ok && messageId) {
@@ -2284,14 +2297,21 @@ Rules:
                     ok = false;
                     summary = `Gmail send unverified: ${vb?.error?.message || `verify HTTP ${vr.status}`} (initial id=${messageId})`;
                   } else {
-                    summary = `Email sent via Gmail (${from}) to ${to} — subject "${subject}" (verified id=${vb.id}).`;
+                    summary = `Email sent via Gmail (${from}) to ${to}${attachmentNote} — subject "${subject}" (verified id=${vb.id}).`;
                   }
                 } else {
                   summary = ok
-                    ? `Email sent via Gmail (${from}) to ${to} — subject "${subject}".`
+                    ? `Email sent via Gmail (${from}) to ${to}${attachmentNote} — subject "${subject}".`
                     : `Gmail send failed: ${result.error || "unknown"}`;
                 }
               }
+            } else if (emailAttachments.length > 0) {
+              // The no-Gmail fallback below goes through a fixed transactional
+              // template that has no attachment support at all -- silently
+              // sending without the file(s) the model asked to attach would
+              // look like success while quietly dropping what was actually
+              // requested. Fail loudly instead of pretending it worked.
+              summary = `send_email: ${emailAttachments.length} attachment(s) requested, but no Gmail account is connected — connect Gmail to send real attachments. Nothing was sent.`;
             } else {
               const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
                 method: "POST",
@@ -2859,6 +2879,15 @@ Rules:
             messages.push({ role: "user", content: `${msg} Continue.` });
             continue;
           }
+          const { parseEmailAttachments: parseReplyAttachments } = await import("../_shared/gmail.ts");
+          const { attachments: replyAttachments, error: replyAttachmentsErr } = parseReplyAttachments(input.attachments);
+          if (replyAttachmentsErr) {
+            const msg = `reply_email: ${replyAttachmentsErr} — nothing was sent.`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "reply_email", target: threadId, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
           // Same approval gate as send_email.
           const emailGuard = (manifest.guardrails || []).find((g) => {
             const r = (g.rule || "").toLowerCase();
@@ -2898,32 +2927,25 @@ Rules:
             const to = originalFrom || H("To");
             if (!to) throw new Error("Could not resolve reply recipient from thread.");
             const references = [priorRefs, originalMsgId].filter(Boolean).join(" ");
-            const rfc = [
-              `From: ${fromEmail || "me"}`,
-              `To: ${to}`,
-              `Subject: ${subject}`,
-              originalMsgId ? `In-Reply-To: ${originalMsgId}` : "",
-              references ? `References: ${references}` : "",
-              `Content-Type: text/plain; charset="UTF-8"`,
-              ``,
-              bodyText,
-            ].filter(Boolean).join("\r\n");
-            const raw = btoa(unescape(encodeURIComponent(rfc))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-            const sendR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/send`, {
-              method: "POST",
-              headers: { ...auth, "Content-Type": "application/json" },
-              body: JSON.stringify({ raw, threadId }),
-            });
-            const sendB = await sendR.json().catch(() => ({}));
-            if (!sendR.ok || !sendB?.id) throw new Error(`Gmail reply send failed: ${sendB?.error?.message || `HTTP ${sendR.status}`}`);
-            const sentId = sendB.id as string;
+            const { encodeEmailWithHeaders, gmailSendRaw } = await import("../_shared/gmail.ts");
+            const raw = encodeEmailWithHeaders(
+              fromEmail || "me", to, subject, bodyText,
+              [originalMsgId ? `In-Reply-To: ${originalMsgId}` : "", references ? `References: ${references}` : ""].filter(Boolean),
+              replyAttachments,
+            );
+            const sent = await gmailSendRaw(access, raw, threadId);
+            if (!sent.ok || !sent.id) throw new Error(`Gmail reply send failed: ${sent.error || "no message id returned"}`);
+            const sentId = sent.id;
             // Verify — re-fetch and confirm same threadId.
             const vr = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(sentId)}?format=metadata`, { headers: auth });
             const vb = await vr.json().catch(() => ({}));
             if (!vr.ok || vb?.id !== sentId || vb?.threadId !== threadId) {
               throw new Error(`Gmail reply verify failed: ${vb?.error?.message || `HTTP ${vr.status}`} (id=${sentId}, thread=${vb?.threadId})`);
             }
-            const summary = `Reply sent in thread ${threadId} to ${to} — subject "${subject}" (verified id=${sentId}).`;
+            const attachmentNote = replyAttachments.length
+              ? ` with ${replyAttachments.length} attachment${replyAttachments.length === 1 ? "" : "s"} (${replyAttachments.map((a) => a.filename).join(", ")})`
+              : "";
+            const summary = `Reply sent in thread ${threadId} to ${to}${attachmentNote} — subject "${subject}" (verified id=${sentId}).`;
             await logEvent("tool_result", { tool: tool.name, ok: true, summary });
             await logEvent("action", { type: "reply_email", target: to, ok: true, result_ref: sentId, summary });
             {
