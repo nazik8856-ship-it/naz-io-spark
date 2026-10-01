@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
-import { findCoverageGaps, type CapabilityForCoverage, type HardRuleForCoverage } from "@/lib/coverage-gaps";
+import { findCoverageGaps, classifyCoverage, type CapabilityForCoverage, type HardRuleForCoverage, type CoverageCellStatus } from "@/lib/coverage-gaps";
 import { GATE_ERROR_SOURCES, engineUptimeStats } from "@/lib/control-health";
 import { lastNDays, bucketCountByDay, bucketEfficiencyByDay } from "@/lib/control-dashboard";
 
@@ -14,6 +14,7 @@ export type ControlDashboardData = {
   coveragePct: number | null; // null = no real connected capabilities yet to cover
   coverageGapCount: number;
   coverageTotal: number;
+  coverageCells: (CapabilityForCoverage & { status: CoverageCellStatus })[];
   healthPct: number | null; // null = no decision volume in window yet
   spend: { today: number; cap: number; capIsCustom: boolean; series: number[] };
   incidents: { openCount: number; series: number[] };
@@ -39,6 +40,7 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
   const [coveragePct, setCoveragePct] = useState<number | null>(null);
   const [coverageGapCount, setCoverageGapCount] = useState(0);
   const [coverageTotal, setCoverageTotal] = useState(0);
+  const [coverageCells, setCoverageCells] = useState<(CapabilityForCoverage & { status: CoverageCellStatus })[]>([]);
   const [healthPct, setHealthPct] = useState<number | null>(null);
   const [spend, setSpend] = useState({ today: 0, cap: DEFAULT_CAP, capIsCustom: false, series: [] as number[] });
   const [incidents, setIncidents] = useState({ openCount: 0, series: [] as number[] });
@@ -92,6 +94,7 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
     setCoverageTotal(capabilities.length);
     setCoverageGapCount(gaps.length);
     setCoveragePct(capabilities.length > 0 ? Math.round(((capabilities.length - gaps.length) / capabilities.length) * 1000) / 10 : null);
+    setCoverageCells(classifyCoverage(capabilities, hardRules));
 
     // Health -- same gate-error-rate complement ControlHealthView.tsx uses,
     // folding in clean_allow_counts so a quiet account on mostly clean
@@ -149,6 +152,7 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
     coveragePct,
     coverageGapCount,
     coverageTotal,
+    coverageCells,
     healthPct,
     spend,
     incidents,
