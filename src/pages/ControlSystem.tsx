@@ -231,14 +231,14 @@ export default function ControlSystem() {
       </header>
 
       {showTemplatesNudge && (
-        <div className="flex items-center gap-3 border-b border-cyan-500/20 bg-cyan-500/[0.06] px-6 py-2.5">
+        <div className="flex flex-wrap items-center gap-3 border-b border-cyan-500/20 bg-cyan-500/[0.06] px-4 py-2.5 sm:px-6">
           <Sparkles className="h-4 w-4 shrink-0 text-cyan-300" />
-          <p className="text-xs text-cyan-100">
+          <p className="min-w-[200px] flex-1 text-xs text-cyan-100">
             No hard rules or safety rules set up yet — start from a policy template so your AI has real guardrails from day one.
           </p>
           <button
             onClick={() => navigate("/control-system/templates")}
-            className="ml-auto shrink-0 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
+            className="shrink-0 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
           >
             Browse templates
           </button>
@@ -253,14 +253,14 @@ export default function ControlSystem() {
       )}
 
       {showSpendNudge && (
-        <div className="flex items-center gap-3 border-b border-amber-500/20 bg-amber-500/[0.06] px-6 py-2.5">
+        <div className="flex flex-wrap items-center gap-3 border-b border-amber-500/20 bg-amber-500/[0.06] px-4 py-2.5 sm:px-6">
           <Gauge className="h-4 w-4 shrink-0 text-amber-300" />
-          <p className="text-xs text-amber-100">
+          <p className="min-w-[200px] flex-1 text-xs text-amber-100">
             You haven't set a daily AI spend limit — a silent $5.00/day default is applying right now. Choose a number you actually picked.
           </p>
           <button
             onClick={() => navigate("/control-system/spend-safety")}
-            className="ml-auto shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-amber-300 hover:bg-amber-500/20"
+            className="shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-amber-300 hover:bg-amber-500/20"
           >
             Set spend limit
           </button>
@@ -277,7 +277,7 @@ export default function ControlSystem() {
       <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-y-auto lg:overflow-visible">
         {/* Left: dashboard */}
         <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
-          <div className="mx-auto max-w-4xl space-y-4 p-6">
+          <div className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
             <SetupProgressBar pct={dashboard.setup.pct} checks={setupChecks} />
 
             <RuleCoverageHealthCard
