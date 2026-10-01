@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, X, Sparkles, Gauge, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowLeft, X, Sparkles, Gauge, ChevronDown, ChevronRight, MessageCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canApprove } from "@/lib/account-switcher";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
@@ -53,6 +54,11 @@ export default function ControlSystem() {
   const [showTemplatesNudge, setShowTemplatesNudge] = useState(false);
   const [spendNudgeDismissed, setSpendNudgeDismissed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // On phone, the dashboard is the main view and the Agent Status chat lives
+  // behind a slide-in drawer (opened via the floating button) instead of
+  // being stacked below the dashboard, which used to push it a full scroll
+  // away. Unused at lg+, where the chat stays a permanent sidebar.
+  const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const spendStatus = useSpendSafetyStatus(accountId);
   const dashboard = useControlDashboardData(accountId);
   const approvalsFeed = usePendingApprovalsFeed(accountId);
@@ -274,8 +280,8 @@ export default function ControlSystem() {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-y-auto lg:overflow-visible">
-        {/* Left: dashboard */}
+      <div className="relative flex-1 flex flex-col lg:flex-row min-h-0 overflow-y-auto lg:overflow-visible">
+        {/* Left: dashboard -- the main view on phone */}
         <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
           <div className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
             <SetupProgressBar pct={dashboard.setup.pct} checks={setupChecks} />
@@ -342,10 +348,38 @@ export default function ControlSystem() {
           </div>
         </div>
 
+        {/* Mobile-only backdrop behind the slide-in chat drawer. */}
+        {mobileChatOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/60 lg:hidden"
+            onClick={() => setMobileChatOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+
         {/* Right: a single unified Agent Status panel -- pending approvals
             render as real, actionable cards right inside the conversation
-            (per the reference mockup), instead of a separate boxed list. */}
-        <div className="flex w-full min-h-[480px] shrink-0 flex-col border-t border-white/5 bg-[#050813] lg:min-h-0 lg:w-[380px] lg:border-l lg:border-t-0">
+            (per the reference mockup), instead of a separate boxed list.
+            On phone this is a slide-in drawer (closed by default) instead
+            of a panel stacked below the dashboard; at lg+ it's back to a
+            permanent sidebar, unaffected by mobileChatOpen. */}
+        <div
+          className={cn(
+            "fixed inset-y-0 right-0 z-50 flex w-[88vw] max-w-sm flex-col border-l border-white/10 bg-[#050813] transition-transform duration-300 ease-out",
+            mobileChatOpen ? "translate-x-0" : "translate-x-full",
+            "lg:static lg:z-auto lg:w-[380px] lg:max-w-none lg:translate-x-0 lg:min-h-0 lg:border-t-0",
+          )}
+        >
+          <div className="flex items-center justify-between border-b border-white/5 px-4 py-3 lg:hidden">
+            <span className="text-sm font-semibold text-white">AI Control System</span>
+            <button
+              onClick={() => setMobileChatOpen(false)}
+              aria-label="Close chat"
+              className="text-zinc-400 hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
           <LiveAgentChat
             agentId="control-system"
             name="AI Control System"
@@ -362,6 +396,22 @@ export default function ControlSystem() {
           />
         </div>
       </div>
+
+      {/* Floating button to open the chat drawer on phone -- badged with
+          the pending-approvals count so a collapsed chat never hides
+          something that needs a decision. */}
+      <button
+        onClick={() => setMobileChatOpen(true)}
+        aria-label="Open AI Control System chat"
+        className="fixed bottom-5 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-cyan-400 text-black shadow-lg shadow-cyan-500/30 lg:hidden"
+      >
+        <MessageCircle className="h-6 w-6" />
+        {approvalsFeed.approvals.length > 0 && (
+          <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#020617] bg-rose-500 px-1 text-[10px] font-bold text-white">
+            {approvalsFeed.approvals.length}
+          </span>
+        )}
+      </button>
     </div>
   );
 }
