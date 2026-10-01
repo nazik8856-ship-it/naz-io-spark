@@ -107,11 +107,19 @@ export default function RuleCoverageHealthCard({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Rule Coverage &amp; System Health</div>
         <div className="flex items-center gap-3 text-[11px]">
-          <button onClick={onCoverageClick} className="flex items-center gap-1.5 text-zinc-400 hover:text-white">
+          <button
+            onClick={onCoverageClick}
+            title="How much of what your AI can do is actually governed by a live rule"
+            className="flex items-center gap-1.5 text-zinc-400 hover:text-white"
+          >
             <span className="h-2 w-2 rounded-full" style={{ background: STATUS_COLOR.covered }} />
             Coverage {coveragePct === null ? "—" : `${coveragePct}%`}
           </button>
-          <button onClick={onHealthClick} className="flex items-center gap-1.5 text-zinc-400 hover:text-white">
+          <button
+            onClick={onHealthClick}
+            title="How reliably the Control System itself is running"
+            className="flex items-center gap-1.5 text-zinc-400 hover:text-white"
+          >
             <Activity className="h-3 w-3 text-amber-300" />
             Health {healthPct === null ? "—" : `${healthPct}%`}
           </button>
