@@ -1,13 +1,16 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, X, Sparkles, Gauge, ChevronDown, ChevronRight, FlaskConical } from "lucide-react";
+import { ArrowLeft, X, Sparkles, Gauge, ChevronDown, ChevronRight } from "lucide-react";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { canApprove } from "@/lib/account-switcher";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
 import SpendSafetyStatusBadge from "@/components/control/SpendSafetyStatusBadge";
 import { useSpendSafetyStatus } from "@/hooks/useSpendSafetyStatus";
 import { useControlDashboardData } from "@/hooks/useControlDashboardData";
+import { usePendingApprovalsFeed } from "@/hooks/usePendingApprovalsFeed";
+import ApprovalChatCard from "@/components/control/dashboard/ApprovalChatCard";
 
 
 import DryRunToggle from "@/components/control/DryRunToggle";
@@ -20,7 +23,6 @@ import ControlPagesMenu from "@/components/control/dashboard/ControlPagesMenu";
 import SetupProgressBar from "@/components/control/dashboard/SetupProgressBar";
 import RuleCoverageHealthCard from "@/components/control/dashboard/RuleCoverageHealthCard";
 import StatSparkCard from "@/components/control/dashboard/StatSparkCard";
-import PendingApprovalsMini from "@/components/control/dashboard/PendingApprovalsMini";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
@@ -44,7 +46,7 @@ const SETTINGS_OPEN_KEY = "nazai_control_settings_open";
  */
 export default function ControlSystem() {
   const navigate = useNavigate();
-  const { accountId } = useActiveAccount();
+  const { accountId, role } = useActiveAccount();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [dryRun, setDryRun] = useState(false);
@@ -53,6 +55,8 @@ export default function ControlSystem() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const spendStatus = useSpendSafetyStatus(accountId);
   const dashboard = useControlDashboardData(accountId);
+  const approvalsFeed = usePendingApprovalsFeed(accountId);
+  const canSignOff = canApprove(role);
 
   useEffect(() => {
     if (!accountId) return;
@@ -157,6 +161,27 @@ export default function ControlSystem() {
       setStreaming(false);
     }
   };
+
+  // Pending approvals rendered as real, actionable chat cards ahead of the
+  // actual conversation -- never persisted into `turns` itself, since that
+  // array also backs the message history sent to control-system-decide
+  // (handleSend's `history`), which must stay exactly what was said, not
+  // padded with synthetic approval cards.
+  const chatTurns: Turn[] = [
+    ...approvalsFeed.approvals.map((a): Turn => ({
+      role: "assistant",
+      content: "",
+      node: (
+        <ApprovalChatCard
+          approval={a}
+          canSignOff={canSignOff}
+          resolving={approvalsFeed.resolvingId === a.id}
+          onResolve={(vote) => approvalsFeed.resolve(a.id, vote)}
+        />
+      ),
+    })),
+    ...turns,
+  ];
 
   const setupChecks = [
     { label: "Hard rules configured", done: dashboard.setup.hardRules, onClick: () => navigate("/control-system/safety-rules") },
@@ -317,36 +342,24 @@ export default function ControlSystem() {
           </div>
         </div>
 
-        {/* Right: approvals + simulator teaser + live chat */}
-        <div className="flex w-full min-h-[480px] shrink-0 flex-col gap-3 border-t border-white/5 bg-[#050813] p-4 lg:min-h-0 lg:w-[380px] lg:border-l lg:border-t-0">
-          <PendingApprovalsMini accountId={accountId} />
-          <button
-            onClick={() => navigate("/control-system/simulator")}
-            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-left transition hover:border-white/20 hover:bg-white/[0.05]"
-          >
-            <FlaskConical className="h-4 w-4 shrink-0 text-cyan-300" />
-            <span className="min-w-0 flex-1">
-              <span className="block text-xs font-semibold text-white">Rule simulator</span>
-              <span className="block text-[11px] text-zinc-500">Test a hypothetical action against your live rules</span>
-            </span>
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
-          </button>
-          <div className="min-h-0 flex-1">
-            <LiveAgentChat
-              agentId="control-system"
-              name="AI Control System"
-              goal="Your AI's decisions, explained and controlled"
-              turns={turns}
-              suggestions={[
-                "My agent wants to post to #general",
-                "Should I let this run: send email to all customers",
-                "Agent wants to update product prices in Shopify",
-              ]}
-              streaming={streaming}
-              fullSpec="Describe any action your AI wants to take. The Control System scores intent match, risk and confidence, then returns Allow, Modify, Block or Deferred — and logs it to your decision history."
-              onSend={handleSend}
-            />
-          </div>
+        {/* Right: a single unified Agent Status panel -- pending approvals
+            render as real, actionable cards right inside the conversation
+            (per the reference mockup), instead of a separate boxed list. */}
+        <div className="flex w-full min-h-[480px] shrink-0 flex-col border-t border-white/5 bg-[#050813] lg:min-h-0 lg:w-[380px] lg:border-l lg:border-t-0">
+          <LiveAgentChat
+            agentId="control-system"
+            name="AI Control System"
+            goal="Your AI's decisions, explained and controlled"
+            turns={chatTurns}
+            suggestions={[
+              "My agent wants to post to #general",
+              "Should I let this run: send email to all customers",
+              "Agent wants to update product prices in Shopify",
+            ]}
+            streaming={streaming}
+            fullSpec="Describe any action your AI wants to take. The Control System scores intent match, risk and confidence, then returns Allow, Modify, Block or Deferred — and logs it to your decision history."
+            onSend={handleSend}
+          />
         </div>
       </div>
     </div>
