@@ -29,7 +29,17 @@ export const GMAIL_REDIRECT_URI = `${Deno.env.get("SUPABASE_URL")}/functions/v1/
 const enc = new TextEncoder();
 
 function b64urlEncode(bytes: Uint8Array): string {
-  let s = btoa(String.fromCharCode(...bytes));
+  // Chunked, not `String.fromCharCode(...bytes)` -- spreading a large
+  // Uint8Array as call arguments throws "Maximum call stack size exceeded"
+  // well before 1MB. Previously harmless (OAuth state payloads are tiny),
+  // but encodeEmail's `raw` can now carry base64-inflated file attachments
+  // and routinely exceeds that limit.
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  const s = btoa(binary);
   return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 function b64urlEncodeStr(s: string): string {
@@ -290,18 +300,139 @@ export async function googleAuthedFetch(
   return r;
 }
 
-// Encode an RFC 2822 message to base64url for Gmail API.
-export function encodeEmail(from: string, to: string, subject: string, body: string): string {
-  const headers = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
+// Blueprint task #32: a generated report previously could only go out as
+// inline text (or a link to something living elsewhere) -- there was no
+// path for send_email/reply_email to actually attach a file. This adds
+// real MIME-multipart attachment support, shared by both the plain
+// encodeEmail() path below and reply_email's own header-threading build
+// (encodeEmailWithHeaders), so neither duplicates the MIME construction.
+export type EmailAttachment = { filename: string; content: string; mimeType?: string };
+
+const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_CHARS = 500_000;
+
+// Shared validation for the `attachments` tool-call field on both
+// send_email and reply_email. Schema-level validation (tool-schemas.ts)
+// already enforces shape/size before this runs; this is a second,
+// semantic-level check (count, filenames present) that returns a clear
+// error string instead of silently truncating or dropping attachments.
+export function parseEmailAttachments(raw: unknown): { attachments: EmailAttachment[]; error?: string } {
+  if (raw === undefined || raw === null) return { attachments: [] };
+  if (!Array.isArray(raw)) return { attachments: [], error: "attachments must be a list of {filename, content}" };
+  if (raw.length > MAX_ATTACHMENTS) return { attachments: [], error: `at most ${MAX_ATTACHMENTS} attachments per email` };
+  const attachments: EmailAttachment[] = [];
+  for (const item of raw as Array<Record<string, unknown>>) {
+    const filename = String(item?.filename ?? "").trim();
+    const content = String(item?.content ?? "");
+    if (!filename || !content) return { attachments: [], error: "each attachment needs a non-empty filename and content" };
+    if (content.length > MAX_ATTACHMENT_CHARS) {
+      return { attachments: [], error: `attachment "${filename}" exceeds the ${MAX_ATTACHMENT_CHARS.toLocaleString()}-character limit` };
+    }
+    const mimeType = item?.mime_type ? String(item.mime_type) : undefined;
+    attachments.push({ filename, content, mimeType });
+  }
+  return { attachments };
+}
+
+const ATTACHMENT_MIME_BY_EXT: Record<string, string> = {
+  csv: "text/csv", txt: "text/plain", md: "text/markdown",
+  json: "application/json", html: "text/html", xml: "application/xml",
+};
+function guessAttachmentMimeType(filename: string): string {
+  const ext = (filename.split(".").pop() || "").toLowerCase();
+  return ATTACHMENT_MIME_BY_EXT[ext] || "application/octet-stream";
+}
+
+// RFC 2045 recommends wrapping base64 body content at 76 chars per line --
+// most mail clients tolerate unwrapped lines, but some strict MIME parsers
+// don't, so this costs nothing and avoids a class of "attachment looks
+// corrupted in client X" reports.
+function wrapBase64(b64: string): string {
+  return b64.replace(/(.{76})/g, "$1\r\n");
+}
+
+// Attachment content comes from the model as plain text (a generated
+// report, CSV, markdown, JSON -- same "content" convention slack_upload_file
+// already uses). Standard (non-URL-safe) base64 is required HERE because
+// this is the Content-Transfer-Encoding of an inner MIME part, not the
+// outer Gmail API `raw` envelope (which is base64url and encoded separately
+// by b64urlEncodeStr once the whole message is assembled).
+function standardBase64Utf8(s: string): string {
+  return wrapBase64(btoa(unescape(encodeURIComponent(s))));
+}
+
+function buildMimeMessage(
+  from: string, to: string, subject: string, body: string,
+  attachments: EmailAttachment[], extraHeaders: string[] = [],
+): string {
+  const baseHeaders = [`From: ${from}`, `To: ${to}`, `Subject: ${subject}`, ...extraHeaders];
+  if (attachments.length === 0) {
+    return [
+      ...baseHeaders,
+      "MIME-Version: 1.0",
+      'Content-Type: text/plain; charset="UTF-8"',
+      "",
+      body,
+    ].join("\r\n");
+  }
+  const boundary = `nazai_${crypto.randomUUID().replace(/-/g, "")}`;
+  const lines: string[] = [
+    ...baseHeaders,
     "MIME-Version: 1.0",
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
     'Content-Type: text/plain; charset="UTF-8"',
     "",
     body,
-  ].join("\r\n");
-  return b64urlEncodeStr(headers);
+    "",
+  ];
+  for (const att of attachments) {
+    const mimeType = att.mimeType || guessAttachmentMimeType(att.filename);
+    lines.push(
+      `--${boundary}`,
+      `Content-Type: ${mimeType}; name="${att.filename}"`,
+      "Content-Transfer-Encoding: base64",
+      `Content-Disposition: attachment; filename="${att.filename}"`,
+      "",
+      standardBase64Utf8(att.content),
+      "",
+    );
+  }
+  lines.push(`--${boundary}--`);
+  return lines.join("\r\n");
+}
+
+// Encode an RFC 2822 message (optionally multipart/mixed with attachments) to base64url for Gmail API.
+export function encodeEmail(
+  from: string, to: string, subject: string, body: string, attachments: EmailAttachment[] = [],
+): string {
+  return b64urlEncodeStr(buildMimeMessage(from, to, subject, body, attachments));
+}
+
+// Same as encodeEmail but threads in extra RFC 2822 headers (In-Reply-To,
+// References) -- used by reply_email, which otherwise built its raw
+// message by hand and had no attachment support at all.
+export function encodeEmailWithHeaders(
+  from: string, to: string, subject: string, body: string,
+  extraHeaders: string[], attachments: EmailAttachment[] = [],
+): string {
+  return b64urlEncodeStr(buildMimeMessage(from, to, subject, body, attachments, extraHeaders));
+}
+
+// Shared by gmailSend and reply_email's own send -- posts an already-encoded
+// `raw` message, optionally inside an existing thread.
+export async function gmailSendRaw(
+  access_token: string, raw: string, threadId?: string,
+): Promise<{ ok: boolean; id?: string; threadId?: string; error?: string }> {
+  const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(threadId ? { raw, threadId } : { raw }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) return { ok: false, error: data?.error?.message || `Gmail ${r.status}` };
+  return { ok: true, id: data.id, threadId: data.threadId };
 }
 
 export async function gmailSend(
@@ -310,16 +441,10 @@ export async function gmailSend(
   to: string,
   subject: string,
   body: string,
+  attachments: EmailAttachment[] = [],
 ): Promise<{ ok: boolean; id?: string; error?: string }> {
-  const raw = encodeEmail(from, to, subject, body);
-  const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ raw }),
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) return { ok: false, error: data?.error?.message || `Gmail ${r.status}` };
-  return { ok: true, id: data.id };
+  const raw = encodeEmail(from, to, subject, body, attachments);
+  return await gmailSendRaw(access_token, raw);
 }
 
 export async function gmailList(access_token: string) {

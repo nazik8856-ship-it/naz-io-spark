@@ -5,6 +5,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
+import { loadSafetyRules, scanWithRules, type SafetyMatch, type SafetyRule } from "../_shared/safety-scanner.ts";
+import { redactContent, isRedactableMatch } from "../_shared/outer-control-scoring.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -383,6 +385,50 @@ function ensureLegalPages(pages: Page[], name: string): void {
   if (!pages.some((p) => TERMS_SLUG_ALIASES.has(p.slug.toLowerCase()))) pages.push(legalPage("terms", name));
 }
 
+function redactDeep(value: unknown, matches: SafetyMatch[]): unknown {
+  if (typeof value === "string") return redactContent(value, matches);
+  if (Array.isArray(value)) return value.map((v) => redactDeep(v, matches));
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = redactDeep(v, matches);
+    return out;
+  }
+  return value;
+}
+
+// Blueprint task #60: close the "no bypass" gap for page generation. Task
+// #55's accountRulesBlock only ever STEERS the model before it writes a
+// single word -- nothing stopped it from echoing a real-looking secret it
+// was fed, or writing copy that matches one of the account's own safety
+// rules. Applied to every FINAL manifest (fresh compile, rebuild, and
+// refine all produce exactly one, right before it's saved), using the same
+// deterministic scanner every real agent action's params already go
+// through. scanWithRules' own flatten() already walks ANY nested JSON
+// shape field-by-field -- no page-schema-specific extraction needed, the
+// whole pages[] tree is handed to it directly.
+function applySafetyGate(manifest: Manifest, rules: SafetyRule[]): { manifest: Manifest; notes: string[] } {
+  const scan = scanWithRules(rules, manifest.pages, "");
+  if (!scan.matched) return { manifest, notes: [] };
+  const redactable = scan.matches.filter((m) => isRedactableMatch(m));
+  const nonRedactable = scan.matches.filter((m) => !isRedactableMatch(m));
+  const notes: string[] = [];
+  let pages = manifest.pages;
+  if (redactable.length) {
+    // Secrets/PII have an excisable span -- strip just that; every other
+    // field across every page is unaffected and still ships as written.
+    pages = redactDeep(manifest.pages, redactable) as Page[];
+    notes.push(`Content matching your safety rule(s) (${redactable.map((m) => m.name).join(", ")}) was redacted at generation time.`);
+  }
+  if (nonRedactable.length) {
+    // Everything else (destructive wording, mass-audience, disposable-
+    // recipient...) can be entirely legitimate copy for a business whose
+    // actual offering touches that category -- surfaced visibly rather
+    // than blocking the page outright.
+    notes.push(`This page's copy touches your safety rule(s) (${nonRedactable.map((m) => m.name).join(", ")}) -- not blocked, review before publishing.`);
+  }
+  return { manifest: { ...manifest, pages }, notes };
+}
+
 function normalize(raw: unknown, prompt: string): Manifest {
   const r = (raw ?? {}) as Record<string, unknown>;
   const name = typeof r.name === "string" && r.name.trim() ? r.name.trim() : "Untitled Site";
@@ -649,6 +695,13 @@ serve(async (req) => {
       }
     }
 
+    // Blueprint task #60: full safety_rules (with patterns, not just the
+    // name/category/severity summary above) for the deterministic gate
+    // applied to the actual generated copy below -- a separate fetch from
+    // accountRulesBlock's lightweight one since that one only ever steers
+    // the model's prompt text.
+    const gateSafetyRules = user ? await loadSafetyRules(supabase, user.id, null) : [];
+
     // A chat edit on an existing website REQUIRES a resolved user -- without
     // one, refine/previousWebsiteId used to fall straight through both refine
     // blocks below into the fresh-compile path, which has no idea an edit was
@@ -766,7 +819,9 @@ serve(async (req) => {
         console.error("refine AI returned no usable manifest", { intent: refined.intent, hasManifest: !!refinedManifestRaw });
         return json({ error: "Couldn't apply that edit — the AI didn't return a usable update. Nothing was changed; please try again or rephrase your request." }, 502);
       }
-      const nextManifest = normalize(refinedManifestRaw, existing.prompt || prompt);
+      const refinedGated = applySafetyGate(normalize(refinedManifestRaw, existing.prompt || prompt), gateSafetyRules);
+      const nextManifest = refinedGated.manifest;
+      const generationNotes = refinedGated.notes;
       // The model's step-2 output from REFINE_DOC — the concrete, atomic edits
       // it identified from the request before deciding how to implement them.
       // Surfaced to the user so "identifies the wished edits" is a real,
@@ -852,6 +907,7 @@ serve(async (req) => {
           title: nextManifest.name,
           tagline: nextManifest.tagline,
           theme: nextManifest.theme,
+          generation_notes: generationNotes,
         })
         .eq("id", previousWebsiteId)
         .eq("user_id", user.id);
@@ -859,6 +915,7 @@ serve(async (req) => {
 
       return json({
         manifest: nextManifest,
+        generation_notes: generationNotes,
         website_id: previousWebsiteId,
         pages: nextManifest.pages,
         intent: refined.intent || "mixed",
@@ -911,7 +968,15 @@ serve(async (req) => {
       usedFallback = true;
     }
 
-    if (!save) return json({ manifest, used_fallback: usedFallback });
+    // Blueprint task #60: applied uniformly to both the AI-compiled and the
+    // deterministic-fallback manifest -- the fallback is static safe copy so
+    // this is a no-op for it, but a single gate point is simpler than two.
+    // Also covers the REBUILD branch below, which reuses this same `manifest`.
+    const freshGated = applySafetyGate(manifest, gateSafetyRules);
+    manifest = freshGated.manifest;
+    const generationNotes = freshGated.notes;
+
+    if (!save) return json({ manifest, generation_notes: generationNotes, used_fallback: usedFallback });
     // A caller that asked to save (the frontend's default) but has no
     // resolved session used to fall into the same branch as "preview only"
     // above, silently returning {manifest} with no website_id and no error
@@ -963,6 +1028,7 @@ serve(async (req) => {
           tagline: manifest.tagline,
           theme: manifest.theme,
           prompt: compilePrompt,
+          generation_notes: generationNotes,
         })
         .eq("id", rebuildWebsiteId)
         .eq("user_id", user.id);
@@ -970,6 +1036,7 @@ serve(async (req) => {
 
       return json({
         manifest,
+        generation_notes: generationNotes,
         website_id: rebuildWebsiteId,
         pages: manifest.pages,
         intent: "rebuild",
@@ -1000,6 +1067,7 @@ serve(async (req) => {
         theme: manifest.theme,
         prompt: compilePrompt,
         html: "",
+        generation_notes: generationNotes,
       })
       .select("id")
       .single();
@@ -1032,6 +1100,7 @@ serve(async (req) => {
 
     return json({
       manifest,
+      generation_notes: generationNotes,
       website_id: siteRow.id,
       pages: pagesOut,
       used_fallback: usedFallback,

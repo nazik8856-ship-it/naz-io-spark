@@ -1073,11 +1073,14 @@ async function googleSendEmail(
   if (!domainCheck.ok) {
     return fail(`send_email blocked before sending: ${domainCheck.reason}. Verify the recipient address before retrying — nothing was sent.`, null, to);
   }
+  const { parseEmailAttachments } = await import("./gmail.ts");
+  const { attachments, error: attachmentError } = parseEmailAttachments(input.attachments);
+  if (attachmentError) return fail(`send_email: ${attachmentError} — nothing was sent.`);
   const auth = await googleAccess(admin, userId, agentId);
   if ("ok" in auth) return auth;
   const { gmailSend } = await import("./gmail.ts");
   const from = String(auth.creds.email || "me");
-  const sent = await gmailSend(auth.access, from, to, subject, body);
+  const sent = await gmailSend(auth.access, from, to, subject, body, attachments);
   if (!sent.ok || !sent.id) return fail(`Gmail refused the send: ${sent.error || "no message id returned"}. Nothing was delivered.`);
   const vr = await fetchWithRetry(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(sent.id)}?format=metadata`,
@@ -1089,9 +1092,12 @@ async function googleSendEmail(
   }
   const labels = ((vb as { labelIds?: string[] }).labelIds || []);
   if (labels.includes("DRAFT")) return fail(`The email is still a draft in Gmail, not sent (id ${sent.id}).`, sent.id, to);
+  const attachmentNote = attachments.length
+    ? ` with ${attachments.length} attachment${attachments.length === 1 ? "" : "s"} (${attachments.map((a) => a.filename).join(", ")})`
+    : "";
   return {
     ok: true,
-    summary: `Email "${subject}" was really sent to ${to} and verified by re-reading the Gmail message (id ${sent.id}).`,
+    summary: `Email "${subject}" was really sent to ${to}${attachmentNote} and verified by re-reading the Gmail message (id ${sent.id}).`,
     ref: sent.id, target: to, url: `https://mail.google.com/mail/u/0/#all/${sent.id}`,
   };
 }

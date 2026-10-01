@@ -15,6 +15,14 @@ const url = z.string().trim().url("must be a valid absolute URL").refine(
 );
 const iso = z.string().trim().refine((v) => !Number.isNaN(Date.parse(v)), "must be an ISO 8601 datetime");
 const rows = z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])));
+// Blueprint task #32: a real attachment for send_email/reply_email -- same
+// "content is plain text the model already generated" convention
+// slack_upload_file uses, not a URL or a pre-uploaded file reference.
+const emailAttachment = z.object({
+  filename: nonEmpty("filename").max(150),
+  content: nonEmpty("content").max(500_000),
+  mime_type: str.optional(),
+}).passthrough();
 
 // Schemas are passthrough: unknown extra keys are tolerated, declared keys are enforced.
 export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
@@ -51,11 +59,13 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
     to: z.string().trim().email("must be a valid email address"),
     subject: nonEmpty("subject").max(300),
     body: nonEmpty("body").max(50000),
+    attachments: z.array(emailAttachment).max(5).optional(),
   }).passthrough(),
   reply_email: z.object({
     thread_id: nonEmpty("thread_id"),
     body: nonEmpty("body").max(50000),
     subject: str.optional(),
+    attachments: z.array(emailAttachment).max(5).optional(),
   }).passthrough(),
   compose_and_deliver: z.object({
     title: nonEmpty("title").max(300),

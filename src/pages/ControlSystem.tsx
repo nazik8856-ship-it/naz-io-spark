@@ -1,12 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, X, Sparkles, Gauge } from "lucide-react";
+import { ArrowLeft, X, Sparkles, Gauge, ChevronDown, ChevronRight, FlaskConical } from "lucide-react";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
 import SpendSafetyStatusBadge from "@/components/control/SpendSafetyStatusBadge";
 import { useSpendSafetyStatus } from "@/hooks/useSpendSafetyStatus";
+import { useControlDashboardData } from "@/hooks/useControlDashboardData";
 
 
 import DryRunToggle from "@/components/control/DryRunToggle";
@@ -15,6 +16,11 @@ import RetentionPanel from "@/components/control/RetentionPanel";
 import AccountSwitcher from "@/components/control/AccountSwitcher";
 import PolicyOverviewPanel from "@/components/control/PolicyOverviewPanel";
 import NotificationPreferencesPanel from "@/components/control/NotificationPreferencesPanel";
+import ControlPagesMenu from "@/components/control/dashboard/ControlPagesMenu";
+import SetupProgressBar from "@/components/control/dashboard/SetupProgressBar";
+import RuleCoverageHealthCard from "@/components/control/dashboard/RuleCoverageHealthCard";
+import StatSparkCard from "@/components/control/dashboard/StatSparkCard";
+import PendingApprovalsMini from "@/components/control/dashboard/PendingApprovalsMini";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
@@ -25,11 +31,16 @@ type Turn = { role: "user" | "assistant"; content: string; node?: ReactNode };
 
 const TEMPLATES_NUDGE_DISMISSED_KEY = "nazai_templates_nudge_dismissed";
 const SPEND_NUDGE_DISMISSED_KEY = "nazai_spend_nudge_dismissed";
+const SETTINGS_OPEN_KEY = "nazai_control_settings_open";
 
 /**
- * AI CONTROL SYSTEM
- * Chat front-end for the shared decision engine (control-system-decide).
- * Every verdict is logged to agent_decisions alongside agent-triggered ones.
+ * AI CONTROL SYSTEM — landing dashboard (blueprint task #63 redesign).
+ * Setup progress, real rule-coverage/system-health gauges and spend/
+ * incident/efficiency stat cards replace the old flat panel stack; every
+ * one of the ~25 sub-pages that used to live in the header nav is still
+ * reachable from the "All pages" menu. The chat front-end for the shared
+ * decision engine (control-system-decide) now docks on the right alongside
+ * pending approvals, instead of being the whole page.
  */
 export default function ControlSystem() {
   const navigate = useNavigate();
@@ -39,7 +50,9 @@ export default function ControlSystem() {
   const [dryRun, setDryRun] = useState(false);
   const [showTemplatesNudge, setShowTemplatesNudge] = useState(false);
   const [spendNudgeDismissed, setSpendNudgeDismissed] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const spendStatus = useSpendSafetyStatus(accountId);
+  const dashboard = useControlDashboardData(accountId);
 
   useEffect(() => {
     if (!accountId) return;
@@ -76,6 +89,20 @@ export default function ControlSystem() {
       if (localStorage.getItem(SPEND_NUDGE_DISMISSED_KEY) === accountId) setSpendNudgeDismissed(true);
     } catch { /* localStorage unavailable -- fall through, banner just won't persist dismissal */ }
   }, [accountId]);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SETTINGS_OPEN_KEY) === "1") setSettingsOpen(true);
+    } catch { /* best effort -- defaults to collapsed */ }
+  }, []);
+
+  const toggleSettings = () => {
+    setSettingsOpen((o) => {
+      const next = !o;
+      try { localStorage.setItem(SETTINGS_OPEN_KEY, next ? "1" : "0"); } catch { /* best effort */ }
+      return next;
+    });
+  };
 
   const dismissSpendNudge = () => {
     setSpendNudgeDismissed(true);
@@ -131,9 +158,16 @@ export default function ControlSystem() {
     }
   };
 
+  const setupChecks = [
+    { label: "Hard rules configured", done: dashboard.setup.hardRules, onClick: () => navigate("/control-system/safety-rules") },
+    { label: "Safety rules configured", done: dashboard.setup.safetyRules, onClick: () => navigate("/control-system/safety-rules") },
+    { label: "Daily spend limit set", done: dashboard.setup.spendCapCustom, onClick: () => navigate("/control-system/spend-safety") },
+    { label: "An agent deployed", done: dashboard.setup.agentDeployed, onClick: () => navigate("/generator-home") },
+  ];
+
   return (
     <div className="h-screen w-full flex flex-col text-white" style={{ backgroundColor: "#020617" }}>
-      <header className="flex items-center gap-3 px-6 py-4 border-b border-white/5">
+      <header className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-white/5 sm:px-6 sm:py-4">
         <button
           onClick={() => navigate("/dashboard")}
           className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors"
@@ -153,7 +187,7 @@ export default function ControlSystem() {
             Outer
           </button>
         </div>
-        <nav className="ml-auto flex items-center gap-2">
+        <nav className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <AccountSwitcher />
           <button
             onClick={() => navigate("/control-system/approvals")}
@@ -162,149 +196,12 @@ export default function ControlSystem() {
             Approvals
           </button>
           <button
-            onClick={() => navigate("/control-system/pending")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            Pending decisions
-          </button>
-          <button
-            onClick={() => navigate("/control-system/safety-rules")}
-            className="rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
-          >
-            Safety rules
-          </button>
-          <button
             onClick={() => navigate("/control-system/incidents")}
             className="rounded border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-rose-300 hover:bg-rose-500/20"
           >
             Incidents
           </button>
-          <button
-            onClick={() => navigate("/control-system/simulator")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            Rule simulator
-          </button>
-          <button
-            onClick={() => navigate("/control-system/health")}
-            className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/20"
-          >
-            Health
-          </button>
-          <button
-            onClick={() => navigate("/control-system/changes")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            Change log
-          </button>
-          <button
-            onClick={() => navigate("/control-system/coverage")}
-            className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-amber-300 hover:bg-amber-500/20"
-          >
-            Coverage gaps
-          </button>
-          <button
-            onClick={() => navigate("/control-system/webhooks")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            Webhooks
-          </button>
-          <button
-            onClick={() => navigate("/control-system/api-keys")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            API Keys
-          </button>
-          <button
-            onClick={() => navigate("/control-system/api-docs")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            API Docs
-          </button>
-          <button
-            onClick={() => navigate("/control-system/compliance")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            Compliance report
-          </button>
-          <button
-            onClick={() => navigate("/control-system/team")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            Team
-          </button>
-          <button
-            onClick={() => navigate("/control-system/templates")}
-            className="rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
-          >
-            Templates
-          </button>
-          <button
-            onClick={() => navigate("/control-system/rule-effectiveness")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            Rule effectiveness
-          </button>
-          <button
-            onClick={() => navigate("/control-system/confidence-calibration")}
-            className="rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
-          >
-            Confidence calibration
-          </button>
-          <button
-            onClick={() => navigate("/control-system/roi")}
-            className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/20"
-          >
-            ROI report
-          </button>
-          <button
-            onClick={() => navigate("/control-system/agent-policy")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            Agent policy
-          </button>
-          <button
-            onClick={() => navigate("/control-system/live")}
-            className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/20"
-          >
-            Live feed
-          </button>
-          <button
-            onClick={() => navigate("/control-system/account-data")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            Account data
-          </button>
-          <button
-            onClick={() => navigate("/control-system/policy-bundle")}
-            className="rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
-          >
-            Policy as code
-          </button>
-          <button
-            onClick={() => navigate("/control-system/policy-changes")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            Policy change requests
-          </button>
-          <button
-            onClick={() => navigate("/control-system/audit-verify")}
-            className="rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
-          >
-            Verify audit trail
-          </button>
-          <button
-            onClick={() => navigate("/control-system/decision-history")}
-            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-          >
-            Decision history
-          </button>
-          <button
-            onClick={() => navigate("/control-system/action-reversals")}
-            className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-amber-300 hover:bg-amber-500/20"
-          >
-            Action reversals
-          </button>
+          <ControlPagesMenu />
         </nav>
       </header>
 
@@ -352,32 +249,104 @@ export default function ControlSystem() {
         </div>
       )}
 
-      <SpendSafetyStatusBadge />
-      <StrictnessPanel />
-      <RetentionPanel />
+      <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-y-auto lg:overflow-visible">
+        {/* Left: dashboard */}
+        <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
+          <div className="mx-auto max-w-4xl space-y-4 p-6">
+            <SetupProgressBar pct={dashboard.setup.pct} checks={setupChecks} />
 
-      <HardRulesPanel />
-      <PolicyOverviewPanel />
-      <NotificationPreferencesPanel />
-      <DryRunToggle on={dryRun} onChange={setDryRun} />
+            <RuleCoverageHealthCard
+              coveragePct={dashboard.coveragePct}
+              coverageGapCount={dashboard.coverageGapCount}
+              coverageTotal={dashboard.coverageTotal}
+              healthPct={dashboard.healthPct}
+              onCoverageClick={() => navigate("/control-system/coverage")}
+              onHealthClick={() => navigate("/control-system/health")}
+            />
 
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <StatSparkCard
+                label="Daily spend"
+                value={`$${dashboard.spend.today.toFixed(2)}`}
+                sub={`of $${dashboard.spend.cap.toFixed(2)} cap${dashboard.spend.capIsCustom ? "" : " (default)"}`}
+                tone={dashboard.spend.today >= dashboard.spend.cap ? "bad" : dashboard.spend.today >= dashboard.spend.cap * 0.8 ? "warn" : "ok"}
+                series={dashboard.spend.series}
+                onClick={() => navigate("/control-system/spend-safety")}
+              />
+              <StatSparkCard
+                label="Recent incidents"
+                value={String(dashboard.incidents.openCount)}
+                sub="open, last 7 days shown"
+                tone={dashboard.incidents.openCount > 0 ? "warn" : "ok"}
+                series={dashboard.incidents.series}
+                onClick={() => navigate("/control-system/incidents")}
+              />
+              <StatSparkCard
+                label="AI agent efficiency"
+                value={dashboard.efficiency.autonomousPct === null ? "—" : `${dashboard.efficiency.autonomousPct}%`}
+                sub="autonomous, no human needed"
+                tone="neutral"
+                series={dashboard.efficiency.series}
+                onClick={() => navigate("/control-system/roi")}
+              />
+            </div>
 
-      <div className="flex-1 min-h-0">
+            <div className="rounded-xl border border-white/10 bg-white/[0.03]">
+              <button
+                onClick={toggleSettings}
+                className="flex w-full items-center justify-between px-4 py-3 text-left"
+              >
+                <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                  Quick settings — rules, retention, notifications
+                </span>
+                {settingsOpen ? <ChevronDown className="h-4 w-4 text-zinc-500" /> : <ChevronRight className="h-4 w-4 text-zinc-500" />}
+              </button>
+              {settingsOpen && (
+                <div className="space-y-0 border-t border-white/5">
+                  <SpendSafetyStatusBadge />
+                  <StrictnessPanel />
+                  <RetentionPanel />
+                  <HardRulesPanel />
+                  <PolicyOverviewPanel />
+                  <NotificationPreferencesPanel />
+                  <DryRunToggle on={dryRun} onChange={setDryRun} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
 
-        <LiveAgentChat
-          agentId="control-system"
-          name="AI Control System"
-          goal="Your AI's decisions, explained and controlled"
-          turns={turns}
-          suggestions={[
-            "My agent wants to post to #general",
-            "Should I let this run: send email to all customers",
-            "Agent wants to update product prices in Shopify",
-          ]}
-          streaming={streaming}
-          fullSpec="Describe any action your AI wants to take. The Control System scores intent match, risk and confidence, then returns Allow, Modify, Block or Deferred — and logs it to your decision history."
-          onSend={handleSend}
-        />
+        {/* Right: approvals + simulator teaser + live chat */}
+        <div className="flex w-full min-h-[480px] shrink-0 flex-col gap-3 border-t border-white/5 bg-[#050813] p-4 lg:min-h-0 lg:w-[380px] lg:border-l lg:border-t-0">
+          <PendingApprovalsMini accountId={accountId} />
+          <button
+            onClick={() => navigate("/control-system/simulator")}
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-left transition hover:border-white/20 hover:bg-white/[0.05]"
+          >
+            <FlaskConical className="h-4 w-4 shrink-0 text-cyan-300" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-semibold text-white">Rule simulator</span>
+              <span className="block text-[11px] text-zinc-500">Test a hypothetical action against your live rules</span>
+            </span>
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
+          </button>
+          <div className="min-h-0 flex-1">
+            <LiveAgentChat
+              agentId="control-system"
+              name="AI Control System"
+              goal="Your AI's decisions, explained and controlled"
+              turns={turns}
+              suggestions={[
+                "My agent wants to post to #general",
+                "Should I let this run: send email to all customers",
+                "Agent wants to update product prices in Shopify",
+              ]}
+              streaming={streaming}
+              fullSpec="Describe any action your AI wants to take. The Control System scores intent match, risk and confidence, then returns Allow, Modify, Block or Deferred — and logs it to your decision history."
+              onSend={handleSend}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

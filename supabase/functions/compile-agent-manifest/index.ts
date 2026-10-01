@@ -11,6 +11,8 @@ import { deriveCronLabel, nextRunFromCron } from "../_shared/agent-schedule.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 import { reconcileGuardrailsToHardRules } from "../_shared/guardrail-reconciliation.ts";
 import { ruleMatchesAction } from "../_shared/rule-matching.ts";
+import { loadSafetyRules, scanWithRules } from "../_shared/safety-scanner.ts";
+import { redactContent, isRedactableMatch } from "../_shared/outer-control-scoring.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -474,6 +476,53 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
         normalized.guardrails = [
           ...normalized.guardrails,
           ...blockedNotes.map((rule) => ({ rule, requiresApproval: false })),
+        ];
+      }
+    }
+
+    // Blueprint task: the hard_rules gate above only covers TOOLS (concrete
+    // capabilities with a real action_type) -- it says nothing about the
+    // manifest's own PROSE (systemPrompt, decisionPolicy, guardrail/tool
+    // text), which the model writes freely and could echo a real secret it
+    // was fed, or hallucinate one. Run the account's safety_rules (the same
+    // deterministic scanner every real action's params already go through)
+    // over each prose field separately, so a match can be traced back to
+    // exactly which field it came from.
+    if (user) {
+      const safetyRules = await loadSafetyRules(supabase, user.id, null);
+      const proseFields: { field: "systemPrompt" | "decisionPolicy"; text: string }[] = [
+        { field: "systemPrompt", text: normalized.systemPrompt },
+        { field: "decisionPolicy", text: normalized.decisionPolicy },
+      ];
+      const safetyNotes: string[] = [];
+      for (const { field, text } of proseFields) {
+        if (!text) continue;
+        const scan = scanWithRules(safetyRules, text, "");
+        if (!scan.matched) continue;
+        const redactable = scan.matches.filter((m) => isRedactableMatch(m));
+        if (redactable.length) {
+          // Secrets/PII have an excisable span -- strip just that, the rest
+          // of the field is unaffected and still ships.
+          normalized[field] = redactContent(text, redactable);
+          safetyNotes.push(`Your ${field === "systemPrompt" ? "agent's system prompt" : "agent's decision policy"} had content matching your safety rule(s) (${redactable.map((m) => m.name).join(", ")}) redacted at generation time.`);
+        }
+        const nonRedactable = scan.matches.filter((m) => !isRedactableMatch(m));
+        if (nonRedactable.length) {
+          // Everything else (destructive wording, mass-audience, refund-
+          // without-reference, disposable-recipient...) is contextual prose,
+          // not an action being taken -- an agent whose actual JOB is e.g.
+          // processing cancellations will legitimately describe that in its
+          // own system prompt. Surface it visibly rather than block
+          // generation outright; the REAL action this agent eventually
+          // proposes still goes through this exact same scanner for real,
+          // with its real params, at run time.
+          safetyNotes.push(`Your ${field === "systemPrompt" ? "agent's system prompt" : "agent's decision policy"} touches your safety rule(s) (${nonRedactable.map((m) => m.name).join(", ")}) -- not blocked, since this is a description, not an action, but worth knowing before you deploy.`);
+        }
+      }
+      if (safetyNotes.length) {
+        normalized.guardrails = [
+          ...normalized.guardrails,
+          ...safetyNotes.map((rule) => ({ rule, requiresApproval: false })),
         ];
       }
     }
