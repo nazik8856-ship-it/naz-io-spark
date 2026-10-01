@@ -109,15 +109,16 @@ export default function LiveAgentChat({
           )}
         </div>
 
-        {/* Suggestions */}
+        {/* Suggestions -- horizontally scrollable so they stay one line on
+            narrow screens instead of each taking its own full-width row. */}
         {suggestions.length > 0 && turns.length <= 1 && (
-          <div className="flex flex-wrap gap-2 pb-3">
+          <div className="flex gap-2 overflow-x-auto pb-3">
             {suggestions.map((s) => (
               <button
                 key={s}
                 onClick={() => onSend(s)}
                 disabled={streaming}
-                className="px-3 py-1.5 rounded-full border border-cyan-400/30 bg-cyan-400/5 text-xs text-cyan-200 hover:bg-cyan-400/15 disabled:opacity-40"
+                className="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full border border-cyan-400/30 bg-cyan-400/5 text-xs text-cyan-200 hover:bg-cyan-400/15 disabled:opacity-40"
               >
                 {s}
               </button>
