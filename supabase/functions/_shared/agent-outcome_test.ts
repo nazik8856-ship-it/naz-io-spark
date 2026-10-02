@@ -64,3 +64,20 @@ Deno.test("deriveRunOutcome: paused and step-limit flags take priority", () => {
   assertEq(deriveRunOutcome([{ kind: "action", payload: { type: "x", ok: true } }], { paused: true }), "Paused");
   assertEq(deriveRunOutcome([{ kind: "action", payload: { type: "x", ok: true } }], { hitStepLimit: true }), "Step limit");
 });
+
+Deno.test("deriveRunOutcome: credits exhausted gets its own label, not Step limit (blueprint #73 regression)", () => {
+  // Before the fix, agent-runtime set hitStepLimit for ANY early break --
+  // rate limit, a 402 from the AI gateway, this run's own spend ceiling --
+  // not just a genuine 24-step timeout, so a run that died on step 2 for
+  // lack of credits got the exact same "Step limit" label as one that
+  // looped the full 24 steps.
+  assertEq(
+    deriveRunOutcome([{ kind: "action", payload: { type: "x", ok: true } }], { creditsExhausted: true }),
+    "Credits exhausted",
+  );
+  // creditsExhausted takes priority even if a caller also passed hitStepLimit.
+  assertEq(
+    deriveRunOutcome([], { hitStepLimit: true, creditsExhausted: true }),
+    "Credits exhausted",
+  );
+});

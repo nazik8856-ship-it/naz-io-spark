@@ -1348,6 +1348,14 @@ Rules:
 
     let finalSummary = "Run ended without explicit summary.";
     let steps = 0, finished = false, paused = false;
+    // Blueprint task #73: the loop used to infer "hit the step limit" purely
+    // from `!finished && !paused`, so EVERY early `break` below (rate limit,
+    // AI credits exhausted, a gateway error, this run's own spend ceiling)
+    // got the exact same "Reached step limit (24)" label and `step_limit`
+    // status as a run that genuinely looped 24 times -- even one that died
+    // on step 2 because the account ran out of credits. Tracked explicitly
+    // here so the real reason survives past the loop.
+    let stopReason: "rate_limited" | "credits_exhausted" | "gateway_error" | "spend_ceiling" | null = null;
     // This run's own accumulated AI spend -- separate from the account-wide
     // daily total recordAiSpend already tracks. Confirmed: only control-engine
     // metered gateway usage before this; agent-runtime's own reasoning-loop
@@ -1568,15 +1576,17 @@ Rules:
             ? `Step timed out after ${STEP_TIMEOUT_MS / 1000}s`
             : `Gateway request failed: ${e instanceof Error ? e.message : "unknown"}`,
         });
+        stopReason = "gateway_error";
         break;
       } finally {
         clearTimeout(stepTimeout);
       }
-      if (resp.status === 429) { await logEvent("error", { phase: "ai_loop", message: "Rate limit" }); break; }
-      if (resp.status === 402) { await logEvent("error", { phase: "ai_loop", message: "AI credits exhausted" }); break; }
+      if (resp.status === 429) { await logEvent("error", { phase: "ai_loop", message: "Rate limit" }); stopReason = "rate_limited"; break; }
+      if (resp.status === 402) { await logEvent("error", { phase: "ai_loop", message: "AI credits exhausted" }); stopReason = "credits_exhausted"; break; }
       if (!resp.ok) {
         const t = await resp.text().catch(() => "");
         await logEvent("error", { phase: "ai_loop", message: `Gateway ${resp.status}`, detail: t.slice(0, 300) });
+        stopReason = "gateway_error";
         break;
       }
       const data = await resp.json();
@@ -1593,6 +1603,7 @@ Rules:
           phase: "spend_ceiling",
           message: `Run stopped after spending $${runSpendUsd.toFixed(2)} of this run's own $${MAX_RUN_SPEND_USD.toFixed(2)} ceiling — independent of the account's daily cap.`,
         });
+        stopReason = "spend_ceiling";
         break;
       }
 
@@ -3381,21 +3392,37 @@ Rules:
       }
     }
 
-    const hitStepLimit = !finished && !paused;
+    // Only a TRUE iteration-ceiling exit (the while loop's own condition
+    // going false, with no stopReason set by an earlier break) counts as
+    // "hit step limit" now -- previously this was inferred purely from
+    // "didn't finish or pause", so every early break above was indistinguishable
+    // from genuinely looping 24 times.
+    const hitStepLimit = !finished && !paused && !stopReason && steps >= MAX_STEPS;
+    const creditsExhausted = !finished && !paused && stopReason === "credits_exhausted";
     if (hitStepLimit) {
       await logEvent("finished", { summary: `Reached step limit (${MAX_STEPS}).`, partial: true });
       finalSummary = `Stopped after ${steps} steps without explicit finish.`;
+    } else if (stopReason) {
+      const reasonText = stopReason === "credits_exhausted"
+        ? "this account's AI credits ran out"
+        : stopReason === "rate_limited"
+          ? "the AI provider rate-limited this run"
+          : stopReason === "spend_ceiling"
+            ? `this run hit its own $${MAX_RUN_SPEND_USD.toFixed(2)} spend ceiling`
+            : "an AI gateway error";
+      await logEvent("finished", { summary: `Stopped early after ${steps} step(s) — ${reasonText}.`, partial: true, stopReason });
+      finalSummary = `Stopped after ${steps} step(s) — ${reasonText}.`;
     }
 
     // ------------------------------------------------------------------
     // Completion self-check — reason over the ACTUAL logged actions and
     // decide whether the original instruction was met. Produces a plain
     // label consistent with the frontend outcome badge
-    // (Done / Failed / Blocked / Needs approval / Step limit / Paused)
-    // plus a short human summary. Falls back gracefully if the model call
-    // fails so the run always finalizes.
+    // (Done / Failed / Blocked / Needs approval / Step limit / Credits
+    // exhausted / Paused) plus a short human summary. Falls back gracefully
+    // if the model call fails so the run always finalizes.
     // ------------------------------------------------------------------
-    let outcomeLabel: "Done" | "Failed" | "Blocked" | "Needs approval" | "Step limit" | "Paused" = "Done";
+    let outcomeLabel: "Done" | "Failed" | "Blocked" | "Needs approval" | "Step limit" | "Credits exhausted" | "Paused" = "Done";
     let completionSummary = finalSummary;
     let goalMet: "yes" | "partial" | "no" = "yes";
     try {
@@ -3412,7 +3439,7 @@ Rules:
       // matches the frontend's copy of the same logic in
       // src/lib/agent-outcome.ts -- keep both in sync by hand when either changes.
       const agentEvents: AgentEvent[] = evs.map((e) => ({ kind: String(e.kind || ""), payload: (e.payload as Record<string, unknown>) || {} }));
-      outcomeLabel = deriveRunOutcome(agentEvents, { paused, hitStepLimit });
+      outcomeLabel = deriveRunOutcome(agentEvents, { paused, hitStepLimit, creditsExhausted });
       const actionLines: string[] = agentEvents
         .filter((e) => e.kind === "action")
         .map((e) => {
@@ -3468,7 +3495,10 @@ Reply with ONE fenced JSON block:
       //     status agree.
       if (outcomeLabel === "Done" && (goalMet as string) === "no") outcomeLabel = "Failed";
       if (outcomeLabel === "Done" && (goalMet as string) === "partial") outcomeLabel = "Step limit";
-      if ((goalMet as string) === "yes" && (outcomeLabel === "Step limit" || outcomeLabel === "Failed")) {
+      if (
+        (goalMet as string) === "yes" &&
+        (outcomeLabel === "Step limit" || outcomeLabel === "Failed" || outcomeLabel === "Credits exhausted")
+      ) {
         outcomeLabel = "Done";
       }
 
@@ -3477,18 +3507,20 @@ Reply with ONE fenced JSON block:
     }
 
     // Final run status must mirror the reconciled outcome — never mark a
-    // goal_met=yes run as step_limit.
+    // goal_met=yes run as step_limit or credits_exhausted.
     const runStatus = paused
       ? "paused"
       : outcomeLabel === "Done"
         ? "completed"
         : outcomeLabel === "Step limit"
           ? "step_limit"
-          : outcomeLabel === "Failed"
-            ? "failed"
-            : outcomeLabel === "Blocked" || outcomeLabel === "Needs approval"
-              ? "paused"
-              : "completed";
+          : outcomeLabel === "Credits exhausted"
+            ? "credits_exhausted"
+            : outcomeLabel === "Failed"
+              ? "failed"
+              : outcomeLabel === "Blocked" || outcomeLabel === "Needs approval"
+                ? "paused"
+                : "completed";
 
     const finalCompletionText = `[${outcomeLabel}] goal_met=${goalMet}. ${completionSummary}`.slice(0, 900);
     await logEvent("completion", {
@@ -3496,6 +3528,8 @@ Reply with ONE fenced JSON block:
       goal_met: goalMet,
       summary: completionSummary,
       hit_step_limit: hitStepLimit,
+      credits_exhausted: creditsExhausted,
+      stop_reason: stopReason,
       steps,
     });
 
@@ -3509,7 +3543,15 @@ Reply with ONE fenced JSON block:
     // never one email per action (see deliveredArtifacts/failedDeliveries
     // above). Never let a notification failure affect the run's own status.
     const stillFailed = [...failedDeliveries.values()];
-    if (deliveredArtifacts.length > 0 || stillFailed.length > 0) {
+    // Blueprint task #73: this digest only ever fired off deliveredArtifacts/
+    // failedDeliveries, so a run that stopped early (credits exhausted, rate
+    // limited, its own spend ceiling) BEFORE reaching its first real tool
+    // call sent no email at all -- the founder had no way to learn their
+    // requested action never even got attempted. `stopReason` is set exactly
+    // in that situation; folded into the same trigger condition below so it
+    // still rides the one-email-per-run digest instead of a second
+    // notification path.
+    if (deliveredArtifacts.length > 0 || stillFailed.length > 0 || stopReason) {
       try {
         const { data: ownerUser } = await supabase.auth.admin.getUserById(userId);
         const ownerEmail = ownerUser?.user?.email;
@@ -3527,9 +3569,24 @@ Reply with ONE fenced JSON block:
               ...stillFailed.map((d) => `• [${d.provider}] ${d.label} — ${d.summary}`),
             ].join("\n"));
           }
+          if (stopReason) {
+            const reasonText = stopReason === "credits_exhausted"
+              ? "this account's AI credits ran out"
+              : stopReason === "rate_limited"
+                ? "the AI provider rate-limited this run"
+                : stopReason === "spend_ceiling"
+                  ? `this run hit its own $${MAX_RUN_SPEND_USD.toFixed(2)} spend ceiling`
+                  : "an AI gateway error";
+            sections.push(
+              deliveredArtifacts.length > 0 || stillFailed.length > 0
+                ? `The run also stopped early after ${steps} step(s) because ${reasonText} -- anything beyond what's listed above was never attempted.`
+                : `This run stopped early after ${steps} step(s) because ${reasonText}, before it reached any real action -- nothing was sent or posted.`,
+            );
+          }
           const subjectParts: string[] = [];
           if (deliveredArtifacts.length > 0) subjectParts.push(`delivered ${deliveredArtifacts.length}`);
           if (stillFailed.length > 0) subjectParts.push(`${stillFailed.length} failed`);
+          if (stopReason && deliveredArtifacts.length === 0 && stillFailed.length === 0) subjectParts.push("stopped early");
           await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
@@ -3556,7 +3613,7 @@ Reply with ONE fenced JSON block:
       outcome: outcomeLabel,
     }).eq("id", runId);
 
-    return json({ runId, summary: finalCompletionText, outcome: outcomeLabel, goal_met: goalMet, steps, paused, hitStepLimit });
+    return json({ runId, summary: finalCompletionText, outcome: outcomeLabel, goal_met: goalMet, steps, paused, hitStepLimit, creditsExhausted });
 
   } catch (e) {
     console.error("agent-runtime error", e);

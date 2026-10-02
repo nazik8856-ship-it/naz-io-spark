@@ -5,11 +5,18 @@
 // Deno edge function and can't be imported by the Vite/browser bundle --
 // keep both in sync by hand when this file changes.
 export type AgentEvent = { kind: string; payload?: Record<string, unknown> };
-export type OutcomeLabel = "Paused" | "Needs approval" | "Blocked" | "Step limit" | "Failed" | "Done";
+export type OutcomeLabel = "Paused" | "Needs approval" | "Blocked" | "Step limit" | "Credits exhausted" | "Failed" | "Done";
 
 export function deriveRunOutcome(
   events: AgentEvent[],
-  opts: { paused?: boolean; hitStepLimit?: boolean } = {},
+  // Blueprint task #73: `hitStepLimit` used to be the ONLY early-stop signal,
+  // so a run that died because the account ran out of AI credits got the
+  // exact same "Step limit" label as one that genuinely looped 24 times.
+  // `creditsExhausted` is a separate, more specific reason and takes
+  // priority when both would otherwise apply (they're mutually exclusive in
+  // practice -- agent-runtime only ever sets one -- but priority here makes
+  // that explicit).
+  opts: { paused?: boolean; hitStepLimit?: boolean; creditsExhausted?: boolean } = {},
 ): OutcomeLabel {
   let hasPendingApproval = false;
   let hasClarification = false;
@@ -42,6 +49,7 @@ export function deriveRunOutcome(
   if (opts.paused) return "Paused";
   if (hasPendingApproval) return "Needs approval";
   if (hasClarification) return "Blocked";
+  if (opts.creditsExhausted) return "Credits exhausted";
   if (opts.hitStepLimit) return "Step limit";
   if (sawAction && Array.from(lastOkByType.values()).some((v) => v === false)) return "Failed";
   if (sawAction) return "Done";
