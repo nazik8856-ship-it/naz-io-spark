@@ -18,6 +18,7 @@
 // last round's rule-auto-draft-sweep).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { detectRecurringReasonPatterns, draftKnowledgeBaseEntryFromPattern, type ReasonCodedResolution } from "../_shared/knowledge-base-auto-draft.ts";
+import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -89,6 +90,19 @@ Deno.serve(async (req) => {
       if (!insertErr) {
         draftedThisRun.add(dedupeKey);
         drafted.push({ user_id: userId, action_type: pattern.action_type, provider: pattern.provider, reason_code: pattern.reason_code, sample_size: pattern.sample_size });
+        // Blueprint task #77: this sweep previously told NO ONE a draft was
+        // created -- the entry is inserted enabled=false/pending_review=true,
+        // so it never reaches the live judgment prompt until a human finds
+        // it (there was no page to find it on at all) and flips enabled
+        // themselves. Best-effort, matches the sweep's own posture on the
+        // insert itself: a notification hiccup must never fail the sweep.
+        const scope = pattern.provider ? `${pattern.action_type} on ${pattern.provider}` : pattern.action_type;
+        await sendCriticalAlert(admin, userId, {
+          event: "kb_entry_auto_drafted",
+          summary: `Auto-drafted a knowledge-base entry from ${pattern.sample_size} human decisions on "${scope}" -- review and enable it in Knowledge base.`,
+          actionType: pattern.action_type,
+          provider: pattern.provider,
+        }).catch(() => null);
       }
     }
   }

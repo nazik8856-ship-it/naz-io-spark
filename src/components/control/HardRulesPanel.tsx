@@ -206,6 +206,16 @@ export default function HardRulesPanel() {
 
   if (!user) return null;
 
+  // Blueprint task #77: a shadow rule auto-drafted by rule-auto-draft-sweep
+  // is otherwise only discoverable by opening this panel (itself nested
+  // inside ControlSystem's own closed-by-default "Quick settings"
+  // accordion) and reading every row's text -- there's no badge, dot, or
+  // visual marker distinguishing a fresh draft from a rule the account
+  // wrote itself. The sweep always prefixes a drafted rule's text with
+  // "Auto-drafted: " (rule-auto-draft.ts), so that's a reliable signal
+  // without a schema change.
+  const draftCount = rules.filter((r) => r.shadow_mode && r.rule_text.startsWith("Auto-drafted: ")).length;
+
   return (
     <section className="mx-6 mb-3 rounded-xl border border-white/10 bg-white/[0.03]">
       <button
@@ -216,6 +226,11 @@ export default function HardRulesPanel() {
         <Gavel className="h-4 w-4 text-zinc-400" />
         <span className="flex-1 text-xs font-mono uppercase tracking-wider text-zinc-300">
           Hard rules{rules.length ? ` · ${rules.length}` : ""}
+          {draftCount > 0 && (
+            <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-amber-300">
+              {draftCount} new draft{draftCount === 1 ? "" : "s"}
+            </span>
+          )}
         </span>
         <ChevronDown
           className={`h-4 w-4 text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`}

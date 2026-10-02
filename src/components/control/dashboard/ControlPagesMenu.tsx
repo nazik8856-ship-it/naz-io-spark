@@ -59,6 +59,11 @@ const GROUPS: MenuGroup[] = [
         path: "/control-system/safety-rules",
       },
       {
+        label: "Knowledge base",
+        description: "Facts and standing instructions the AI reads when judging a borderline decision.",
+        path: "/control-system/knowledge-base",
+      },
+      {
         label: "Policy versions",
         description: "Saved snapshots of your rules over time; new versions are tested before going live.",
         path: "/control-system/policy",
