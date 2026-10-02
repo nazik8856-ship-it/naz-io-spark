@@ -37,6 +37,13 @@ type PlatformIncident = {
  * scoped to any customer account) opened by cron-health-check. Gated
  * client-side by the same global admin/owner role check KillSwitchPanel
  * uses; RLS is the real enforcement either way.
+ *
+ * Blueprint task #70 fix: resolving a row here worked, but nothing in the
+ * app actually linked to this route -- a platform admin could only land
+ * here by knowing the bare URL, so rows could sit open indefinitely in
+ * practice. KillSwitchPanel now surfaces a "View" link + open count behind
+ * its existing reveal-code + platform-admin gate, same convention as the
+ * platform kill switch and sweeps-pause controls next to it.
  */
 export default function OpsPlatformIncidents() {
   const { user } = useAuth();
