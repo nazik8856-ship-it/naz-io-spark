@@ -363,10 +363,18 @@ serve(async (req) => {
         if ((recentEventCount ?? 0) > 0) stale = false;
       }
       if (stale) {
-        // Atomically flip the stale row to 'failed' so only one caller proceeds
+        // Atomically flip the stale row to 'failed' so only one caller proceeds.
+        // Was writing to a column named `completion_summary`, which doesn't
+        // exist on agent_runs (the real column is `summary`) -- PostgREST
+        // rejected every one of these updates with a 400, which this call
+        // site discarded (only `data` was read, never `error`), so `claimed`
+        // was always null and this branch always treated the stale lock as
+        // "someone else already handled it." The real effect: a run that
+        // died without a heartbeat blocked every future run for that agent
+        // forever, since the recovery meant to clear it never actually ran.
         const { data: claimed } = await supabase
           .from("agent_runs")
-          .update({ status: "failed", completion_summary: "Stale run auto-closed (no heartbeat >15 min)" })
+          .update({ status: "failed", finished_at: new Date().toISOString(), summary: "Stale run auto-closed (no heartbeat >15 min)", outcome: "Failed" })
           .eq("id", r.id)
           .eq("status", "running")
           .select("id")

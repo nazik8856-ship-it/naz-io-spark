@@ -98,7 +98,16 @@ export type CriticalAlertEvent =
   // new thing having gone wrong, so it must never auto-open a second
   // incident for the same underlying problem (see sendCriticalAlert's own
   // doc comment on that exact duplicate-incident bug class).
-  | "incident_stale_unacknowledged";
+  | "incident_stale_unacknowledged"
+  // Blueprint task #72: agent-scheduler's dispatch to agent-runtime was
+  // pure fire-and-forget (no await, result pushed as ok:true unconditionally)
+  // for BOTH the cron-schedule path and the schedule_followup path -- a
+  // network failure, timeout, or non-2xx response left zero trace anywhere:
+  // the agent's next_run_at (or the agent_runs "dispatched" row, for a
+  // followup) just silently moved on as if the run had happened. Fires the
+  // moment a dispatch is confirmed to have failed (now awaited via
+  // EdgeRuntime.waitUntil so it doesn't block the scheduler's own response).
+  | "scheduled_dispatch_failed";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -132,6 +141,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   on_uncertain_auto_downgraded: "🛑 An API key's auto-resolve policy was automatically pulled back to human review",
   content_gap_backlog_stale: "📚 A recurring unanswered question is piling up in an API key's content gaps",
   incident_stale_unacknowledged: "⏳ An incident has been open too long with no acknowledgment",
+  scheduled_dispatch_failed: "⏱️ A scheduled agent run failed to start",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {
