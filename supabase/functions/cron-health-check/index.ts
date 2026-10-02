@@ -68,14 +68,28 @@ Deno.serve(async (req) => {
   const { data: rows, error: rpcErr } = await admin.rpc("get_job_health_outcomes", { _since: since });
   if (rpcErr) return json({ error: rpcErr.message }, 500);
 
+  // Excludes this function's OWN job -- confirmed live (2026-10-02) that
+  // self-monitoring here is structurally broken, not just untested: the
+  // most recent scheduled_job_requests row for this exact job name is
+  // always the one this very invocation just inserted before firing its
+  // own net.http_post, which by definition has no response yet (the
+  // response only exists once THIS execution finishes and returns). Every
+  // single run saw itself as "no_response" and opened a real
+  // platform_incidents row for it, permanently (nothing auto-resolves
+  // incidents) -- a guaranteed false positive on every tick, not an edge
+  // case. This job's own health has to be inferred indirectly (e.g. no
+  // NEW incidents appearing for any job over an extended window).
+  const SELF_JOB_NAME = "cron-health-check-every-30min";
   const outcomes: JobRequestOutcome[] = ((rows ?? []) as {
     job_name: string; request_id: number; status_code: number | null; timed_out: boolean | null;
-  }[]).map((r) => ({
-    jobName: r.job_name,
-    requestId: r.request_id,
-    statusCode: r.status_code,
-    timedOut: r.timed_out ?? false,
-  }));
+  }[])
+    .filter((r) => r.job_name !== SELF_JOB_NAME)
+    .map((r) => ({
+      jobName: r.job_name,
+      requestId: r.request_id,
+      statusCode: r.status_code,
+      timedOut: r.timed_out ?? false,
+    }));
 
   const unhealthy = findUnhealthyJobs(outcomes);
 

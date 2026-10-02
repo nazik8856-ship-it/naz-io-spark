@@ -1,0 +1,49 @@
+-- Verification follow-up to blueprint task #71 (email-DLQ alerting): found
+-- while confirming the new cron-health-check third check actually runs --
+-- its own cron registration never logged to scheduled_job_requests the way
+-- every other tracked job does, and had no explicit timeout_milliseconds on
+-- its net.http_post call. Two consequences:
+--
+--   1. cron-health-check can't monitor ITSELF -- confirmed live, zero rows
+--      in scheduled_job_requests for job_name='cron-health-check-every-30min'
+--      despite the job existing and running every 30 minutes since before
+--      this session. If this function itself ever started silently
+--      failing, nothing would ever notice.
+--   2. No explicit timeout meant it used pg_net's 5000ms default. Confirmed
+--      live: a manual invocation needed ~8-10s to complete all three checks
+--      (job health, vector RPC search_path, and the new email-DLQ scan) --
+--      comfortably past that default. pg_net timing out doesn't abort the
+--      actual edge function execution (it keeps running after pg_net gives
+--      up waiting), so the checks were almost certainly still completing in
+--      practice, but Postgres's own view of "did this call even work" was
+--      blind to it either way.
+--
+-- No schema change -- reuses the existing scheduled_job_requests table and
+-- insert pattern every other tracked job already uses.
+--
+-- ============================================================
+-- POST-MIGRATION STEP (same convention as every other scheduled sweep in
+-- this codebase -- applied directly, not committed as static SQL, since it
+-- needs a project-specific service_role key and function URL):
+--
+--    SELECT cron.unschedule(<old jobid>);
+--    SELECT cron.schedule(
+--      'cron-health-check-every-30min',
+--      '*/30 * * * *',
+--      $$
+--      INSERT INTO public.scheduled_job_requests (job_name, request_id)
+--      SELECT 'cron-health-check-every-30min', net.http_post(
+--        url := '<SUPABASE_URL>/functions/v1/cron-health-check',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
+--        ),
+--        body := '{}'::jsonb,
+--        timeout_milliseconds := 20000
+--      );
+--      $$
+--    );
+--
+-- Applied live 2026-10-02 (old jobid 8 -> new jobid 32). Verified end-to-end
+-- with a manual invocation at the new 20s timeout: 200 OK,
+-- {"ok":true,"checkedJobs":14,...,"emailDlqCount":0,"emailDlqIncidentOpened":false}.
