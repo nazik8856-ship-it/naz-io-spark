@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ShieldAlert, Power, Radiation } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ShieldAlert, Power, Radiation, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 // platform_settings (2026-08-27) isn't in the generated Supabase types yet.
 const anyDb = supabase as any;
@@ -50,6 +51,7 @@ const REVEAL_KEY = "nazai_ks_reveal";
  */
 export default function KillSwitchPanel() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { accountId } = useActiveAccount();
   const [revealed, setRevealed] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
@@ -60,6 +62,7 @@ export default function KillSwitchPanel() {
   const [platformBusy, setPlatformBusy] = useState(false);
   const [sweepsOn, setSweepsOn] = useState(false);
   const [sweepsBusy, setSweepsBusy] = useState(false);
+  const [openPlatformIncidents, setOpenPlatformIncidents] = useState<number | null>(null);
   const buffer = useRef("");
 
   useEffect(() => {
@@ -140,6 +143,23 @@ export default function KillSwitchPanel() {
         setPlatformOn(Boolean(row?.kill_switch));
         setSweepsOn(Boolean(row?.consequential_sweeps_paused));
       });
+  }, [revealed, user, isPlatformAdmin]);
+
+  // Blueprint task #70: platform_incidents (opened by cron-health-check)
+  // has a working resolve action at /ops/incidents, but that route had
+  // zero links anywhere in the app -- a platform admin could only reach it
+  // by knowing the bare URL, so rows could sit open indefinitely in
+  // practice even though the resolve code itself works. Surfaced here,
+  // behind the same reveal-code + platform-admin gate as the other
+  // platform-wide controls on this panel, so staff who already know to
+  // reveal this panel for an incident can actually find their way in.
+  useEffect(() => {
+    if (!revealed || !user || !isPlatformAdmin) return;
+    anyDb
+      .from("platform_incidents")
+      .select("id", { count: "exact", head: true })
+      .is("resolved_at", null)
+      .then(({ count }: { count: number | null }) => setOpenPlatformIncidents(count ?? 0));
   }, [revealed, user, isPlatformAdmin]);
 
   const toggle = useCallback(async () => {
@@ -371,6 +391,33 @@ export default function KillSwitchPanel() {
           >
             <Power className="h-3.5 w-3.5" />
             {sweepsOn ? "Resume" : "Pause"}
+          </button>
+        </div>
+      )}
+
+      {revealed && isPlatformAdmin && (
+        <div
+          className="flex items-center gap-3 rounded-xl border px-4 py-3"
+          style={{
+            borderColor: openPlatformIncidents ? "#ef444488" : "#ffffff14",
+            backgroundColor: openPlatformIncidents ? "#ef44440f" : "#ffffff06",
+          }}
+        >
+          <AlertTriangle className="h-4 w-4" style={{ color: openPlatformIncidents ? "#ef4444" : "#71717a" }} />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-mono uppercase tracking-wider" style={{ color: openPlatformIncidents ? "#ef4444" : "#a1a1aa" }}>
+              Platform incidents {openPlatformIncidents === null ? "" : openPlatformIncidents > 0 ? `(${openPlatformIncidents} open)` : "(none open)"}
+            </p>
+            <p className="text-[11px] text-zinc-500 truncate">
+              Scheduled-job failures, broken vector RPCs, dead-lettered emails -- opened automatically, resolved here.
+            </p>
+          </div>
+          <button
+            onClick={() => navigate("/ops/incidents")}
+            className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors"
+            style={{ borderColor: "#ffffff2a", color: "#e4e4e7" }}
+          >
+            View
           </button>
         </div>
       )}
