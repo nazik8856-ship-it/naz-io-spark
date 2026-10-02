@@ -4,6 +4,7 @@
 // legitimate write path into website_form_submissions; the table itself has
 // no anon/authenticated INSERT policy at all.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 
 // Inlined from _shared/rate-limit.ts's checkIpRateLimit -- kept local so this
 // single-shared-dep function can deploy as one file. Same fixed-window
@@ -105,7 +106,7 @@ Deno.serve(async (req) => {
     const { data: ownerUser } = await admin.auth.admin.getUserById(website.user_id as string);
     const ownerEmail = ownerUser?.user?.email;
     if (ownerEmail) {
-      await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
+      const sendResp = await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
         body: JSON.stringify({
@@ -114,6 +115,22 @@ Deno.serve(async (req) => {
           templateData: { siteName: website.name, sectionKind, pageSlug, fields },
         }),
       });
+      // Blueprint task #75: send-transactional-email no-ops (by design, to
+      // protect sender reputation) the instant the owner's own address is
+      // on the suppression list -- previously a complete, permanent, silent
+      // dead end, since the one channel that would normally tell the owner
+      // their leads stopped arriving is exactly the one that's broken.
+      // sendCriticalAlert gives a real fallback: Slack (if connected,
+      // independent of email entirely) or, failing that, an in-app incident
+      // the owner can see on their own Incidents page -- never just the
+      // suppressed email address again.
+      const sendBody = await sendResp.json().catch(() => null) as { success?: boolean; reason?: string } | null;
+      if (sendBody?.success === false && sendBody.reason === "email_suppressed") {
+        await sendCriticalAlert(admin, website.user_id as string, {
+          event: "website_lead_notification_suppressed",
+          summary: `A new lead came in on "${website.name}", but the notification email to ${ownerEmail} was blocked -- that address is on the suppression list (likely a past bounce or complaint). Open the website's Leads panel to see it, and check your email address in account settings.`,
+        });
+      }
     }
   } catch (e) {
     // The submission is already saved -- a notification-email hiccup
