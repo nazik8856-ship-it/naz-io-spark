@@ -183,6 +183,8 @@ export default function ControlSystem() {
           canSignOff={canSignOff}
           resolving={approvalsFeed.resolvingId === a.id}
           onResolve={(vote) => approvalsFeed.resolve(a.id, vote)}
+          executing={approvalsFeed.executingId === a.id}
+          onExecute={() => approvalsFeed.execute(a.id)}
         />
       ),
     })),

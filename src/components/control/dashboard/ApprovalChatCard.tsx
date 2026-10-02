@@ -6,8 +6,17 @@
 // dual control enforced server-side); Simulate goes to the real rule
 // simulator since testing a hypothetical variant of a pending action is
 // what that page is for, not something this card re-implements.
+//
+// Blueprint task #69: reaching quorum does NOT carry the action out --
+// that's control-engine's separate /approvals/:id/execute step (same "Run
+// it" action ControlApprovals.tsx exposes). This card used to only ever
+// show the pending Approve/Deny state, so the moment quorum was met the row
+// vanished from usePendingApprovalsFeed and looked exactly like "done" even
+// though nothing had actually run. Now an approved-but-unexecuted row stays
+// visible here with its own "Run it" action instead of silently dropping
+// that second step on the floor.
 import { useNavigate } from "react-router-dom";
-import { Check, X, FlaskConical, Loader2 } from "lucide-react";
+import { Check, X, FlaskConical, Loader2, Play } from "lucide-react";
 import type { PendingApprovalFeedItem } from "@/hooks/usePendingApprovalsFeed";
 
 const RISK_STYLE: Record<string, string> = {
@@ -22,13 +31,19 @@ export default function ApprovalChatCard({
   canSignOff,
   resolving,
   onResolve,
+  executing,
+  onExecute,
 }: {
   approval: PendingApprovalFeedItem;
   canSignOff: boolean;
   resolving: boolean;
   onResolve: (vote: "approve" | "reject") => void;
+  executing: boolean;
+  onExecute: () => void;
 }) {
   const navigate = useNavigate();
+  const needsExecution = approval.status === "approved" && !approval.executed_at;
+
   return (
     <div className="w-full">
       <div className="flex items-start gap-2">
@@ -37,42 +52,59 @@ export default function ApprovalChatCard({
         </span>
         <p className="min-w-0 text-sm text-zinc-100">{approval.description || approval.action_type}</p>
       </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        {canSignOff ? (
-          <>
-            <button
-              onClick={() => onResolve("approve")}
-              disabled={resolving}
-              className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
-            >
-              {resolving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-              Approve
-            </button>
-            <button
-              onClick={() => onResolve("reject")}
-              disabled={resolving}
-              className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/40 bg-rose-500/10 px-3 py-1 text-xs font-medium text-rose-300 transition hover:bg-rose-500/20 disabled:opacity-50"
-            >
-              <X className="h-3 w-3" />
-              Deny
-            </button>
-          </>
-        ) : (
+      {needsExecution ? (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-mono text-[9px] uppercase text-emerald-300">
+            Approved
+          </span>
           <button
-            onClick={() => navigate("/control-system/approvals")}
-            className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-zinc-300 hover:bg-white/10"
+            onClick={onExecute}
+            disabled={executing}
+            className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-3 py-1 text-xs font-medium text-cyan-300 transition hover:bg-cyan-500/20 disabled:opacity-50"
           >
-            View in Approvals
+            {executing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+            Run it
           </button>
-        )}
-        <button
-          onClick={() => navigate("/control-system/simulator")}
-          className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/5 px-3 py-1 text-xs font-medium text-cyan-300 transition hover:bg-cyan-500/15"
-        >
-          <FlaskConical className="h-3 w-3" />
-          Simulate
-        </button>
-      </div>
+          <span className="text-[11px] text-zinc-500">still needs you to carry it out</span>
+        </div>
+      ) : (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          {canSignOff ? (
+            <>
+              <button
+                onClick={() => onResolve("approve")}
+                disabled={resolving}
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
+              >
+                {resolving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                Approve
+              </button>
+              <button
+                onClick={() => onResolve("reject")}
+                disabled={resolving}
+                className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/40 bg-rose-500/10 px-3 py-1 text-xs font-medium text-rose-300 transition hover:bg-rose-500/20 disabled:opacity-50"
+              >
+                <X className="h-3 w-3" />
+                Deny
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => navigate("/control-system/approvals")}
+              className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-zinc-300 hover:bg-white/10"
+            >
+              View in Approvals
+            </button>
+          )}
+          <button
+            onClick={() => navigate("/control-system/simulator")}
+            className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/5 px-3 py-1 text-xs font-medium text-cyan-300 transition hover:bg-cyan-500/15"
+          >
+            <FlaskConical className="h-3 w-3" />
+            Simulate
+          </button>
+        </div>
+      )}
     </div>
   );
 }
