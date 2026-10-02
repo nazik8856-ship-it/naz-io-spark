@@ -8,6 +8,7 @@ import { validateToolInput, validateToolOutput } from "../_shared/tool-schemas.t
 import {
   runToolWithSelfCorrection,
   buildCorrectionPrompt,
+  classifyToolError,
   MAX_TOOL_ATTEMPTS,
   type Corrector,
 } from "../_shared/tool-retry.ts";
@@ -3276,13 +3277,56 @@ Rules:
             continue;
           }
           const writeResult = await runProviderWrite(tool.kind, supabase, userId, agentId, input);
-          await logEvent("tool_result", { tool: tool.name, ok: writeResult.ok, summary: writeResult.summary });
+          // Blueprint task #76: unlike the generic executeTool path below
+          // (which classifies every failure and persists non-retryable ones
+          // via recordIssue), this dedicated provider-write path only ever
+          // logged a single-run ok:false event -- a dead Slack webhook, a
+          // rotated Shopify/Notion credential, etc. produced the same
+          // "failed" row every run forever, with nothing aggregating
+          // consecutive failures into a known issue the way integration-
+          // revocation-sweep's OAuth check does. classifyToolError works
+          // purely off writeResult.summary's text, so this needs no new
+          // instrumentation in provider-writes.ts itself -- it reuses the
+          // exact same known-issue table, pre-dispatch skip-gate (line
+          // ~2025 above, which already covers every PROVIDER_WRITE_KINDS
+          // tool via ACTION_CAPPED_KINDS), and AgentCockpit UI surface the
+          // generic path already has.
+          let writeKnownMessage: string | null = null;
+          if (!writeResult.ok) {
+            const classified = classifyToolError({ message: writeResult.summary });
+            if (!classified.retryable) {
+              const rec = await recordIssue(supabase, {
+                userId,
+                agentId,
+                provider: writeProviderName,
+                toolKind: tool.kind,
+                errorType: classified.category as IssueErrorType,
+                technical: writeResult.summary,
+              }).catch(() => null);
+              if (rec) {
+                writeKnownMessage = rec.human_message;
+                await logEvent("integration_issue", {
+                  issue_id: rec.id,
+                  provider: writeProviderName,
+                  tool: tool.name,
+                  kind: tool.kind,
+                  error_type: rec.error_type,
+                  fix_action: rec.fix_action,
+                  scope_hint: rec.scope_hint,
+                  title: rec.title,
+                  humanMessage: rec.human_message,
+                  message: rec.human_message,
+                });
+              }
+            }
+          }
+          await logEvent("tool_result", { tool: tool.name, ok: writeResult.ok, summary: writeKnownMessage || writeResult.summary });
           await logEvent("action", {
             type: tool.kind,
             target: writeResult.target ?? null,
             ok: writeResult.ok,
             result_ref: writeResult.ref ?? null,
-            summary: writeResult.summary,
+            summary: writeKnownMessage || writeResult.summary,
             url: writeResult.url ?? null,
             provider: writeResult.provider ?? null,
           });
@@ -3293,7 +3337,9 @@ Rules:
             role: "user",
             content: writeResult.ok
               ? `${writeResult.summary}\n\nContinue.`
-              : `${writeResult.summary}\n\nDo not describe this as done. Either fix the input and try once more, or continue with other work and state this plainly to the operator.`,
+              : writeKnownMessage
+                ? `Tool "${tool.name}" failed with a connection problem you CANNOT fix by retrying (${writeResult.summary}). Do not retry it or any other tool on the same connection this run. The operator has been shown this message: "${writeKnownMessage}". Continue with a different approach that doesn't need that connection, or finish and state the blocker plainly.`
+                : `${writeResult.summary}\n\nDo not describe this as done. Either fix the input and try once more, or continue with other work and state this plainly to the operator.`,
           });
           continue;
         }
