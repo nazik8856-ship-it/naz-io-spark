@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ShieldOff } from "lucide-react";
+import { ArrowLeft, ShieldOff, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
 import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
 import { findCoverageGaps, type CapabilityForCoverage, type HardRuleForCoverage } from "@/lib/coverage-gaps";
 import { classifyAnomalyCoverage, topAgentlessActionTypes, type AgentlessActionType, type CoverageSeverity } from "@/lib/anomaly-coverage";
+import { evaluateCoarsePrecedentLookup, MIN_CONTRIBUTING_ACCOUNTS, MIN_TOTAL_SAMPLE, type CrossAccountStat } from "@/lib/cross-account-precedent";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
+
+type AvailablePrecedentStat = CrossAccountStat & { nonAllowShare: number };
 
 type AgentOption = { id: string; name: string };
 
@@ -29,7 +33,8 @@ const SEVERITY_STYLE: Record<CoverageSeverity, string> = {
  */
 export default function ControlCoverageGaps() {
   const navigate = useNavigate();
-  const { accountId } = useActiveAccount();
+  const { accountId, role, permissions } = useActiveAccount();
+  const canWrite = hasPermission(role, permissions, "policy");
   const [loading, setLoading] = useState(true);
   const [gaps, setGaps] = useState<CapabilityForCoverage[]>([]);
   const [totalReal, setTotalReal] = useState(0);
@@ -38,13 +43,21 @@ export default function ControlCoverageGaps() {
   const [anomalyTotal, setAnomalyTotal] = useState(0);
   const [anomalyAgentless, setAnomalyAgentless] = useState(0);
   const [anomalyBreakdown, setAnomalyBreakdown] = useState<AgentlessActionType[]>([]);
+  // Blueprint task #78: cross_account_precedent_stats is RLS-readable by
+  // ANY authenticated user (the whole point of the aggregate -- it carries
+  // no per-account info), but was previously only ever read via the
+  // Control API (GET /control-api/v1/precedent/cross-account), never by
+  // the dashboard itself.
+  const [precedentStats, setPrecedentStats] = useState<AvailablePrecedentStat[]>([]);
+  const [shareStats, setShareStats] = useState(false);
+  const [savingShareStats, setSavingShareStats] = useState(false);
 
   const load = useCallback(async () => {
     if (!accountId) return;
     setLoading(true);
     const since = new Date(Date.now() - ANOMALY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const { data: sess } = await supabase.auth.getSession();
-    const [statusRes, rulesRes, { data: agentRows }, totalRes, agentlessRes, breakdownRes] = await Promise.all([
+    const [statusRes, rulesRes, { data: agentRows }, totalRes, agentlessRes, breakdownRes, { data: precedentRows }, { data: profileRow }] = await Promise.all([
       // Follow-up from item 1 (tracked as task #85): capability-status now
       // accepts account_id and agent_integrations has a team-read RLS
       // policy, so this reflects the account being VIEWED, not just
@@ -59,6 +72,8 @@ export default function ControlCoverageGaps() {
       anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", accountId).gte("created_at", since),
       anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", accountId).gte("created_at", since).is("agent_id", null),
       anyDb.from("agent_decisions").select("action_type, provider").eq("user_id", accountId).gte("created_at", since).is("agent_id", null).limit(500),
+      anyDb.from("cross_account_precedent_stats").select("action_type, provider, total_count, non_allow_count, contributing_account_count"),
+      anyDb.from("profiles").select("share_anonymized_precedent_stats").eq("id", accountId).maybeSingle(),
     ]);
     void sess;
 
@@ -92,10 +107,31 @@ export default function ControlCoverageGaps() {
     setAnomalyAgentless(agentlessRes.count ?? 0);
     setAnomalyBreakdown(topAgentlessActionTypes((breakdownRes.data ?? []) as { action_type: string | null; provider: string | null }[]));
 
+    const available: AvailablePrecedentStat[] = [];
+    for (const stat of (precedentRows ?? []) as CrossAccountStat[]) {
+      const lookup = evaluateCoarsePrecedentLookup(stat);
+      if (lookup.available) available.push({ ...stat, nonAllowShare: lookup.nonAllowShare });
+    }
+    available.sort((a, b) => b.total_count - a.total_count);
+    setPrecedentStats(available);
+    setShareStats(!!(profileRow as { share_anonymized_precedent_stats?: boolean } | null)?.share_anonymized_precedent_stats);
+
     setLoading(false);
   }, [accountId, scopeAgentId]);
 
   useEffect(() => { load(); }, [load]);
+
+  const toggleShareStats = async (checked: boolean) => {
+    if (!accountId || !canWrite) return;
+    setSavingShareStats(true);
+    setShareStats(checked);
+    const { error } = await anyDb.from("profiles").update({ share_anonymized_precedent_stats: checked }).eq("id", accountId);
+    setSavingShareStats(false);
+    if (error) {
+      setShareStats(!checked);
+      toast({ title: "Couldn't save that", description: error.message, variant: "destructive" });
+    }
+  };
 
   return (
     <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#020617" }}>
@@ -202,6 +238,48 @@ export default function ControlCoverageGaps() {
                 </div>
               );
             })()}
+
+            <div className="mt-8">
+              <h2 className="flex items-center gap-1.5 font-mono text-xs uppercase tracking-wider text-zinc-400">
+                <Users className="h-3.5 w-3.5" /> Cross-account precedent (opt-in, anonymized)
+              </h2>
+              <p className="mt-1 text-xs text-zinc-500">
+                A coarse, anonymized signal from other opted-in accounts' real decisions — never this account's own
+                precedent, never free text or params, only shown once at least {MIN_CONTRIBUTING_ACCOUNTS} accounts and{" "}
+                {MIN_TOTAL_SAMPLE} decisions contribute to a shape.
+              </p>
+              <label className="mt-3 flex items-center gap-2 text-[11px] text-zinc-400">
+                <input
+                  type="checkbox"
+                  checked={shareStats}
+                  disabled={!canWrite || savingShareStats}
+                  onChange={(e) => void toggleShareStats(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-cyan-500 disabled:opacity-50"
+                />
+                Share this account's own decisions into the anonymized cross-account aggregate above
+              </label>
+              {precedentStats.length === 0 ? (
+                <p className="mt-3 rounded border border-white/10 bg-white/[0.02] p-4 text-sm text-zinc-500">
+                  No cross-account pattern is available yet for any action shape — not enough opted-in accounts or
+                  volume so far.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-1.5">
+                  {precedentStats.map((s) => (
+                    <li key={`${s.action_type}-${s.provider ?? ""}`} className="flex items-center gap-2 rounded border border-white/10 bg-white/[0.02] px-3 py-2 text-[12px] text-zinc-300">
+                      <span className="font-mono">{s.action_type}</span>
+                      {s.provider && <span className="text-zinc-500">· {s.provider}</span>}
+                      <span className="ml-auto text-zinc-400">
+                        {Math.round(s.nonAllowShare * 100)}% not a clean allow
+                      </span>
+                      <span className="font-mono text-zinc-600">
+                        ({s.total_count} across {s.contributing_account_count} accounts)
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </>
         )}
       </main>
