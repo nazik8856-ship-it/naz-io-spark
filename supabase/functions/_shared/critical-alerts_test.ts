@@ -119,7 +119,7 @@ Deno.test("every known CriticalAlertEvent has a real, non-empty label", () => {
     "break_glass_override", "correlated_breaker_trip", "audit_integrity_failure",
     "webhook_delivery_exhausted", "integration_revoked", "control_api_abuse", "auto_resolution_share_spike",
     "precedent_pipeline_stale", "control_api_coordinated_abuse", "on_uncertain_auto_downgraded",
-    "scheduled_dispatch_failed",
+    "scheduled_dispatch_failed", "website_lead_notification_suppressed",
   ];
   for (const event of knownEvents) {
     assert(typeof LABELS[event] === "string" && LABELS[event].length > 0, `missing/empty label for "${event}"`);
@@ -139,6 +139,14 @@ Deno.test("a confidence_miscalibrated event opens an incident linked to the aler
   await sendCriticalAlert(client, "user-1", { event: "confidence_miscalibrated", summary: "overconfident" });
   assertEquals(incidents.length, 1);
   assertEquals(incidents[0].kind, "confidence_miscalibrated");
+  assertEquals(incidents[0].alert_id, "alert-1");
+});
+
+Deno.test("a website_lead_notification_suppressed event opens an incident linked to the alert (blueprint #75)", async () => {
+  const { client, incidents } = fakeSupabase({ slackConnected: false });
+  await sendCriticalAlert(client, "user-1", { event: "website_lead_notification_suppressed", summary: "owner's email is suppressed" });
+  assertEquals(incidents.length, 1);
+  assertEquals(incidents[0].kind, "website_lead_notification_suppressed");
   assertEquals(incidents[0].alert_id, "alert-1");
 });
 

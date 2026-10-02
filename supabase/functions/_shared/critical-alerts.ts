@@ -107,7 +107,18 @@ export type CriticalAlertEvent =
   // followup) just silently moved on as if the run had happened. Fires the
   // moment a dispatch is confirmed to have failed (now awaited via
   // EdgeRuntime.waitUntil so it doesn't block the scheduler's own response).
-  | "scheduled_dispatch_failed";
+  | "scheduled_dispatch_failed"
+  // Blueprint task #75: a generated website's contact-form lead notification
+  // couldn't be emailed to the account owner because their own notification
+  // address is on the suppression list (a prior hard bounce/complaint) --
+  // previously a complete, permanent, silent dead end: send-transactional-
+  // email no-ops (by design, to protect sender reputation) the instant an
+  // address is suppressed, and nothing ever told the owner, since the one
+  // channel that would normally tell them is exactly what's broken. Routes
+  // through this function specifically so Slack (if connected) and the
+  // in-app incidents list (via INCIDENT_KINDS below) both give the owner a
+  // real channel OTHER than their own broken email address.
+  | "website_lead_notification_suppressed";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -142,6 +153,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   content_gap_backlog_stale: "📚 A recurring unanswered question is piling up in an API key's content gaps",
   incident_stale_unacknowledged: "⏳ An incident has been open too long with no acknowledgment",
   scheduled_dispatch_failed: "⏱️ A scheduled agent run failed to start",
+  website_lead_notification_suppressed: "📪 A website lead notification couldn't reach your email -- it's suppressed",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

@@ -54,6 +54,11 @@ export const INCIDENT_KINDS = [
   // stopped working, nobody would otherwise notice" shape as
   // precedent_pipeline_stale, applied to the content-gap pipeline.
   "content_gap_backlog_stale",
+  // Blueprint task #75: the owner's own notification email is suppressed,
+  // so website-lead emails are silently no-op'ing -- worth a real incident
+  // since it's an account-specific "something is broken and you should fix
+  // your email" problem, not routine operation.
+  "website_lead_notification_suppressed",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 
