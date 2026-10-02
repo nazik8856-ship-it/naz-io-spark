@@ -1,0 +1,46 @@
+-- Blueprint task #68: measure-decision-outcomes (the outcome-learning
+-- loop's front door -- see supabase/functions/measure-decision-outcomes)
+-- was fully built and working, but was NEVER scheduled: confirmed live
+-- via `select * from cron.job` that it had no entry among the 29 jobs
+-- running at the time, unlike its two downstream consumers
+-- (calibrate-confidence-weekly, outcome-quality-sweep-daily), which both
+-- read from the decision_outcomes/org_insights rows this job is supposed
+-- to populate. Those jobs were running every week/day against data that
+-- was never being written.
+--
+-- No schema change here -- it reads existing agent_decisions and
+-- integration-snapshot tables and writes to the existing decision_outcomes
+-- and org_insights tables. Kept as its own migration file purely to
+-- document the cron registration alongside the feature it schedules,
+-- same convention as every other scheduled sweep in this codebase.
+--
+-- ============================================================
+-- POST-MIGRATION STEP (same convention as every other scheduled sweep in
+-- this codebase -- applied directly, not committed as static SQL, since
+-- it needs a project-specific service_role key and function URL):
+--
+-- CRON JOB (pg_cron): schedule 'measure-decision-outcomes-daily' once a
+-- day, before its downstream consumers (calibrate-confidence-weekly runs
+-- Mondays 05:00 UTC, outcome-quality-sweep-daily runs daily 09:00 UTC),
+-- reusing the existing 'email_queue_service_role_key' vault secret as the
+-- Authorization bearer token:
+--
+--    SELECT cron.schedule(
+--      'measure-decision-outcomes-daily',
+--      '45 4 * * *',
+--      $$
+--      INSERT INTO public.scheduled_job_requests (job_name, request_id)
+--      SELECT 'measure-decision-outcomes-daily', net.http_post(
+--        url := '<SUPABASE_URL>/functions/v1/measure-decision-outcomes',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
+--        ),
+--        body := '{}'::jsonb
+--      );
+--      $$
+--    );
+--
+-- Applied live 2026-10-02 as jobid 31. Verified end-to-end with a manual
+-- net.http_post against the deployed function: 200 OK,
+-- {"ok":true,"decisions_scanned":246,"outcomes_measured":0,"insights_written":0}.
