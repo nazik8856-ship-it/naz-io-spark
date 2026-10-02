@@ -1,8 +1,32 @@
 // Cron-triggered fanout: find agents due for a run and invoke agent-runtime.
 // Called by pg_cron every minute via net.http_post.
 // Uses the service role to bypass RLS for the scheduler scan.
+//
+// Blueprint task #72: every dispatch to agent-runtime used to be pure
+// fire-and-forget -- the fetch() promise was never awaited, its result
+// array entry was pushed as `ok: true` unconditionally (before the promise
+// even settled), and a `.catch()` only produced a console.warn no one
+// reads. A network failure, timeout, or non-2xx response from agent-runtime
+// left ZERO trace anywhere: for a cron-scheduled agent, next_run_at had
+// already moved on to the next cycle as if the run happened; for a
+// schedule_followup/"run once at" run, the agent_runs row sat at
+// "dispatched" forever with nothing to ever flip it to a terminal status.
+// Confirmed live: agent_runs is completely empty and zero agents currently
+// have an active schedule configured, so this hasn't bitten a real
+// customer yet -- but it's a dormant trap for the first one who sets up a
+// scheduled agent, with no error message to even start debugging from.
+//
+// Fix: each dispatch now runs via runInBackground (EdgeRuntime.waitUntil)
+// so the scheduler's own response still isn't blocked on the full agent
+// run completing, but the eventual outcome is no longer discarded --
+// a non-2xx/thrown dispatch fires scheduled_dispatch_failed (owner-facing,
+// same posture as agent_clarification_needed: alerts immediately, no
+// incident), and a schedule_followup run's tracking row is updated to a
+// real terminal status (completed/failed) instead of staying "dispatched".
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
+import { runInBackground } from "../_shared/background.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,33 +53,41 @@ serve(async (req) => {
     const fnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/agent-runtime`;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const results: { id: string; ok: boolean }[] = [];
+    const results: { id: string; dispatched: boolean }[] = [];
     for (const a of due || []) {
+      const agentId = a.id as string;
+      const userId = a.user_id as string;
       const next = computeNextRun(a.schedule_cron as string | null);
-      await supabase.from("agents").update({ next_run_at: next }).eq("id", a.id);
-      try {
-        // Fire and forget — runtime is service-role authenticated via header
-        fetch(fnUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${serviceKey}`,
-            "x-scheduler-user-id": a.user_id as string,
-          },
-          body: JSON.stringify({ agentId: a.id, trigger: "cron" }),
-        }).catch((e) => console.warn("scheduler invoke failed", a.id, e));
-        results.push({ id: a.id as string, ok: true });
-      } catch (e) {
-        results.push({ id: a.id as string, ok: false });
-        console.warn("scheduler error", e);
-      }
+      await supabase.from("agents").update({ next_run_at: next }).eq("id", agentId);
+      // Dispatch runs in the background (not awaited here) so one slow agent
+      // run can't block the other 49 in this batch or this function's own
+      // response -- but its outcome is no longer discarded, see module doc.
+      const dispatch = fetch(fnUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${serviceKey}`,
+          "x-scheduler-user-id": userId,
+        },
+        body: JSON.stringify({ agentId, trigger: "cron" }),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const bodyText = await res.text().catch(() => "");
+          await reportDispatchFailure(supabase, agentId, userId, `agent-runtime responded ${res.status}${bodyText ? `: ${bodyText.slice(0, 300)}` : ""}`);
+        }
+      }).catch(async (e) => {
+        await reportDispatchFailure(supabase, agentId, userId, `request failed: ${e instanceof Error ? e.message : String(e)}`);
+        throw e; // let runInBackground's own catch still log it
+      });
+      runInBackground(dispatch, `agent-scheduler:cron:${agentId}`);
+      results.push({ id: agentId, dispatched: true });
     }
     // ------------------------------------------------------------------
     // Also poll scheduled follow-up runs (from schedule_followup tool or
     // "Run once at…" UI). Each due row is claimed via an atomic conditional
     // update so concurrent scheduler ticks can't double-fire it.
     // ------------------------------------------------------------------
-    const scheduledResults: { id: string; ok: boolean }[] = [];
+    const scheduledResults: { id: string; dispatched: boolean }[] = [];
     const { data: dueRuns } = await supabase
       .from("agent_runs")
       .select("id, agent_id, user_id, instruction")
@@ -65,32 +97,71 @@ serve(async (req) => {
       .limit(50);
 
     for (const r of dueRuns || []) {
+      const trackingId = r.id as string;
+      const agentId = r.agent_id as string;
+      const userId = r.user_id as string;
       // Atomic claim — only one tick's update will affect the row.
       const { data: claimed, error: claimErr } = await supabase
         .from("agent_runs")
         .update({ status: "dispatched" })
-        .eq("id", r.id).eq("status", "scheduled")
+        .eq("id", trackingId).eq("status", "scheduled")
         .select("id").maybeSingle();
       if (claimErr || !claimed) continue;
-      try {
-        fetch(fnUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${serviceKey}`,
-            "x-scheduler-user-id": r.user_id as string,
-          },
-          body: JSON.stringify({
-            agentId: r.agent_id,
-            trigger: "scheduled",
-            userInstruction: (r.instruction as string | null) ?? undefined,
-          }),
-        }).catch((e) => console.warn("scheduler scheduled-run invoke failed", r.id, e));
-        scheduledResults.push({ id: r.id as string, ok: true });
-      } catch (e) {
-        scheduledResults.push({ id: r.id as string, ok: false });
-        console.warn("scheduler scheduled-run error", e);
-      }
+
+      // This tracking row (created by the "Run once at…" UI / schedule_followup
+      // tool) is entirely separate from the real agent_runs row agent-runtime
+      // inserts for its own run -- nothing ever linked the two, so it used to
+      // sit at "dispatched" forever regardless of whether the run succeeded,
+      // failed, or never started at all. Now resolved to a real terminal
+      // status from the dispatch's own outcome.
+      const dispatch = fetch(fnUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${serviceKey}`,
+          "x-scheduler-user-id": userId,
+        },
+        body: JSON.stringify({
+          agentId,
+          trigger: "scheduled",
+          userInstruction: (r.instruction as string | null) ?? undefined,
+        }),
+      }).then(async (res) => {
+        const bodyJson = await res.json().catch(() => null) as { summary?: string; outcome?: string; skipped?: boolean; reason?: string } | null;
+        if (res.ok && bodyJson && !bodyJson.skipped) {
+          await supabase.from("agent_runs").update({
+            status: "completed",
+            finished_at: new Date().toISOString(),
+            summary: bodyJson.summary ?? "Dispatched successfully.",
+            outcome: bodyJson.outcome ?? "Completed",
+          }).eq("id", trackingId);
+          return;
+        }
+        const reason = !res.ok
+          ? `agent-runtime responded ${res.status}`
+          : bodyJson?.skipped
+            ? `skipped: ${bodyJson.reason ?? "agent was already running"}`
+            : "agent-runtime returned an unexpected response";
+        await supabase.from("agent_runs").update({
+          status: "failed",
+          finished_at: new Date().toISOString(),
+          summary: `[Failed to start] ${reason}`,
+          outcome: "Failed",
+        }).eq("id", trackingId);
+        await reportDispatchFailure(supabase, agentId, userId, reason, trackingId);
+      }).catch(async (e) => {
+        const reason = `request failed: ${e instanceof Error ? e.message : String(e)}`;
+        await supabase.from("agent_runs").update({
+          status: "failed",
+          finished_at: new Date().toISOString(),
+          summary: `[Failed to start] ${reason}`,
+          outcome: "Failed",
+        }).eq("id", trackingId);
+        await reportDispatchFailure(supabase, agentId, userId, reason, trackingId);
+        throw e;
+      });
+      runInBackground(dispatch, `agent-scheduler:followup:${trackingId}`);
+      scheduledResults.push({ id: trackingId, dispatched: true });
     }
 
     return json({
@@ -106,6 +177,28 @@ serve(async (req) => {
 });
 
 function json(b: unknown, s = 200) { return new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
+
+/** Owner-facing alert for a dispatch that never actually started the agent -- see module doc comment. Never throws. */
+async function reportDispatchFailure(
+  supabase: SupabaseClient,
+  agentId: string,
+  userId: string,
+  reason: string,
+  followupRunId?: string,
+): Promise<void> {
+  try {
+    const { data: agent } = await supabase.from("agents").select("name").eq("id", agentId).maybeSingle();
+    const agentName = (agent as { name?: string } | null)?.name ?? "An agent";
+    await sendCriticalAlert(supabase, userId, {
+      event: "scheduled_dispatch_failed",
+      summary: `${agentName}'s scheduled run failed to start: ${reason}`,
+      actionType: null,
+      provider: null,
+    });
+  } catch (e) {
+    console.error("agent-scheduler: reportDispatchFailure itself failed", { agentId, followupRunId, reason, error: e });
+  }
+}
 
 // Lightweight cron interpreter for the few presets we use. Falls back to +1h.
 //

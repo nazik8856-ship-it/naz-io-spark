@@ -119,6 +119,7 @@ Deno.test("every known CriticalAlertEvent has a real, non-empty label", () => {
     "break_glass_override", "correlated_breaker_trip", "audit_integrity_failure",
     "webhook_delivery_exhausted", "integration_revoked", "control_api_abuse", "auto_resolution_share_spike",
     "precedent_pipeline_stale", "control_api_coordinated_abuse", "on_uncertain_auto_downgraded",
+    "scheduled_dispatch_failed",
   ];
   for (const event of knownEvents) {
     assert(typeof LABELS[event] === "string" && LABELS[event].length > 0, `missing/empty label for "${event}"`);
