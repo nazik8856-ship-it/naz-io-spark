@@ -18,6 +18,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { detectRecurringBlockPatterns, draftRuleFromPattern, type DecisionRow } from "../_shared/rule-auto-draft.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,6 +98,20 @@ Deno.serve(async (req) => {
         await triggerWebhooks(admin, userId, "hard_rule_auto_drafted", {
           action_type: pattern.action_type, provider: pattern.provider, sample_size: pattern.sample_size, rule_text: draft.rule_text,
         });
+        // Blueprint task #77: the webhook above is a real push, but only to
+        // an opt-in external endpoint most accounts never configure -- this
+        // gives every account the same in-app/Slack/email channel every
+        // other "something quietly needs your attention" sweep in this
+        // codebase already uses, instead of requiring a manual trip to
+        // HardRulesPanel's own two nested, closed-by-default accordions to
+        // ever notice a new draft exists.
+        const scope = pattern.provider ? `${pattern.action_type} on ${pattern.provider}` : pattern.action_type;
+        await sendCriticalAlert(admin, userId, {
+          event: "hard_rule_auto_drafted",
+          summary: `Auto-drafted a shadow rule to block "${scope}" after ${pattern.sample_size} real blocks -- review it in Hard rules.`,
+          actionType: pattern.action_type,
+          provider: pattern.provider,
+        }).catch(() => null);
       }
     }
   }

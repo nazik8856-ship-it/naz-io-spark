@@ -120,6 +120,7 @@ Deno.test("every known CriticalAlertEvent has a real, non-empty label", () => {
     "webhook_delivery_exhausted", "integration_revoked", "control_api_abuse", "auto_resolution_share_spike",
     "precedent_pipeline_stale", "control_api_coordinated_abuse", "on_uncertain_auto_downgraded",
     "scheduled_dispatch_failed", "website_lead_notification_suppressed",
+    "kb_entry_auto_drafted", "hard_rule_auto_drafted",
   ];
   for (const event of knownEvents) {
     assert(typeof LABELS[event] === "string" && LABELS[event].length > 0, `missing/empty label for "${event}"`);
@@ -215,6 +216,23 @@ Deno.test("a deliberate kill_switch_on event does NOT open an incident", async (
 Deno.test("a routine hard_rule_block event does NOT open an incident", async () => {
   const { client, incidents } = fakeSupabase({ slackConnected: false });
   await sendCriticalAlert(client, "user-1", { event: "hard_rule_block", summary: "blocked" });
+  assertEquals(incidents.length, 0);
+});
+
+// Blueprint task #77: a freshly auto-drafted KB entry or shadow rule is a
+// routine human-in-the-loop item waiting for review, not evidence anything
+// broke -- same bucket as approval_created/agent_clarification_needed.
+Deno.test("a kb_entry_auto_drafted event alerts but does NOT open an incident", async () => {
+  const { client, inserted, incidents } = fakeSupabase({ slackConnected: false });
+  await sendCriticalAlert(client, "user-1", { event: "kb_entry_auto_drafted", summary: "drafted" });
+  assertEquals(inserted.length, 1);
+  assertEquals(incidents.length, 0);
+});
+
+Deno.test("a hard_rule_auto_drafted event alerts but does NOT open an incident", async () => {
+  const { client, inserted, incidents } = fakeSupabase({ slackConnected: false });
+  await sendCriticalAlert(client, "user-1", { event: "hard_rule_auto_drafted", summary: "drafted" });
+  assertEquals(inserted.length, 1);
   assertEquals(incidents.length, 0);
 });
 

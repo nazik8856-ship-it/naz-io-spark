@@ -118,7 +118,19 @@ export type CriticalAlertEvent =
   // through this function specifically so Slack (if connected) and the
   // in-app incidents list (via INCIDENT_KINDS below) both give the owner a
   // real channel OTHER than their own broken email address.
-  | "website_lead_notification_suppressed";
+  | "website_lead_notification_suppressed"
+  // Blueprint task #77: both of these fire the moment a sweep auto-drafts
+  // something a human needs to look at -- a knowledge-base entry
+  // (knowledge-base-auto-draft-sweep) or a shadow hard rule (rule-auto-
+  // draft-sweep). Previously neither sweep told anyone anything: the KB
+  // entry had no frontend at all to find it on, and the shadow rule's only
+  // "push" was an outbound webhook event, useless to the vast majority of
+  // accounts with no webhook configured. Same non-incident, "routine
+  // human-in-the-loop item" bucket as approval_created/
+  // agent_clarification_needed -- a draft waiting for review isn't
+  // evidence anything broke.
+  | "kb_entry_auto_drafted"
+  | "hard_rule_auto_drafted";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -154,6 +166,8 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   incident_stale_unacknowledged: "⏳ An incident has been open too long with no acknowledgment",
   scheduled_dispatch_failed: "⏱️ A scheduled agent run failed to start",
   website_lead_notification_suppressed: "📪 A website lead notification couldn't reach your email -- it's suppressed",
+  kb_entry_auto_drafted: "📚 A new knowledge-base entry was auto-drafted for review",
+  hard_rule_auto_drafted: "🕶️ A new shadow rule was auto-drafted for review",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {
