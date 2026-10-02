@@ -21,7 +21,13 @@ const GOVERNANCE_TABLES = [
   "webhooks", "webhook_deliveries", "hard_rule_shadow_hits",
 ] as const;
 
-type DeletionRequest = { id: string; requested_at: string; execute_at: string; status: string };
+type DeletionRequest = {
+  id: string;
+  requested_at: string;
+  execute_at: string;
+  status: string;
+  completed_at: string | null;
+};
 
 /**
  * ACCOUNT DATA — self-service export and deletion of everything this
@@ -50,18 +56,27 @@ export default function ControlAccountData() {
   const [confirmText, setConfirmText] = useState("");
   const [requesting, setRequesting] = useState(false);
 
-  const loadPending = useCallback(async () => {
+  // Blueprint task #74: this used to filter `.eq("status", "pending")`, so
+  // the moment data-deletion-sweep flipped a request to "completed" (or the
+  // owner cancelled it), this query found zero rows and the page silently
+  // reverted to the pristine "type DELETE to confirm" form -- pixel-
+  // identical to "nothing was ever requested," even though
+  // data_deletion_requests.status/completed_at were sitting there correctly
+  // written. Fetch the single most recent request regardless of status so a
+  // completed one can actually be shown to the owner instead of vanishing.
+  const loadLatest = useCallback(async () => {
     if (!user) return;
     const { data } = await anyDb
       .from("data_deletion_requests")
-      .select("id, requested_at, execute_at, status")
+      .select("id, requested_at, execute_at, status, completed_at")
       .eq("user_id", user.id)
-      .eq("status", "pending")
+      .order("requested_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
     setPending((data as DeletionRequest | null) ?? null);
   }, [user]);
 
-  useEffect(() => { void loadPending(); }, [loadPending]);
+  useEffect(() => { void loadLatest(); }, [loadLatest]);
 
   const exportData = async () => {
     if (!user) return;
@@ -166,7 +181,7 @@ export default function ControlAccountData() {
             <section className="mt-6 rounded-xl border border-rose-500/25 bg-rose-500/[0.03] p-4">
               <h2 className="font-mono text-xs uppercase tracking-wider text-rose-300">Delete</h2>
 
-              {pending ? (
+              {pending?.status === "pending" ? (
             <div className="mt-2 space-y-2">
               <p className="text-sm text-zinc-300">
                 Deletion scheduled for <span className="font-semibold text-rose-300">{new Date(pending.execute_at).toLocaleString()}</span>.
@@ -180,6 +195,12 @@ export default function ControlAccountData() {
             </div>
           ) : (
             <div className="mt-2 space-y-2">
+              {pending?.status === "completed" && pending.completed_at && (
+                <p className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.05] px-3 py-2 text-[11px] text-emerald-300">
+                  Your Control System data was deleted on {new Date(pending.completed_at).toLocaleString()}.
+                  Anything created since then can be deleted again below.
+                </p>
+              )}
               <p className="text-[11px] text-zinc-500">
                 Schedules permanent deletion of everything above, 7 days from now. You can cancel any time
                 before then. Type <span className="font-mono text-zinc-300">DELETE</span> to confirm.
