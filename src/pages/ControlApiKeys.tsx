@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText, Zap, Globe2, Mail, RefreshCw } from "lucide-react";
+import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText, Zap, Globe2, Mail, RefreshCw, HelpCircle } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
@@ -8,6 +8,7 @@ import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { findStaleResponseRules, RESPONSE_RULE_STALE_WINDOW_DAYS } from "@/lib/response-rule-effectiveness";
+import { rankContentGapClusters, type RankedContentGap } from "@/lib/content-gaps";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 import { posthog } from "@/lib/posthog";
 
@@ -926,6 +927,17 @@ function ApiKeySettingsPanel({
   const [addingEntry, setAddingEntry] = useState(false);
   const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
 
+  // Blueprint task #78: content-gap-triage-sweep already clusters and
+  // ranks this key's unanswered /respond questions (content_gap_clusters/
+  // api_response_generations, both RLS-readable directly by the owner),
+  // but nothing in the dashboard ever read them -- previously visible
+  // only via the raw Control API. Read directly rather than through an
+  // edge function since RLS already scopes these tables to the owner/
+  // team members by api_key_id's own user_id, same posture as
+  // HardRulesPanel/ControlSafetyRules' direct table reads.
+  const [gaps, setGaps] = useState<RankedContentGap[]>([]);
+  const [gapsLoading, setGapsLoading] = useState(true);
+
   const [rules, setRules] = useState<ResponseRule[]>([]);
   const [rulesLoading, setRulesLoading] = useState(true);
   // Rule effectiveness for response rules -- mirrors the hard_rules/
@@ -968,7 +980,24 @@ function ApiKeySettingsPanel({
     setRulesLoading(false);
   }, [keyId, accountId]);
 
-  useEffect(() => { loadEntries(); loadRules(); }, [loadEntries, loadRules]);
+  const loadGaps = useCallback(async () => {
+    setGapsLoading(true);
+    const [{ data: clusters, error: clustersErr }, { data: generations, error: genErr }] = await Promise.all([
+      anyDb.from("content_gap_clusters").select("id, representative_message").eq("api_key_id", keyId),
+      anyDb
+        .from("api_response_generations")
+        .select("content_gap_cluster_id, created_at, resolved_at")
+        .eq("api_key_id", keyId)
+        .not("content_gap_cluster_id", "is", null)
+        .is("resolved_at", null),
+    ]);
+    if (!clustersErr && !genErr) {
+      setGaps(rankContentGapClusters(clusters ?? [], generations ?? []));
+    }
+    setGapsLoading(false);
+  }, [keyId]);
+
+  useEffect(() => { loadEntries(); loadRules(); loadGaps(); }, [loadEntries, loadRules, loadGaps]);
 
   const saveSettings = async () => {
     let rateLimitValue: number | null = null;
@@ -1168,6 +1197,44 @@ function ApiKeySettingsPanel({
           {savingSettings ? "Saving…" : "Save settings"}
         </button>
       )}
+
+      <div className="border-t border-white/5 pt-3">
+        <h3 className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+          <HelpCircle className="h-3.5 w-3.5" /> Content gaps
+        </h3>
+        <p className="mt-1 text-[11px] text-zinc-500">
+          Questions this key's <span className="font-mono">POST /respond</span> keeps getting asked with nothing to answer
+          from -- grouped by how often the same thing comes up. Resolves itself once you add a context entry below that
+          covers it.
+        </p>
+
+        {gapsLoading ? (
+          <p className="mt-2 font-mono text-[10px] uppercase text-zinc-600">Loading…</p>
+        ) : gaps.length === 0 ? (
+          <p className="mt-2 text-[11px] text-zinc-600">No unanswered gaps right now.</p>
+        ) : (
+          <ul className="mt-2 space-y-1.5">
+            {gaps.map((g) => (
+              <li key={g.clusterId} className="flex items-start justify-between gap-2 rounded border border-amber-500/20 bg-amber-500/[0.03] px-2 py-1.5">
+                <div className="flex-1">
+                  <span className="text-[11px] text-zinc-300">{g.representativeMessage}</span>
+                  <p className="mt-0.5 text-[10px] text-zinc-600">
+                    Asked {g.occurrenceCount}x · last {new Date(g.lastSeenAt).toLocaleString()}
+                  </p>
+                </div>
+                {canWrite && (
+                  <button
+                    onClick={() => setNewEntryText(g.representativeMessage)}
+                    className="shrink-0 rounded border border-cyan-500/40 px-2 py-1 font-mono text-[10px] uppercase text-cyan-300 hover:bg-cyan-500/10"
+                  >
+                    Add context entry
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <div className="border-t border-white/5 pt-3">
         <h3 className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
