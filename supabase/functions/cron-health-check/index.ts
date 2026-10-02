@@ -28,6 +28,15 @@
 // (search_decision_precedent/search_response_context/search_response_cache
 // all silently failing) this exists to catch on day one of any future
 // regression, instead of an unknown period of silent failure again.
+//
+// Third check: process-email-queue's moveToDlq() writes a 'dlq' row to
+// email_send_log on every permanent send failure, but nothing ever reads
+// that signal -- confirmed live that real (non-test-harness) dlq rows
+// exist with zero alerting anywhere, including for templates like
+// critical-alert and control-digest that customers depend on. Opens one
+// platform incident (deduped like the checks above) whenever a dlq row
+// lands in the lookback window, excluding @example.com recipients (this
+// codebase's own test-harness noise pattern).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { findUnhealthyJobs, jobsNeedingNewIncident, summarizeUnhealthyJob, type JobRequestOutcome } from "../_shared/cron-health.ts";
 import { findBrokenVectorRpcs, vectorRpcIncidentKind, summarizeBrokenVectorRpc, type VectorRpcSearchPathRow } from "../_shared/vector-rpc-search-path-health.ts";
@@ -126,6 +135,37 @@ Deno.serve(async (req) => {
     console.error(`[CRON HEALTH] opened ${vectorRpcIncidentsOpened.length} vector-rpc incident(s): ${vectorRpcIncidentsOpened.join(", ")}`);
   }
 
+  // Third check: dead-lettered emails. See the module doc comment above.
+  const EMAIL_DLQ_KIND = "email_dlq_backlog";
+  const { data: dlqRows, error: dlqErr } = await admin
+    .from("email_send_log")
+    .select("template_name, recipient_email")
+    .eq("status", "dlq")
+    .gte("created_at", since)
+    .not("recipient_email", "ilike", "%@example.com");
+  if (dlqErr) console.error(`[CRON HEALTH] email_send_log dlq query failed: ${dlqErr.message}`);
+
+  let emailDlqIncidentOpened = false;
+  const dlqCount = dlqRows?.length ?? 0;
+  if (dlqCount > 0 && !openKinds.includes(EMAIL_DLQ_KIND)) {
+    const byTemplate: Record<string, number> = {};
+    for (const r of dlqRows as { template_name: string | null }[]) {
+      const t = r.template_name || "(unknown)";
+      byTemplate[t] = (byTemplate[t] || 0) + 1;
+    }
+    const breakdown = Object.entries(byTemplate).map(([t, n]) => `${t} (${n})`).join(", ");
+    const { error } = await admin.from("platform_incidents").insert({
+      kind: EMAIL_DLQ_KIND,
+      summary: `${dlqCount} email(s) dead-lettered in the last ${LOOKBACK_MINUTES} minutes: ${breakdown}`,
+      detail: { count: dlqCount, by_template: byTemplate, lookback_minutes: LOOKBACK_MINUTES },
+    });
+    if (!error) emailDlqIncidentOpened = true;
+    else console.error(`[CRON HEALTH] failed to open incident for ${EMAIL_DLQ_KIND}: ${error.message}`);
+  }
+  if (emailDlqIncidentOpened) {
+    console.error(`[CRON HEALTH] opened email dlq incident: ${dlqCount} message(s)`);
+  }
+
   return json({
     ok: true,
     checkedJobs: [...new Set(outcomes.map((o) => o.jobName))].length,
@@ -134,5 +174,7 @@ Deno.serve(async (req) => {
     vectorRpcsChecked: vectorRpcOutcomes.length,
     vectorRpcsBroken: brokenVectorRpcs,
     vectorRpcIncidentsOpened,
+    emailDlqCount: dlqCount,
+    emailDlqIncidentOpened,
   });
 });
