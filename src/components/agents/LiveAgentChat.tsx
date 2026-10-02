@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUp, ChevronDown, ChevronUp, Bot } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { cn } from "@/lib/utils";
 
 type AgentTurn = { role: "user" | "assistant"; content: string; node?: ReactNode };
 
@@ -16,6 +17,12 @@ type Props = {
   composerExtras?: ReactNode;
   /** Live multi-step progress rendered instead of a generic "thinking…" dot. */
   executionLog?: ReactNode;
+  /**
+   * Tighter spacing/sizing for a status-log-style sidebar (e.g. the Control
+   * System's Agent Status panel) instead of the default spacious
+   * messaging-app look used by the website/agent builder chats.
+   */
+  compact?: boolean;
 };
 
 export default function LiveAgentChat({
@@ -29,6 +36,7 @@ export default function LiveAgentChat({
   onSend,
   composerExtras,
   executionLog,
+  compact = false,
 }: Props) {
   const [input, setInput] = useState("");
   const [showSpec, setShowSpec] = useState(false);
@@ -51,38 +59,53 @@ export default function LiveAgentChat({
   };
 
   return (
-    <div className="relative h-full flex flex-col px-4 md:px-8 py-5">
-      <div className="max-w-3xl w-full mx-auto flex-1 flex flex-col min-h-0">
+    <div className={cn("relative h-full flex flex-col", compact ? "px-3 py-3" : "px-4 md:px-8 py-5")}>
+      <div className={cn("w-full mx-auto flex-1 flex flex-col min-h-0", !compact && "max-w-3xl")}>
         {/* Header */}
-        <div className="flex items-center gap-3 pb-3 border-b border-white/10">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-black">
-            <Bot className="h-5 w-5" />
+        <div className={cn("flex items-center border-b border-white/10", compact ? "gap-2 pb-2" : "gap-3 pb-3")}>
+          <div
+            className={cn(
+              "rounded-xl bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-black shrink-0",
+              compact ? "h-7 w-7" : "h-10 w-10",
+            )}
+          >
+            <Bot className={compact ? "h-3.5 w-3.5" : "h-5 w-5"} />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-base font-bold text-white truncate">{name}</div>
+            <div className={cn("font-bold text-white truncate", compact ? "text-sm" : "text-base")}>{name}</div>
             {goal && (
               <div className="text-[11px] text-cyan-300/90 truncate">🎯 {goal}</div>
             )}
           </div>
-          <span className="text-[9px] uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-400/15 text-emerald-300 border border-emerald-400/30 inline-flex items-center gap-1">
+          <span className="text-[9px] uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-400/15 text-emerald-300 border border-emerald-400/30 inline-flex items-center gap-1 shrink-0">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
             Live
           </span>
         </div>
 
         {/* Transcript */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto py-4 space-y-3">
+        <div ref={scrollRef} className={cn("flex-1 overflow-y-auto", compact ? "py-2 space-y-1.5" : "py-4 space-y-3")}>
           {turns.length === 0 && (
             <div className="text-sm text-zinc-500 italic">Agent is ready.</div>
           )}
           {turns.map((t, i) => (
             <div key={i} className={t.role === "user" ? "flex justify-end" : "flex justify-start"}>
               {t.role === "user" ? (
-                <div className="max-w-[80%] rounded-2xl px-3.5 py-2 bg-purple-500/15 border border-purple-400/30 text-sm text-white">
+                <div
+                  className={cn(
+                    "max-w-[80%] bg-purple-500/15 border border-purple-400/30 text-white",
+                    compact ? "rounded-lg px-2.5 py-1.5 text-[13px]" : "rounded-2xl px-3.5 py-2 text-sm",
+                  )}
+                >
                   {t.content}
                 </div>
               ) : (
-                <div className="max-w-[85%] rounded-2xl px-4 py-2.5 bg-white/[0.04] border border-white/10 text-sm text-zinc-100 prose prose-invert prose-sm max-w-none prose-p:my-1.5 prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
+                <div
+                  className={cn(
+                    "max-w-[85%] bg-white/[0.04] border border-white/10 text-zinc-100 prose prose-invert prose-sm max-w-none prose-p:my-1.5 prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300",
+                    compact ? "rounded-lg px-2.5 py-1.5 text-[13px]" : "rounded-2xl px-4 py-2.5 text-sm",
+                  )}
+                >
                   {t.node ? (
                     <div className="not-prose w-full">{t.node}</div>
                   ) : t.content ? (
@@ -102,7 +125,12 @@ export default function LiveAgentChat({
           {/* Streaming with no assistant placeholder yet — still show live steps. */}
           {streaming && executionLog && turns[turns.length - 1]?.role !== "assistant" && (
             <div className="flex justify-start">
-              <div className="max-w-[85%] w-full rounded-2xl px-3 py-2.5 bg-white/[0.04] border border-white/10">
+              <div
+                className={cn(
+                  "w-full bg-white/[0.04] border border-white/10",
+                  compact ? "max-w-[85%] rounded-lg px-2.5 py-1.5" : "max-w-[85%] rounded-2xl px-3 py-2.5",
+                )}
+              >
                 {executionLog}
               </div>
             </div>
@@ -112,13 +140,16 @@ export default function LiveAgentChat({
         {/* Suggestions -- horizontally scrollable so they stay one line on
             narrow screens instead of each taking its own full-width row. */}
         {suggestions.length > 0 && turns.length <= 1 && (
-          <div className="flex gap-2 overflow-x-auto pb-3">
+          <div className={cn("flex gap-2 overflow-x-auto", compact ? "pb-2" : "pb-3")}>
             {suggestions.map((s) => (
               <button
                 key={s}
                 onClick={() => onSend(s)}
                 disabled={streaming}
-                className="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full border border-cyan-400/30 bg-cyan-400/5 text-xs text-cyan-200 hover:bg-cyan-400/15 disabled:opacity-40"
+                className={cn(
+                  "shrink-0 whitespace-nowrap rounded-full border border-cyan-400/30 bg-cyan-400/5 text-cyan-200 hover:bg-cyan-400/15 disabled:opacity-40",
+                  compact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-xs",
+                )}
               >
                 {s}
               </button>
@@ -127,7 +158,7 @@ export default function LiveAgentChat({
         )}
 
         {/* Composer */}
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+        <div className={cn("rounded-2xl border border-white/10 bg-white/[0.03]", compact ? "p-2" : "p-3")}>
           {composerExtras && <div className="mb-2">{composerExtras}</div>}
           <textarea
             ref={inputRef}
@@ -139,7 +170,7 @@ export default function LiveAgentChat({
                 handleSend();
               }
             }}
-            rows={2}
+            rows={compact ? 1 : 2}
             placeholder={`Talk to ${name}…`}
             className="w-full bg-transparent outline-none resize-none text-sm text-zinc-100 placeholder:text-zinc-600"
           />
@@ -154,9 +185,12 @@ export default function LiveAgentChat({
             <button
               onClick={handleSend}
               disabled={!input.trim() || streaming}
-              className="h-8 w-8 rounded-lg bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-black disabled:opacity-40"
+              className={cn(
+                "rounded-lg bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-black disabled:opacity-40",
+                compact ? "h-7 w-7" : "h-8 w-8",
+              )}
             >
-              <ArrowUp className="h-4 w-4" />
+              <ArrowUp className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
             </button>
           </div>
         </div>

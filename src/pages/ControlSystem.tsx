@@ -398,6 +398,7 @@ export default function ControlSystem() {
             streaming={streaming}
             fullSpec="Describe any action your AI wants to take. The Control System scores intent match, risk and confidence, then returns Allow, Modify, Block or Deferred — and logs it to your decision history."
             onSend={handleSend}
+            compact
           />
         </div>
       </div>
