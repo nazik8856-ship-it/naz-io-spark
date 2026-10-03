@@ -14,20 +14,31 @@ import { Activity } from "lucide-react";
 
 type Cell = CapabilityForCoverage & { status: CoverageCellStatus };
 
-const STATUS_PALETTE: Record<CoverageCellStatus, { base: string; light: string; dark: string; glow: string }> = {
-  covered: { base: "#22d3ee", light: "#bbf7d0", dark: "#065f46", glow: "#34d399" },
-  shadow: { base: "#f59e0b", light: "#fde68a", dark: "#92400e", glow: "#fbbf24" },
-  gap: { base: "#fb7185", light: "#fecdd3", dark: "#9f1239", glow: "#ec4899" },
+const STATUS_PALETTE: Record<CoverageCellStatus, { from: string; to: string; glow: string; base: string }> = {
+  covered: { from: "#00f2fe", to: "#4facfe", glow: "#22d3ee", base: "#4facfe" },
+  shadow: { from: "#ffd866", to: "#ff9100", glow: "#fbbf24", base: "#ffb300" },
+  gap: { from: "#ff0844", to: "#ffb199", glow: "#fb7185", base: "#ff4d6d" },
+};
+// Extrusion height range per status (fraction of hex size) -- jittered per
+// tile within the range so cells don't all read as one uniform flat slab;
+// critical/ungoverned cells get the tallest range so they read as the most
+// urgent thing on the board.
+const STATUS_DEPTH_RANGE: Record<CoverageCellStatus, [number, number]> = {
+  covered: [0.1, 0.2],
+  shadow: [0.2, 0.32],
+  gap: [0.3, 0.48],
 };
 
 const VIEW_W = 760;
 const VIEW_H = 300;
-// Vertical squash applied to the whole grid -- this, not per-tile extrusion,
-// is what gives the shallow isometric tilt the reference uses.
-const SQUASH = 0.58;
+// Vertical squash applied to the whole grid -- this, combined with the
+// per-tile extrusion, is what gives the shallow isometric tilt the
+// reference uses.
+const SQUASH = 0.56;
 
-type LaidOutTile = Cell & { x: number; y: number; q: number; r: number };
+type LaidOutTile = Cell & { x: number; y: number; q: number; r: number; depth: number };
 type GraphNode = { provider: string; x: number; y: number; status: CoverageCellStatus; gapShare: number };
+type Centroid = { x: number; y: number };
 
 // Deterministic PRNG (not Math.random) so the same data always lays out the
 // same way -- a layout that jittered on every render would make hover
@@ -93,8 +104,15 @@ function hexPoints(cx: number, cy: number, r: number): string {
   return hexVerts(cx, cy, r).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 }
 
-function layoutGrid(cells: Cell[]): { tiles: LaidOutTile[]; ghostCoords: [number, number][]; size: number; nodes: GraphNode[]; edges: [number, number][] } {
-  if (cells.length === 0) return { tiles: [], ghostCoords: [], size: 0, nodes: [], edges: [] };
+function layoutGrid(cells: Cell[]): {
+  tiles: LaidOutTile[];
+  ghostCoords: [number, number][];
+  size: number;
+  nodes: GraphNode[];
+  edges: [number, number][];
+  centroids: Partial<Record<CoverageCellStatus, Centroid>>;
+} {
+  if (cells.length === 0) return { tiles: [], ghostCoords: [], size: 0, nodes: [], edges: [], centroids: {} };
 
   const groups = new Map<string, Cell[]>();
   for (const c of cells) {
@@ -107,13 +125,26 @@ function layoutGrid(cells: Cell[]): { tiles: LaidOutTile[]; ghostCoords: [number
   const clusterKeys = [...groups.keys()].sort(
     (a, b) => seededRandom(hashStr(`order:${a}`))() - seededRandom(hashStr(`order:${b}`))(),
   );
-  const ordered = clusterKeys.flatMap((key) => groups.get(key)!);
-  const coords = axialSpiral(ordered.length);
 
-  const tiles: LaidOutTile[] = ordered.map((cell, i) => {
-    const [q, r] = coords[i];
-    const [x, y] = axialToWorld(q, r);
-    return { ...cell, x, y, q, r };
+  // Spiral-fill with one skipped (ghost) slot between each provider cluster --
+  // breathing room between clusters instead of every slot being painted, so
+  // the floor reads as clusters-on-a-grid rather than one solid color mass.
+  const totalMembers = clusterKeys.reduce((s, k) => s + groups.get(k)!.length, 0);
+  const interiorGapCount = Math.max(0, clusterKeys.length - 1);
+  const spiral = axialSpiral(totalMembers + interiorGapCount);
+
+  const tiles: LaidOutTile[] = [];
+  const interiorGaps: [number, number][] = [];
+  let cursor = 0;
+  clusterKeys.forEach((key, ci) => {
+    for (const cell of groups.get(key)!) {
+      const [q, r] = spiral[cursor++];
+      const [x, y] = axialToWorld(q, r);
+      const [lo, hi] = STATUS_DEPTH_RANGE[cell.status];
+      const depthRnd = seededRandom(hashStr(`depth:${key}:${cell.kind}:${cell.status}:${cursor}`))();
+      tiles.push({ ...cell, x, y, q, r, depth: lo + depthRnd * (hi - lo) });
+    }
+    if (ci < clusterKeys.length - 1) interiorGaps.push(spiral[cursor++]);
   });
 
   // Size the grid to fill the viewport: find the world-space bounding box at
@@ -126,15 +157,15 @@ function layoutGrid(cells: Cell[]): { tiles: LaidOutTile[]; ghostCoords: [number
   const size = Math.max(12, Math.min(30, sizeX, sizeY));
 
   // One extra faint outline ring beyond the data, so the floor reads as a
-  // continuous grid rather than stopping abruptly at the data's edge.
+  // continuous grid rather than stopping abruptly at the data's edge --
+  // plus the interior gaps left between clusters above.
   let usedRing = 0;
-  while (1 + 3 * usedRing * (usedRing + 1) < ordered.length) usedRing++;
-  const ghostCoords = hexRing([0, 0], usedRing + 1);
+  while (1 + 3 * usedRing * (usedRing + 1) < totalMembers + interiorGapCount) usedRing++;
+  const ghostCoords = [...interiorGaps, ...hexRing([0, 0], usedRing + 1)];
 
   // Graph overlay: one floating node per provider cluster (its centroid),
   // not one per tile -- the reference's mesh is far sparser than the tile
-  // floor beneath it. Grouped straight off the laid-out tiles (not re-found
-  // from the original cells) so duplicate kind/provider pairs can't collide.
+  // floor beneath it.
   const tilesByProvider = new Map<string, LaidOutTile[]>();
   for (const t of tiles) {
     const key = t.provider || "internal";
@@ -150,7 +181,9 @@ function layoutGrid(cells: Cell[]): { tiles: LaidOutTile[]; ghostCoords: [number
     return { provider: key, x: cx, y: cy, status: dominant, gapShare };
   });
 
-  const K = Math.min(2, nodes.length - 1);
+  // Triangulated mesh -- K=3 so the sparse node graph still reads as a dense
+  // structural web with crossing diagonals, not just a thin chain.
+  const K = Math.min(3, nodes.length - 1);
   const edgeSet = new Set<string>();
   const edges: [number, number][] = [];
   if (K > 0) {
@@ -169,14 +202,26 @@ function layoutGrid(cells: Cell[]): { tiles: LaidOutTile[]; ghostCoords: [number
     });
   }
 
-  return { tiles, ghostCoords, size, nodes, edges };
+  // Per-status centroid (in final pixel units) so the ambient glow halos can
+  // sit under the actual color clusters instead of fixed decorative corners.
+  const centroids: Partial<Record<CoverageCellStatus, Centroid>> = {};
+  (["covered", "shadow", "gap"] as CoverageCellStatus[]).forEach((status) => {
+    const members = tiles.filter((t) => t.status === status);
+    if (members.length === 0) return;
+    centroids[status] = {
+      x: (members.reduce((s, m) => s + m.x, 0) / members.length) * size,
+      y: (members.reduce((s, m) => s + m.y, 0) / members.length) * size,
+    };
+  });
+
+  return { tiles, ghostCoords, size, nodes, edges, centroids };
 }
 
 type Tooltip = { cell: Cell; x: number; y: number };
 
 function HexNetwork({ cells }: { cells: Cell[] }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
-  const { tiles, ghostCoords, size, nodes, edges } = useMemo(() => layoutGrid(cells), [cells]);
+  const { tiles, ghostCoords, size, nodes, edges, centroids } = useMemo(() => layoutGrid(cells), [cells]);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
 
   if (cells.length === 0) {
@@ -210,12 +255,29 @@ function HexNetwork({ cells }: { cells: Cell[] }) {
     [nodes],
   );
 
+  // Soft ambient radial halos anchored under the real color clusters -- not
+  // harsh drop-shadows, and not fixed decorative corners.
+  const halos = (["covered", "shadow", "gap"] as CoverageCellStatus[])
+    .map((status) => {
+      const c = centroids[status];
+      if (!c) return null;
+      return {
+        status,
+        leftPct: ((VIEW_W / 2 + c.x) / VIEW_W) * 100,
+        topPct: ((VIEW_H / 2 + c.y * SQUASH) / VIEW_H) * 100,
+      };
+    })
+    .filter((h): h is { status: CoverageCellStatus; leftPct: number; topPct: number } => h !== null);
+
   return (
     <div className="relative w-full overflow-hidden rounded-lg bg-gradient-to-br from-[#05070f] via-[#070c1c] to-[#06040f] p-2">
-      {/* Ambient cyan/purple glow -- ::before-style blurred blobs, not part of the data. */}
-      <div className="pointer-events-none absolute -left-10 -top-10 h-40 w-40 rounded-full bg-cyan-500/20 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-12 -right-10 h-44 w-44 rounded-full bg-fuchsia-500/10 blur-3xl" />
-      <div className="pointer-events-none absolute left-1/3 top-1/3 h-32 w-32 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
+      {halos.map((h) => (
+        <div
+          key={h.status}
+          className="pointer-events-none absolute h-36 w-36 -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl"
+          style={{ left: `${h.leftPct}%`, top: `${h.topPct}%`, background: STATUS_PALETTE[h.status].glow, opacity: 0.16 }}
+        />
+      ))}
 
       <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="relative w-full h-auto" style={{ display: "block" }}>
         <defs>
@@ -225,9 +287,26 @@ function HexNetwork({ cells }: { cells: Cell[] }) {
           </pattern>
           {(Object.keys(STATUS_PALETTE) as CoverageCellStatus[]).map((status) => (
             <linearGradient key={status} id={`${uid}-grad-${status}`} x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor={STATUS_PALETTE[status].light} stopOpacity={0.32} />
-              <stop offset="100%" stopColor={STATUS_PALETTE[status].base} stopOpacity={0.14} />
+              <stop offset="0%" stopColor={STATUS_PALETTE[status].from} stopOpacity={0.4} />
+              <stop offset="100%" stopColor={STATUS_PALETTE[status].to} stopOpacity={0.18} />
             </linearGradient>
+          ))}
+          {/* Frosted, semi-transparent side-wall gradient -- lighter near the
+              top face, fading toward the base, per status hue. */}
+          {(Object.keys(STATUS_PALETTE) as CoverageCellStatus[]).map((status) => (
+            <linearGradient key={`wall-${status}`} id={`${uid}-wall-${status}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={STATUS_PALETTE[status].from} stopOpacity={0.32} />
+              <stop offset="100%" stopColor={STATUS_PALETTE[status].to} stopOpacity={0.08} />
+            </linearGradient>
+          ))}
+          {/* Glossy sphere-node gradient per status -- highlight top-left,
+              status glow mid, dark edge -- so nodes read as 3D joints. */}
+          {(Object.keys(STATUS_PALETTE) as CoverageCellStatus[]).map((status) => (
+            <radialGradient key={`sphere-${status}`} id={`${uid}-sphere-${status}`} cx="35%" cy="30%" r="75%">
+              <stop offset="0%" stopColor="#ffffff" stopOpacity={0.95} />
+              <stop offset="45%" stopColor={STATUS_PALETTE[status].glow} stopOpacity={0.95} />
+              <stop offset="100%" stopColor="#0f172a" stopOpacity={0.9} />
+            </radialGradient>
           ))}
           {(Object.keys(STATUS_PALETTE) as CoverageCellStatus[]).map((status) => (
             <filter key={`glow-${status}`} id={`${uid}-glow-${status}`} x="-120%" y="-120%" width="340%" height="340%">
@@ -264,9 +343,16 @@ function HexNetwork({ cells }: { cells: Cell[] }) {
             })}
           </g>
 
-          {/* The tile floor -- flat, translucent, glowing-edge glass chips. */}
+          {/* The tile floor -- translucent glass chips with real volumetric
+              extrusion (frosted side walls, per-tile jittered height) and a
+              beveled top-face highlight. */}
           {tiles.map((t, i) => {
             const palette = STATUS_PALETTE[t.status];
+            const px = t.x * size;
+            const py = t.y * size;
+            const depthPx = size * t.depth;
+            const top = hexVerts(px, py, size * 0.96);
+            const bot = hexVerts(px, py + depthPx, size * 0.96);
             return (
               <g
                 key={i}
@@ -278,13 +364,14 @@ function HexNetwork({ cells }: { cells: Cell[] }) {
                 filter={`url(#${uid}-glow-${t.status})`}
               >
                 <title>{`${t.kind} · ${t.provider} — ${t.status === "covered" ? "covered by a live rule" : t.status === "shadow" ? "only a disabled/shadow rule matches" : "no rule covers this"}`}</title>
-                <polygon
-                  points={hexPoints(t.x * size, t.y * size, size * 0.96)}
-                  fill={`url(#${uid}-grad-${t.status})`}
-                  stroke={palette.base}
-                  strokeOpacity={0.85}
-                  strokeWidth={1.25}
-                />
+                {/* Two bottom-facing frosted walls -- the only side faces
+                    visible from this near-top-down isometric angle. */}
+                <polygon points={`${top[2].join(",")} ${top[3].join(",")} ${bot[3].join(",")} ${bot[2].join(",")}`} fill={`url(#${uid}-wall-${t.status})`} />
+                <polygon points={`${top[3].join(",")} ${top[4].join(",")} ${bot[4].join(",")} ${bot[3].join(",")}`} fill={`url(#${uid}-wall-${t.status})`} fillOpacity={0.85} />
+                {/* Top face. */}
+                <polygon points={hexPoints(px, py, size * 0.96)} fill={`url(#${uid}-grad-${t.status})`} stroke={palette.from} strokeOpacity={0.9} strokeWidth={1.25} />
+                {/* Beveled inner highlight ring. */}
+                <polygon points={hexPoints(px, py, size * 0.72)} fill="none" stroke="#ffffff" strokeOpacity={0.22} strokeWidth={0.75} />
               </g>
             );
           })}
@@ -301,10 +388,16 @@ function HexNetwork({ cells }: { cells: Cell[] }) {
               />
             ))}
           </g>
-          {/* Thin stems tying each floating node back down to its tile. */}
+          {/* Thin stems tying each floating node back down to its tile, with
+              a small joint dot marking the real vertex where it lands. */}
           <g stroke="#94a3b8" strokeOpacity={0.3} strokeWidth={0.75}>
             {nodes.map((n, i) => (
               <line key={i} x1={n.x * size} y1={n.y * size - lift} x2={n.x * size} y2={n.y * size} />
+            ))}
+          </g>
+          <g fill="#cbd5e1" fillOpacity={0.6}>
+            {nodes.map((n, i) => (
+              <circle key={i} cx={n.x * size} cy={n.y * size} r={1.6} />
             ))}
           </g>
 
@@ -354,7 +447,7 @@ function HexNetwork({ cells }: { cells: Cell[] }) {
                   keySplines="0.45 0 0.55 1; 0.45 0 0.55 1"
                   keyTimes="0;0.5;1"
                 />
-                <circle cx={n.x * size} cy={n.y * size - lift} r={3.5} fill={STATUS_PALETTE[n.status].light} stroke={STATUS_PALETTE[n.status].base} strokeWidth={1} />
+                <circle cx={n.x * size} cy={n.y * size - lift} r={4} fill={`url(#${uid}-sphere-${n.status})`} stroke={STATUS_PALETTE[n.status].glow} strokeOpacity={0.6} strokeWidth={0.75} />
               </g>
             );
           })}
