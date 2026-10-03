@@ -64,6 +64,7 @@ export default function NotificationPreferencesPanel() {
       toast({ title: "Couldn't save that", description: error.message, variant: "destructive" });
       return;
     }
+    toast({ title: "Saved" });
   };
 
   const toggleDigest = (checked: boolean) => {
@@ -81,6 +82,8 @@ export default function NotificationPreferencesPanel() {
 
   if (!user) return null;
 
+  const onCount = [digest, weeklyTrend, criticalAlerts].filter(Boolean).length;
+
   return (
     <section className="mx-6 mb-3 rounded-xl border border-white/10 bg-white/[0.03]">
       <button
@@ -90,7 +93,7 @@ export default function NotificationPreferencesPanel() {
       >
         <Bell className="h-4 w-4 text-zinc-400" />
         <span className="flex-1 text-xs font-mono uppercase tracking-wider text-zinc-300">
-          My notifications
+          My notifications <span className="text-zinc-500">· {onCount}/3 on</span>
         </span>
         <ChevronDown className={`h-4 w-4 text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>

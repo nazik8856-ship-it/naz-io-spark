@@ -126,7 +126,7 @@ export default function ControlRuleSimulator() {
             Also test a draft hard rule (not saved)
           </label>
           {useDraft && (
-            <div className="grid grid-cols-3 gap-3 rounded border border-cyan-500/20 bg-cyan-500/[0.03] p-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded border border-cyan-500/20 bg-cyan-500/[0.03] p-3">
               <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
                 Pattern
                 <input value={draftPattern} onChange={(e) => setDraftPattern(e.target.value)} placeholder="* or slack_*"

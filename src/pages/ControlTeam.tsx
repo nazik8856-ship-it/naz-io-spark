@@ -88,8 +88,9 @@ export default function ControlTeam() {
     load();
   };
 
-  const revoke = async (id: string) => {
-    const { error } = await anyDb.from("account_members").update({ status: "revoked" }).eq("id", id);
+  const revoke = async (m: MemberRow) => {
+    if (!window.confirm(`Revoke ${m.email}'s access to this account? They'll lose it immediately.`)) return;
+    const { error } = await anyDb.from("account_members").update({ status: "revoked" }).eq("id", m.id);
     if (error) { toast({ title: "Couldn't revoke it", description: error.message, variant: "destructive" }); return; }
     load();
   };
@@ -216,7 +217,7 @@ export default function ControlTeam() {
                     </span>
                   )}
                   {m.status !== "revoked" && (
-                    <button onClick={() => revoke(m.id)} className="ml-auto rounded border border-rose-500/30 p-1.5 text-rose-300 hover:bg-rose-500/10">
+                    <button onClick={() => revoke(m)} className="ml-auto rounded border border-rose-500/30 p-1.5 text-rose-300 hover:bg-rose-500/10">
                       <X className="h-3.5 w-3.5" />
                     </button>
                   )}
