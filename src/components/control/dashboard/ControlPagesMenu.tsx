@@ -187,7 +187,13 @@ const GROUPS: MenuGroup[] = [
   },
 ];
 
-export default function ControlPagesMenu() {
+// UX audit: this menu is explicitly "the one place that lists literally
+// everything" (see the header comment above), yet gave no indication
+// anything needed attention -- a user had to open each page individually
+// to find out. Keyed by path rather than restructuring GROUPS, since the
+// counts this threads in (pending approvals, open incidents) are already
+// computed by the caller for its own dashboard widgets.
+export default function ControlPagesMenu({ badges = {} }: { badges?: Record<string, number> }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -200,6 +206,8 @@ export default function ControlPagesMenu() {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
+  const totalBadges = Object.values(badges).reduce((sum, n) => sum + n, 0);
+
   return (
     <div className="relative" ref={ref}>
       <button
@@ -211,6 +219,9 @@ export default function ControlPagesMenu() {
       >
         <Menu className="h-3.5 w-3.5" />
         All pages
+        {totalBadges > 0 && (
+          <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-300">{totalBadges}</span>
+        )}
         <ChevronDown className="h-3 w-3 opacity-60" />
       </button>
       {open && (
@@ -226,7 +237,14 @@ export default function ControlPagesMenu() {
                         onClick={() => { setOpen(false); navigate(item.path); }}
                         className="block w-full rounded px-1.5 py-1.5 text-left transition hover:bg-white/5"
                       >
-                        <span className="block text-xs font-medium text-zinc-200">{item.label}</span>
+                        <span className="flex items-center gap-1.5 text-xs font-medium text-zinc-200">
+                          {item.label}
+                          {!!badges[item.path] && (
+                            <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-mono text-amber-300">
+                              {badges[item.path]}
+                            </span>
+                          )}
+                        </span>
                         <span className="block text-[11px] leading-snug text-zinc-500">{item.description}</span>
                       </button>
                     </li>
