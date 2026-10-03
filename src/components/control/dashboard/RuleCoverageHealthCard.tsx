@@ -149,6 +149,15 @@ function HexNetwork({ cells }: { cells: Cell[] }) {
     setTooltip({ cell, x: e.clientX - rect.left, y: e.clientY - rect.top });
   };
 
+  // UX audit: tooltips were hover-only, so a cell's kind/provider/status
+  // detail was simply unreachable on a touch device (the "View all"
+  // button was the only touch-accessible fallback). Tapping now toggles
+  // the same tooltip state hover already uses.
+  const toggleTooltip = (cell: Cell, e: React.MouseEvent) => {
+    if (tooltip?.cell === cell) { setTooltip(null); return; }
+    showTooltip(cell, e);
+  };
+
   return (
     <div className="relative w-full">
       <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="w-full h-auto" style={{ display: "block" }}>
@@ -184,6 +193,7 @@ function HexNetwork({ cells }: { cells: Cell[] }) {
               onMouseEnter={(e) => showTooltip(n, e)}
               onMouseMove={(e) => showTooltip(n, e)}
               onMouseLeave={() => setTooltip(null)}
+              onClick={(e) => toggleTooltip(n, e)}
               style={{ cursor: "pointer" }}
             >
               <title>{`${n.kind} · ${n.provider} — ${n.status === "covered" ? "covered by a live rule" : n.status === "shadow" ? "only a disabled/shadow rule matches" : "no rule covers this"}`}</title>

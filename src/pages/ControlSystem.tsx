@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, X, Sparkles, Gauge, ChevronDown, ChevronRight, MessageCircle } from "lucide-react";
+import { ArrowLeft, X, Sparkles, Gauge, ChevronDown, ChevronRight, MessageCircle, FlaskConical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canApprove } from "@/lib/account-switcher";
@@ -239,7 +239,12 @@ export default function ControlSystem() {
           >
             Incidents
           </button>
-          <ControlPagesMenu />
+          <ControlPagesMenu
+            badges={{
+              "/control-system/approvals": approvalsFeed.approvals.length,
+              "/control-system/incidents": dashboard.incidents.openCount,
+            }}
+          />
         </nav>
       </header>
 
@@ -387,6 +392,18 @@ export default function ControlSystem() {
               <X className="h-5 w-5" />
             </button>
           </div>
+          {/* UX audit: dry-run mode's only indicator lived inside the
+              collapsed-by-default "Quick settings" accordion -- a
+              plausible failure mode was "why isn't the AI actually doing
+              anything" with no visible cause once the chat itself is in
+              view. This banner is persistent (not inside that accordion)
+              for as long as dryRun is on. */}
+          {dryRun && (
+            <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-[11px] text-amber-300">
+              <FlaskConical className="h-3.5 w-3.5 shrink-0" />
+              Dry run is on — actions are scored in full but never actually carried out.
+            </div>
+          )}
           <LiveAgentChat
             agentId="control-system"
             name="AI Control System"
