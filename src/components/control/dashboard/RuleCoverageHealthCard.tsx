@@ -223,6 +223,15 @@ function HexNetwork({ cells }: { cells: Cell[] }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const { tiles, ghostCoords, size, nodes, edges, centroids } = useMemo(() => layoutGrid(cells), [cells]);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
+  // Rules-of-hooks: this useMemo must run on every render, including when
+  // cells is empty and we're about to bail to the empty-state JSX below --
+  // a hook called only on the non-empty path crashed production with
+  // "Rendered more hooks than during the previous render" the moment a
+  // card went from populated to empty (or vice versa) across a re-render.
+  const beamNodeIdx = useMemo(
+    () => nodes.map((n, i) => i).filter((i) => nodes[i].gapShare > 0).sort((a, b) => nodes[b].gapShare - nodes[a].gapShare).slice(0, 2),
+    [nodes],
+  );
 
   if (cells.length === 0) {
     return <p className="text-xs text-zinc-600">No connected capabilities yet — connect an integration to see it governed here.</p>;
@@ -248,12 +257,6 @@ function HexNetwork({ cells }: { cells: Cell[] }) {
   // Floating node mesh sits visually above the tile plane -- a world-space
   // lift here becomes a smaller on-screen offset once SQUASH is applied.
   const lift = size * 1.35;
-  // At most two light shafts, on the worst-covered clusters -- the
-  // reference uses them as an accent, not on every node.
-  const beamNodeIdx = useMemo(
-    () => nodes.map((n, i) => i).filter((i) => nodes[i].gapShare > 0).sort((a, b) => nodes[b].gapShare - nodes[a].gapShare).slice(0, 2),
-    [nodes],
-  );
 
   // Soft ambient radial halos anchored under the real color clusters -- not
   // harsh drop-shadows, and not fixed decorative corners.
