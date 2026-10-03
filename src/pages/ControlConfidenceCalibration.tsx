@@ -142,7 +142,7 @@ export default function ControlConfidenceCalibration() {
                         {b.miscalibrated ? `Miscalibrated (${b.severity})` : "Calibrated"}
                       </span>
                     </div>
-                    <div className="mt-2 grid grid-cols-3 gap-3 text-xs">
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                       <div>
                         <div className="text-zinc-500">Claimed confidence</div>
                         <div className="mt-0.5 font-mono text-zinc-200">{b.expected_rate !== null ? `${b.expected_rate.toFixed(0)}%` : "—"}</div>

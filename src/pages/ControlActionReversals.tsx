@@ -98,6 +98,7 @@ export default function ControlActionReversals() {
 
   const undo = async (row: ReversalRow) => {
     if (!row.decision_id) return;
+    if (!window.confirm(`Undo "${row.tool}${row.provider ? ` · ${row.provider}` : ""}"? This reverses the real action it took.`)) return;
     setBusy(row.id);
     const { data, error } = await supabase.functions.invoke(`control-engine/undo/${row.decision_id}`, { body: {} });
     setBusy(null);
@@ -228,7 +229,8 @@ export default function ControlActionReversals() {
             {rows.length === 0 ? "No executed actions with an undo record in range." : "No rows match that search."}
           </p>
         ) : (
-          <table className="mt-6 w-full border-collapse text-left text-sm">
+          <div className="mt-6 overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-white/10 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                 <th className="py-2 pr-3">When</th>
@@ -280,6 +282,7 @@ export default function ControlActionReversals() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </main>
     </div>

@@ -71,10 +71,10 @@ export default function ControlSpendSafety() {
         <button
           onClick={() => navigate("/control-system")}
           className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors"
-          aria-label="Back to AI Control System"
+          aria-label="Back to Control System"
         >
           <ArrowLeft className="h-5 w-5" />
-          <span className="text-sm font-mono uppercase tracking-wider">Back</span>
+          <span className="text-sm font-mono uppercase tracking-wider">Control System</span>
         </button>
       </header>
 

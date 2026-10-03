@@ -217,15 +217,19 @@ export default function ControlPolicy() {
     : null;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 p-6">
-      <div className="max-w-5xl mx-auto space-y-6">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      <header className="flex items-center gap-3 border-b border-white/5 px-6 py-4">
         <button
           onClick={() => navigate("/control-system")}
-          className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-100"
+          className="flex items-center gap-2 text-zinc-400 transition-colors hover:text-white"
+          aria-label="Back to Control System"
         >
-          <ArrowLeft className="h-4 w-4" /> Back to Control System
+          <ArrowLeft className="h-5 w-5" />
+          <span className="font-mono text-sm uppercase tracking-wider">Control System</span>
         </button>
+      </header>
 
+      <main className="max-w-5xl mx-auto space-y-6 p-6">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold">Policy versions</h1>
@@ -528,7 +532,7 @@ export default function ControlPolicy() {
             )}
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

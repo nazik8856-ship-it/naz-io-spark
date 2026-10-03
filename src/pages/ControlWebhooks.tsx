@@ -123,9 +123,10 @@ export default function ControlWebhooks() {
     load();
   };
 
-  const remove = async (id: string) => {
+  const remove = async (h: WebhookRow) => {
     if (!canWrite) return;
-    const { error } = await supabase.from("webhooks").delete().eq("id", id);
+    if (!window.confirm(`Delete the webhook to ${h.url}? It will stop receiving events immediately.`)) return;
+    const { error } = await supabase.from("webhooks").delete().eq("id", h.id);
     if (error) { toast({ title: "Couldn't delete it", description: error.message, variant: "destructive" }); return; }
     load();
   };
@@ -245,7 +246,7 @@ export default function ControlWebhooks() {
                         {h.enabled ? "Enabled" : "Disabled"}
                       </button>
                       {canWrite && (
-                        <button onClick={() => remove(h.id)} className="rounded border border-rose-500/30 p-1.5 text-rose-300 hover:bg-rose-500/10">
+                        <button onClick={() => remove(h)} className="rounded border border-rose-500/30 p-1.5 text-rose-300 hover:bg-rose-500/10">
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       )}
