@@ -19,6 +19,7 @@ type DecisionRow = {
   escalated: boolean;
   confidence_score: number;
   agent_id: string | null;
+  api_key_id: string | null;
   created_at: string;
   gate_trace: TraceEntry[] | null;
   human_response: string | null;
@@ -40,6 +41,7 @@ function toDeferredDetail(raw: DecisionRow["deferred_detail"]): DeferredDetail |
 }
 
 type AgentOption = { id: string; name: string };
+type ApiKeyOption = { id: string; name: string };
 
 const OUTCOME_STYLE: Record<DecisionOutcome, string> = {
   block: "text-rose-300 border-rose-500/40 bg-rose-500/10",
@@ -95,6 +97,7 @@ export default function ControlLiveFeed() {
   const { accountId } = useActiveAccount();
   const [rows, setRows] = useState<FeedItem[]>([]);
   const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [apiKeys, setApiKeys] = useState<ApiKeyOption[]>([]);
   const [paused, setPaused] = useState(false);
   const [innerConnected, setInnerConnected] = useState(false);
   const [outerConnected, setOuterConnected] = useState(false);
@@ -102,7 +105,15 @@ export default function ControlLiveFeed() {
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
 
-  const agentName = (id: string | null) => (id ? agents.find((a) => a.id === id)?.name ?? "Unknown agent" : "Chat");
+  // Blueprint: Inner/Outer Control sync -- an agent_decisions row with
+  // agent_id null was always rendered as "Chat," with no distinction for
+  // Outer Control's mode="full" traffic (api_key_id set instead, logged
+  // into this same table via the shared gate).
+  const originName = (agentId: string | null, apiKeyId: string | null) => {
+    if (agentId) return agents.find((a) => a.id === agentId)?.name ?? "Unknown agent";
+    if (apiKeyId) return `API: ${apiKeys.find((k) => k.id === apiKeyId)?.name ?? "Unknown key"}`;
+    return "Chat";
+  };
 
   const toggleTrace = (id: string) =>
     setExpanded((prev) => {
@@ -117,10 +128,10 @@ export default function ControlLiveFeed() {
     // types yet -- same established workaround every other page touching
     // this table already uses (OuterControlSystem.tsx).
     const anyDb = supabase as any;
-    const [{ data: inner }, { data: outer }, { data: agentRows }] = await Promise.all([
+    const [{ data: inner }, { data: outer }, { data: agentRows }, { data: apiKeyRows }] = await Promise.all([
       supabase
         .from("agent_decisions")
-        .select("id, decision, reasoning, source, escalated, confidence_score, agent_id, created_at, gate_trace, human_response, action_type, provider, precedent_citations, deferred_detail, modified_params")
+        .select("id, decision, reasoning, source, escalated, confidence_score, agent_id, api_key_id, created_at, gate_trace, human_response, action_type, provider, precedent_citations, deferred_detail, modified_params")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false })
         .limit(50),
@@ -131,11 +142,13 @@ export default function ControlLiveFeed() {
         .order("created_at", { ascending: false })
         .limit(50),
       supabase.from("agents").select("id, name").eq("user_id", accountId),
+      anyDb.from("api_keys").select("id, name").eq("user_id", accountId),
     ]);
     const innerItems: FeedItem[] = ((inner ?? []) as DecisionRow[]).map((row) => ({ kind: "inner", id: row.id, created_at: row.created_at, row }));
     const outerItems: FeedItem[] = ((outer ?? []) as OuterEvalRow[]).map((row) => ({ kind: "outer", id: row.id, created_at: row.created_at, row }));
     setRows([...innerItems, ...outerItems].sort(byNewest).slice(0, MAX_ROWS));
     setAgents((agentRows ?? []) as AgentOption[]);
+    setApiKeys((apiKeyRows ?? []) as ApiKeyOption[]);
   }, [accountId]);
 
   useEffect(() => { void loadRecent(); }, [loadRecent]);
@@ -250,7 +263,7 @@ export default function ControlLiveFeed() {
                 </div>
                 <p className="mt-1 text-xs text-zinc-400">{r.reasoning}</p>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-mono uppercase text-zinc-500">
-                  <span className="text-cyan-400">{agentName(r.agent_id)}</span>
+                  <span className="text-cyan-400">{originName(r.agent_id, r.api_key_id)}</span>
                   <span>· {r.source}</span>
                   <span>· confidence {r.confidence_score}</span>
                   {r.escalated && <span className="text-amber-300">· escalated</span>}

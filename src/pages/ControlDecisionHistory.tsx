@@ -25,6 +25,7 @@ type DecisionRow = {
   escalated: boolean;
   source: string;
   agent_id: string | null;
+  api_key_id: string | null;
   action_type: string | null;
   provider: string | null;
   created_at: string;
@@ -46,6 +47,7 @@ function toDeferredDetail(raw: DecisionRow["deferred_detail"]): DeferredDetail |
 }
 
 type AgentOption = { id: string; name: string };
+type ApiKeyOption = { id: string; name: string };
 
 const OUTCOME_STYLE: Record<DecisionOutcome, string> = {
   block: "text-rose-300 border-rose-500/40 bg-rose-500/10",
@@ -83,6 +85,7 @@ export default function ControlDecisionHistory() {
   const { accountId } = useActiveAccount();
   const [rows, setRows] = useState<DecisionRow[]>([]);
   const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [apiKeys, setApiKeys] = useState<ApiKeyOption[]>([]);
   const [approvalsByDecision, setApprovalsByDecision] = useState<Map<string, ApprovalResolution[]>>(new Map());
   const [overridesByDecision, setOverridesByDecision] = useState<Map<string, DecisionOverride[]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -97,7 +100,15 @@ export default function ControlDecisionHistory() {
   const [from, setFrom] = useState(daysAgoIso(30));
   const [to, setTo] = useState(todayIso());
 
-  const agentName = (id: string | null) => (id ? agents.find((a) => a.id === id)?.name ?? "Unknown agent" : "Chat");
+  // Blueprint: Inner/Outer Control sync -- a decision with agent_id null
+  // was always rendered as "Chat" with no distinction for Outer Control
+  // traffic (api_key_id set instead), lumping every external API key's
+  // decisions under a label that means something else entirely.
+  const originName = (agentId: string | null, apiKeyId: string | null) => {
+    if (agentId) return agents.find((a) => a.id === agentId)?.name ?? "Unknown agent";
+    if (apiKeyId) return `API: ${apiKeys.find((k) => k.id === apiKeyId)?.name ?? "Unknown key"}`;
+    return "Chat";
+  };
 
   const toggleTrace = (id: string) =>
     setExpanded((prev) => {
@@ -113,7 +124,7 @@ export default function ControlDecisionHistory() {
     const toIso = new Date(`${to}T23:59:59.999Z`).toISOString();
     let query = anyDb
       .from("agent_decisions")
-      .select("id, decision, reasoning, confidence_score, escalated, source, agent_id, action_type, provider, created_at, gate_trace, human_response, precedent_citations, deferred_detail, modified_params")
+      .select("id, decision, reasoning, confidence_score, escalated, source, agent_id, api_key_id, action_type, provider, created_at, gate_trace, human_response, precedent_citations, deferred_detail, modified_params")
       .eq("user_id", accountId)
       .gte("created_at", fromIso)
       .lte("created_at", toIso)
@@ -121,12 +132,14 @@ export default function ControlDecisionHistory() {
       .limit(limit + 1);
     if (sourceFilter !== "all") query = query.eq("source", sourceFilter);
     if (escalatedFilter === "escalated") query = query.eq("escalated", true);
-    if (agentFilter === "chat") query = query.is("agent_id", null);
+    if (agentFilter === "chat") query = query.is("agent_id", null).is("api_key_id", null);
+    else if (agentFilter.startsWith("key:")) query = query.eq("api_key_id", agentFilter.slice(4));
     else if (agentFilter !== "all") query = query.eq("agent_id", agentFilter);
 
-    const [{ data, error }, { data: agentRows }] = await Promise.all([
+    const [{ data, error }, { data: agentRows }, { data: apiKeyRows }] = await Promise.all([
       query,
       supabase.from("agents").select("id, name").eq("user_id", accountId),
+      anyDb.from("api_keys").select("id, name").eq("user_id", accountId),
     ]);
     setLoading(false);
     if (error) {
@@ -138,6 +151,7 @@ export default function ControlDecisionHistory() {
     const pageRows = fetched.slice(0, limit);
     setRows(pageRows);
     setAgents((agentRows ?? []) as AgentOption[]);
+    setApiKeys((apiKeyRows ?? []) as ApiKeyOption[]);
 
     // record_approval_signoff (backing both a normal escalation's
     // resolution and a later /dispute re-review) never writes back to
@@ -237,8 +251,9 @@ export default function ControlDecisionHistory() {
             <select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}
               className="rounded border border-white/10 bg-black/40 px-2 py-1 text-xs text-zinc-200">
               <option value="all">All agents</option>
-              <option value="chat">Chat (no agent)</option>
+              <option value="chat">Chat (no agent, no API key)</option>
               {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {apiKeys.map((k) => <option key={k.id} value={`key:${k.id}`}>API: {k.name}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
@@ -302,7 +317,7 @@ export default function ControlDecisionHistory() {
                       </span>
                       {row.escalated && <div className="mt-1 font-mono text-[10px] uppercase text-amber-400">escalated</div>}
                     </td>
-                    <td className="py-3 pr-3 font-mono text-[11px] text-cyan-300">{agentName(row.agent_id)}</td>
+                    <td className="py-3 pr-3 font-mono text-[11px] text-cyan-300">{originName(row.agent_id, row.api_key_id)}</td>
                     <td className="py-3 pr-3 text-zinc-300">
                       {row.reasoning}
                       {(row.action_type || row.provider) && (

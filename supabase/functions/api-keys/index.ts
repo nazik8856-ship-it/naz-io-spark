@@ -373,11 +373,15 @@ Deno.serve(async (req) => {
         // circuit-breaker rows already apply for the identical reason.
         const { data: existingCap } = await admin
           .from("ai_spend_caps").select("id").eq("user_id", targetUserId).eq("api_key_id", keyId).maybeSingle();
-        if (existingCap) {
-          await admin.from("ai_spend_caps").update({ daily_cap_usd: cap, enabled: true }).eq("id", (existingCap as { id: string }).id);
-        } else {
-          await admin.from("ai_spend_caps").insert({ user_id: targetUserId, api_key_id: keyId, daily_cap_usd: cap, enabled: true });
-        }
+        const capWriteError = existingCap
+          ? (await admin.from("ai_spend_caps").update({ daily_cap_usd: cap, enabled: true }).eq("id", (existingCap as { id: string }).id)).error
+          : (await admin.from("ai_spend_caps").insert({ user_id: targetUserId, api_key_id: keyId, daily_cap_usd: cap, enabled: true })).error;
+        // Previously unchecked -- a unique-index collision (see the
+        // account-wide-index fix in 20261003010000_fix_api_key_spend_cap_
+        // index_collision.sql) silently failed this insert while the
+        // endpoint still reported {ok:true, ai_spend_cap_usd: cap} as if
+        // the cap had been saved.
+        if (capWriteError) return json({ error: `Could not save the AI spend cap: ${capWriteError.message}` }, 500);
         aiSpendCapUsd = cap;
       }
     }

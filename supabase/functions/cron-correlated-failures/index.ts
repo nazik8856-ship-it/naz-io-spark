@@ -47,12 +47,13 @@ Deno.serve(async (req) => {
 
   const trips: BreakerTripRow[] = ((rows ?? []) as {
     user_id: string; action_type: string; provider: string | null; agent_id: string | null;
-    decision_id: string | null; opened_at: string;
+    api_key_id: string | null; decision_id: string | null; opened_at: string;
   }[]).map((r) => ({
     userId: r.user_id,
     actionType: r.action_type,
     provider: r.provider,
     agentId: r.agent_id,
+    apiKeyId: r.api_key_id,
     decisionId: r.decision_id,
     openedAt: r.opened_at,
   }));
