@@ -21,6 +21,7 @@ const trip = (over: Partial<BreakerTripRow>): BreakerTripRow => ({
   actionType: "send_email",
   provider: "Gmail",
   agentId: "agent-1",
+  apiKeyId: null,
   decisionId: "decision-1",
   openedAt: "2026-08-23T10:00:00Z",
   ...over,
@@ -32,6 +33,41 @@ Deno.test("findCorrelatedFailures: two different agents tripping the same action
   assertEquals(groups.length, 1);
   assertEquals(groups[0].distinctAgentIds.length, 2);
   assertEquals(groups[0].tripCount, 2);
+});
+
+// Inner/Outer Control sync: Outer Control's own breaker trips carry
+// agentId: null, apiKeyId: set -- previously invisible to this function
+// entirely, so two different API keys independently tripping on the same
+// provider could never surface as a correlated incident.
+Deno.test("findCorrelatedFailures: two different API keys tripping the same action/provider IS correlated", () => {
+  const rows = [
+    trip({ agentId: null, apiKeyId: "key-1" }),
+    trip({ agentId: null, apiKeyId: "key-2", decisionId: "decision-2" }),
+  ];
+  const groups = findCorrelatedFailures(rows);
+  assertEquals(groups.length, 1);
+  assertEquals(groups[0].distinctAgentIds.length, 0);
+  assertEquals(groups[0].distinctApiKeyIds.length, 2);
+  assertEquals(groups[0].tripCount, 2);
+});
+
+Deno.test("findCorrelatedFailures: one agent plus one DIFFERENT API key tripping independently IS correlated", () => {
+  const rows = [
+    trip({ agentId: "agent-1", apiKeyId: null }),
+    trip({ agentId: null, apiKeyId: "key-1", decisionId: "decision-2" }),
+  ];
+  const groups = findCorrelatedFailures(rows);
+  assertEquals(groups.length, 1);
+  assertEquals(groups[0].distinctAgentIds.length, 1);
+  assertEquals(groups[0].distinctApiKeyIds.length, 1);
+});
+
+Deno.test("findCorrelatedFailures: the SAME API key tripping twice is NOT correlated", () => {
+  const rows = [
+    trip({ agentId: null, apiKeyId: "key-1" }),
+    trip({ agentId: null, apiKeyId: "key-1", decisionId: "decision-2" }),
+  ];
+  assertEquals(findCorrelatedFailures(rows), []);
 });
 
 Deno.test("findCorrelatedFailures: the SAME agent tripping twice is NOT correlated -- that's the per-agent breaker's own signal", () => {
@@ -104,4 +140,24 @@ Deno.test("summarizeCorrelatedFailure: mentions the agent count, action type, pr
   assert(summary.includes("send_email"));
   assert(summary.includes("Gmail"));
   assert(summary.includes("2 trip"));
+});
+
+Deno.test("summarizeCorrelatedFailure: mentions API keys instead of agents when the sources are all API keys", () => {
+  const [group] = findCorrelatedFailures([
+    trip({ agentId: null, apiKeyId: "key-1" }),
+    trip({ agentId: null, apiKeyId: "key-2", decisionId: "decision-2" }),
+  ]);
+  const summary = summarizeCorrelatedFailure(group);
+  assert(summary.includes("2 different API keys"));
+  assert(!summary.includes("agents"));
+});
+
+Deno.test("summarizeCorrelatedFailure: mentions both agents and API keys for a mixed group", () => {
+  const [group] = findCorrelatedFailures([
+    trip({ agentId: "agent-1", apiKeyId: null }),
+    trip({ agentId: null, apiKeyId: "key-1", decisionId: "decision-2" }),
+  ]);
+  const summary = summarizeCorrelatedFailure(group);
+  assert(summary.includes("1 different agent(s)"));
+  assert(summary.includes("1 different API key(s)"));
 });

@@ -82,10 +82,16 @@ export async function getSpendStatus(admin: SupabaseClient, userId: string): Pro
     // .is("agent_id", null) is required now that a user_id can have more
     // than one ai_spend_caps/ai_spend_daily row (one account-wide + one
     // per agent that has its own cap) -- without it, .maybeSingle() would
-    // throw the moment any per-agent row exists for this user.
+    // throw the moment any per-agent row exists for this user. Same
+    // reasoning applies to .is("api_key_id", null): a per-key row ALSO
+    // has agent_id null (agent_id/api_key_id are mutually exclusive), so
+    // omitting this filter means .maybeSingle() throws (caught below,
+    // silently falling back to the unsafe {spent_usd:0, over_cap:false}
+    // default and defeating the kill-switch auto-trip) the moment any
+    // per-key cap exists for this account.
     const [{ data: capRow }, { data: usageRow }] = await Promise.all([
-      admin.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", userId).is("agent_id", null).maybeSingle(),
-      admin.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", userId).eq("day", day).is("agent_id", null).maybeSingle(),
+      admin.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", userId).is("agent_id", null).is("api_key_id", null).maybeSingle(),
+      admin.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", userId).eq("day", day).is("agent_id", null).is("api_key_id", null).maybeSingle(),
     ]);
     const cap = Number((capRow as { daily_cap_usd?: number } | null)?.daily_cap_usd ?? DEFAULT_DAILY_CAP_USD);
     const enabled = (capRow as { enabled?: boolean } | null)?.enabled ?? true;
@@ -291,6 +297,7 @@ async function enforceAccountSpendCap(
     .eq("user_id", userId)
     .eq("day", status.day)
     .is("agent_id", null)
+    .is("api_key_id", null)
     .maybeSingle();
   const row = dayRow as { id?: string; warned_at?: string | null; capped_at?: string | null } | null;
 
