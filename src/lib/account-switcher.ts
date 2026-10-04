@@ -21,9 +21,10 @@ export function buildAccountOptions(
   selfId: string,
   memberships: Membership[],
   ownerNames: Record<string, string>,
+  selfLabel: string = "My account",
 ): AccountOption[] {
   return [
-    { accountId: selfId, role: "self", label: "My account", permissions: null },
+    { accountId: selfId, role: "self", label: selfLabel, permissions: null },
     ...memberships.map((m) => ({
       accountId: m.account_owner_id,
       role: m.role as AccountRole,

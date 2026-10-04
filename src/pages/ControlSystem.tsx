@@ -17,7 +17,7 @@ import ApprovalChatCard from "@/components/control/dashboard/ApprovalChatCard";
 import DryRunToggle from "@/components/control/DryRunToggle";
 import StrictnessPanel from "@/components/control/StrictnessPanel";
 import RetentionPanel from "@/components/control/RetentionPanel";
-import AccountSwitcher from "@/components/control/AccountSwitcher";
+import ProjectSwitcher from "@/components/control/ProjectSwitcher";
 import PolicyOverviewPanel from "@/components/control/PolicyOverviewPanel";
 import NotificationPreferencesPanel from "@/components/control/NotificationPreferencesPanel";
 import ControlPagesMenu from "@/components/control/dashboard/ControlPagesMenu";
@@ -225,8 +225,8 @@ export default function ControlSystem() {
             Outer
           </button>
         </div>
+        <ProjectSwitcher />
         <nav className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          <AccountSwitcher />
           <button
             onClick={() => navigate("/control-system/approvals")}
             className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-amber-300 hover:bg-amber-500/20"

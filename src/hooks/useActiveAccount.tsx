@@ -45,12 +45,19 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
     }
     let cancelled = false;
     setLoading(true);
-    anyDb
-      .from("account_members")
-      .select("account_owner_id, role, permissions")
-      .eq("member_id", user.id)
-      .eq("status", "active")
-      .then(async ({ data }: { data: unknown }) => {
+    Promise.all([
+      anyDb
+        .from("account_members")
+        .select("account_owner_id, role, permissions")
+        .eq("member_id", user.id)
+        .eq("status", "active"),
+      // Project-switcher item: "My account" told a solo user nothing
+      // identifiable about which of their projects they were looking at --
+      // use their real display name (falling back to email) the same way
+      // every OTHER account's label already does.
+      supabase.from("profiles").select("display_name").eq("id", user.id).maybeSingle(),
+    ])
+      .then(async ([{ data }, { data: selfProfile }]: [{ data: unknown }, { data: { display_name: string | null } | null }]) => {
         const memberships = (data ?? []) as { account_owner_id: string; role: "owner" | "approver" | "viewer"; permissions: string[] | null }[];
         let ownerNames: Record<string, string> = {};
         if (memberships.length > 0) {
@@ -63,7 +70,8 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
           }
         }
         if (cancelled) return;
-        const opts = buildAccountOptions(user.id, memberships, ownerNames);
+        const selfLabel = selfProfile?.display_name || user.email || "My account";
+        const opts = buildAccountOptions(user.id, memberships, ownerNames, selfLabel);
         setAccounts(opts);
         const stored = sessionStorage.getItem(STORAGE_KEY);
         setAccountIdState(resolveActiveAccountId(stored, opts, user.id));
