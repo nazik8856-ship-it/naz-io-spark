@@ -160,7 +160,7 @@ const GROUPS: MenuGroup[] = [
     items: [
       {
         label: "Governed entities",
-        description: "Every Generator agent and Outer Control API key on this account, in one list.",
+        description: "Every Generator agent and Outer Control API key, plus today's decisions and spend by source.",
         path: "/control-system/entities",
       },
       {

@@ -35,33 +35,58 @@ function statusBadgeClass(status: Entity["status"]) {
 }
 
 /**
- * Blueprint "10 tasks" round, item 4 -- the one confirmed real gap from the
- * Generator<->Control wiring investigation: Generator agents and Outer
- * Control API keys are two separate tables (by design -- see
- * OuterControlSystem.tsx), and both already feed the same decisions feed,
- * but nowhere lists them together as "every governed thing on this
- * account." This is that list, built from the same dual-fetch pattern
- * ControlAgentPolicy.tsx (agents) and ControlApiKeys.tsx (api_keys +
- * per-id decision counts) already use separately.
+ * Blueprint "10 tasks" round, items 4 + 6 combined -- item 4 is the one
+ * confirmed real gap from the Generator<->Control wiring investigation:
+ * Generator agents and Outer Control API keys are two separate tables (by
+ * design -- see OuterControlSystem.tsx), and both already feed the same
+ * decisions feed, but nowhere listed them together as "every governed
+ * thing on this account." Item 6 wanted a single screen proving the whole
+ * pipeline runs end-to-end -- rather than a near-duplicate second page,
+ * that's the stat row above the table: decisions today broken down by
+ * actual source (agent / key / chat) and today's spend, so if the wiring
+ * is really connected, this is where it shows. Built from the same
+ * dual-fetch pattern ControlAgentPolicy.tsx (agents) and
+ * ControlApiKeys.tsx (api_keys + per-id decision counts) already use
+ * separately.
  */
+type DecisionsToday = { total: number; viaAgents: number; viaKeys: number; viaChat: number };
+
 export default function ControlEntities() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { accountId } = useActiveAccount();
   const [entities, setEntities] = useState<Entity[] | null>(null);
   const [accountWideRuleCount, setAccountWideRuleCount] = useState(0);
+  const [decisionsToday, setDecisionsToday] = useState<DecisionsToday | null>(null);
+  const [spendToday, setSpendToday] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
+    const day = new Date().toISOString().slice(0, 10);
 
-    const [{ data: agentRows }, { data: keyRows }, { data: hardRules }, { data: safetyRules }] = await Promise.all([
+    const [{ data: agentRows }, { data: keyRows }, { data: hardRules }, { data: safetyRules }, { data: allDecisionsToday }, { data: spendRow }] = await Promise.all([
       anyDb.from("agents").select("id, name, status, created_at, kill_switch, kill_switch_auto").eq("user_id", accountId).order("created_at", { ascending: false }),
       anyDb.from("api_keys").select("id, name, created_at, revoked_at, paused_until, expires_at").eq("user_id", accountId).order("created_at", { ascending: false }),
       anyDb.from("hard_rules").select("id, enabled, agent_id").eq("user_id", accountId),
       anyDb.from("safety_rules").select("id, enabled, agent_id").eq("user_id", accountId),
+      // Blueprint "10 tasks" round, item 6 -- this is the "proof the whole
+      // pipeline runs" breakdown: every decision today, by where it actually
+      // came from (a Generator agent, an Outer Control key, or chat).
+      anyDb.from("agent_decisions").select("agent_id, api_key_id").eq("user_id", accountId).gte("created_at", todayStart.toISOString()),
+      // api_key_id must be excluded too -- a per-key spend row also has
+      // agent_id IS NULL (same fix as SpendCapPanel.tsx and friends).
+      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).eq("day", day).is("agent_id", null).is("api_key_id", null).maybeSingle(),
     ]);
+    setSpendToday(Number((spendRow as { cost_usd?: number } | null)?.cost_usd ?? 0));
+    const decRows = (allDecisionsToday ?? []) as { agent_id: string | null; api_key_id: string | null }[];
+    setDecisionsToday({
+      total: decRows.length,
+      viaAgents: decRows.filter((r) => r.agent_id !== null).length,
+      viaKeys: decRows.filter((r) => r.api_key_id !== null).length,
+      viaChat: decRows.filter((r) => r.agent_id === null && r.api_key_id === null).length,
+    });
     const agents = (agentRows ?? []) as AgentRow[];
     const keys = (keyRows ?? []) as ApiKeyRow[];
     const hard = (hardRules ?? []) as RuleRow[];
@@ -144,7 +169,8 @@ export default function ControlEntities() {
         <p className="mt-1 text-sm text-zinc-400">
           Every Generator agent and every Outer Control API key on this account, in one list — the two are
           separate things by design (an agent you built here vs. an external AI you're governing), but both
-          report into the same rules and the same decision feed below.
+          report into the same rules and the same decision feed below. The numbers here are the proof: if the
+          pipeline is actually connected end to end, decisions from all three sources show up live.
         </p>
 
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -156,11 +182,30 @@ export default function ControlEntities() {
             <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Outer Control keys</div>
             <div className="mt-1 text-lg font-semibold">{keyCount}</div>
           </div>
-          <div className="rounded border border-white/10 bg-white/[0.02] p-4 col-span-2 sm:col-span-2">
+          <div className="rounded border border-white/10 bg-white/[0.02] p-4">
             <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Account-wide rules</div>
             <div className="mt-1 text-lg font-semibold">{accountWideRuleCount}</div>
-            <div className="mt-1 text-xs text-zinc-500">Applies to every key automatically; agents get these plus their own.</div>
           </div>
+          <div className="rounded border border-white/10 bg-white/[0.02] p-4">
+            <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Spend today</div>
+            <div className="mt-1 text-lg font-semibold">{spendToday === null ? "—" : `$${spendToday.toFixed(2)}`}</div>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded border border-white/10 bg-white/[0.02] p-4">
+          <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Decisions today, by source</div>
+          {decisionsToday === null ? (
+            <div className="mt-1 text-sm text-zinc-500">Loading…</div>
+          ) : decisionsToday.total === 0 ? (
+            <div className="mt-1 text-sm text-zinc-500">No decisions logged yet today.</div>
+          ) : (
+            <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+              <span className="text-zinc-200">{decisionsToday.total} total</span>
+              <span className="flex items-center gap-1.5 text-zinc-400"><Bot className="h-3.5 w-3.5 text-cyan-400" /> {decisionsToday.viaAgents} via agents</span>
+              <span className="flex items-center gap-1.5 text-zinc-400"><KeyRound className="h-3.5 w-3.5 text-violet-400" /> {decisionsToday.viaKeys} via API keys</span>
+              <span className="text-zinc-400">{decisionsToday.viaChat} via chat</span>
+            </div>
+          )}
         </div>
 
         <div className="mt-6 overflow-x-auto rounded-lg border border-white/10">
