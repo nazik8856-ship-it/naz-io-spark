@@ -159,6 +159,11 @@ const GROUPS: MenuGroup[] = [
     title: "Admin",
     items: [
       {
+        label: "Governed entities",
+        description: "Every Generator agent and Outer Control API key, plus today's decisions and spend by source.",
+        path: "/control-system/entities",
+      },
+      {
         label: "Team",
         description: "Invite people and set what they're allowed to see, approve or change.",
         path: "/control-system/team",

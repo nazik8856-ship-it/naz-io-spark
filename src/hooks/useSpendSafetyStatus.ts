@@ -35,8 +35,12 @@ export function useSpendSafetyStatus(accountId: string | undefined): SpendSafety
     setLoading(true);
     const day = new Date().toISOString().slice(0, 10);
     const [capRes, spendRes, killRes, breakerRes] = await Promise.all([
-      anyDb.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).is("agent_id", null).maybeSingle(),
-      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).eq("day", day).is("agent_id", null).maybeSingle(),
+      // Both agent_id AND api_key_id must be null for the true account-wide
+      // row -- a per-key cap/spend row also has agent_id IS NULL, and
+      // without excluding it too, maybeSingle() sees two rows and errors
+      // once any per-key row exists (see SpendCapPanel.tsx for the same fix).
+      anyDb.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).maybeSingle(),
+      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).eq("day", day).is("agent_id", null).is("api_key_id", null).maybeSingle(),
       anyDb.from("profiles").select("kill_switch").eq("id", accountId).maybeSingle(),
       anyDb.from("circuit_breakers").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("tripped", true),
     ]);

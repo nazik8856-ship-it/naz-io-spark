@@ -52,9 +52,12 @@ export function useAgentSpendSafetyStatus(accountId: string | undefined, agentId
     const day = new Date().toISOString().slice(0, 10);
     const [agentCapRes, accountCapRes, agentSpendRes, accountSpendRes, agentRes, profileRes, platformRes, breakerRes, approvalRes] = await Promise.all([
       anyDb.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).eq("agent_id", agentId).maybeSingle(),
-      anyDb.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).is("agent_id", null).maybeSingle(),
+      // api_key_id must also be excluded -- a per-key cap/spend row has
+      // agent_id IS NULL too, so without it maybeSingle() errors once any
+      // per-key row exists alongside the true account-wide one.
+      anyDb.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).maybeSingle(),
       anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).eq("agent_id", agentId).eq("day", day).maybeSingle(),
-      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).eq("day", day).maybeSingle(),
+      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).eq("day", day).maybeSingle(),
       anyDb.from("agents").select("kill_switch").eq("id", agentId).maybeSingle(),
       anyDb.from("profiles").select("kill_switch").eq("id", accountId).maybeSingle(),
       anyDb.from("platform_settings").select("kill_switch").eq("id", 1).maybeSingle(),

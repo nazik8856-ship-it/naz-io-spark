@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 import ExecutionLog from "@/components/execution/ExecutionLog";
 import { useExecutionLog } from "@/hooks/useExecutionLog";
 import { buildStaticSiteHtml } from "@/lib/static-site-export";
+import { selectRulesForAgent } from "@/lib/agent-policy";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -96,6 +97,7 @@ export default function GeneratedDashboard() {
   const [website, setWebsite] = useState<any | null>(null);
   const [pages, setPages] = useState<any[]>([]);
   const [agentManifest, setAgentManifest] = useState<AgentManifest | null>(null);
+  const [agentRuleCount, setAgentRuleCount] = useState<number | null>(null);
   const [webView, setWebView] = useState<WebsiteView>("preview");
   const [agentTab, setAgentTab] = useState<"preview" | "dashboard">("dashboard");
   const [device, setDevice] = useState<Device>("desktop");
@@ -187,6 +189,22 @@ export default function GeneratedDashboard() {
             { role: "user", content: agent.goal || m.goal || "Build my agent", time: "just now" },
             { role: "assistant", content: `Deployed "${agent.name || m.name || "your agent"}". Run it from the dashboard, or tell me what to change.`, time: "just now" },
           ]);
+          // Blueprint "10 tasks" round, item 5: the Control System link here
+          // always existed, but nothing proved the connection was real at
+          // the moment an agent exists -- a plain count of what actually
+          // governs this agent right now (account-wide rules + any of its
+          // own), same effective-rule logic ControlAgentPolicy.tsx uses.
+          const anyDb = supabase as any;
+          const [{ data: hr }, { data: sr }] = await Promise.all([
+            anyDb.from("hard_rules").select("id, agent_id, enabled").eq("user_id", agent.user_id),
+            anyDb.from("safety_rules").select("id, agent_id, enabled").eq("user_id", agent.user_id),
+          ]);
+          if (!cancelled) {
+            type Rule = { id: string; agent_id: string | null; enabled: boolean };
+            const count = selectRulesForAgent((hr ?? []) as Rule[], id).filter((r) => r.enabled !== false).length
+              + selectRulesForAgent((sr ?? []) as Rule[], id).filter((r) => r.enabled !== false).length;
+            setAgentRuleCount(count);
+          }
         } else {
           throw new Error(`Unsupported kind: ${kind}`);
         }
@@ -883,11 +901,11 @@ export default function GeneratedDashboard() {
             {kind === "agent" && id && (
               <button
                 onClick={() => navigate(`/control-system/agent-policy?agent=${id}`)}
-                title="View this agent's rules and control status in Control System"
+                title={agentRuleCount === null ? "View this agent's rules and control status in Control System" : `Protected by ${agentRuleCount} account rule${agentRuleCount === 1 ? "" : "s"} — view in Control System`}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/40 transition"
               >
                 <ShieldCheck className="h-3.5 w-3.5" />
-                Control System
+                {agentRuleCount === null ? "Control System" : `Protected by ${agentRuleCount} rule${agentRuleCount === 1 ? "" : "s"}`}
               </button>
             )}
           </div>

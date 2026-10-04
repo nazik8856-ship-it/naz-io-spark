@@ -57,13 +57,13 @@ export default function SpendCapPanel({ onSaved }: { onSaved?: () => void }) {
       anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
       scopeAgentId
         ? anyDb.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).eq("agent_id", scopeAgentId).maybeSingle()
-        : anyDb.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).is("agent_id", null).maybeSingle(),
+        : anyDb.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).maybeSingle(),
       scopeAgentId
         ? anyDb.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("agent_id", scopeAgentId).eq("day", day).maybeSingle()
-        : anyDb.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("day", day).is("agent_id", null).maybeSingle(),
+        : anyDb.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("day", day).is("agent_id", null).is("api_key_id", null).maybeSingle(),
       scopeAgentId
         ? anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).eq("agent_id", scopeAgentId).gte("day", monthStart)
-        : anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).gte("day", monthStart),
+        : anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).gte("day", monthStart),
       anyDb.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
     ]);
     setAgents((agentRows ?? []) as AgentOption[]);
@@ -112,13 +112,18 @@ export default function SpendCapPanel({ onSaved }: { onSaved?: () => void }) {
       return;
     }
     setSaving(true);
-    // Two partial unique indexes back this table now (one account-wide row
-    // per user, one per (user, agent)) instead of a single user_id PK, so a
-    // plain upsert can no longer infer the right conflict target -- find the
-    // row first, then update or insert explicitly.
+    // Three partial unique indexes back this table now (one account-wide row
+    // per user, one per (user, agent), one per (user, api_key)) instead of a
+    // single user_id PK, so a plain upsert can no longer infer the right
+    // conflict target -- find the row first, then update or insert
+    // explicitly. The account-wide branch must also exclude api_key_id rows
+    // (both have agent_id IS NULL) -- without it, a per-key cap existing
+    // alongside the account-wide one makes maybeSingle() see two rows and
+    // error, falling through to an insert that then violates the
+    // account-wide unique index.
     const findQuery = scopeAgentId
       ? anyDb.from("ai_spend_caps").select("id").eq("user_id", accountId).eq("agent_id", scopeAgentId).maybeSingle()
-      : anyDb.from("ai_spend_caps").select("id").eq("user_id", accountId).is("agent_id", null).maybeSingle();
+      : anyDb.from("ai_spend_caps").select("id").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).maybeSingle();
     const { data: existing } = await findQuery;
     const { error } = existing?.id
       ? await anyDb.from("ai_spend_caps").update({ daily_cap_usd: value, enabled }).eq("id", existing.id)

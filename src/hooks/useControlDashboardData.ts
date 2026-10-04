@@ -75,8 +75,11 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
       anyDb.from("safety_rules").select("id", { count: "exact", head: true }).eq("user_id", accountId),
       anyDb.from("agent_decisions").select("source, decision, escalated, created_at").eq("user_id", accountId).gte("created_at", since),
       anyDb.from("clean_allow_counts").select("count").eq("user_id", accountId).gte("window_start", since),
-      anyDb.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).is("agent_id", null).maybeSingle(),
-      anyDb.from("ai_spend_daily").select("day, cost_usd").eq("user_id", accountId).is("agent_id", null).gte("day", firstDay),
+      // api_key_id must also be excluded -- a per-key cap/spend row has
+      // agent_id IS NULL too, so without it maybeSingle() errors and the
+      // 30-day list double-counts per-key spend into the account-wide total.
+      anyDb.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).maybeSingle(),
+      anyDb.from("ai_spend_daily").select("day, cost_usd").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).gte("day", firstDay),
       anyDb.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("status", "open"),
       anyDb.from("incidents").select("created_at").eq("user_id", accountId).gte("created_at", since),
       anyDb.from("pending_approvals").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("status", "pending"),
