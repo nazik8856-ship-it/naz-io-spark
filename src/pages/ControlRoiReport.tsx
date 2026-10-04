@@ -67,7 +67,10 @@ export default function ControlRoiReport() {
     const monthStartIso = monthStart.toISOString().slice(0, 10);
 
     const [{ data: accountRows }, { data: agentRows }, { data: agents }] = await Promise.all([
-      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).gte("day", monthStartIso),
+      // api_key_id must also be excluded -- a per-key spend row has
+      // agent_id IS NULL too, and is a different governed entity, not
+      // part of the account-wide (chat-driven) total this row reports.
+      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).gte("day", monthStartIso),
       anyDb.from("ai_spend_daily").select("agent_id, cost_usd").eq("user_id", accountId).not("agent_id", "is", null).gte("day", monthStartIso),
       anyDb.from("agents").select("id, name").eq("user_id", accountId),
     ]);
@@ -103,8 +106,8 @@ export default function ControlRoiReport() {
     const [decisions, prevDecisions, accountSpend, prevAccountSpend, agentSpend, agents] = await Promise.all([
       anyDb.from("agent_decisions").select("decision, escalated, agent_id").eq("user_id", accountId).gte("created_at", fromIso).lte("created_at", toIso),
       anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", accountId).gte("created_at", prevFromIso).lt("created_at", fromIso),
-      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).gte("day", from).lte("day", to),
-      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).gte("day", prevFromIso.slice(0, 10)).lt("day", from),
+      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).gte("day", from).lte("day", to),
+      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).gte("day", prevFromIso.slice(0, 10)).lt("day", from),
       anyDb.from("ai_spend_daily").select("agent_id, cost_usd").eq("user_id", accountId).not("agent_id", "is", null).gte("day", from).lte("day", to),
       anyDb.from("agents").select("id, name").eq("user_id", accountId),
     ]);
