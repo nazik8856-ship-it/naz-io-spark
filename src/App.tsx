@@ -84,6 +84,7 @@ const ControlRuleEffectiveness = lazyWithReload(() => import("./pages/ControlRul
 const ControlConfidenceCalibration = lazyWithReload(() => import("./pages/ControlConfidenceCalibration"));
 const ControlRoiReport = lazyWithReload(() => import("./pages/ControlRoiReport"));
 const ControlAgentPolicy = lazyWithReload(() => import("./pages/ControlAgentPolicy"));
+const ControlEntities = lazyWithReload(() => import("./pages/ControlEntities"));
 const ControlLiveFeed = lazyWithReload(() => import("./pages/ControlLiveFeed"));
 const ControlAccountData = lazyWithReload(() => import("./pages/ControlAccountData"));
 const ControlPolicyBundle = lazyWithReload(() => import("./pages/ControlPolicyBundle"));
@@ -183,6 +184,7 @@ const App = () => (
                 <Route path="/control-system/confidence-calibration" element={<ControlConfidenceCalibration />} />
                 <Route path="/control-system/roi" element={<ControlRoiReport />} />
                 <Route path="/control-system/agent-policy" element={<ControlAgentPolicy />} />
+                <Route path="/control-system/entities" element={<ControlEntities />} />
                 <Route path="/control-system/live" element={<ControlLiveFeed />} />
                 <Route path="/control-system/account-data" element={<ControlAccountData />} />
                 <Route path="/control-system/policy-bundle" element={<ControlPolicyBundle />} />
