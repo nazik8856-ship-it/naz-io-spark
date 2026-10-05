@@ -24,6 +24,7 @@ import ControlPagesMenu from "@/components/control/dashboard/ControlPagesMenu";
 import SetupProgressBar from "@/components/control/dashboard/SetupProgressBar";
 import RuleCoverageHealthCard from "@/components/control/dashboard/RuleCoverageHealthCard";
 import StatSparkCard from "@/components/control/dashboard/StatSparkCard";
+import GovernanceHealthDot from "@/components/governance/GovernanceHealthDot";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
@@ -226,6 +227,16 @@ export default function ControlSystem() {
           </button>
         </div>
         <ProjectSwitcher />
+        {/* GAP 10 (Unified UX): the same traffic light shown on every agent's
+            own page and every Governed Entities row, here as an account-wide
+            aggregate -- trust score, rule coverage, and spend all rolled up
+            into one glanceable signal for the whole account. */}
+        {dashboard.accountHealth && (
+          <GovernanceHealthDot
+            health={dashboard.accountHealth}
+            label={`Account ${dashboard.accountTrustScore ? `· Trust ${dashboard.accountTrustScore.score}` : ""}`}
+          />
+        )}
         <nav className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <button
             onClick={() => navigate("/control-system/approvals")}

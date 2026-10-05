@@ -8,6 +8,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { selectRulesForAgent } from "@/lib/agent-policy";
 import { computeTrustScore, type TrustScoreReport } from "@/lib/trust-score";
+import { computeGovernanceHealth, type GovernanceHealth } from "@/lib/governance-health";
+import GovernanceHealthDot from "@/components/governance/GovernanceHealthDot";
+
+const DEFAULT_DAILY_CAP_USD = 5;
 
 type AgentRow = {
   id: string; name: string; status: string | null;
@@ -30,6 +34,9 @@ type Entity = {
   // GAP 4 (Trust Score + Provenance + Control Report): null only while
   // still loading -- see the second-pass load() call below.
   trustScore: TrustScoreReport | null;
+  // GAP 10 (Unified UX): one traffic light combining trustScore +
+  // rulesApplied + this entity's own today's-spend-vs-cap.
+  health: GovernanceHealth | null;
 };
 
 // GAP 4: green/amber/rose thresholds loosely mirror the trust score's own
@@ -94,6 +101,41 @@ export default function ControlEntities() {
       anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).eq("day", day).is("agent_id", null).is("api_key_id", null).maybeSingle(),
     ]);
     setSpendToday(Number((spendRow as { cost_usd?: number } | null)?.cost_usd ?? 0));
+
+    // GAP 10 (Unified UX): per-entity spend-vs-cap, same own-cap-falls-back-
+    // to-account-wide-cap rule useAgentSpendSafetyStatus.ts already uses.
+    // One batched fetch for every entity's cap/spend instead of an N+1 --
+    // this page already renders every agent and key in one list.
+    const [{ data: capRows }, { data: spendRows }] = await Promise.all([
+      anyDb.from("ai_spend_caps").select("daily_cap_usd, agent_id, api_key_id").eq("user_id", accountId),
+      anyDb.from("ai_spend_daily").select("cost_usd, agent_id, api_key_id").eq("user_id", accountId).eq("day", day),
+    ]);
+    const capsByAgent = new Map<string, number>();
+    const capsByKey = new Map<string, number>();
+    let accountWideCap = DEFAULT_DAILY_CAP_USD;
+    for (const r of (capRows ?? []) as { daily_cap_usd: number; agent_id: string | null; api_key_id: string | null }[]) {
+      if (r.agent_id) capsByAgent.set(r.agent_id, Number(r.daily_cap_usd));
+      else if (r.api_key_id) capsByKey.set(r.api_key_id, Number(r.daily_cap_usd));
+      else accountWideCap = Number(r.daily_cap_usd);
+    }
+    const spendByAgent = new Map<string, number>();
+    const spendByKey = new Map<string, number>();
+    let accountWideSpendToday = 0;
+    for (const r of (spendRows ?? []) as { cost_usd: number; agent_id: string | null; api_key_id: string | null }[]) {
+      if (r.agent_id) spendByAgent.set(r.agent_id, Number(r.cost_usd));
+      else if (r.api_key_id) spendByKey.set(r.api_key_id, Number(r.cost_usd));
+      else accountWideSpendToday = Number(r.cost_usd);
+    }
+    const spendPctForAgent = (agentId: string): number => {
+      const cap = capsByAgent.get(agentId) ?? accountWideCap;
+      const spent = capsByAgent.has(agentId) ? (spendByAgent.get(agentId) ?? 0) : accountWideSpendToday;
+      return cap > 0 ? spent / cap : 0;
+    };
+    const spendPctForKey = (keyId: string): number => {
+      const cap = capsByKey.get(keyId) ?? accountWideCap;
+      const spent = capsByKey.has(keyId) ? (spendByKey.get(keyId) ?? 0) : accountWideSpendToday;
+      return cap > 0 ? spent / cap : 0;
+    };
     const decRows = (allDecisionsToday ?? []) as { agent_id: string | null; api_key_id: string | null }[];
     setDecisionsToday({
       total: decRows.length,
@@ -199,30 +241,39 @@ export default function ControlEntities() {
     };
 
     const now = Date.now();
-    const agentEntities: Entity[] = agents.map((a) => ({
-      id: a.id,
-      kind: "agent",
-      name: a.name,
-      status: a.kill_switch || a.kill_switch_auto ? "killed" : (a.status === "paused" ? "paused" : "active"),
-      createdAt: a.created_at,
-      decisionsToday: agentCounts[a.id] ?? 0,
-      rulesApplied: selectRulesForAgent(hard, a.id).filter((r) => r.enabled !== false).length
-        + selectRulesForAgent(safety, a.id).filter((r) => r.enabled !== false).length,
-      trustScore: trustScoreForAgent(a.id),
-    }));
-    const keyEntities: Entity[] = keys.map((k) => ({
-      id: k.id,
-      kind: "api_key",
-      name: k.name,
-      status: k.revoked_at ? "revoked"
-        : (k.expires_at && new Date(k.expires_at).getTime() < now) ? "expired"
-        : (k.paused_until && new Date(k.paused_until).getTime() > now) ? "paused"
-        : "active",
-      createdAt: k.created_at,
-      decisionsToday: keyCounts[k.id] ?? 0,
-      rulesApplied: accountWide,
-      trustScore: trustScoreForKey(k.id),
-    }));
+    const agentEntities: Entity[] = agents.map((a) => {
+      const rulesApplied = selectRulesForAgent(hard, a.id).filter((r) => r.enabled !== false).length
+        + selectRulesForAgent(safety, a.id).filter((r) => r.enabled !== false).length;
+      const trustScore = trustScoreForAgent(a.id);
+      return {
+        id: a.id,
+        kind: "agent" as const,
+        name: a.name,
+        status: a.kill_switch || a.kill_switch_auto ? "killed" as const : (a.status === "paused" ? "paused" as const : "active" as const),
+        createdAt: a.created_at,
+        decisionsToday: agentCounts[a.id] ?? 0,
+        rulesApplied,
+        trustScore,
+        health: computeGovernanceHealth({ trustScore: trustScore.score, rulesApplied, spendPct: spendPctForAgent(a.id) }),
+      };
+    });
+    const keyEntities: Entity[] = keys.map((k) => {
+      const trustScore = trustScoreForKey(k.id);
+      return {
+        id: k.id,
+        kind: "api_key" as const,
+        name: k.name,
+        status: k.revoked_at ? "revoked" as const
+          : (k.expires_at && new Date(k.expires_at).getTime() < now) ? "expired" as const
+          : (k.paused_until && new Date(k.paused_until).getTime() > now) ? "paused" as const
+          : "active" as const,
+        createdAt: k.created_at,
+        decisionsToday: keyCounts[k.id] ?? 0,
+        rulesApplied: accountWide,
+        trustScore,
+        health: computeGovernanceHealth({ trustScore: trustScore.score, rulesApplied: accountWide, spendPct: spendPctForKey(k.id) }),
+      };
+    });
 
     setEntities([...agentEntities, ...keyEntities].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)));
   }, [accountId]);
@@ -297,6 +348,7 @@ export default function ControlEntities() {
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead>
               <tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-zinc-500">
+                <th className="px-3 py-2 font-mono" title="One traffic light combining trust score, rule coverage, and today's spend vs. cap -- the same indicator shown on this entity's own page and in the Control System header.">Health</th>
                 <th className="px-3 py-2 font-mono">Name</th>
                 <th className="px-3 py-2 font-mono">Type</th>
                 <th className="px-3 py-2 font-mono">Status</th>
@@ -308,9 +360,9 @@ export default function ControlEntities() {
             </thead>
             <tbody>
               {entities === null ? (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-zinc-500">Loading…</td></tr>
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-zinc-500">Loading…</td></tr>
               ) : entities.length === 0 ? (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-zinc-500">
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-zinc-500">
                   Nothing governed yet — create an agent in Generator or an API key under Outer Control to see it here.
                 </td></tr>
               ) : (
@@ -320,6 +372,9 @@ export default function ControlEntities() {
                     onClick={() => navigate(e.kind === "agent" ? `/control-system/agent-policy?agent=${e.id}` : `/control-system/api-keys`)}
                     className="cursor-pointer border-b border-white/5 last:border-0 hover:bg-white/[0.03]"
                   >
+                    <td className="px-3 py-2">
+                      {e.health && <GovernanceHealthDot health={e.health} compact />}
+                    </td>
                     <td className="px-3 py-2 text-zinc-200">{e.name}</td>
                     <td className="px-3 py-2">
                       <span className="inline-flex items-center gap-1.5 text-xs text-zinc-400">
