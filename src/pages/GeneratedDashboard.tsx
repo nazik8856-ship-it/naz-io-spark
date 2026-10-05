@@ -547,6 +547,22 @@ export default function GeneratedDashboard() {
         setWebsite((w: any) => (w ? { ...w, custom_domain: raw || null } : w));
         if (raw) toast.success(`Domain saved: ${raw}`);
       }
+      // GAP 5 (Final Assembly & Consistency Checker): re-validates the
+      // COMPLETE, currently-live page tree against the account's CURRENT
+      // safety rules right before declaring this site published -- catches
+      // a rule added since generation, or content hand-edited through the
+      // builder after the generation-time scan already ran. Never blocks
+      // the publish itself (the site is already reachable at its link
+      // either way); just surfaces what it found/fixed.
+      try {
+        const { data: assembly } = await supabase.functions.invoke("final-assembly-check", {
+          body: { kind: "website", website_id: id },
+        });
+        if (assembly?.repaired) {
+          toast.info("Final check redacted some content against your safety rules before publishing.");
+        }
+      } catch { /* a check failure must never block the site from going live */ }
+
       setPublishOpen(false);
       window.open(`/website-preview/${id}`, "_blank");
       toast.success(

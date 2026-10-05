@@ -17,6 +17,7 @@ import { runControlGate, createPendingApproval } from "../_shared/control-gate.t
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
 import { repairParams, verifyRepair } from "../_shared/repair-engine.ts";
 import type { SafetyMatch } from "../_shared/safety-scanner.ts";
+import { checkAgentAssembly } from "../_shared/final-assembly-check.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
@@ -214,7 +215,33 @@ serve(async (req) => {
       .from("agents").select("*").eq("id", agentId).eq("user_id", userId).single();
     if (agentErr || !agent) return json({ error: "Agent not found" }, 404);
 
-    const manifest = agent.manifest as Manifest;
+    let manifest = agent.manifest as Manifest;
+
+    // GAP 5 (Final Assembly & Consistency Checker): an agent's first-ever
+    // real run is this platform's "deploy" moment -- re-validate its
+    // CURRENT manifest against the account's CURRENT hard_rules/
+    // safety_rules one more time before anything runs, catching a rule
+    // added or changed since this agent was generated (compile-agent-
+    // manifest's own pre-save gate only ever checked the rule set that
+    // existed back then). Every run after the first is already governed
+    // by the ordinary per-call control gate below, so this only needs to
+    // run once, not on every run.
+    const { count: priorRunCount } = await supabase
+      .from("agent_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("agent_id", agentId);
+    if ((priorRunCount ?? 0) === 0) {
+      const assembly = await checkAgentAssembly(supabase, userId, agentId);
+      if (assembly.repaired) {
+        const { data: refreshed } = await supabase.from("agents").select("manifest").eq("id", agentId).maybeSingle();
+        manifest = ((refreshed as { manifest?: Manifest } | null)?.manifest ?? manifest) as Manifest;
+        for (const note of assembly.notes) {
+          await supabase.from("agent_events").insert({
+            agent_id: agentId, user_id: userId, kind: "first_deploy_check", payload: { note },
+          });
+        }
+      }
+    }
 
     // Daily run cap — only enforced for cron triggers. Manual/webhook/scheduled
     // runs bypass the cap so users can always force a run.
