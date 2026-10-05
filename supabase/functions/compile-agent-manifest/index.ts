@@ -12,7 +12,8 @@ import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.
 import { reconcileGuardrailsToHardRules } from "../_shared/guardrail-reconciliation.ts";
 import { ruleMatchesAction } from "../_shared/rule-matching.ts";
 import { loadSafetyRules, scanWithRules } from "../_shared/safety-scanner.ts";
-import { redactContent, isRedactableMatch } from "../_shared/outer-control-scoring.ts";
+import { repairContent } from "../_shared/repair-engine.ts";
+import { isRedactableMatch } from "../_shared/outer-control-scoring.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -499,12 +500,15 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
         if (!text) continue;
         const scan = scanWithRules(safetyRules, text, "");
         if (!scan.matched) continue;
-        const redactable = scan.matches.filter((m) => isRedactableMatch(m));
-        if (redactable.length) {
-          // Secrets/PII have an excisable span -- strip just that, the rest
-          // of the field is unaffected and still ships.
-          normalized[field] = redactContent(text, redactable);
-          safetyNotes.push(`Your ${field === "systemPrompt" ? "agent's system prompt" : "agent's decision policy"} had content matching your safety rule(s) (${redactable.map((m) => m.name).join(", ")}) redacted at generation time.`);
+        // GAP 3 (Output Modification & Repair Engine): same repairContent
+        // primitive Outer Control's own correction path uses -- a secret/
+        // PII span gets excised, the rest of the field is unaffected and
+        // still ships.
+        const repair = repairContent(text, scan.matches);
+        if (repair.repaired !== null) {
+          normalized[field] = repair.repaired;
+          const redactedNames = repair.diff.map((d) => d.detail);
+          safetyNotes.push(`Your ${field === "systemPrompt" ? "agent's system prompt" : "agent's decision policy"} had content matching your safety rule(s) (${redactedNames.join(", ")}) redacted at generation time.`);
         }
         const nonRedactable = scan.matches.filter((m) => !isRedactableMatch(m));
         if (nonRedactable.length) {

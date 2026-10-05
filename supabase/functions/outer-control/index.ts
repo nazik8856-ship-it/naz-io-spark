@@ -48,8 +48,9 @@
 // scanner matching real top-level params fields also comes back with a
 // suggested_correction -- those fields stripped and the result RE-VERIFIED
 // clean against the same scanner before ever being suggested (reuses
-// auto-narrow-retry.ts's buildSecondNarrowingAttempt, the exact mechanism
-// Inner Control's own auto_narrow on_uncertain policy already relies on).
+// _shared/repair-engine.ts's repairParams, GAP 3's shared primitive over
+// the same mechanism Inner Control's own auto_narrow on_uncertain policy
+// already relies on via auto-narrow-retry.ts).
 // A hard rule, kill switch, spend cap, or circuit breaker stop has nothing
 // analogous to strip, so suggested_correction is always null there -- a
 // bare verdict was the ENTIRE response before this, so even a null here is
@@ -62,7 +63,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { checkRateLimit, checkIpRateLimit } from "../_shared/rate-limit.ts";
 import { scanAction, type SafetyMatch } from "../_shared/safety-scanner.ts";
-import { buildSecondNarrowingAttempt } from "../_shared/auto-narrow-retry.ts";
+import { repairParams, verifyRepair } from "../_shared/repair-engine.ts";
 import { computeTrustScore } from "../_shared/outer-control-scoring.ts";
 import { parseControlApiAction } from "../_shared/control-api-action.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
@@ -98,6 +99,10 @@ export type SuggestedCorrection = {
   params: Record<string, unknown>;
   removed_fields: string[];
   verified_clean: boolean;
+  // GAP 3 (Output Modification & Repair Engine): the repair engine's own
+  // confidence (0-100), raised to its verified ceiling only once the
+  // recheck below confirms `verified_clean` -- never claimed up front.
+  confidence: number;
 };
 
 /**
@@ -106,13 +111,12 @@ export type SuggestedCorrection = {
  * giving up or waiting for a human. When the ONLY reason was the safety
  * scanner matching real top-level params fields (never a hard rule, spend
  * cap, kill switch, or circuit breaker -- none of those have anything
- * analogous to strip, same reasoning buildSecondNarrowingAttempt's own doc
- * comment already gives for Inner Control's auto_narrow retry), this
- * builds a corrected candidate by removing exactly the flagged field(s),
- * then RE-RUNS the same deterministic safety scanner against it before
- * ever suggesting it back -- never hands the caller a "fix" that wasn't
- * itself verified clean. This is advisory only: NazAI never resubmits or
- * executes the suggestion on the caller's behalf.
+ * analogous to strip, same reasoning the GAP 3 repair engine's own doc
+ * comment gives), this builds a corrected candidate via repair-engine.ts's
+ * shared repairParams, then RE-RUNS the same deterministic safety scanner
+ * against it before ever suggesting it back -- never hands the caller a
+ * "fix" that wasn't itself verified clean. This is advisory only: NazAI
+ * never resubmits or executes the suggestion on the caller's behalf.
  */
 async function buildSuggestedCorrection(
   admin: AnyAdmin,
@@ -128,17 +132,18 @@ async function buildSuggestedCorrection(
 ): Promise<SuggestedCorrection | null> {
   if (!params || typeof params !== "object" || Array.isArray(params)) return null;
   const original = params as Record<string, unknown>;
-  const stricter = buildSecondNarrowingAttempt(original, { kind: "safety_scanner", matches });
-  if (!stricter) return null;
+  const attempt = repairParams(original, matches);
+  if (!attempt.repaired) return null;
   // A flagged field can BE the entire action (a body-only email whose one
   // field triggered "destructive wording") -- stripping it then leaves an
   // empty object, which isn't a corrected action, it's no action at all.
   // Confirmed live: exactly this happened for a single-field destructive-
   // wording match. Never suggest a result with nothing left in it.
-  if (Object.keys(stricter).length === 0) return null;
-  const removedFields = Object.keys(original).filter((k) => !(k in stricter));
-  const recheck = await scanAction(admin, userId, stricter, description, null, agentId, apiKeyId);
-  return { params: stricter, removed_fields: removedFields, verified_clean: !recheck.matched };
+  if (Object.keys(attempt.repaired).length === 0) return null;
+  const removedFields = attempt.diff.map((d) => d.detail);
+  const recheck = await scanAction(admin, userId, attempt.repaired, description, null, agentId, apiKeyId);
+  const verified = verifyRepair(attempt, recheck.matched);
+  return { params: attempt.repaired, removed_fields: removedFields, verified_clean: !recheck.matched, confidence: verified.confidence };
 }
 
 /**

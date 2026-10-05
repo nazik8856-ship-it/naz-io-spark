@@ -15,6 +15,8 @@ import {
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
+import { repairParams, verifyRepair } from "../_shared/repair-engine.ts";
+import type { SafetyMatch } from "../_shared/safety-scanner.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
@@ -53,6 +55,16 @@ const corsHeaders = {
 };
 
 const MAX_STEPS = 24;
+// GAP 3 (Output Modification & Repair Engine): bounds the retry-with-repair
+// loop on a safety-scanner-blocked tool call -- each attempt removes
+// exactly the field(s) the CURRENT match set flagged and re-runs the full
+// gate against the result, so a repair that exposes a NEW match (rare, but
+// not impossible) gets one more real shot before falling through to the
+// existing block/escalate path. Small on purpose: repairParams is
+// deterministic, so most real cases converge in exactly one attempt --
+// this is a safety margin for the rare multi-round case, not an invitation
+// to keep guessing.
+const MAX_SELF_REPAIR_ATTEMPTS = 2;
 // Per-run spend ceiling, independent of the account's DAILY cap
 // (ai_spend_caps) -- a single run could stay comfortably under a generous
 // daily cap while burning far more than any one run legitimately needs, if
@@ -1560,6 +1572,61 @@ Rules:
       };
     };
 
+    // GAP 3 (Output Modification & Repair Engine): the retry-with-repair
+    // loop for a tool call the gate just blocked. Only ever has something
+    // to act on when the block came from the safety scanner specifically
+    // (a hard rule, kill switch, spend cap, or circuit breaker stop has
+    // nothing analogous to repair -- see repair-engine.ts's own doc
+    // comment). Each attempt removes exactly the field(s) the CURRENT
+    // match set flagged, then re-runs the FULL gate against the repaired
+    // params -- never assumed clean, always re-verified for real, exactly
+    // like Outer Control's own correction path and Generator's pre-save
+    // scan do with the same shared repairParams/verifyRepair primitives.
+    // Returns null when no repair was possible or every attempt still
+    // failed, in which case the caller's existing block/escalate path
+    // applies completely unchanged.
+    const attemptSelfRepair = async (
+      blockedVerdict: GateVerdict,
+      originalInput: Record<string, unknown>,
+      toolKind: string,
+      gateProvider: string,
+      gateDescription: string,
+      stepIndex: number,
+    ): Promise<{ input: Record<string, unknown>; removedFields: string[]; verdict: GateVerdict } | null> => {
+      if (blockedVerdict.source !== "safety_scanner") return null;
+      const safety = blockedVerdict.safety as { matches?: unknown } | null;
+      if (!safety || !Array.isArray(safety.matches) || !safety.matches.length) return null;
+
+      let candidateInput = originalInput;
+      let candidateMatches = safety.matches as SafetyMatch[];
+      const removedFields: string[] = [];
+      for (let attempt = 0; attempt < MAX_SELF_REPAIR_ATTEMPTS; attempt++) {
+        const repair = repairParams(candidateInput, candidateMatches);
+        if (!repair.repaired || Object.keys(repair.repaired).length === 0) return null;
+        removedFields.push(...repair.diff.map((d) => d.detail));
+
+        const reassessed = await assessWithControlEngine({
+          actionType: toolKind,
+          provider: gateProvider,
+          description: gateDescription,
+          params: repair.repaired,
+          stepIndex,
+        });
+        const verified = verifyRepair(repair, !reassessed.ok);
+        if (reassessed.ok && verified.confidence >= 90) {
+          return { input: repair.repaired, removedFields, verdict: reassessed };
+        }
+
+        // Still blocked -- only worth a second attempt if it's a NEW safety-
+        // scanner match set to act on; anything else (hard rule, kill
+        // switch, spend cap...) has nothing left here to repair.
+        const stillSafety = reassessed.source === "safety_scanner" ? (reassessed.safety as { matches?: unknown } | null) : null;
+        if (!stillSafety || !Array.isArray(stillSafety.matches) || !stillSafety.matches.length) return null;
+        candidateInput = repair.repaired;
+        candidateMatches = stillSafety.matches as SafetyMatch[];
+      }
+      return null;
+    };
 
     while (steps < MAX_STEPS && !finished && !paused) {
       steps++;
@@ -1714,7 +1781,11 @@ Rules:
 
           continue;
         }
-        const input = validation.data;
+        // GAP 3 (Output Modification & Repair Engine): reassigned below when
+        // the retry-with-repair loop produces a verified-clean repaired
+        // version of a blocked tool call's input -- every other path leaves
+        // this exactly as validation produced it.
+        let input = validation.data;
 
         // Identical-action loop detection for tools the control gate never
         // sees (see UNGATED_TOOL_KINDS above). Hashes (kind, input) rather
@@ -1925,42 +1996,75 @@ Rules:
             await logEvent("shadow_rule_hit", { tool: tool.name, kind: tool.kind, rules: verdict.shadowRules });
           }
           if (!verdict.ok) {
-            const msg = verdict.reason ?? "Stopped by the control system.";
-            await logEvent("control_gate_blocked", {
-              tool: tool.name,
-              kind: tool.kind,
-              verdict: verdict.verdict,
-              source: verdict.source,
-              decision_id: verdict.decisionId,
-              approval_id: verdict.approvalId,
-              safety_scan: verdict.safety ?? null,
-              risk_tier: verdict.riskTier ?? null,
-              fit_assessment: verdict.fitAssessment ?? null,
-              confidence_score: verdict.confidenceScore ?? null,
-              strictness: verdict.strictness ?? null,
-              via: verdict.via,
-              humanMessage: msg,
-              message: msg,
-            });
-            await logEvent("tool_result", {
-              tool: tool.name,
-              ok: false,
-              skipped: true,
-              summary: msg,
-              humanMessage: msg,
-              category: verdict.source ?? "control_gate",
-            });
-            messages.push({
-              role: "user",
-              content: `"${tool.name}" was NOT run and had no real effect. ${msg}\n${
-                verdict.verdict === "allow"
-                  ? ""
-                  : verdict.verdict === "block"
-                    ? "Do not retry it and do not describe its outcome as if it happened."
-                    : "It is now waiting in the approval queue for a human. Do not retry it this run."
-              } Continue with work that doesn't need it, or finish and state this plainly.`,
-            });
-            continue;
+            // GAP 3 (Output Modification & Repair Engine): try a bounded,
+            // deterministic self-repair before ever falling through to the
+            // block/escalate messaging below. Only ever produces something
+            // when the block was a safety-scanner match on a real params
+            // field -- everything else (hard rule, kill switch, spend cap,
+            // circuit breaker) correctly returns null and the existing path
+            // runs completely unchanged.
+            const repair = await attemptSelfRepair(verdict, input, tool.kind, gateProvider, gateDescription, steps);
+            if (repair) {
+              await logEvent("self_repair", {
+                tool: tool.name,
+                kind: tool.kind,
+                removed_fields: repair.removedFields,
+                summary: `"${tool.name}"'s input was automatically repaired by removing the field(s) your safety rules flagged (${repair.removedFields.join(", ")}), re-verified clean against the same rules, then run.`,
+              });
+              input = repair.input;
+              gateAttempt = (failed: boolean, why: string) =>
+                recordBreakerAttempt(supabase, {
+                  userId,
+                  actionType: tool.kind,
+                  provider: gateProvider,
+                  failed,
+                  why,
+                  agentId,
+                  runId,
+                  stepIndex: steps,
+                  isHalfOpenTrial: repair.verdict.breakerHalfOpenTrial,
+                });
+              // Falls through to execute with the repaired input below --
+              // deliberately no `continue` here, unlike every other block
+              // branch in this gate.
+            } else {
+              const msg = verdict.reason ?? "Stopped by the control system.";
+              await logEvent("control_gate_blocked", {
+                tool: tool.name,
+                kind: tool.kind,
+                verdict: verdict.verdict,
+                source: verdict.source,
+                decision_id: verdict.decisionId,
+                approval_id: verdict.approvalId,
+                safety_scan: verdict.safety ?? null,
+                risk_tier: verdict.riskTier ?? null,
+                fit_assessment: verdict.fitAssessment ?? null,
+                confidence_score: verdict.confidenceScore ?? null,
+                strictness: verdict.strictness ?? null,
+                via: verdict.via,
+                humanMessage: msg,
+                message: msg,
+              });
+              await logEvent("tool_result", {
+                tool: tool.name,
+                ok: false,
+                skipped: true,
+                summary: msg,
+                humanMessage: msg,
+                category: verdict.source ?? "control_gate",
+              });
+              messages.push({
+                role: "user",
+                content: `"${tool.name}" was NOT run and had no real effect. ${msg}\n${
+                  verdict.verdict === "allow"
+                    ? ""
+                    : verdict.verdict === "block"
+                      ? "Do not retry it and do not describe its outcome as if it happened."
+                      : "It is now waiting in the approval queue for a human. Do not retry it this run."
+                } Continue with work that doesn't need it, or finish and state this plainly.`,
+              });
+              continue;
+            }
           }
         }
 

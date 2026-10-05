@@ -6,7 +6,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 import { loadSafetyRules, scanWithRules, type SafetyMatch, type SafetyRule } from "../_shared/safety-scanner.ts";
-import { redactContent, isRedactableMatch } from "../_shared/outer-control-scoring.ts";
+import { isRedactableMatch } from "../_shared/outer-control-scoring.ts";
+import { repairContent } from "../_shared/repair-engine.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -385,8 +386,15 @@ function ensureLegalPages(pages: Page[], name: string): void {
   if (!pages.some((p) => TERMS_SLUG_ALIASES.has(p.slug.toLowerCase()))) pages.push(legalPage("terms", name));
 }
 
+// GAP 3 (Output Modification & Repair Engine): routes each string leaf
+// through the same shared repairContent primitive Outer Control's own
+// correction path and compile-agent-manifest's prose scan use, instead of
+// calling redactContent directly -- a leaf with nothing redactable in this
+// match set (every match here IS pre-filtered to redactable ones by
+// applySafetyGate below, but repairContent's own no-op guard is kept as
+// defense in depth) comes back unchanged rather than null.
 function redactDeep(value: unknown, matches: SafetyMatch[]): unknown {
-  if (typeof value === "string") return redactContent(value, matches);
+  if (typeof value === "string") return repairContent(value, matches).repaired ?? value;
   if (Array.isArray(value)) return value.map((v) => redactDeep(v, matches));
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
