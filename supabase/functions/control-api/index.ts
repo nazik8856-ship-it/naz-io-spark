@@ -67,7 +67,8 @@ import { synthesizeAnswer, NO_MATCH_FALLBACK_ANSWER } from "../_shared/response-
 import { findMatchingRule, type ResponseRule } from "../_shared/response-rules.ts";
 import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
 import { ROOT_CAUSE_CATEGORIES, isValidRootCauseCategory } from "../_shared/incidents.ts";
-import { loadSafetyRules, scanWithRules } from "../_shared/safety-scanner.ts";
+import { loadSafetyRules, scanWithRules, BUILTIN_SAFETY_RULES } from "../_shared/safety-scanner.ts";
+import { selectRulesForEntity } from "../_shared/rule-matching.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
 
 const corsHeaders = {
@@ -159,6 +160,10 @@ const DECISION_EXPLAIN_RATE_LIMIT_PER_MINUTE = 30;
 // support team disputing a specific decision, not routine traffic. Kept
 // low and separate from the verdict endpoint's own budget.
 const DECISION_DISPUTE_RATE_LIMIT_PER_MINUTE = 10;
+// GAP 1 (Shared Criteria Library): a plain read of this key's own live
+// rule set, same lightweight budget as the other read-only report
+// endpoints above -- a handful of indexed queries, no AI spend.
+const CRITERIA_RATE_LIMIT_PER_MINUTE = 20;
 // "White-labeled 'brain' endpoint" plan, item 1: sized like /precedent's
 // own budget, not the read-only report endpoints' higher limits -- this
 // does two real LLM calls per request (generation + a grounding-check
@@ -559,6 +564,75 @@ Deno.serve(async (req) => {
 
     const status = classifyPlatformStatus(killSwitch, total, gateErrors);
     return json({ ok: true, status, message: platformStatusMessage(status) });
+  }
+
+  // ---- GET /control-api/v1/criteria -----------------------------------
+  // GAP 1 (Shared Criteria Library): lets an external AI platform pull the
+  // LIVE rule set governing it before ever submitting an action or a piece
+  // of content for review -- this account's own account-wide hard/safety
+  // rules, plus any rule scoped specifically to THIS api key
+  // (hard_rules.api_key_id / safety_rules.api_key_id). Resolved through
+  // the exact same selectRulesForEntity function control-gate.ts and
+  // safety-scanner.ts use to judge this key's real traffic, so what this
+  // reports can never drift from what actually enforces. Read-only: there
+  // is still no path for an external caller to create, edit, or delete a
+  // rule through this API -- writes stay on policy_change_requests' own
+  // dual-control flow (ControlHardRules.tsx / ControlSafetyRules.tsx).
+  // Shadow-mode rules are excluded -- they don't actually govern anything
+  // yet, so listing them here would mislead a caller into thinking a rule
+  // is live when it's only being trialed.
+  if (req.method === "GET" && /\/criteria\/?$/.test(url.pathname)) {
+    const rate = await checkRateLimit(admin, userId, "control-api-criteria", CRITERIA_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const [{ data: hardRuleRows, error: hardErr }, { data: safetyRuleRows, error: safetyErr }] = await Promise.all([
+      admin.from("hard_rules")
+        .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id, rationale")
+        .eq("user_id", userId).eq("enabled", true).order("created_at", { ascending: true }),
+      admin.from("safety_rules")
+        .select("id, name, category, pattern, severity, enabled, agent_id, api_key_id, shadow_mode, rationale")
+        .eq("user_id", userId).eq("enabled", true).order("created_at", { ascending: true }),
+    ]);
+    if (hardErr) return json({ error: hardErr.message }, 500);
+    if (safetyErr) return json({ error: safetyErr.message }, 500);
+
+    type ScopedRow = { agent_id?: string | null; api_key_id?: string | null; shadow_mode?: boolean | null };
+    const visibleHardRules = selectRulesForEntity(
+      (hardRuleRows ?? []) as (ScopedRow & { id: string; rule_text: string; action_type_pattern: string; effect: string; provider: string | null; rationale: string | null })[],
+      "api_key", auth.keyId,
+    ).filter((r) => !r.shadow_mode);
+    const visibleSafetyRules = selectRulesForEntity(
+      (safetyRuleRows ?? []) as (ScopedRow & { id: string; name: string; category: string; severity: string; rationale: string | null })[],
+      "api_key", auth.keyId,
+    ).filter((r) => !r.shadow_mode);
+
+    return json({
+      ok: true,
+      hard_rules: visibleHardRules.map((r) => ({
+        id: r.id,
+        rule_text: r.rule_text,
+        action_type_pattern: r.action_type_pattern,
+        effect: r.effect,
+        provider: r.provider,
+        rationale: r.rationale ?? null,
+        scope: r.api_key_id ? "this_api_key" : "account_wide",
+      })),
+      safety_rules: [
+        ...BUILTIN_SAFETY_RULES.map((r) => ({
+          id: r.id, name: r.name, category: r.category, severity: r.severity,
+          rationale: r.rationale ?? null, scope: "platform_builtin" as const,
+        })),
+        ...visibleSafetyRules.map((r) => ({
+          id: r.id, name: r.name, category: r.category, severity: r.severity,
+          rationale: r.rationale ?? null, scope: r.api_key_id ? "this_api_key" : "account_wide",
+        })),
+      ],
+    });
   }
 
   // ---- GET /control-api/v1/decisions ---------------------------------------

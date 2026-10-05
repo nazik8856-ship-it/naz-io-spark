@@ -2,7 +2,7 @@
 // so it's used identically by both the real gate and the rule simulator.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/rule-matching_test.ts
-import { globToRe, ruleMatchesAction, selectRulesForAgent } from "./rule-matching.ts";
+import { globToRe, ruleMatchesAction, selectRulesForAgent, selectRulesForEntity } from "./rule-matching.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -119,4 +119,42 @@ Deno.test("selectRulesForAgent: with no agent in context (agentId null/undefined
 
 Deno.test("selectRulesForAgent: empty input is a valid empty result, not a crash", () => {
   assertEquals(selectRulesForAgent([] as R[], "agent-1"), []);
+});
+
+// --- selectRulesForEntity (GAP 1: Shared Criteria Library -- api_key_id scoping) ---
+
+type ER = { id: string; agent_id?: string | null; api_key_id?: string | null };
+
+Deno.test("selectRulesForEntity: an api-key-scoped rule is visible for its own key, invisible for others", () => {
+  const rules: ER[] = [{ id: "k1-only", api_key_id: "key-1" }];
+  assertEquals(selectRulesForEntity(rules, "api_key", "key-1").map((r) => r.id), ["k1-only"]);
+  assertEquals(selectRulesForEntity(rules, "api_key", "key-2"), []);
+});
+
+Deno.test("selectRulesForEntity: an agent-scoped rule never shows up when resolving for an api key, and vice versa", () => {
+  const rules: ER[] = [
+    { id: "agent-rule", agent_id: "agent-1" },
+    { id: "key-rule", api_key_id: "key-1" },
+    { id: "acct", agent_id: null, api_key_id: null },
+  ];
+  assertEquals(selectRulesForEntity(rules, "api_key", "key-1").map((r) => r.id), ["key-rule", "acct"]);
+  assertEquals(selectRulesForEntity(rules, "agent", "agent-1").map((r) => r.id), ["agent-rule", "acct"]);
+});
+
+Deno.test("selectRulesForEntity: with no entity in context, only account-wide (both columns null) rules apply", () => {
+  const rules: ER[] = [
+    { id: "acct", agent_id: null, api_key_id: null },
+    { id: "agent-rule", agent_id: "agent-1" },
+    { id: "key-rule", api_key_id: "key-1" },
+  ];
+  assertEquals(selectRulesForEntity(rules, null, null).map((r) => r.id), ["acct"]);
+});
+
+Deno.test("selectRulesForAgent delegates to selectRulesForEntity and keeps its original agent-only behavior unchanged", () => {
+  const rules: ER[] = [
+    { id: "acct", agent_id: null },
+    { id: "agent-rule", agent_id: "agent-1" },
+    { id: "key-rule", api_key_id: "key-1" },
+  ];
+  assertEquals(selectRulesForAgent(rules, "agent-1").map((r) => r.id), ["agent-rule", "acct"]);
 });

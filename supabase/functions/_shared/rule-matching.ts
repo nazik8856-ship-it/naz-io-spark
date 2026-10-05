@@ -37,6 +37,45 @@ export function ruleMatchesAction(rule: HardRuleLike, actionType: string, provid
 
 export type AgentScopedLike = { agent_id?: string | null };
 
+// GAP 1 (Shared Criteria Library): a rule can now ALSO be scoped to one
+// connected external AI (api_key_id) instead of one generated agent
+// (agent_id) -- the same "this entity's own rules + every account-wide
+// rule, entity-specific first" shape, just generalized to either kind of
+// governed entity so Inner Control (agents) and Outer Control (api keys)
+// read from one shared selection function instead of two copies that could
+// drift. selectRulesForAgent below is now a thin, behavior-preserving
+// wrapper over this for every one of its existing callers.
+export type EntityScopedLike = { agent_id?: string | null; api_key_id?: string | null };
+export type EntityKind = "agent" | "api_key";
+
+/**
+ * Rules visible for a given entity (an agent OR an api key): that entity's
+ * own rules plus every account-wide rule (both agent_id and api_key_id
+ * null), with entity-specific rules ordered first. A rule scoped to the
+ * OTHER entity kind is never visible here, even when its own scoping
+ * column happens to be null for this entity's column -- e.g. an
+ * api_key-scoped rule never shows up when resolving for an agent.
+ *
+ * `entityKind`/`entityId` of null means "evaluating with no specific agent
+ * or api key in context" (e.g. the chat-driven Control System) -- only
+ * account-wide rules apply.
+ */
+export function selectRulesForEntity<T extends EntityScopedLike>(
+  rules: T[],
+  entityKind: EntityKind | null | undefined,
+  entityId: string | null | undefined,
+): T[] {
+  const scopeKey: "agent_id" | "api_key_id" = entityKind === "api_key" ? "api_key_id" : "agent_id";
+  const otherKey: "agent_id" | "api_key_id" = entityKind === "api_key" ? "agent_id" : "api_key_id";
+  const visible = rules.filter((r) => {
+    if (r[otherKey] != null) return false;
+    return r[scopeKey] == null || r[scopeKey] === entityId;
+  });
+  const entityScoped = visible.filter((r) => r[scopeKey] != null);
+  const accountWide = visible.filter((r) => r[scopeKey] == null);
+  return [...entityScoped, ...accountWide];
+}
+
 /**
  * Rules visible for a given agent: that agent's own rules plus every
  * account-wide (agent_id null) rule, with agent-specific rules ordered
@@ -50,8 +89,5 @@ export type AgentScopedLike = { agent_id?: string | null };
  * agent to match an agent-scoped rule against.
  */
 export function selectRulesForAgent<T extends AgentScopedLike>(rules: T[], agentId: string | null | undefined): T[] {
-  const visible = rules.filter((r) => r.agent_id == null || r.agent_id === agentId);
-  const agentScoped = visible.filter((r) => r.agent_id != null);
-  const accountWide = visible.filter((r) => r.agent_id == null);
-  return [...agentScoped, ...accountWide];
+  return selectRulesForEntity(rules as (T & EntityScopedLike)[], agentId ? "agent" : null, agentId ?? null);
 }

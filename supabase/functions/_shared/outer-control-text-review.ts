@@ -122,7 +122,7 @@ export async function evaluateExternalText(
     };
   }
 
-  const hardRuleMatch = await matchHardRule(admin, userId, TEXT_REVIEW_ACTION_TYPE, sourceModel, agentId);
+  const hardRuleMatch = await matchHardRule(admin, userId, TEXT_REVIEW_ACTION_TYPE, sourceModel, agentId, apiKeyId);
   if (hardRuleMatch.rule) {
     const rule = hardRuleMatch.rule;
     const blocking = rule.effect === "always_block";
@@ -180,7 +180,7 @@ export async function evaluateExternalText(
     };
   }
 
-  const rules = await loadSafetyRules(admin, userId, agentId);
+  const rules = await loadSafetyRules(admin, userId, agentId, apiKeyId);
   const scan = scanWithRules(rules, content, "");
   const verdict = decideVerdict(scan.matches);
   const trustScore = computeTrustScore(scan.matches);

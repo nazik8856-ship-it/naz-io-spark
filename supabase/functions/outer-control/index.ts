@@ -121,6 +121,10 @@ async function buildSuggestedCorrection(
   description: string,
   params: unknown,
   matches: SafetyMatch[],
+  // GAP 1 (Shared Criteria Library): lets the re-verification scan below
+  // resolve api-key-scoped safety rules when there's no agentId in context
+  // (an external-api-origin action), same as the first scan already did.
+  apiKeyId: string | null = null,
 ): Promise<SuggestedCorrection | null> {
   if (!params || typeof params !== "object" || Array.isArray(params)) return null;
   const original = params as Record<string, unknown>;
@@ -133,7 +137,7 @@ async function buildSuggestedCorrection(
   // wording match. Never suggest a result with nothing left in it.
   if (Object.keys(stricter).length === 0) return null;
   const removedFields = Object.keys(original).filter((k) => !(k in stricter));
-  const recheck = await scanAction(admin, userId, stricter, description, null, agentId);
+  const recheck = await scanAction(admin, userId, stricter, description, null, agentId, apiKeyId);
   return { params: stricter, removed_fields: removedFields, verified_clean: !recheck.matched };
 }
 
@@ -218,7 +222,7 @@ async function handleActionEvaluation(
   // breaker block has nothing analogous to strip from params, same as
   // Inner Control's own auto_narrow retry already reasons.
   const suggestedCorrection = verdict !== "allow" && gate.source === "safety_scanner"
-    ? await buildSuggestedCorrection(admin, auth.userId, agentId, description, params, gate.safety.matches)
+    ? await buildSuggestedCorrection(admin, auth.userId, agentId, description, params, gate.safety.matches, auth.keyId)
     : null;
 
   const { data: evalRow, error: insertError } = await admin
