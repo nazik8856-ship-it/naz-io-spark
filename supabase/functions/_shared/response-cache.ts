@@ -33,11 +33,25 @@ export async function cacheKeyFor(message: string): Promise<string> {
   return sha256Hex(message.trim().toLowerCase());
 }
 
+/**
+ * GAP 6 (Persistent Ongoing Enforcement): every lookup and write below now
+ * requires an exact policy_version match -- the account's CURRENT active
+ * policy snapshot id (control-gate.ts/get_active_policy_version's own
+ * self-healing mechanism, the SAME one every agent decision is already
+ * pinned to via agent_decisions.policy_version). A cache entry written
+ * under an older policy version is never served again, even if its TTL
+ * hasn't expired yet: the moment the account's hard_rules/safety_rules
+ * change, every previously-cached answer falls through to a fresh,
+ * fully re-governed one instead of continuing to replay a verdict that
+ * may no longer be compliant.
+ */
+
 /** Never throws -- a lookup failure just means "no cache hit," never breaks a real answer. */
 export async function findExactCachedResponse(
   admin: SupabaseClient,
   apiKeyId: string,
   messageHash: string,
+  currentPolicyVersion: number,
 ): Promise<CachedResponse | null> {
   try {
     const { data } = await admin
@@ -45,6 +59,7 @@ export async function findExactCachedResponse(
       .select("answer, sources, confidence")
       .eq("api_key_id", apiKeyId)
       .eq("message_hash", messageHash)
+      .eq("policy_version", currentPolicyVersion)
       .gt("expires_at", new Date().toISOString())
       .order("created_at", { ascending: false })
       .limit(1)
@@ -60,11 +75,13 @@ export async function findNearDuplicateCachedResponse(
   admin: SupabaseClient,
   apiKeyId: string,
   embeddingLiteral: string,
+  currentPolicyVersion: number,
 ): Promise<CachedResponse | null> {
   try {
     const { data, error } = await admin.rpc("search_response_cache", {
       _api_key_id: apiKeyId,
       _embedding: embeddingLiteral,
+      _policy_version: currentPolicyVersion,
       _limit: 1,
     });
     if (error || !Array.isArray(data) || !data.length) return null;
@@ -87,6 +104,7 @@ export async function storeCachedResponse(
   answer: string,
   sources: ResponseSource[] | undefined,
   confidence: string,
+  policyVersion: number,
 ): Promise<void> {
   try {
     const expiresAt = new Date(Date.now() + CACHE_TTL_HOURS * 60 * 60 * 1000).toISOString();
@@ -100,6 +118,7 @@ export async function storeCachedResponse(
       sources: sources ?? null,
       confidence,
       expires_at: expiresAt,
+      policy_version: policyVersion,
     });
   } catch { /* caching must never break a real answer that already succeeded */ }
 }
