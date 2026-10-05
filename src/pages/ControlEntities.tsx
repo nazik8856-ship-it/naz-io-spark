@@ -7,6 +7,7 @@ const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { selectRulesForAgent } from "@/lib/agent-policy";
+import { computeTrustScore, type TrustScoreReport } from "@/lib/trust-score";
 
 type AgentRow = {
   id: string; name: string; status: string | null;
@@ -26,7 +27,20 @@ type Entity = {
   createdAt: string;
   decisionsToday: number;
   rulesApplied: number;
+  // GAP 4 (Trust Score + Provenance + Control Report): null only while
+  // still loading -- see the second-pass load() call below.
+  trustScore: TrustScoreReport | null;
 };
+
+// GAP 4: green/amber/rose thresholds loosely mirror the trust score's own
+// deduction caps (a single elevated component costs at most 40 points, so
+// anything still >= 80 has at most one mild issue; below 50 means multiple
+// real issues or one severe one).
+function trustScoreBadgeClass(score: number) {
+  if (score >= 80) return "border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-300";
+  if (score >= 50) return "border-amber-500/30 bg-amber-500/[0.06] text-amber-300";
+  return "border-rose-500/30 bg-rose-500/[0.06] text-rose-300";
+}
 
 function statusBadgeClass(status: Entity["status"]) {
   if (status === "active") return "border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-300";
@@ -115,6 +129,75 @@ export default function ControlEntities() {
     const keyCounts: Record<string, number> = {};
     for (const r of (keyDecisionsToday ?? []) as { api_key_id: string }[]) keyCounts[r.api_key_id] = (keyCounts[r.api_key_id] ?? 0) + 1;
 
+    // GAP 4 (Trust Score + Provenance + Control Report): a real, per-entity
+    // trust score composed from three independent signals already recorded
+    // elsewhere -- confidence-calibration accuracy, hard/safety rule
+    // trigger rate, and GAP 3's repair-engine intervention rate. Same
+    // 90-day lookback automation-readiness.ts and trust-score.ts's own
+    // server-side gatherTrustScoreInput already use.
+    const since90 = new Date(Date.now() - 90 * 86400_000).toISOString();
+    const [{ data: calibRows }, { data: decisions90 }, { data: selfRepairEvents }, { data: modifyEvals }] = await Promise.all([
+      anyDb.from("confidence_calibration").select("calibration_gap, api_key_id").eq("user_id", accountId).gte("period_end", since90),
+      anyDb.from("agent_decisions").select("agent_id, api_key_id, source").eq("user_id", accountId).eq("is_test", false).gte("created_at", since90).limit(10000),
+      anyDb.from("agent_events").select("agent_id").eq("user_id", accountId).eq("kind", "self_repair").gte("created_at", since90),
+      anyDb.from("outer_control_evaluations").select("agent_id, api_key_id").eq("user_id", accountId).eq("verdict", "modify").gte("created_at", since90),
+    ]);
+    const accountWideCalibGaps = ((calibRows ?? []) as { calibration_gap: number | null; api_key_id: string | null }[])
+      .filter((r) => r.api_key_id === null).map((r) => Math.abs(Number(r.calibration_gap) || 0));
+    const avgAccountWideCalibGap = accountWideCalibGaps.length
+      ? accountWideCalibGaps.reduce((s, g) => s + g, 0) / accountWideCalibGaps.length : null;
+    const calibGapByKey = new Map<string, number[]>();
+    for (const r of (calibRows ?? []) as { calibration_gap: number | null; api_key_id: string | null }[]) {
+      if (!r.api_key_id) continue;
+      const arr = calibGapByKey.get(r.api_key_id) ?? [];
+      arr.push(Math.abs(Number(r.calibration_gap) || 0));
+      calibGapByKey.set(r.api_key_id, arr);
+    }
+    const decRows90 = (decisions90 ?? []) as { agent_id: string | null; api_key_id: string | null; source: string | null }[];
+    const ruleTriggered = (r: { source: string | null }) => r.source === "hard_rule" || r.source === "safety_scanner";
+    const agentDecisionStats: Record<string, { total: number; triggered: number }> = {};
+    const keyDecisionStats: Record<string, { total: number; triggered: number }> = {};
+    for (const r of decRows90) {
+      if (r.agent_id) {
+        const s = agentDecisionStats[r.agent_id] ?? { total: 0, triggered: 0 };
+        s.total++; if (ruleTriggered(r)) s.triggered++;
+        agentDecisionStats[r.agent_id] = s;
+      } else if (r.api_key_id) {
+        const s = keyDecisionStats[r.api_key_id] ?? { total: 0, triggered: 0 };
+        s.total++; if (ruleTriggered(r)) s.triggered++;
+        keyDecisionStats[r.api_key_id] = s;
+      }
+    }
+    const selfRepairByAgent: Record<string, number> = {};
+    for (const r of (selfRepairEvents ?? []) as { agent_id: string | null }[]) {
+      if (r.agent_id) selfRepairByAgent[r.agent_id] = (selfRepairByAgent[r.agent_id] ?? 0) + 1;
+    }
+    const modifyByAgent: Record<string, number> = {};
+    const modifyByKey: Record<string, number> = {};
+    for (const r of (modifyEvals ?? []) as { agent_id: string | null; api_key_id: string | null }[]) {
+      if (r.agent_id) modifyByAgent[r.agent_id] = (modifyByAgent[r.agent_id] ?? 0) + 1;
+      else if (r.api_key_id) modifyByKey[r.api_key_id] = (modifyByKey[r.api_key_id] ?? 0) + 1;
+    }
+    const trustScoreForAgent = (agentId: string): TrustScoreReport => {
+      const stats = agentDecisionStats[agentId] ?? { total: 0, triggered: 0 };
+      return computeTrustScore({
+        avgCalibrationGap: avgAccountWideCalibGap,
+        totalDecisions: stats.total,
+        ruleTriggeredDecisions: stats.triggered,
+        repairInterventions: (selfRepairByAgent[agentId] ?? 0) + (modifyByAgent[agentId] ?? 0),
+      });
+    };
+    const trustScoreForKey = (keyId: string): TrustScoreReport => {
+      const stats = keyDecisionStats[keyId] ?? { total: 0, triggered: 0 };
+      const keyGaps = calibGapByKey.get(keyId) ?? [];
+      return computeTrustScore({
+        avgCalibrationGap: keyGaps.length ? keyGaps.reduce((s, g) => s + g, 0) / keyGaps.length : null,
+        totalDecisions: stats.total,
+        ruleTriggeredDecisions: stats.triggered,
+        repairInterventions: modifyByKey[keyId] ?? 0,
+      });
+    };
+
     const now = Date.now();
     const agentEntities: Entity[] = agents.map((a) => ({
       id: a.id,
@@ -125,6 +208,7 @@ export default function ControlEntities() {
       decisionsToday: agentCounts[a.id] ?? 0,
       rulesApplied: selectRulesForAgent(hard, a.id).filter((r) => r.enabled !== false).length
         + selectRulesForAgent(safety, a.id).filter((r) => r.enabled !== false).length,
+      trustScore: trustScoreForAgent(a.id),
     }));
     const keyEntities: Entity[] = keys.map((k) => ({
       id: k.id,
@@ -137,6 +221,7 @@ export default function ControlEntities() {
       createdAt: k.created_at,
       decisionsToday: keyCounts[k.id] ?? 0,
       rulesApplied: accountWide,
+      trustScore: trustScoreForKey(k.id),
     }));
 
     setEntities([...agentEntities, ...keyEntities].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)));
@@ -216,15 +301,16 @@ export default function ControlEntities() {
                 <th className="px-3 py-2 font-mono">Type</th>
                 <th className="px-3 py-2 font-mono">Status</th>
                 <th className="px-3 py-2 font-mono">Rules applied</th>
+                <th className="px-3 py-2 font-mono" title="90-day composite of confidence-calibration accuracy, hard/safety rule trigger rate, and repair-engine intervention rate.">Trust score</th>
                 <th className="px-3 py-2 font-mono">Decisions today</th>
                 <th className="px-3 py-2 font-mono">Created</th>
               </tr>
             </thead>
             <tbody>
               {entities === null ? (
-                <tr><td colSpan={6} className="px-3 py-6 text-center text-zinc-500">Loading…</td></tr>
+                <tr><td colSpan={7} className="px-3 py-6 text-center text-zinc-500">Loading…</td></tr>
               ) : entities.length === 0 ? (
-                <tr><td colSpan={6} className="px-3 py-6 text-center text-zinc-500">
+                <tr><td colSpan={7} className="px-3 py-6 text-center text-zinc-500">
                   Nothing governed yet — create an agent in Generator or an API key under Outer Control to see it here.
                 </td></tr>
               ) : (
@@ -245,6 +331,18 @@ export default function ControlEntities() {
                       <span className={`rounded-full border px-2 py-0.5 text-[11px] capitalize ${statusBadgeClass(e.status)}`}>{e.status}</span>
                     </td>
                     <td className="px-3 py-2 text-zinc-300">{e.rulesApplied}</td>
+                    <td className="px-3 py-2">
+                      {e.trustScore === null ? (
+                        <span className="text-zinc-500">—</span>
+                      ) : (
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[11px] ${trustScoreBadgeClass(e.trustScore.score)}`}
+                          title={e.trustScore.components.map((c) => c.detail).join(" ")}
+                        >
+                          {e.trustScore.score}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-zinc-300">{e.decisionsToday}</td>
                     <td className="px-3 py-2 text-zinc-500">{new Date(e.createdAt).toLocaleDateString()}</td>
                   </tr>

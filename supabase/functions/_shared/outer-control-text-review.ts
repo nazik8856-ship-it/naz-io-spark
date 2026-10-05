@@ -19,6 +19,7 @@
 import { checkKillSwitches, createPendingApproval, matchHardRule } from "./control-gate.ts";
 import { loadSafetyRules, scanWithRules, type SafetyMatch } from "./safety-scanner.ts";
 import { computeTrustScore, decideVerdict, redactContent } from "./outer-control-scoring.ts";
+import { computeTrustScore as computeEntityTrustScore, gatherTrustScoreInput, type TrustScoreReport } from "./trust-score.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { embedDecisionIfExternal } from "./decision-embeddings.ts";
 
@@ -44,6 +45,12 @@ export type TextReviewResult = {
   evaluatedAt: string | null;
   approvalId?: string | null;
   criteria: "inner_control_gate_v1" | "inner_control_safety_rules_v1";
+  // GAP 4 (Trust Score + Provenance + Control Report): the governing
+  // entity's own aggregate, measured-history trust score -- distinct from
+  // `trustScore` above (this one piece of content's own match-based
+  // score). null only when neither an agent nor a calling api key is
+  // known for this review.
+  entityTrustScore: TrustScoreReport | null;
 };
 
 async function recordEvaluation(admin: AnyAdmin, row: Record<string, unknown>): Promise<{ id: string; created_at: string } | null> {
@@ -103,6 +110,16 @@ export async function evaluateExternalText(
 ): Promise<TextReviewResult> {
   const { userId, agentId, apiKeyId, isTest, sourceModel, content, origin } = params;
 
+  // GAP 4: computed once up front and attached to every return below --
+  // an agent, when present, is always the governing entity; otherwise it's
+  // the calling api key (mirrors control-gate.ts's own resolveRuleEntity
+  // precedence).
+  const trustScoreEntity: { kind: "agent" | "api_key"; id: string } | null =
+    agentId ? { kind: "agent", id: agentId } : apiKeyId ? { kind: "api_key", id: apiKeyId } : null;
+  const entityTrustScore: TrustScoreReport | null = trustScoreEntity
+    ? computeEntityTrustScore(await gatherTrustScoreInput(admin, userId, trustScoreEntity.kind, trustScoreEntity.id))
+    : null;
+
   const killCheck = await checkKillSwitches(admin, userId, agentId);
   if (killCheck.killed) {
     const decisionId = await logTextGateDecision(admin, {
@@ -119,6 +136,7 @@ export async function evaluateExternalText(
     return {
       verdict: "block", output: null, trustScore: 0, matches: [], summary: killCheck.reason ?? "Kill switch active.",
       evaluationId: evalRow?.id ?? null, evaluatedAt: evalRow?.created_at ?? null, criteria: "inner_control_gate_v1",
+      entityTrustScore,
     };
   }
 
@@ -151,6 +169,7 @@ export async function evaluateExternalText(
       return {
         verdict: "block", output: null, trustScore: 0, matches: [], summary: reason,
         evaluationId: evalRow?.id ?? null, evaluatedAt: evalRow?.created_at ?? null, criteria: "inner_control_gate_v1",
+        entityTrustScore,
       };
     }
 
@@ -177,6 +196,7 @@ export async function evaluateExternalText(
       verdict, output: outputText, trustScore, matches: [], summary,
       evaluationId: evalRow?.id ?? null, evaluatedAt: evalRow?.created_at ?? null,
       approvalId: outcome.approvalId, criteria: "inner_control_gate_v1",
+      entityTrustScore,
     };
   }
 
@@ -216,5 +236,6 @@ export async function evaluateExternalText(
     verdict, output: outputText, trustScore, matches: scan.matches, summary,
     evaluationId: evalRow?.id ?? null, evaluatedAt: evalRow?.created_at ?? null,
     criteria: "inner_control_safety_rules_v1",
+    entityTrustScore,
   };
 }
