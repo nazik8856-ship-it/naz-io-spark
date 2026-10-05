@@ -309,27 +309,44 @@ export default function GeneratorHome() {
   const [compiling, setCompiling] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [tone, setTone] = useState<string | null>(null);
+  const [generationRequestId, setGenerationRequestId] = useState<string | null>(null);
 
-  // Neither compile-website-manifest nor compile-agent-manifest streams
-  // progress -- it's one blocking HTTP call -- so there's no real step count
-  // to report. This cycles through honest, generic stage labels on a timer
-  // so a 10-20s wait reads as forward motion instead of a static spinner
-  // that looks identical whether it's 2 seconds in or stuck.
+  // GAP 8 (Speed & Reliability Layer): compile-website-manifest and
+  // compile-agent-manifest now report their real phase boundaries into the
+  // generation_progress table (keyed by the requestId passed in the POST
+  // body below) as they happen, instead of this panel guessing elapsed time
+  // on a blind timer. Polling a tiny owner-scoped row is far cheaper than
+  // the SSE/chunked rewrite a true stream would need, for the same
+  // user-visible result: real forward motion, not a generic clock.
+  const STAGE_LABELS: Record<string, string> = {
+    understanding: "Understanding your prompt…",
+    generating: "Generating content…",
+    refining: "Refining quality…",
+    reviewing: "Running safety checks…",
+    saving: "Saving…",
+  };
   const [compileStage, setCompileStage] = useState<string | null>(null);
   useEffect(() => {
-    if (!compiling) {
+    if (!compiling || !generationRequestId) {
       setCompileStage(null);
       return;
     }
-    const stages = ["Understanding your prompt…", "Designing the structure…", "Generating content…", "Almost there…"];
-    let i = 0;
-    setCompileStage(stages[0]);
-    const interval = setInterval(() => {
-      i = Math.min(i + 1, stages.length - 1);
-      setCompileStage(stages[i]);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [compiling]);
+    setCompileStage(STAGE_LABELS.understanding);
+    let cancelled = false;
+    const poll = async () => {
+      const { data } = await supabase
+        .from("generation_progress")
+        .select("stage")
+        .eq("request_id", generationRequestId)
+        .maybeSingle();
+      if (!cancelled && data?.stage) {
+        setCompileStage(STAGE_LABELS[data.stage as string] || "Compiling…");
+      }
+    };
+    poll();
+    const interval = setInterval(poll, 1300);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [compiling, generationRequestId]);
 
   // Compiling a full website/agent from scratch can legitimately take
   // 10-20s; anything past this almost certainly means the AI call or the
@@ -347,6 +364,8 @@ export default function GeneratorHome() {
     const raw = prompt.trim();
     if (!raw || compiling) return;
     setCompiling(true);
+    const reqId = crypto.randomUUID();
+    setGenerationRequestId(reqId);
 
     // Read/analyze every attached input BEFORE generation so the compiler
     // works off real understanding — not raw appended text. This can throw
@@ -375,7 +394,7 @@ export default function GeneratorHome() {
             Authorization: `Bearer ${token}`,
             apikey: SUPABASE_ANON,
           },
-          body: JSON.stringify({ prompt: p, save: true }),
+          body: JSON.stringify({ prompt: p, save: true, requestId: reqId }),
         });
         const body = await resp.json().catch(() => ({}));
         if (!resp.ok || !body?.website_id) {
@@ -439,7 +458,7 @@ export default function GeneratorHome() {
             Authorization: `Bearer ${token}`,
             apikey: SUPABASE_ANON,
           },
-          body: JSON.stringify({ plan: p, save: true }),
+          body: JSON.stringify({ plan: p, save: true, requestId: reqId }),
         });
         const body = await resp.json().catch(() => ({}));
         if (!resp.ok || !body?.agentId) {

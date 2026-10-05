@@ -15,6 +15,8 @@ import { loadSafetyRules, scanWithRules } from "../_shared/safety-scanner.ts";
 import { repairContent } from "../_shared/repair-engine.ts";
 import { isRedactableMatch } from "../_shared/outer-control-scoring.ts";
 import { critiqueAndRevise, findUngroundedFacts } from "../_shared/generation-critique.ts";
+import { generationCacheKeyFor, findCachedGeneration, storeCachedGeneration } from "../_shared/generation-cache.ts";
+import { reportProgress } from "../_shared/generation-progress.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -227,7 +229,7 @@ serve(async (req) => {
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
     const body = await req.json();
-    const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint, existingAgentId = null, recentTurns = [] } = body || {};
+    const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint, existingAgentId = null, recentTurns = [], requestId = null } = body || {};
     if (!plan || typeof plan !== "string") return json({ error: "plan required" }, 400);
 
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -236,8 +238,15 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: authHeader } } },
     );
+    // GAP 8 (Speed & Reliability Layer): a service-role client for the
+    // generation_cache/generation_progress writes below -- authenticated
+    // users only ever get a SELECT grant on those tables, so writing
+    // through the user-context `supabase` client above would silently fail
+    // (and be swallowed by those helpers' own try/catch) every time.
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { data: userData } = await supabase.auth.getUser();
     const user = userData?.user;
+    await reportProgress(admin, requestId, user?.id, "understanding");
 
     // Resolve business profile (optional)
     let profile: Record<string, unknown> | null = null;
@@ -324,8 +333,24 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
 
     // Try the AI compile; if anything goes wrong, fall back to a deterministic
     // manifest built from the role blueprint so the agent ALWAYS appears.
-    let normalized: Manifest;
+    let normalized: Manifest | null = null;
     let usedFallback = false;
+    // GAP 8 (Speed & Reliability Layer): never applied to an EDIT of an
+    // existing agent -- an edit is inherently request-specific (scoped by
+    // existingAgentId + the live current manifest, not just the plan
+    // text), so caching it by plan text alone would risk replaying a
+    // stale edit against a now-different agent state.
+    const generationCacheKey = (!existingAgentRow && user)
+      ? await generationCacheKeyFor({ plan, businessProfileId, userPrompt, intakeAnswers, role: roleHint })
+      : null;
+    if (generationCacheKey && user) {
+      normalized = await findCachedGeneration<Manifest>(admin, user.id, "agent", generationCacheKey);
+    }
+    // The cached value already reflects GAP 7's critique-and-revise pass
+    // (it's only ever written AFTER that pass runs, below) -- a hit skips
+    // straight past both the generation call and the critique call,
+    // never just the first one.
+    const servedFromCache = normalized !== null;
     // A repeated near-identical edit request is a strong signal the previous
     // attempt silently failed to apply -- tell the model explicitly so it
     // double-checks rather than agreeing again without changing anything.
@@ -335,6 +360,8 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     const loopClause = isRepeatedRequest
       ? "\n\nIMPORTANT: The operator has asked for a very similar change recently, which suggests the previous attempt did not actually apply. Re-read the EXISTING AGENT content above carefully, confirm whether this specific change is already reflected, and make sure the requested change is unambiguously and visibly applied in the manifest you return this time."
       : "";
+    if (!normalized) {
+    await reportProgress(admin, requestId, user?.id, "generating");
     try {
       const resp = await callAiGateway({
         model: gw.deepModel,
@@ -364,6 +391,14 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       }
       usedFallback = true;
       normalized = buildFallbackManifest(plan, userPrompt, role, blueprint, profile);
+    }
+    }
+    if (!normalized) {
+      // Unreachable in practice -- every path above either returns or
+      // assigns normalized a real Manifest. Narrows the type for
+      // everything below without relying on TS to trace that through the
+      // nested try/catch above.
+      return json({ error: "Agent compilation failed unexpectedly." }, 500);
     }
 
     // Ensure required tools exist
@@ -454,9 +489,11 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     // above) so the critique judges what will actually ship -- strictly
     // before the hard-rule tool-stripping gate just below. Never runs for
     // a deterministic fallback manifest (nothing to critique-and-revise a
-    // static template against). Any failure anywhere in this pass keeps
-    // the original manifest unchanged.
-    if (!usedFallback) {
+    // static template against) or a cache hit (GAP 8 -- the cached value
+    // was already critiqued-and-revised before it was stored). Any
+    // failure anywhere in this pass keeps the original manifest unchanged.
+    if (!usedFallback && !servedFromCache) {
+      await reportProgress(admin, requestId, user?.id, "refining");
       const critiqueContext = `${profileBlock}\n\nORIGINAL PLAN:\n${effectivePlan.slice(0, 2000)}`;
       const { result: revisedManifest } = await critiqueAndRevise(
         callAiGateway, gw, normalized, critiqueContext,
@@ -498,6 +535,14 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
           { rule: `Generated content includes ${ungrounded.map((f) => `a ${f.kind} ("${f.value}")`).join(", ")} not found in your business profile or plan -- verify before relying on it.`, requiresApproval: false },
         ];
       }
+    }
+
+    // GAP 8: cache the fully critiqued, fact-checked candidate -- never
+    // for a deterministic fallback (nothing expensive was actually saved)
+    // or a value that just came FROM the cache (would just rewrite the
+    // same row with a refreshed TTL for no real benefit).
+    if (generationCacheKey && user && !usedFallback && !servedFromCache) {
+      await storeCachedGeneration(admin, user.id, "agent", generationCacheKey, normalized);
     }
 
     // Blueprint task #5: close the "no bypass" gap. accountRulesBlock above
@@ -543,6 +588,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     // over each prose field separately, so a match can be traced back to
     // exactly which field it came from.
     if (user) {
+      await reportProgress(admin, requestId, user.id, "reviewing");
       const safetyRules = await loadSafetyRules(supabase, user.id, null);
       const proseFields: { field: "systemPrompt" | "decisionPolicy"; text: string }[] = [
         { field: "systemPrompt", text: normalized.systemPrompt },
@@ -612,6 +658,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     let mode: "created" | "updated" = "created";
     if (save) {
       if (!user) return json({ error: "Not authenticated — sign in to deploy.", manifest: normalized, agentId: null }, 401);
+      await reportProgress(admin, requestId, user.id, "saving");
       const slug = slugify(normalized.name);
       const next_run_at = nextRunFromCron(finalScheduleCron);
 

@@ -279,6 +279,7 @@ export type Database = {
           confidence_score: number
           created_at: string
           decision: string
+          deferred_detail: Json | null
           description: string | null
           embedding_backfill_checked_at: string | null
           escalated: boolean
@@ -286,8 +287,11 @@ export type Database = {
           gate_trace: Json | null
           hard_rule_id: string | null
           human_response: string | null
+          human_response_signature: string | null
+          human_response_signed_at: string | null
           id: string
           is_test: boolean
+          modified_params: Json | null
           org_id: string | null
           overridden_at: string | null
           override_of: string | null
@@ -312,6 +316,7 @@ export type Database = {
           confidence_score?: number
           created_at?: string
           decision: string
+          deferred_detail?: Json | null
           description?: string | null
           embedding_backfill_checked_at?: string | null
           escalated?: boolean
@@ -319,8 +324,11 @@ export type Database = {
           gate_trace?: Json | null
           hard_rule_id?: string | null
           human_response?: string | null
+          human_response_signature?: string | null
+          human_response_signed_at?: string | null
           id?: string
           is_test?: boolean
+          modified_params?: Json | null
           org_id?: string | null
           overridden_at?: string | null
           override_of?: string | null
@@ -345,6 +353,7 @@ export type Database = {
           confidence_score?: number
           created_at?: string
           decision?: string
+          deferred_detail?: Json | null
           description?: string | null
           embedding_backfill_checked_at?: string | null
           escalated?: boolean
@@ -352,8 +361,11 @@ export type Database = {
           gate_trace?: Json | null
           hard_rule_id?: string | null
           human_response?: string | null
+          human_response_signature?: string | null
+          human_response_signed_at?: string | null
           id?: string
           is_test?: boolean
+          modified_params?: Json | null
           org_id?: string | null
           overridden_at?: string | null
           override_of?: string | null
@@ -1185,6 +1197,7 @@ export type Database = {
           id: string
           message: string
           message_hash: string
+          policy_version: number | null
           sources: Json | null
           user_id: string
         }
@@ -1198,6 +1211,7 @@ export type Database = {
           id?: string
           message: string
           message_hash: string
+          policy_version?: number | null
           sources?: Json | null
           user_id: string
         }
@@ -1211,6 +1225,7 @@ export type Database = {
           id?: string
           message?: string
           message_hash?: string
+          policy_version?: number | null
           sources?: Json | null
           user_id?: string
         }
@@ -1512,6 +1527,7 @@ export type Database = {
           created_at: string
           failure_rate: number
           failures: number
+          half_open_claimed_at: string | null
           id: string
           last_attempt_at: string
           last_reason: string | null
@@ -1529,6 +1545,7 @@ export type Database = {
           created_at?: string
           failure_rate?: number
           failures?: number
+          half_open_claimed_at?: string | null
           id?: string
           last_attempt_at?: string
           last_reason?: string | null
@@ -1546,6 +1563,7 @@ export type Database = {
           created_at?: string
           failure_rate?: number
           failures?: number
+          half_open_claimed_at?: string | null
           id?: string
           last_attempt_at?: string
           last_reason?: string | null
@@ -2200,6 +2218,57 @@ export type Database = {
         }
         Relationships: []
       }
+      generation_cache: {
+        Row: {
+          cache_key: string
+          created_at: string
+          expires_at: string
+          id: string
+          kind: string
+          manifest: Json
+          user_id: string
+        }
+        Insert: {
+          cache_key: string
+          created_at?: string
+          expires_at: string
+          id?: string
+          kind: string
+          manifest: Json
+          user_id: string
+        }
+        Update: {
+          cache_key?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          kind?: string
+          manifest?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
+      generation_progress: {
+        Row: {
+          request_id: string
+          stage: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          request_id: string
+          stage: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          request_id?: string
+          stage?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       gmail_oauth_transactions: {
         Row: {
           created_at: string
@@ -2276,6 +2345,7 @@ export type Database = {
         Row: {
           action_type_pattern: string
           agent_id: string | null
+          api_key_id: string | null
           created_at: string
           effect: string
           enabled: boolean
@@ -2283,6 +2353,7 @@ export type Database = {
           promoted_at: string | null
           provider: string | null
           rationale: string | null
+          required_approvals: number | null
           rule_text: string
           shadow_mode: boolean
           updated_at: string
@@ -2291,6 +2362,7 @@ export type Database = {
         Insert: {
           action_type_pattern?: string
           agent_id?: string | null
+          api_key_id?: string | null
           created_at?: string
           effect?: string
           enabled?: boolean
@@ -2298,6 +2370,7 @@ export type Database = {
           promoted_at?: string | null
           provider?: string | null
           rationale?: string | null
+          required_approvals?: number | null
           rule_text: string
           shadow_mode?: boolean
           updated_at?: string
@@ -2306,6 +2379,7 @@ export type Database = {
         Update: {
           action_type_pattern?: string
           agent_id?: string | null
+          api_key_id?: string | null
           created_at?: string
           effect?: string
           enabled?: boolean
@@ -2313,6 +2387,7 @@ export type Database = {
           promoted_at?: string | null
           provider?: string | null
           rationale?: string | null
+          required_approvals?: number | null
           rule_text?: string
           shadow_mode?: boolean
           updated_at?: string
@@ -2324,6 +2399,13 @@ export type Database = {
             columns: ["agent_id"]
             isOneToOne: false
             referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hard_rules_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
             referencedColumns: ["id"]
           },
         ]
@@ -2756,6 +2838,100 @@ export type Database = {
         }
         Relationships: []
       }
+      outer_control_evaluations: {
+        Row: {
+          action_params: Json | null
+          action_provider: string | null
+          action_type: string | null
+          agent_id: string | null
+          api_key_id: string | null
+          content_kind: string
+          created_at: string
+          decision_id: string | null
+          executed: boolean
+          execution_ref: string | null
+          execution_summary: string | null
+          execution_url: string | null
+          id: string
+          input_excerpt: string
+          matches: Json
+          output_text: string | null
+          source_model: string
+          summary: string | null
+          trust_score: number
+          user_id: string
+          verdict: string
+        }
+        Insert: {
+          action_params?: Json | null
+          action_provider?: string | null
+          action_type?: string | null
+          agent_id?: string | null
+          api_key_id?: string | null
+          content_kind?: string
+          created_at?: string
+          decision_id?: string | null
+          executed?: boolean
+          execution_ref?: string | null
+          execution_summary?: string | null
+          execution_url?: string | null
+          id?: string
+          input_excerpt: string
+          matches?: Json
+          output_text?: string | null
+          source_model: string
+          summary?: string | null
+          trust_score: number
+          user_id: string
+          verdict: string
+        }
+        Update: {
+          action_params?: Json | null
+          action_provider?: string | null
+          action_type?: string | null
+          agent_id?: string | null
+          api_key_id?: string | null
+          content_kind?: string
+          created_at?: string
+          decision_id?: string | null
+          executed?: boolean
+          execution_ref?: string | null
+          execution_summary?: string | null
+          execution_url?: string | null
+          id?: string
+          input_excerpt?: string
+          matches?: Json
+          output_text?: string | null
+          source_model?: string
+          summary?: string | null
+          trust_score?: number
+          user_id?: string
+          verdict?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outer_control_evaluations_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outer_control_evaluations_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outer_control_evaluations_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "agent_decisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pending_approval_events: {
         Row: {
           actor_id: string | null
@@ -2801,6 +2977,7 @@ export type Database = {
         Row: {
           action_type: string
           agent_id: string | null
+          api_key_id: string | null
           approvals: Json
           approver_role: string
           assigned_to: string | null
@@ -2829,6 +3006,7 @@ export type Database = {
         Insert: {
           action_type: string
           agent_id?: string | null
+          api_key_id?: string | null
           approvals?: Json
           approver_role?: string
           assigned_to?: string | null
@@ -2857,6 +3035,7 @@ export type Database = {
         Update: {
           action_type?: string
           agent_id?: string | null
+          api_key_id?: string | null
           approvals?: Json
           approver_role?: string
           assigned_to?: string | null
@@ -2888,6 +3067,13 @@ export type Database = {
             columns: ["agent_id"]
             isOneToOne: false
             referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_approvals_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
             referencedColumns: ["id"]
           },
           {
@@ -3343,6 +3529,7 @@ export type Database = {
       safety_rules: {
         Row: {
           agent_id: string | null
+          api_key_id: string | null
           category: string
           created_at: string
           enabled: boolean
@@ -3358,6 +3545,7 @@ export type Database = {
         }
         Insert: {
           agent_id?: string | null
+          api_key_id?: string | null
           category?: string
           created_at?: string
           enabled?: boolean
@@ -3373,6 +3561,7 @@ export type Database = {
         }
         Update: {
           agent_id?: string | null
+          api_key_id?: string | null
           category?: string
           created_at?: string
           enabled?: boolean
@@ -3392,6 +3581,13 @@ export type Database = {
             columns: ["agent_id"]
             isOneToOne: false
             referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safety_rules_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
             referencedColumns: ["id"]
           },
         ]
@@ -3793,6 +3989,7 @@ export type Database = {
         Row: {
           created_at: string
           custom_domain: string | null
+          generation_notes: Json
           html: string
           id: string
           name: string | null
@@ -3806,6 +4003,7 @@ export type Database = {
         Insert: {
           created_at?: string
           custom_domain?: string | null
+          generation_notes?: Json
           html: string
           id?: string
           name?: string | null
@@ -3819,6 +4017,7 @@ export type Database = {
         Update: {
           created_at?: string
           custom_domain?: string | null
+          generation_notes?: Json
           html?: string
           id?: string
           name?: string | null
@@ -3925,23 +4124,51 @@ export type Database = {
         Args: { label?: string; payload: Json }
         Returns: string
       }
-      decision_canonical_payload: {
-        Args: {
-          _agent_run_id: string
-          _confidence: number
-          _created_at: string
-          _decision: string
-          _id: string
-          _reasoning: string
-          _source: string
-          _user_id: string
-        }
+      decision_canonical_payload:
+        | {
+            Args: {
+              _agent_run_id: string
+              _confidence: number
+              _created_at: string
+              _decision: string
+              _id: string
+              _reasoning: string
+              _source: string
+              _user_id: string
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              _action_type: string
+              _agent_run_id: string
+              _confidence: number
+              _created_at: string
+              _decision: string
+              _escalated: boolean
+              _gate_trace: Json
+              _id: string
+              _provider: string
+              _reasoning: string
+              _source: string
+              _user_id: string
+            }
+            Returns: string
+          }
+      decision_human_response_payload: {
+        Args: { _human_response: string; _id: string; _signed_at: string }
         Returns: string
       }
       deduct_credit: { Args: { user_id: string }; Returns: boolean }
       delete_email: {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
+      }
+      delete_expired_agent_events: {
+        Args: { _cutoff: string; _user_id: string }
+        Returns: {
+          id: string
+        }[]
       }
       delete_integration_secret: { Args: { sid: string }; Returns: undefined }
       delete_orphaned_gap_clusters: {
@@ -3998,6 +4225,7 @@ export type Database = {
         Returns: {
           action_type: string
           agent_id: string
+          api_key_id: string
           decision_id: string
           opened_at: string
           provider: string
@@ -4289,15 +4517,30 @@ export type Database = {
           similarity: number
         }[]
       }
-      search_response_cache: {
-        Args: { _api_key_id: string; _embedding: string; _limit?: number }
-        Returns: {
-          answer: string
-          confidence: string
-          similarity: number
-          sources: Json
-        }[]
-      }
+      search_response_cache:
+        | {
+            Args: { _api_key_id: string; _embedding: string; _limit?: number }
+            Returns: {
+              answer: string
+              confidence: string
+              similarity: number
+              sources: Json
+            }[]
+          }
+        | {
+            Args: {
+              _api_key_id: string
+              _embedding: string
+              _limit?: number
+              _policy_version: number
+            }
+            Returns: {
+              answer: string
+              confidence: string
+              similarity: number
+              sources: Json
+            }[]
+          }
       search_response_context: {
         Args: { _api_key_id: string; _embedding: string; _limit?: number }
         Returns: {
@@ -4310,15 +4553,26 @@ export type Database = {
         Args: { _payload: string }
         Returns: string
       }
+      sweep_stale_generation_progress: { Args: never; Returns: undefined }
       update_integration_secret: {
         Args: { payload: Json; sid: string }
         Returns: undefined
       }
       verify_decision_signature: { Args: { _id: string }; Returns: Json }
-      verify_decision_signatures_batch: {
-        Args: { _from: string; _limit?: number; _to: string }
-        Returns: Json
-      }
+      verify_decision_signatures_batch:
+        | {
+            Args: { _from: string; _limit?: number; _to: string }
+            Returns: Json
+          }
+        | {
+            Args: {
+              _account_owner_id?: string
+              _from: string
+              _limit?: number
+              _to: string
+            }
+            Returns: Json
+          }
       verify_decision_signatures_batch_for: {
         Args: { _from: string; _limit?: number; _to: string; _user_id: string }
         Returns: Json
