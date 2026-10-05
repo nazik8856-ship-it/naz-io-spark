@@ -36,6 +36,7 @@ import {
   CAPABILITY_REGISTRY,
   canOfferTool,
   buildCapabilityBlock,
+  GATED_TOOL_KINDS,
 } from "../_shared/capability-registry.ts";
 import {
   providerForTool,
@@ -437,6 +438,16 @@ serve(async (req) => {
     // this isn't a safety mechanism like the real circuit breaker, just a
     // "stop wasting steps" nudge for a pattern the model itself can recover
     // from once told plainly.
+    //
+    // GAP 2 (Hard Non-Bypassable Control Gate): deliberately NOT the same
+    // set as capability-registry.ts's own GATE_EXEMPT_TOOL_KINDS, despite
+    // the similar name/purpose -- that one lists every kind exempt from the
+    // real enforcement gate, several of which (ask_user, request_approval,
+    // notify, remember, sync_integrations, canva_list_designs,
+    // generate_report, custom) already have their own purpose-built
+    // handling elsewhere in this run loop and must not also fall into this
+    // narrower dedupe check (ask_user in particular has its own staged
+    // retry-then-replan guard just below, which this must never preempt).
     const UNGATED_TOOL_KINDS = new Set([
       "calc", "http_get", "web_search", "deep_analyze", "make_plan",
       "audit_url", "read_analytics", "read_email", "integration_query",
@@ -496,25 +507,20 @@ serve(async (req) => {
 
     // Verified-action executor kinds subject to the daily action cap AND the
     // control-engine gate (kill switch, hard rules, circuit breaker, spend
-    // cap, safety scanner, anomaly detector, model risk/fit). Must match
-    // every kind capability-registry.ts marks implemented+verified+write —
-    // http_post and schedule_followup were missing here for a while (a real
-    // gap found by the call-graph audit: both are genuine external/self-
-    // perpetuating effects that used to run on nothing but their own local
-    // guardrail, invisible to the kill switch).
-    const ACTION_CAPPED_KINDS = new Set([
-      "send_email", "reply_email", "compose_and_deliver",
-      "create_doc", "edit_doc",
-      "create_sheet", "edit_sheet",
-      "create_calendar_event",
-      "upsert_client_note",
-      "slack_post_message", "slack_upload_file", "export_google_file",
-      "notion_create_page", "notion_update_page",
-      "canva_create_design", "canva_create_folder", "canva_export_design",
-      "figma_post_comment", "figma_create_dev_resource",
-      "shopify_create_draft_order", "shopify_update_product",
-      "http_post", "schedule_followup",
-    ]);
+    // cap, safety scanner, anomaly detector, model risk/fit).
+    //
+    // GAP 2 (Hard Non-Bypassable Control Gate): this used to be its own
+    // hand-maintained allow-list, which is exactly how http_post and
+    // schedule_followup went missing from it for a while (a real gap found
+    // by the call-graph audit: both are genuine external/self-perpetuating
+    // effects that ran on nothing but their own local guardrail, invisible
+    // to the kill switch, until someone remembered to add them here too).
+    // Now sourced directly from capability-registry.ts's GATED_TOOL_KINDS --
+    // every tool kind declares its own `gated` classification right next to
+    // its implemented/verified/mode fields, and a startup assertion in that
+    // file throws if any kind omits it, so a newly added tool can no longer
+    // silently fall out of gate enforcement by omission from a second list.
+    const ACTION_CAPPED_KINDS = GATED_TOOL_KINDS;
     const dailyActionCap = Math.max(0, Number((agent as { daily_action_cap?: number }).daily_action_cap ?? 20));
     // Fan-out safety net: the daily action cap only limits TOTAL volume, so
     // an agent that misreads its task as "email everyone in the list" could
