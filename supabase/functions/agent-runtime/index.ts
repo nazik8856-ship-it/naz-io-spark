@@ -15,6 +15,9 @@ import {
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
+import { repairParams, verifyRepair } from "../_shared/repair-engine.ts";
+import type { SafetyMatch } from "../_shared/safety-scanner.ts";
+import { checkAgentAssembly } from "../_shared/final-assembly-check.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
@@ -36,6 +39,7 @@ import {
   CAPABILITY_REGISTRY,
   canOfferTool,
   buildCapabilityBlock,
+  GATED_TOOL_KINDS,
 } from "../_shared/capability-registry.ts";
 import {
   providerForTool,
@@ -52,6 +56,16 @@ const corsHeaders = {
 };
 
 const MAX_STEPS = 24;
+// GAP 3 (Output Modification & Repair Engine): bounds the retry-with-repair
+// loop on a safety-scanner-blocked tool call -- each attempt removes
+// exactly the field(s) the CURRENT match set flagged and re-runs the full
+// gate against the result, so a repair that exposes a NEW match (rare, but
+// not impossible) gets one more real shot before falling through to the
+// existing block/escalate path. Small on purpose: repairParams is
+// deterministic, so most real cases converge in exactly one attempt --
+// this is a safety margin for the rare multi-round case, not an invitation
+// to keep guessing.
+const MAX_SELF_REPAIR_ATTEMPTS = 2;
 // Per-run spend ceiling, independent of the account's DAILY cap
 // (ai_spend_caps) -- a single run could stay comfortably under a generous
 // daily cap while burning far more than any one run legitimately needs, if
@@ -201,7 +215,33 @@ serve(async (req) => {
       .from("agents").select("*").eq("id", agentId).eq("user_id", userId).single();
     if (agentErr || !agent) return json({ error: "Agent not found" }, 404);
 
-    const manifest = agent.manifest as Manifest;
+    let manifest = agent.manifest as Manifest;
+
+    // GAP 5 (Final Assembly & Consistency Checker): an agent's first-ever
+    // real run is this platform's "deploy" moment -- re-validate its
+    // CURRENT manifest against the account's CURRENT hard_rules/
+    // safety_rules one more time before anything runs, catching a rule
+    // added or changed since this agent was generated (compile-agent-
+    // manifest's own pre-save gate only ever checked the rule set that
+    // existed back then). Every run after the first is already governed
+    // by the ordinary per-call control gate below, so this only needs to
+    // run once, not on every run.
+    const { count: priorRunCount } = await supabase
+      .from("agent_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("agent_id", agentId);
+    if ((priorRunCount ?? 0) === 0) {
+      const assembly = await checkAgentAssembly(supabase, userId, agentId);
+      if (assembly.repaired) {
+        const { data: refreshed } = await supabase.from("agents").select("manifest").eq("id", agentId).maybeSingle();
+        manifest = ((refreshed as { manifest?: Manifest } | null)?.manifest ?? manifest) as Manifest;
+        for (const note of assembly.notes) {
+          await supabase.from("agent_events").insert({
+            agent_id: agentId, user_id: userId, kind: "first_deploy_check", payload: { note },
+          });
+        }
+      }
+    }
 
     // Daily run cap — only enforced for cron triggers. Manual/webhook/scheduled
     // runs bypass the cap so users can always force a run.
@@ -437,6 +477,16 @@ serve(async (req) => {
     // this isn't a safety mechanism like the real circuit breaker, just a
     // "stop wasting steps" nudge for a pattern the model itself can recover
     // from once told plainly.
+    //
+    // GAP 2 (Hard Non-Bypassable Control Gate): deliberately NOT the same
+    // set as capability-registry.ts's own GATE_EXEMPT_TOOL_KINDS, despite
+    // the similar name/purpose -- that one lists every kind exempt from the
+    // real enforcement gate, several of which (ask_user, request_approval,
+    // notify, remember, sync_integrations, canva_list_designs,
+    // generate_report, custom) already have their own purpose-built
+    // handling elsewhere in this run loop and must not also fall into this
+    // narrower dedupe check (ask_user in particular has its own staged
+    // retry-then-replan guard just below, which this must never preempt).
     const UNGATED_TOOL_KINDS = new Set([
       "calc", "http_get", "web_search", "deep_analyze", "make_plan",
       "audit_url", "read_analytics", "read_email", "integration_query",
@@ -496,25 +546,20 @@ serve(async (req) => {
 
     // Verified-action executor kinds subject to the daily action cap AND the
     // control-engine gate (kill switch, hard rules, circuit breaker, spend
-    // cap, safety scanner, anomaly detector, model risk/fit). Must match
-    // every kind capability-registry.ts marks implemented+verified+write —
-    // http_post and schedule_followup were missing here for a while (a real
-    // gap found by the call-graph audit: both are genuine external/self-
-    // perpetuating effects that used to run on nothing but their own local
-    // guardrail, invisible to the kill switch).
-    const ACTION_CAPPED_KINDS = new Set([
-      "send_email", "reply_email", "compose_and_deliver",
-      "create_doc", "edit_doc",
-      "create_sheet", "edit_sheet",
-      "create_calendar_event",
-      "upsert_client_note",
-      "slack_post_message", "slack_upload_file", "export_google_file",
-      "notion_create_page", "notion_update_page",
-      "canva_create_design", "canva_create_folder", "canva_export_design",
-      "figma_post_comment", "figma_create_dev_resource",
-      "shopify_create_draft_order", "shopify_update_product",
-      "http_post", "schedule_followup",
-    ]);
+    // cap, safety scanner, anomaly detector, model risk/fit).
+    //
+    // GAP 2 (Hard Non-Bypassable Control Gate): this used to be its own
+    // hand-maintained allow-list, which is exactly how http_post and
+    // schedule_followup went missing from it for a while (a real gap found
+    // by the call-graph audit: both are genuine external/self-perpetuating
+    // effects that ran on nothing but their own local guardrail, invisible
+    // to the kill switch, until someone remembered to add them here too).
+    // Now sourced directly from capability-registry.ts's GATED_TOOL_KINDS --
+    // every tool kind declares its own `gated` classification right next to
+    // its implemented/verified/mode fields, and a startup assertion in that
+    // file throws if any kind omits it, so a newly added tool can no longer
+    // silently fall out of gate enforcement by omission from a second list.
+    const ACTION_CAPPED_KINDS = GATED_TOOL_KINDS;
     const dailyActionCap = Math.max(0, Number((agent as { daily_action_cap?: number }).daily_action_cap ?? 20));
     // Fan-out safety net: the daily action cap only limits TOTAL volume, so
     // an agent that misreads its task as "email everyone in the list" could
@@ -1554,6 +1599,61 @@ Rules:
       };
     };
 
+    // GAP 3 (Output Modification & Repair Engine): the retry-with-repair
+    // loop for a tool call the gate just blocked. Only ever has something
+    // to act on when the block came from the safety scanner specifically
+    // (a hard rule, kill switch, spend cap, or circuit breaker stop has
+    // nothing analogous to repair -- see repair-engine.ts's own doc
+    // comment). Each attempt removes exactly the field(s) the CURRENT
+    // match set flagged, then re-runs the FULL gate against the repaired
+    // params -- never assumed clean, always re-verified for real, exactly
+    // like Outer Control's own correction path and Generator's pre-save
+    // scan do with the same shared repairParams/verifyRepair primitives.
+    // Returns null when no repair was possible or every attempt still
+    // failed, in which case the caller's existing block/escalate path
+    // applies completely unchanged.
+    const attemptSelfRepair = async (
+      blockedVerdict: GateVerdict,
+      originalInput: Record<string, unknown>,
+      toolKind: string,
+      gateProvider: string,
+      gateDescription: string,
+      stepIndex: number,
+    ): Promise<{ input: Record<string, unknown>; removedFields: string[]; verdict: GateVerdict } | null> => {
+      if (blockedVerdict.source !== "safety_scanner") return null;
+      const safety = blockedVerdict.safety as { matches?: unknown } | null;
+      if (!safety || !Array.isArray(safety.matches) || !safety.matches.length) return null;
+
+      let candidateInput = originalInput;
+      let candidateMatches = safety.matches as SafetyMatch[];
+      const removedFields: string[] = [];
+      for (let attempt = 0; attempt < MAX_SELF_REPAIR_ATTEMPTS; attempt++) {
+        const repair = repairParams(candidateInput, candidateMatches);
+        if (!repair.repaired || Object.keys(repair.repaired).length === 0) return null;
+        removedFields.push(...repair.diff.map((d) => d.detail));
+
+        const reassessed = await assessWithControlEngine({
+          actionType: toolKind,
+          provider: gateProvider,
+          description: gateDescription,
+          params: repair.repaired,
+          stepIndex,
+        });
+        const verified = verifyRepair(repair, !reassessed.ok);
+        if (reassessed.ok && verified.confidence >= 90) {
+          return { input: repair.repaired, removedFields, verdict: reassessed };
+        }
+
+        // Still blocked -- only worth a second attempt if it's a NEW safety-
+        // scanner match set to act on; anything else (hard rule, kill
+        // switch, spend cap...) has nothing left here to repair.
+        const stillSafety = reassessed.source === "safety_scanner" ? (reassessed.safety as { matches?: unknown } | null) : null;
+        if (!stillSafety || !Array.isArray(stillSafety.matches) || !stillSafety.matches.length) return null;
+        candidateInput = repair.repaired;
+        candidateMatches = stillSafety.matches as SafetyMatch[];
+      }
+      return null;
+    };
 
     while (steps < MAX_STEPS && !finished && !paused) {
       steps++;
@@ -1708,7 +1808,11 @@ Rules:
 
           continue;
         }
-        const input = validation.data;
+        // GAP 3 (Output Modification & Repair Engine): reassigned below when
+        // the retry-with-repair loop produces a verified-clean repaired
+        // version of a blocked tool call's input -- every other path leaves
+        // this exactly as validation produced it.
+        let input = validation.data;
 
         // Identical-action loop detection for tools the control gate never
         // sees (see UNGATED_TOOL_KINDS above). Hashes (kind, input) rather
@@ -1919,42 +2023,75 @@ Rules:
             await logEvent("shadow_rule_hit", { tool: tool.name, kind: tool.kind, rules: verdict.shadowRules });
           }
           if (!verdict.ok) {
-            const msg = verdict.reason ?? "Stopped by the control system.";
-            await logEvent("control_gate_blocked", {
-              tool: tool.name,
-              kind: tool.kind,
-              verdict: verdict.verdict,
-              source: verdict.source,
-              decision_id: verdict.decisionId,
-              approval_id: verdict.approvalId,
-              safety_scan: verdict.safety ?? null,
-              risk_tier: verdict.riskTier ?? null,
-              fit_assessment: verdict.fitAssessment ?? null,
-              confidence_score: verdict.confidenceScore ?? null,
-              strictness: verdict.strictness ?? null,
-              via: verdict.via,
-              humanMessage: msg,
-              message: msg,
-            });
-            await logEvent("tool_result", {
-              tool: tool.name,
-              ok: false,
-              skipped: true,
-              summary: msg,
-              humanMessage: msg,
-              category: verdict.source ?? "control_gate",
-            });
-            messages.push({
-              role: "user",
-              content: `"${tool.name}" was NOT run and had no real effect. ${msg}\n${
-                verdict.verdict === "allow"
-                  ? ""
-                  : verdict.verdict === "block"
-                    ? "Do not retry it and do not describe its outcome as if it happened."
-                    : "It is now waiting in the approval queue for a human. Do not retry it this run."
-              } Continue with work that doesn't need it, or finish and state this plainly.`,
-            });
-            continue;
+            // GAP 3 (Output Modification & Repair Engine): try a bounded,
+            // deterministic self-repair before ever falling through to the
+            // block/escalate messaging below. Only ever produces something
+            // when the block was a safety-scanner match on a real params
+            // field -- everything else (hard rule, kill switch, spend cap,
+            // circuit breaker) correctly returns null and the existing path
+            // runs completely unchanged.
+            const repair = await attemptSelfRepair(verdict, input, tool.kind, gateProvider, gateDescription, steps);
+            if (repair) {
+              await logEvent("self_repair", {
+                tool: tool.name,
+                kind: tool.kind,
+                removed_fields: repair.removedFields,
+                summary: `"${tool.name}"'s input was automatically repaired by removing the field(s) your safety rules flagged (${repair.removedFields.join(", ")}), re-verified clean against the same rules, then run.`,
+              });
+              input = repair.input;
+              gateAttempt = (failed: boolean, why: string) =>
+                recordBreakerAttempt(supabase, {
+                  userId,
+                  actionType: tool.kind,
+                  provider: gateProvider,
+                  failed,
+                  why,
+                  agentId,
+                  runId,
+                  stepIndex: steps,
+                  isHalfOpenTrial: repair.verdict.breakerHalfOpenTrial,
+                });
+              // Falls through to execute with the repaired input below --
+              // deliberately no `continue` here, unlike every other block
+              // branch in this gate.
+            } else {
+              const msg = verdict.reason ?? "Stopped by the control system.";
+              await logEvent("control_gate_blocked", {
+                tool: tool.name,
+                kind: tool.kind,
+                verdict: verdict.verdict,
+                source: verdict.source,
+                decision_id: verdict.decisionId,
+                approval_id: verdict.approvalId,
+                safety_scan: verdict.safety ?? null,
+                risk_tier: verdict.riskTier ?? null,
+                fit_assessment: verdict.fitAssessment ?? null,
+                confidence_score: verdict.confidenceScore ?? null,
+                strictness: verdict.strictness ?? null,
+                via: verdict.via,
+                humanMessage: msg,
+                message: msg,
+              });
+              await logEvent("tool_result", {
+                tool: tool.name,
+                ok: false,
+                skipped: true,
+                summary: msg,
+                humanMessage: msg,
+                category: verdict.source ?? "control_gate",
+              });
+              messages.push({
+                role: "user",
+                content: `"${tool.name}" was NOT run and had no real effect. ${msg}\n${
+                  verdict.verdict === "allow"
+                    ? ""
+                    : verdict.verdict === "block"
+                      ? "Do not retry it and do not describe its outcome as if it happened."
+                      : "It is now waiting in the approval queue for a human. Do not retry it this run."
+                } Continue with work that doesn't need it, or finish and state this plainly.`,
+              });
+              continue;
+            }
           }
         }
 

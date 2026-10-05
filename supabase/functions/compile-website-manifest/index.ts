@@ -6,7 +6,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 import { loadSafetyRules, scanWithRules, type SafetyMatch, type SafetyRule } from "../_shared/safety-scanner.ts";
-import { redactContent, isRedactableMatch } from "../_shared/outer-control-scoring.ts";
+import { isRedactableMatch } from "../_shared/outer-control-scoring.ts";
+import { repairContent } from "../_shared/repair-engine.ts";
+import { critiqueAndRevise, findUngroundedFacts } from "../_shared/generation-critique.ts";
+import { generationCacheKeyFor, findCachedGeneration, storeCachedGeneration } from "../_shared/generation-cache.ts";
+import { reportProgress } from "../_shared/generation-progress.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -385,8 +389,15 @@ function ensureLegalPages(pages: Page[], name: string): void {
   if (!pages.some((p) => TERMS_SLUG_ALIASES.has(p.slug.toLowerCase()))) pages.push(legalPage("terms", name));
 }
 
+// GAP 3 (Output Modification & Repair Engine): routes each string leaf
+// through the same shared repairContent primitive Outer Control's own
+// correction path and compile-agent-manifest's prose scan use, instead of
+// calling redactContent directly -- a leaf with nothing redactable in this
+// match set (every match here IS pre-filtered to redactable ones by
+// applySafetyGate below, but repairContent's own no-op guard is kept as
+// defense in depth) comes back unchanged rather than null.
 function redactDeep(value: unknown, matches: SafetyMatch[]): unknown {
-  if (typeof value === "string") return redactContent(value, matches);
+  if (typeof value === "string") return repairContent(value, matches).repaired ?? value;
   if (Array.isArray(value)) return value.map((v) => redactDeep(v, matches));
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
@@ -652,7 +663,7 @@ serve(async (req) => {
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
     const body = await req.json().catch(() => ({}));
-    const { prompt, save = true, previousWebsiteId, refine = false, recentTurns = [], attachments = [] } = body || {};
+    const { prompt, save = true, previousWebsiteId, refine = false, recentTurns = [], attachments = [], requestId = null } = body || {};
     const visualAttachments = Array.isArray(attachments)
       ? attachments.filter((a: any) => a && a.kind === "image" && (a.assetUrl || a.url)).slice(0, 6)
       : [];
@@ -664,8 +675,15 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: authHeader } } },
     );
+    // GAP 8 (Speed & Reliability Layer): a service-role client for the
+    // generation_cache/generation_progress writes below -- authenticated
+    // users only ever get a SELECT grant on those tables, so writing
+    // through the user-context `supabase` client above would silently fail
+    // (and be swallowed by those helpers' own try/catch) every time.
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { data: userData } = await supabase.auth.getUser();
     const user = userData?.user;
+    await reportProgress(admin, requestId, user?.id, "understanding");
 
     // Blueprint task #2: give page generation the same account-rules-
     // awareness compile-agent-manifest's Generator got (task #49). A
@@ -766,6 +784,7 @@ serve(async (req) => {
         : "";
 
       let refined: { intent?: string; identifiedEdits?: unknown; summary?: string; manifest?: unknown } = {};
+      await reportProgress(admin, requestId, user.id, "generating");
       try {
         const resp = await callAiGateway({
           model: gw.deepModel,
@@ -872,6 +891,7 @@ serve(async (req) => {
         }
       }
 
+      await reportProgress(admin, requestId, user.id, "saving");
       // Snapshot the pre-edit state so this refinement can be undone. Fires
       // before the write below, and never blocks the save if it fails.
       await snapshotWebsiteVersion(
@@ -926,7 +946,7 @@ serve(async (req) => {
     }
 
     // ============ FRESH COMPILE PATH (also used for rebuild / new-site chat routes) ============
-    let manifest: Manifest;
+    let manifest: Manifest | null = null;
     // Any AI failure here (rate limit aside, already handled above) used to
     // silently drop into the generic 3-flavor fallbackManifest with no
     // signal at all -- the response looked like a normal success, so a user
@@ -934,6 +954,21 @@ serve(async (req) => {
     // generation for their business. Threaded through every response below
     // that returns `manifest` so the frontend can tell the difference.
     let usedFallback = false;
+    // GAP 8 (Speed & Reliability Layer): skip the expensive AI call(s)
+    // entirely on an identical repeated request (a double-submit, or a
+    // retry after a network blip) -- scoped by the exact brief text, so a
+    // genuinely different brief (including a rebuild with new intent)
+    // never collides with an older one.
+    const generationCacheKey = user ? await generationCacheKeyFor({ compilePrompt }) : null;
+    if (generationCacheKey && user) {
+      manifest = await findCachedGeneration<Manifest>(admin, user.id, "website", generationCacheKey);
+    }
+    // The cached value already reflects GAP 7's critique-and-revise pass
+    // and fact-check (only ever written AFTER both run, below) -- a hit
+    // skips straight past the generation call AND the critique call.
+    const servedFromCache = manifest !== null;
+    if (!manifest) {
+    if (user) await reportProgress(admin, requestId, user.id, "generating");
     try {
       const resp = await callAiGateway({
         // This is the single call every fresh generation is judged on, and
@@ -967,6 +1002,73 @@ serve(async (req) => {
       manifest = fallbackManifest(compilePrompt);
       usedFallback = true;
     }
+    }
+    if (!manifest) {
+      // Unreachable in practice -- every path above either returns or
+      // assigns manifest a real Manifest. Narrows the type for everything
+      // below without relying on TS to trace that through the nested
+      // try/catch above.
+      return json({ error: "Website compilation failed unexpectedly." }, 500);
+    }
+
+    // GAP 7 (High-Quality Generation Engine): one self-critique + bounded
+    // regeneration pass against a fixed quality rubric -- strictly before
+    // applySafetyGate below. Never runs for a deterministic fallback
+    // manifest or a cache hit (GAP 8 -- the cached value was already
+    // critiqued-and-revised before it was stored). Any failure anywhere
+    // in this pass keeps the original manifest unchanged.
+    if (!usedFallback && !servedFromCache) {
+      if (user) await reportProgress(admin, requestId, user.id, "refining");
+      const critiqueContext = `\n\nORIGINAL BRIEF:\n${compilePrompt.slice(0, 2000)}`;
+      const { result: revisedManifest } = await critiqueAndRevise(
+        callAiGateway, gw, manifest, critiqueContext,
+        async (issues) => {
+          const reviseResp = await callAiGateway({
+            model: gw.deepModel,
+            messages: [
+              { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}` },
+              { role: "user", content: `Revise this website manifest to fix ONLY the specific issues listed below -- keep everything else intact. Return only the corrected JSON object.\n\nISSUES TO FIX:\n${issues.join("\n")}\n\nCURRENT MANIFEST:\n${JSON.stringify(manifest)}${critiqueContext}` },
+            ],
+            temperature: 0.3,
+            response_format: { type: "json_object" },
+          }, gw);
+          if (!reviseResp.ok) return null;
+          const data = await reviseResp.json();
+          const raw = data?.choices?.[0]?.message?.content ?? "{}";
+          try {
+            const parsed = JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw)));
+            return normalize(parsed, compilePrompt);
+          } catch {
+            return null;
+          }
+        },
+        (candidate) => Boolean(candidate.name && candidate.pages?.length),
+      );
+      if (revisedManifest) manifest = revisedManifest;
+    }
+
+    // GAP 7: post-generation fact-check -- grounds the site's copy
+    // against the brief it was actually generated from, catching an
+    // invented contact detail (email/phone/URL) absent from the brief.
+    // Surfaced as a visible note, never auto-stripped. Merged into
+    // generationNotes alongside applySafetyGate's own notes just below.
+    const factCheckNotes: string[] = [];
+    {
+      const ungrounded = findUngroundedFacts(JSON.stringify(manifest.pages), compilePrompt);
+      if (ungrounded.length) {
+        factCheckNotes.push(
+          `This site's copy includes ${ungrounded.map((f) => `a ${f.kind} ("${f.value}")`).join(", ")} not found in your original brief -- verify before publishing.`,
+        );
+      }
+    }
+
+    // GAP 8: cache the fully critiqued, fact-checked candidate -- never
+    // for a deterministic fallback or a value that just came FROM the
+    // cache (would just rewrite the same row with a refreshed TTL for no
+    // real benefit).
+    if (generationCacheKey && user && !usedFallback && !servedFromCache) {
+      await storeCachedGeneration(admin, user.id, "website", generationCacheKey, manifest);
+    }
 
     // Blueprint task #60: applied uniformly to both the AI-compiled and the
     // deterministic-fallback manifest -- the fallback is static safe copy so
@@ -974,7 +1076,7 @@ serve(async (req) => {
     // Also covers the REBUILD branch below, which reuses this same `manifest`.
     const freshGated = applySafetyGate(manifest, gateSafetyRules);
     manifest = freshGated.manifest;
-    const generationNotes = freshGated.notes;
+    const generationNotes = [...freshGated.notes, ...factCheckNotes];
 
     if (!save) return json({ manifest, generation_notes: generationNotes, used_fallback: usedFallback });
     // A caller that asked to save (the frontend's default) but has no
@@ -986,6 +1088,7 @@ serve(async (req) => {
     // loudly with the same wording compile-agent-manifest already uses for
     // this exact case.
     if (!user) return json({ error: "Not authenticated — sign in to save your website.", manifest }, 401);
+    await reportProgress(admin, requestId, user.id, "saving");
 
     // REBUILD: regenerate this same website in place, replacing all of its pages.
     if (rebuildWebsiteId) {

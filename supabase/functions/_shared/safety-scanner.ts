@@ -6,7 +6,20 @@
 //
 // Matches can force the verdict to "block" or "require_approval".
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { selectRulesForAgent } from "./rule-matching.ts";
+import { selectRulesForEntity, type EntityKind } from "./rule-matching.ts";
+
+// GAP 1 (Shared Criteria Library): mirrors control-gate.ts's own
+// resolveRuleEntity -- an agent, when present, always wins over an
+// incidental apiKeyId; an api key only governs when there's no agent in
+// context (the Outer Control text/action path).
+function resolveRuleEntity(
+  agentId: string | null | undefined,
+  apiKeyId: string | null | undefined,
+): { kind: EntityKind | null; id: string | null } {
+  if (agentId) return { kind: "agent", id: agentId };
+  if (apiKeyId) return { kind: "api_key", id: apiKeyId };
+  return { kind: null, id: null };
+}
 
 export type SafetySeverity = "block" | "require_approval";
 
@@ -19,6 +32,10 @@ export type SafetyRule = {
   enabled: boolean;
   builtin: boolean;
   agent_id?: string | null;
+  // GAP 1 (Shared Criteria Library): the api-key-scoped sibling of
+  // agent_id -- mutually exclusive with it, see hard_rules/safety_rules'
+  // own *_single_scope_chk constraints.
+  api_key_id?: string | null;
   /** Matched and recorded, but never affects the scan's actual verdict — same meaning as hard_rules.shadow_mode. */
   shadow_mode?: boolean;
   // "Policy autonomy" plan, item 1: why this rule exists, not just what
@@ -148,12 +165,15 @@ export async function loadSafetyRules(
   admin: SupabaseClient,
   userId: string,
   agentId?: string | null,
+  // GAP 1: lets the Outer Control text/action path (no agentId of its
+  // own) resolve rules scoped to the connected external AI's api key.
+  apiKeyId?: string | null,
 ): Promise<SafetyRule[]> {
   let custom: SafetyRule[] = [];
   try {
     const { data } = await admin
       .from("safety_rules")
-      .select("id, name, category, pattern, severity, enabled, agent_id, shadow_mode, rationale")
+      .select("id, name, category, pattern, severity, enabled, agent_id, api_key_id, shadow_mode, rationale")
       .eq("user_id", userId)
       .eq("enabled", true);
     custom = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
@@ -165,13 +185,15 @@ export async function loadSafetyRules(
       enabled: true,
       builtin: false,
       agent_id: (r.agent_id as string | null | undefined) ?? null,
+      api_key_id: (r.api_key_id as string | null | undefined) ?? null,
       shadow_mode: Boolean(r.shadow_mode),
       rationale: (r.rationale as string | null | undefined) ?? null,
     }));
   } catch { /* custom rules are optional */ }
-  // Builtins are always account-wide (agent_id undefined -> treated as
-  // null by selectRulesForAgent, so they're never filtered out).
-  return [...BUILTIN_SAFETY_RULES.filter((r) => r.enabled), ...selectRulesForAgent(custom, agentId).filter((r) => r.pattern)];
+  // Builtins are always account-wide (agent_id/api_key_id undefined ->
+  // treated as null by selectRulesForEntity, so they're never filtered out).
+  const entity = resolveRuleEntity(agentId, apiKeyId);
+  return [...BUILTIN_SAFETY_RULES.filter((r) => r.enabled), ...selectRulesForEntity(custom, entity.kind, entity.id).filter((r) => r.pattern)];
 }
 
 /** Pure pattern scan — no model involved. */
@@ -233,10 +255,13 @@ export async function scanAction(
    */
   pinnedRules?: SafetyRule[] | null,
   agentId?: string | null,
+  // GAP 1: see loadSafetyRules' own doc comment above.
+  apiKeyId?: string | null,
 ): Promise<SafetyScan> {
+  const entity = resolveRuleEntity(agentId, apiKeyId);
   const rules = pinnedRules
-    ? [...BUILTIN_SAFETY_RULES, ...selectRulesForAgent(pinnedRules.filter((r) => r.enabled !== false), agentId)]
-    : await loadSafetyRules(admin, userId, agentId);
+    ? [...BUILTIN_SAFETY_RULES, ...selectRulesForEntity(pinnedRules.filter((r) => r.enabled !== false), entity.kind, entity.id)]
+    : await loadSafetyRules(admin, userId, agentId, apiKeyId);
   // Shadow-mode custom rules (builtins are never shadow) are matched and
   // recorded, but must never change the real verdict — same split
   // hard_rules already gets in control-gate.ts. Scanned separately so a

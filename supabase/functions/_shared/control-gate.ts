@@ -24,7 +24,7 @@ import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.t
 import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyCheck } from "./anomaly-detector.ts";
 import { loadStrictness, deterministicAlternatives } from "./decision-scoring.ts";
 import { finalizeTrace, type TraceEntry } from "./gate-trace.ts";
-import { ruleMatchesAction, selectRulesForAgent } from "./rule-matching.ts";
+import { ruleMatchesAction, selectRulesForEntity, type EntityKind } from "./rule-matching.ts";
 import { triggerWebhooks } from "./webhooks.ts";
 import { recordPolicyWatchObservations } from "./policy-watch.ts";
 import { resolveOnUncertain, resolveSweepFallback, type AutoResolution } from "./api-key-policy.ts";
@@ -202,6 +202,11 @@ export type HardRule = {
   provider: string | null;
   shadow_mode?: boolean;
   agent_id?: string | null;
+  // GAP 1 (Shared Criteria Library): the api-key-scoped sibling of
+  // agent_id -- mutually exclusive with it (enforced by
+  // hard_rules_single_scope_chk), governs one connected external AI
+  // instead of one generated agent.
+  api_key_id?: string | null;
   // "Policy autonomy" plan, item 1: why this rule exists, not just what
   // it matches -- shown in the decision reasoning when it actually
   // fires. Optional: an existing rule with none set yet just omits it.
@@ -290,15 +295,32 @@ export type HardRuleMatchResult = {
   policyVersion: number | null;
 };
 
+// GAP 1 (Shared Criteria Library): resolves which single entity's rules
+// govern a decision -- an agent, a connected external AI (api key), or
+// neither (account-wide only). An agent, when present, always wins: a
+// run's own agentId is never ambiguous with an incidental apiKeyId the
+// same context happens to carry (e.g. control-engine's x-api-key-id
+// passthrough for traceability, unrelated to rule-scoping).
+function resolveRuleEntity(
+  agentId: string | null | undefined,
+  apiKeyId: string | null | undefined,
+): { kind: EntityKind | null; id: string | null } {
+  if (agentId) return { kind: "agent", id: agentId };
+  if (apiKeyId) return { kind: "api_key", id: apiKeyId };
+  return { kind: null, id: null };
+}
+
 /**
  * Loads the account's currently-active hard rules (pinned policy snapshot
  * first, live table fallback -- same source-of-truth order the action gate
  * uses) and returns the first non-shadow rule matching this action_type/
- * provider pair. Reuses the exact same ruleMatchesAction/selectRulesForAgent
+ * provider pair. Reuses the exact same ruleMatchesAction/selectRulesForEntity
  * primitives runControlGateInner's own inline hard-rule step already uses,
- * so a glob pattern or agent-scoping behaves identically for a caller that
+ * so a glob pattern or entity-scoping behaves identically for a caller that
  * doesn't go through the full action-shaped gate (see checkKillSwitches'
  * doc comment above for why Outer Control's text path is that caller).
+ * `apiKeyId` lets that same text path resolve api-key-scoped rules (GAP 1)
+ * when there's no agent in context -- omit it for an agent-shaped caller.
  * Shadow-mode rules are excluded (never enforced) -- shadow-hit telemetry
  * for text content isn't built yet, v1 scope.
  */
@@ -308,6 +330,7 @@ export async function matchHardRule(
   actionType: string,
   provider: string,
   agentId?: string | null,
+  apiKeyId?: string | null,
 ): Promise<HardRuleMatchResult> {
   let policyVersion: number | null = null;
   let snapshotRules: HardRule[] | null = null;
@@ -323,12 +346,13 @@ export async function matchHardRule(
   if (!snapshotRules) {
     const { data } = await admin
       .from("hard_rules")
-      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, rationale, required_approvals")
+      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id, rationale, required_approvals")
       .eq("user_id", userId)
       .order("created_at", { ascending: true });
     snapshotRules = (data ?? []) as HardRule[];
   }
-  const allRules = selectRulesForAgent(snapshotRules, agentId ?? null).filter((r) => (r as { enabled?: boolean }).enabled !== false);
+  const entity = resolveRuleEntity(agentId, apiKeyId);
+  const allRules = selectRulesForEntity(snapshotRules, entity.kind, entity.id).filter((r) => (r as { enabled?: boolean }).enabled !== false);
   const matched = allRules.find((r) => !r.shadow_mode && ruleMatchesAction(r, actionType, provider)) ?? null;
   return { rule: matched, policyVersion };
 }
@@ -939,7 +963,7 @@ async function runControlGateInner(
   if (!snapshotRules) {
     const { data: hardRules } = await admin
       .from("hard_rules")
-      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, rationale, required_approvals")
+      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id, rationale, required_approvals")
       .eq("user_id", userId)
       // Deterministic match order: oldest rule wins a tie between two
       // enabled, overlapping rules. Without this, Postgres's return order
@@ -950,11 +974,14 @@ async function runControlGateInner(
       .order("created_at", { ascending: true });
     snapshotRules = (hardRules ?? []) as HardRule[];
   }
-  // Agent-scoped rules take precedence over the account-wide default --
-  // selectRulesForAgent both excludes rules scoped to a DIFFERENT agent
-  // and orders this agent's own rules first, so "first match wins" below
-  // gives agent-specific rules precedence for free.
-  const allRules = selectRulesForAgent(snapshotRules, agentId).filter((r) => (r as { enabled?: boolean }).enabled !== false);
+  // Agent- or api-key-scoped rules take precedence over the account-wide
+  // default -- selectRulesForEntity both excludes rules scoped to a
+  // DIFFERENT entity and orders this entity's own rules first, so "first
+  // match wins" below gives entity-specific rules precedence for free.
+  // GAP 1: apiKeyId resolves api-key-scoped rules for an external-api
+  // origin call that has no agentId of its own.
+  const ruleEntity = resolveRuleEntity(agentId, apiKeyId);
+  const allRules = selectRulesForEntity(snapshotRules, ruleEntity.kind, ruleEntity.id).filter((r) => (r as { enabled?: boolean }).enabled !== false);
 
   const ruleMatches = (r: HardRule) => ruleMatchesAction(r, actionType, provider);
   const shadowMatches = allRules.filter((r) => r.shadow_mode && ruleMatches(r));
@@ -1265,7 +1292,7 @@ async function runControlGateInner(
   const pinnedSafetyRules = Array.isArray(snapshot.safety_rules)
     ? (snapshot.safety_rules as SafetyRule[])
     : null;
-  const safety = await scanAction(admin, userId, ctx.params, ctx.description, pinnedSafetyRules, agentId);
+  const safety = await scanAction(admin, userId, ctx.params, ctx.description, pinnedSafetyRules, agentId, apiKeyId);
   trace.push({
     layer: "safety_scanner", label: "Safety scanner",
     status: (safety.matched && safety.severity) ? "stopped" : "ok",

@@ -31,6 +31,10 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useAgentSpendSafetyStatus } from "@/hooks/useAgentSpendSafetyStatus";
+import { useEntityTrustScore } from "@/hooks/useEntityTrustScore";
+import { computeGovernanceHealth } from "@/lib/governance-health";
+import GovernanceHealthDot from "@/components/governance/GovernanceHealthDot";
 import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockpit";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import WebsiteControlReport from "@/components/websites/WebsiteControlReport";
@@ -98,6 +102,10 @@ export default function GeneratedDashboard() {
   const [pages, setPages] = useState<any[]>([]);
   const [agentManifest, setAgentManifest] = useState<AgentManifest | null>(null);
   const [agentRuleCount, setAgentRuleCount] = useState<number | null>(null);
+  // GAP 10 (Unified UX): the account that owns this agent -- queried from
+  // the agent row itself (not useActiveAccount) since this page already
+  // resolves hard_rules/safety_rules scope the same way just below.
+  const [agentOwnerId, setAgentOwnerId] = useState<string | null>(null);
   const [webView, setWebView] = useState<WebsiteView>("preview");
   const [agentTab, setAgentTab] = useState<"preview" | "dashboard">("dashboard");
   const [device, setDevice] = useState<Device>("desktop");
@@ -133,6 +141,21 @@ export default function GeneratedDashboard() {
   const [previewKey, setPreviewKey] = useState(0);
   const pageMenuRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  // GAP 10 (Unified UX): show what governs this agent immediately, right
+  // where the Generator lands you after creation, instead of only via a
+  // link out to Control System. Same trust score + rules + spend signals
+  // as the Governed Entities list and the Control System header, combined
+  // into the same traffic light.
+  const agentSpendStatus = useAgentSpendSafetyStatus(agentOwnerId ?? undefined, kind === "agent" ? id : undefined);
+  const agentTrustScore = useEntityTrustScore(agentOwnerId ?? undefined, "agent", kind === "agent" ? id : undefined);
+  const agentHealth = (agentRuleCount !== null && agentTrustScore)
+    ? computeGovernanceHealth({
+        trustScore: agentTrustScore.score,
+        rulesApplied: agentRuleCount,
+        spendPct: agentSpendStatus.loading ? null : agentSpendStatus.pct / 100,
+      })
+    : null;
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
@@ -204,6 +227,7 @@ export default function GeneratedDashboard() {
             const count = selectRulesForAgent((hr ?? []) as Rule[], id).filter((r) => r.enabled !== false).length
               + selectRulesForAgent((sr ?? []) as Rule[], id).filter((r) => r.enabled !== false).length;
             setAgentRuleCount(count);
+            setAgentOwnerId(agent.user_id);
           }
         } else {
           throw new Error(`Unsupported kind: ${kind}`);
@@ -547,6 +571,22 @@ export default function GeneratedDashboard() {
         setWebsite((w: any) => (w ? { ...w, custom_domain: raw || null } : w));
         if (raw) toast.success(`Domain saved: ${raw}`);
       }
+      // GAP 5 (Final Assembly & Consistency Checker): re-validates the
+      // COMPLETE, currently-live page tree against the account's CURRENT
+      // safety rules right before declaring this site published -- catches
+      // a rule added since generation, or content hand-edited through the
+      // builder after the generation-time scan already ran. Never blocks
+      // the publish itself (the site is already reachable at its link
+      // either way); just surfaces what it found/fixed.
+      try {
+        const { data: assembly } = await supabase.functions.invoke("final-assembly-check", {
+          body: { kind: "website", website_id: id },
+        });
+        if (assembly?.repaired) {
+          toast.info("Final check redacted some content against your safety rules before publishing.");
+        }
+      } catch { /* a check failure must never block the site from going live */ }
+
       setPublishOpen(false);
       window.open(`/website-preview/${id}`, "_blank");
       toast.success(
@@ -897,7 +937,17 @@ export default function GeneratedDashboard() {
             Back
           </button>
           <div className="justify-self-center text-[10px] font-mono uppercase tracking-[0.3em] text-white/40">{kind} · workspace</div>
-          <div className="justify-self-end">
+          <div className="justify-self-end flex items-center gap-2">
+            {/* GAP 10 (Unified UX): governance is shown here immediately,
+                not only after clicking through to Control System -- the
+                same trust-score + rules + spend traffic light as the
+                Governed Entities list and the Control System header. */}
+            {kind === "agent" && id && agentHealth && (
+              <GovernanceHealthDot
+                health={agentHealth}
+                label={`Trust ${agentTrustScore?.score ?? "—"}`}
+              />
+            )}
             {kind === "agent" && id && (
               <button
                 onClick={() => navigate(`/control-system/agent-policy?agent=${id}`)}

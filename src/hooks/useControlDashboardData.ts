@@ -5,6 +5,8 @@ const anyDb = supabase as any;
 import { findCoverageGaps, classifyCoverage, type CapabilityForCoverage, type HardRuleForCoverage, type CoverageCellStatus } from "@/lib/coverage-gaps";
 import { GATE_ERROR_SOURCES, engineUptimeStats } from "@/lib/control-health";
 import { lastNDays, bucketCountByDay, bucketEfficiencyByDay } from "@/lib/control-dashboard";
+import { computeTrustScore, type TrustScoreReport } from "@/lib/trust-score";
+import { computeGovernanceHealth, type GovernanceHealth } from "@/lib/governance-health";
 
 const WINDOW_DAYS = 7;
 const DEFAULT_CAP = 5;
@@ -22,6 +24,10 @@ export type ControlDashboardData = {
   pendingApprovalsCount: number;
   setup: { hardRules: boolean; safetyRules: boolean; spendCapCustom: boolean; agentDeployed: boolean; pct: number };
   days: string[];
+  // GAP 10 (Unified UX): account-wide trust score + the same traffic light
+  // shown on every agent's own page and every Governed Entities row.
+  accountTrustScore: TrustScoreReport | null;
+  accountHealth: GovernanceHealth | null;
   refetch: () => void;
 };
 
@@ -47,6 +53,8 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
   const [efficiency, setEfficiency] = useState<{ autonomousPct: number | null; series: (number | null)[] }>({ autonomousPct: null, series: [] });
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
   const [setup, setSetup] = useState({ hardRules: false, safetyRules: false, spendCapCustom: false, agentDeployed: false, pct: 0 });
+  const [accountTrustScore, setAccountTrustScore] = useState<TrustScoreReport | null>(null);
+  const [accountHealth, setAccountHealth] = useState<GovernanceHealth | null>(null);
 
   const days = lastNDays(WINDOW_DAYS);
 
@@ -54,6 +62,7 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
     if (!accountId) return;
     setLoading(true);
     const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const since90Days = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
     const firstDay = days[0];
     const today = days[days.length - 1];
 
@@ -69,6 +78,10 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
       incidentsRecentRes,
       pendingRes,
       agentsCountRes,
+      calibRes,
+      decisions90Res,
+      selfRepairRes,
+      modifyRes,
     ] = await Promise.all([
       supabase.functions.invoke("capability-status", { body: { account_id: accountId } }),
       anyDb.from("hard_rules").select("action_type_pattern, provider, enabled, shadow_mode, agent_id").eq("user_id", accountId),
@@ -84,6 +97,14 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
       anyDb.from("incidents").select("created_at").eq("user_id", accountId).gte("created_at", since),
       anyDb.from("pending_approvals").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("status", "pending"),
       anyDb.from("agents").select("id", { count: "exact", head: true }).eq("user_id", accountId),
+      // GAP 10 (Unified UX): account-wide trust score, same 90-day lookback
+      // and inputs GAP 4's per-entity trust score uses (ControlEntities.tsx,
+      // useEntityTrustScore.ts) -- just aggregated across every agent-origin
+      // decision instead of split per entity.
+      anyDb.from("confidence_calibration").select("calibration_gap").eq("user_id", accountId).is("api_key_id", null).gte("period_end", since90Days),
+      anyDb.from("agent_decisions").select("source").eq("user_id", accountId).eq("is_test", false).gte("created_at", since90Days).limit(10000),
+      anyDb.from("agent_events").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("kind", "self_repair").gte("created_at", since90Days),
+      anyDb.from("outer_control_evaluations").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("verdict", "modify").gte("created_at", since90Days),
     ]);
 
     // Coverage -- same definition ControlCoverageGaps.tsx uses: real,
@@ -144,6 +165,26 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
       ),
     });
 
+    // GAP 10 (Unified UX): the same computeTrustScore/computeGovernanceHealth
+    // combination ControlEntities.tsx and GeneratedDashboard.tsx use per
+    // entity, aggregated account-wide for this page's header indicator.
+    const calibGaps = ((calibRes.data ?? []) as { calibration_gap: number | null }[]).map((r) => Math.abs(Number(r.calibration_gap) || 0));
+    const avgCalibrationGap = calibGaps.length ? calibGaps.reduce((s, g) => s + g, 0) / calibGaps.length : null;
+    const decisions90 = (decisions90Res.data ?? []) as { source: string | null }[];
+    const ruleTriggered90 = decisions90.filter((d) => d.source === "hard_rule" || d.source === "safety_scanner").length;
+    const trustScore = computeTrustScore({
+      avgCalibrationGap,
+      totalDecisions: decisions90.length,
+      ruleTriggeredDecisions: ruleTriggered90,
+      repairInterventions: (selfRepairRes.count ?? 0) + (modifyRes.count ?? 0),
+    });
+    setAccountTrustScore(trustScore);
+    setAccountHealth(computeGovernanceHealth({
+      trustScore: trustScore.score,
+      rulesApplied: hardRules.length + (safetyRulesCountRes.count ?? 0),
+      spendPct: cap > 0 ? (spendByDay.get(today) ?? 0) / cap : null,
+    }));
+
     setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId]);
@@ -163,6 +204,8 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
     pendingApprovalsCount,
     setup,
     days,
+    accountTrustScore,
+    accountHealth,
     refetch: () => setTick((t) => t + 1),
   };
 }

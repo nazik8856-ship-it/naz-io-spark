@@ -6,15 +6,36 @@
 
 export type AgentScopedLike = { agent_id?: string | null };
 
+// GAP 1 (Shared Criteria Library): mirrors rule-matching.ts's own
+// selectRulesForEntity -- a rule can now be scoped to one connected
+// external AI (api_key_id) instead of one generated agent (agent_id).
+// Kept duplicated here for the same reason the rest of this file is (see
+// top-of-file comment): this lives outside the edge-functions root.
+export type EntityScopedLike = { agent_id?: string | null; api_key_id?: string | null };
+export type EntityKind = "agent" | "api_key";
+
+export function selectRulesForEntity<T extends EntityScopedLike>(
+  rules: T[],
+  entityKind: EntityKind | null | undefined,
+  entityId: string | null | undefined,
+): T[] {
+  const scopeKey: "agent_id" | "api_key_id" = entityKind === "api_key" ? "api_key_id" : "agent_id";
+  const otherKey: "agent_id" | "api_key_id" = entityKind === "api_key" ? "agent_id" : "api_key_id";
+  const visible = rules.filter((r) => {
+    if (r[otherKey] != null) return false;
+    return r[scopeKey] == null || r[scopeKey] === entityId;
+  });
+  const entityScoped = visible.filter((r) => r[scopeKey] != null);
+  const accountWide = visible.filter((r) => r[scopeKey] == null);
+  return [...entityScoped, ...accountWide];
+}
+
 /**
  * Rules visible for a given agent: that agent's own rules plus every
  * account-wide (agent_id null) rule, agent-specific ones ordered first.
  */
 export function selectRulesForAgent<T extends AgentScopedLike>(rules: T[], agentId: string | null | undefined): T[] {
-  const visible = rules.filter((r) => r.agent_id == null || r.agent_id === agentId);
-  const agentScoped = visible.filter((r) => r.agent_id != null);
-  const accountWide = visible.filter((r) => r.agent_id == null);
-  return [...agentScoped, ...accountWide];
+  return selectRulesForEntity(rules as (T & EntityScopedLike)[], agentId ? "agent" : null, agentId ?? null);
 }
 
 export type CloneableHardRule = {
