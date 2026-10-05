@@ -8,6 +8,7 @@ import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.
 import { loadSafetyRules, scanWithRules, type SafetyMatch, type SafetyRule } from "../_shared/safety-scanner.ts";
 import { isRedactableMatch } from "../_shared/outer-control-scoring.ts";
 import { repairContent } from "../_shared/repair-engine.ts";
+import { critiqueAndRevise, findUngroundedFacts } from "../_shared/generation-critique.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -976,13 +977,62 @@ serve(async (req) => {
       usedFallback = true;
     }
 
+    // GAP 7 (High-Quality Generation Engine): one self-critique + bounded
+    // regeneration pass against a fixed quality rubric -- strictly before
+    // applySafetyGate below. Never runs for a deterministic fallback
+    // manifest. Any failure anywhere in this pass keeps the original
+    // manifest unchanged.
+    if (!usedFallback) {
+      const critiqueContext = `\n\nORIGINAL BRIEF:\n${compilePrompt.slice(0, 2000)}`;
+      const { result: revisedManifest } = await critiqueAndRevise(
+        callAiGateway, gw, manifest, critiqueContext,
+        async (issues) => {
+          const reviseResp = await callAiGateway({
+            model: gw.deepModel,
+            messages: [
+              { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}` },
+              { role: "user", content: `Revise this website manifest to fix ONLY the specific issues listed below -- keep everything else intact. Return only the corrected JSON object.\n\nISSUES TO FIX:\n${issues.join("\n")}\n\nCURRENT MANIFEST:\n${JSON.stringify(manifest)}${critiqueContext}` },
+            ],
+            temperature: 0.3,
+            response_format: { type: "json_object" },
+          }, gw);
+          if (!reviseResp.ok) return null;
+          const data = await reviseResp.json();
+          const raw = data?.choices?.[0]?.message?.content ?? "{}";
+          try {
+            const parsed = JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw)));
+            return normalize(parsed, compilePrompt);
+          } catch {
+            return null;
+          }
+        },
+        (candidate) => Boolean(candidate.name && candidate.pages?.length),
+      );
+      if (revisedManifest) manifest = revisedManifest;
+    }
+
+    // GAP 7: post-generation fact-check -- grounds the site's copy
+    // against the brief it was actually generated from, catching an
+    // invented contact detail (email/phone/URL) absent from the brief.
+    // Surfaced as a visible note, never auto-stripped. Merged into
+    // generationNotes alongside applySafetyGate's own notes just below.
+    const factCheckNotes: string[] = [];
+    {
+      const ungrounded = findUngroundedFacts(JSON.stringify(manifest.pages), compilePrompt);
+      if (ungrounded.length) {
+        factCheckNotes.push(
+          `This site's copy includes ${ungrounded.map((f) => `a ${f.kind} ("${f.value}")`).join(", ")} not found in your original brief -- verify before publishing.`,
+        );
+      }
+    }
+
     // Blueprint task #60: applied uniformly to both the AI-compiled and the
     // deterministic-fallback manifest -- the fallback is static safe copy so
     // this is a no-op for it, but a single gate point is simpler than two.
     // Also covers the REBUILD branch below, which reuses this same `manifest`.
     const freshGated = applySafetyGate(manifest, gateSafetyRules);
     manifest = freshGated.manifest;
-    const generationNotes = freshGated.notes;
+    const generationNotes = [...freshGated.notes, ...factCheckNotes];
 
     if (!save) return json({ manifest, generation_notes: generationNotes, used_fallback: usedFallback });
     // A caller that asked to save (the frontend's default) but has no

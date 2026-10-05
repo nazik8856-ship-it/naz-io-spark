@@ -14,6 +14,7 @@ import { ruleMatchesAction } from "../_shared/rule-matching.ts";
 import { loadSafetyRules, scanWithRules } from "../_shared/safety-scanner.ts";
 import { repairContent } from "../_shared/repair-engine.ts";
 import { isRedactableMatch } from "../_shared/outer-control-scoring.ts";
+import { critiqueAndRevise, findUngroundedFacts } from "../_shared/generation-critique.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -445,6 +446,58 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       }
       uiObj.widgets = ordered;
       void kinds;
+    }
+
+    // GAP 7 (High-Quality Generation Engine): one self-critique + bounded
+    // regeneration pass against a fixed quality rubric, run on the FULLY
+    // assembled candidate (after required tools/widgets were filled in
+    // above) so the critique judges what will actually ship -- strictly
+    // before the hard-rule tool-stripping gate just below. Never runs for
+    // a deterministic fallback manifest (nothing to critique-and-revise a
+    // static template against). Any failure anywhere in this pass keeps
+    // the original manifest unchanged.
+    if (!usedFallback) {
+      const critiqueContext = `${profileBlock}\n\nORIGINAL PLAN:\n${effectivePlan.slice(0, 2000)}`;
+      const { result: revisedManifest } = await critiqueAndRevise(
+        callAiGateway, gw, normalized, critiqueContext,
+        async (issues) => {
+          const reviseResp = await callAiGateway({
+            model: gw.deepModel,
+            messages: [
+              { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
+              { role: "user", content: `Revise this agent manifest to fix ONLY the specific issues listed below -- keep everything else intact. Return only the corrected JSON object.\n\nISSUES TO FIX:\n${issues.join("\n")}\n\nCURRENT MANIFEST:\n${JSON.stringify(normalized)}${critiqueContext}` },
+            ],
+            temperature: 0.1,
+            response_format: { type: "json_object" },
+          }, gw);
+          if (!reviseResp.ok) return null;
+          const data = await reviseResp.json();
+          const raw: string = data?.choices?.[0]?.message?.content ?? "";
+          const parsed = extractJson(raw);
+          return parsed ? normalizeManifest(parsed) : null;
+        },
+        (candidate) => Boolean(candidate.name && candidate.tools.length),
+      );
+      if (revisedManifest) normalized = revisedManifest;
+    }
+
+    // GAP 7: post-generation fact-check -- grounds the manifest against
+    // the business profile/plan it was actually generated from, catching
+    // an invented contact detail (email/phone/URL) absent from every
+    // source the model was given. Surfaced as a visible note, never
+    // auto-stripped -- a false positive here (the model correctly
+    // reformatted something that WAS present) must never silently delete
+    // real content.
+    {
+      const sourceText = `${JSON.stringify(profile ?? {})}\n${effectivePlan}\n${userPrompt}`;
+      const generatedText = `${normalized.systemPrompt}\n${normalized.decisionPolicy}\n${JSON.stringify(normalized.guardrails)}`;
+      const ungrounded = findUngroundedFacts(generatedText, sourceText);
+      if (ungrounded.length) {
+        normalized.guardrails = [
+          ...normalized.guardrails,
+          { rule: `Generated content includes ${ungrounded.map((f) => `a ${f.kind} ("${f.value}")`).join(", ")} not found in your business profile or plan -- verify before relying on it.`, requiresApproval: false },
+        ];
+      }
     }
 
     // Blueprint task #5: close the "no bypass" gap. accountRulesBlock above
