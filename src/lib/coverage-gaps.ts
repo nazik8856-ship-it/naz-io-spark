@@ -7,7 +7,13 @@
 // than imported since that file lives outside the Vite frontend's root
 // and has no runtime dependency worth a cross-runtime import path for.
 
-function globToRe(pattern: string): RegExp {
+// AUDIT 1 (Shared Criteria Library, 2026-10-06): exported, not just module-
+// private, so a cross-file parity test (src/test/criteria-library-parity.
+// test.ts) can call this exact copy against the canonical one in
+// supabase/functions/_shared/rule-matching.ts and fail CI the moment either
+// one drifts -- this file's own header comment already documents that drift
+// risk; this makes it a caught regression instead of a silent one.
+export function globToRe(pattern: string): RegExp {
   return new RegExp(
     "^" + pattern.trim().split("*").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$",
     "i",
@@ -22,7 +28,7 @@ export type HardRuleForCoverage = {
   agent_id?: string | null;
 };
 
-function ruleCovers(rule: HardRuleForCoverage, kind: string, provider: string): boolean {
+export function ruleCovers(rule: HardRuleForCoverage, kind: string, provider: string): boolean {
   if (rule.provider && rule.provider.toLowerCase() !== provider.toLowerCase()) return false;
   try {
     return globToRe(rule.action_type_pattern || "*").test(kind);
