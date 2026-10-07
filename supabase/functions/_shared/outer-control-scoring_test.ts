@@ -109,3 +109,46 @@ Deno.test("redactContent: applies multiple rules in sequence", () => {
   ]);
   assertEquals(redacted, "card [REDACTED:pii] and key [REDACTED:secrets]");
 });
+
+// ---- AUDIT 3 (Output Modification & Repair Engine, 2026-10-07): adversarial
+// custom-safety-rule patterns -- found by actually running them, not by
+// inspection. ControlSafetyRules.tsx only ever checks a custom pattern
+// PARSES (`new RegExp(pattern)`), never that it's safe to run, so both of
+// these are real, user-reachable inputs, not contrived edge cases.
+// ---------------------------------------------------------------------------
+
+Deno.test("redactContent: a literal empty pattern is rejected, not spliced into every character boundary", () => {
+  const content = "hello world, this is fine content";
+  const redacted = redactContent(content, [{ pattern: "", category: "secrets" }]);
+  assertEquals(redacted, content, "an empty pattern must never touch the content at all");
+});
+
+Deno.test("redactContent: '.*' (matches the empty string) is rejected, not just '.+'", () => {
+  const content = "some perfectly fine text";
+  const redacted = redactContent(content, [{ pattern: ".*", category: "pii" }]);
+  assertEquals(redacted, content);
+});
+
+Deno.test("redactContent: '\\\\d*' (an easy, non-malicious authoring mistake -- 0-or-more, not 1-or-more) is rejected", () => {
+  const content = "call 555-1234 now";
+  const redacted = redactContent(content, [{ pattern: "\\d*", category: "pii" }]);
+  assertEquals(redacted, content);
+});
+
+Deno.test("redactContent: a classic catastrophic-backtracking pattern resolves immediately instead of hanging", () => {
+  const content = "a".repeat(50) + "!";
+  const start = Date.now();
+  const redacted = redactContent(content, [{ pattern: "(a+)+$", category: "secrets" }]);
+  const elapsed = Date.now() - start;
+  assertEquals(redacted, content, "a rejected pattern must leave content untouched");
+  if (elapsed > 500) throw new Error(`expected the dangerous pattern to be rejected near-instantly, took ${elapsed}ms`);
+});
+
+Deno.test("redactContent: a dangerous pattern alongside a legitimate one -- the legitimate one still redacts", () => {
+  const content = "a".repeat(50) + "! key sk-1234567890abcdef";
+  const redacted = redactContent(content, [
+    { pattern: "(a+)+$", category: "secrets" },
+    { pattern: "sk-[A-Za-z0-9]{16,}", category: "secrets" },
+  ]);
+  assertEquals(redacted, "a".repeat(50) + "! key [REDACTED:secrets]");
+});
