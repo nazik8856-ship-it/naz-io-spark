@@ -3495,6 +3495,28 @@ Rules:
           execute: (nextInput) => executeTool(tool, nextInput, supabase, agentId, runId, userId, logEvent),
           isFailure: (r) => ({ failed: !!r.error, message: r.summary }),
           correct: correctToolInput,
+          // AUDIT 2 (Hard Non-Bypassable Control Gate): the gate above only
+          // ever ran once, against this call's ORIGINAL input -- a
+          // validation failure let correctToolInput hand back an entirely
+          // different, never-rechecked input that then executed for real.
+          // Re-runs the exact same gate against whatever input is about to
+          // execute, on every attempt, for every gated tool kind -- a
+          // rejection here stops the retry loop outright rather than being
+          // treated as a fixable format problem.
+          reverify: ACTION_CAPPED_KINDS.has(tool.kind)
+            ? async (candidateInput) => {
+                const reVerdict = await assessWithControlEngine({
+                  actionType: tool.kind,
+                  provider: providerForTool(tool.kind, candidateInput),
+                  description: `Agent "${tool.name}" step ${steps} during an autonomous run.`,
+                  params: candidateInput,
+                  stepIndex: steps,
+                });
+                return reVerdict.ok
+                  ? { ok: true }
+                  : { ok: false, reason: reVerdict.reason ?? "Blocked by the control system." };
+              }
+            : undefined,
         });
 
         // Feed the real result back into the shared circuit breaker.

@@ -29,6 +29,9 @@ export type ToolErrorCategory =
   | "auth_error"           // expired/missing/invalid credentials — NOT correctable
   | "permission_error"     // scope/forbidden — NOT correctable
   | "quota_error"          // billing/credits exhausted — NOT correctable
+  | "control_gate_blocked" // AUDIT 2: the control gate rejected this (possibly
+                            // model-corrected) input — NEVER correctable by
+                            // retrying; a human decision, not a format fix
   | "unknown";             // unclassified — retried once, conservatively
 
 export type ToolErrorInfo = {
@@ -42,7 +45,7 @@ export type ToolErrorInfo = {
   status?: number;
 };
 
-const NON_RETRYABLE: ToolErrorCategory[] = ["auth_error", "permission_error", "quota_error"];
+const NON_RETRYABLE: ToolErrorCategory[] = ["auth_error", "permission_error", "quota_error", "control_gate_blocked"];
 
 /** Human-facing guidance per category (never jargon). */
 const HUMAN_HINT: Record<ToolErrorCategory, string> = {
@@ -54,6 +57,7 @@ const HUMAN_HINT: Record<ToolErrorCategory, string> = {
   auth_error: "This connection needs to be signed in again before it can be used.",
   permission_error: "This account doesn't have permission to do that.",
   quota_error: "This account has run out of allowance for this service.",
+  control_gate_blocked: "The control system stopped this action before it ran.",
   unknown: "Something went wrong while running this tool.",
 };
 
@@ -163,6 +167,27 @@ export type Corrector = (ctx: {
 
 export type ToolLogger = (kind: string, payload: Record<string, unknown>) => Promise<unknown>;
 
+// AUDIT 2 (Hard Non-Bypassable Control Gate, 2026-10-07): a real, confirmed
+// bypass -- the control gate (hard rules, safety scanner, kill switch, spend
+// cap, circuit breaker) only ever ran ONCE, against the tool call's
+// ORIGINAL input, before this module's retry loop ever started. A
+// correction cycle (Zod validation failure, or any retryable executor
+// error) asks the model for an entirely new input object with NO field
+// restriction -- `correct` below can change the recipient, the message
+// body, a URL, anything -- and that corrected input went straight to
+// `execute` on the next attempt, never re-checked against anything. A
+// gated action that happened to fail validation once was a free pass to
+// run arbitrary corrected content ungated. `reverify`, when the caller
+// supplies one (agent-runtime wires it for every ACTION_CAPPED_KINDS tool),
+// closes this: it is called with the exact input about to be executed on
+// EVERY attempt -- including the first, since Zod's own `validation.data`
+// coercion can already differ from what was originally gated -- and a
+// rejection stops the loop immediately as a non-retryable
+// `control_gate_blocked` failure. No attempt ever reaches `execute` without
+// having just passed this check for its own, current input.
+export type ReverifyResult = { ok: true } | { ok: false; reason: string };
+export type Reverifier = (input: Record<string, unknown>) => Promise<ReverifyResult>;
+
 /**
  * Run a tool with schema validation, bounded self-correction and full audit
  * logging. `isFailure` lets callers treat an `ok:false`-style result object as
@@ -178,6 +203,8 @@ export async function runToolWithSelfCorrection<R>(opts: {
   correct: Corrector;
   logEvent: ToolLogger;
   maxAttempts?: number;
+  /** AUDIT 2: re-checked against the exact input about to execute, on every attempt. See module doc comment above. */
+  reverify?: Reverifier;
 }): Promise<ToolRunOutcome<R>> {
   const maxAttempts = Math.max(1, Math.min(opts.maxAttempts ?? MAX_TOOL_ATTEMPTS, MAX_TOOL_ATTEMPTS));
   const attempts: ToolAttemptLog[] = [];
@@ -226,6 +253,38 @@ export async function runToolWithSelfCorrection<R>(opts: {
       continue;
     }
     input = validation.data as Record<string, unknown>;
+
+    // ---- 1.5. Control-gate reverification (AUDIT 2) — checked against the
+    // EXACT input about to execute, on every attempt. A rejection here is a
+    // policy decision, never a format problem, so it stops the loop outright
+    // instead of asking the model to "correct" its way past it.
+    if (opts.reverify) {
+      const verdict = await opts.reverify(input);
+      if (!verdict.ok) {
+        lastError = {
+          category: "control_gate_blocked",
+          retryable: false,
+          humanMessage: HUMAN_HINT.control_gate_blocked,
+          technical: `control_gate_blocked: ${verdict.reason}`,
+        };
+        attempts.push({
+          attempt, input, ok: false,
+          category: "control_gate_blocked", retryable: false,
+          error: lastError.technical, correction: null,
+        });
+        await opts.logEvent("tool_error", {
+          tool: opts.tool,
+          kind: opts.kind,
+          attempt,
+          category: "control_gate_blocked",
+          retryable: false,
+          message: verdict.reason,
+          technical: lastError.technical,
+          surfaced_to_user: true,
+        });
+        break;
+      }
+    }
 
     // ---- 2. Execute, catching everything ----
     let result: R | undefined;
@@ -313,7 +372,9 @@ export async function runToolWithSelfCorrection<R>(opts: {
   const exhausted = err.retryable;
   const userMessage = err.retryable
     ? `${err.humanMessage} We tried ${attempts.length} time${attempts.length === 1 ? "" : "s"} and it still didn't work, so nothing was completed.`
-    : `${err.humanMessage} Retrying won't help — this needs you to fix the connection or permissions.`;
+    : err.category === "control_gate_blocked"
+      ? `${err.humanMessage} This was not a technical failure — retrying or rephrasing will not change the control system's decision.`
+      : `${err.humanMessage} Retrying won't help — this needs you to fix the connection or permissions.`;
 
   await opts.logEvent("tool_failed", {
     tool: opts.tool,
