@@ -44,6 +44,42 @@ Deno.test("findUngroundedFacts: no facts at all in generated text returns empty"
   assertEquals(findUngroundedFacts("Just plain descriptive copy with no contact details.", "source"), []);
 });
 
+// ---- AUDIT 4 (Generator quality, 2026-10-07): two real false-positive bugs
+// found by actually running realistic generated/source pairs, not by
+// inspection -- both would have trained users to ignore this check's
+// "verify before publishing" notes, since the thing being flagged as
+// "fabricated" was accurate content the whole time.
+// ---------------------------------------------------------------------------
+
+Deno.test("findUngroundedFacts: a URL quoted verbatim from the source is not flagged just because a DIFFERENT sentence's trailing punctuation gets captured", () => {
+  const findings = findUngroundedFacts(
+    "Learn more at https://acme.com/pricing. Great prices!",
+    "For details, see https://acme.com/pricing, our pricing page.",
+  );
+  assertEquals(findings, [], "same URL, only the incidental trailing punctuation differs -- must not be flagged");
+});
+
+Deno.test("findUngroundedFacts: a phone number the model reformatted (dots -> parens/dash) but is numerically identical to the source is not flagged", () => {
+  const findings = findUngroundedFacts("Call us at (555) 123-4567 today.", "Our phone number is 555.123.4567.");
+  assertEquals(findings, [], "same digits, only separator formatting differs -- must not be flagged");
+});
+
+Deno.test("findUngroundedFacts: a genuinely fabricated phone number is still flagged even though numeric comparison is now in play", () => {
+  const findings = findUngroundedFacts("Call us at (555) 999-0000 today.", "Our phone number is 555.123.4567.");
+  assert(findings.length === 1 && findings[0].kind === "phone", "a number with different digits must still be caught");
+});
+
+Deno.test("findUngroundedFacts: a genuinely fabricated URL is still flagged even with the trailing-punctuation trim in play", () => {
+  const findings = findUngroundedFacts(
+    "Visit https://totally-made-up-domain.example/offer for a discount.",
+    "Our business sells widgets. Visit us in store.",
+  );
+  assert(
+    findings.some((f) => f.kind === "url" && f.value === "https://totally-made-up-domain.example/offer"),
+    "a URL absent from the source must still be caught, with punctuation already trimmed from the reported value",
+  );
+});
+
 // ---- critiqueAndRevise ----
 
 Deno.test("critiqueAndRevise: a passing critique returns no result (original kept)", async () => {
