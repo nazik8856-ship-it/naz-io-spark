@@ -232,7 +232,16 @@ serve(async (req) => {
       .eq("agent_id", agentId);
     if ((priorRunCount ?? 0) === 0) {
       const assembly = await checkAgentAssembly(supabase, userId, agentId);
-      if (assembly.repaired) {
+      // AUDIT 5 (Trust Score + Provenance + Control Report, 2026-10-07):
+      // used to gate on `assembly.repaired` alone -- a flagged-but-not-
+      // mechanically-fixed finding (checkAgentAssembly's non-redactable
+      // prose branch) sets `notes` without setting `repaired`, and used
+      // to vanish here with zero record of it ever having run. Gating on
+      // `notes.length` instead catches that case too; checkAgentAssembly
+      // already persists every one of these notes onto the agent's own
+      // manifest.guardrails (the real, rendered surface for this), so the
+      // manifest is always worth re-reading whenever there's a note.
+      if (assembly.notes.length) {
         const { data: refreshed } = await supabase.from("agents").select("manifest").eq("id", agentId).maybeSingle();
         manifest = ((refreshed as { manifest?: Manifest } | null)?.manifest ?? manifest) as Manifest;
         for (const note of assembly.notes) {
@@ -3495,6 +3504,28 @@ Rules:
           execute: (nextInput) => executeTool(tool, nextInput, supabase, agentId, runId, userId, logEvent),
           isFailure: (r) => ({ failed: !!r.error, message: r.summary }),
           correct: correctToolInput,
+          // AUDIT 2 (Hard Non-Bypassable Control Gate): the gate above only
+          // ever ran once, against this call's ORIGINAL input -- a
+          // validation failure let correctToolInput hand back an entirely
+          // different, never-rechecked input that then executed for real.
+          // Re-runs the exact same gate against whatever input is about to
+          // execute, on every attempt, for every gated tool kind -- a
+          // rejection here stops the retry loop outright rather than being
+          // treated as a fixable format problem.
+          reverify: ACTION_CAPPED_KINDS.has(tool.kind)
+            ? async (candidateInput) => {
+                const reVerdict = await assessWithControlEngine({
+                  actionType: tool.kind,
+                  provider: providerForTool(tool.kind, candidateInput),
+                  description: `Agent "${tool.name}" step ${steps} during an autonomous run.`,
+                  params: candidateInput,
+                  stepIndex: steps,
+                });
+                return reVerdict.ok
+                  ? { ok: true }
+                  : { ok: false, reason: reVerdict.reason ?? "Blocked by the control system." };
+              }
+            : undefined,
         });
 
         // Feed the real result back into the shared circuit breaker.

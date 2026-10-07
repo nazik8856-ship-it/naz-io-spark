@@ -86,15 +86,59 @@ export async function checkAgentAssembly(admin: SupabaseClient, userId: string, 
     if (!text) continue;
     const scan = scanWithRules(safetyRules, text, "");
     if (!scan.matched) continue;
-    const repair = repairContent(text, scan.matches);
-    if (repair.repaired !== null) {
-      if (field === "systemPrompt") systemPrompt = repair.repaired; else decisionPolicy = repair.repaired;
-      notes.push(`Your agent's ${field === "systemPrompt" ? "system prompt" : "decision policy"} had content matching your safety rule(s) (${repair.diff.map((d) => d.detail).join(", ")}) redacted at final-assembly check.`);
-      repaired = true;
+    const fieldLabel = field === "systemPrompt" ? "system prompt" : "decision policy";
+    // AUDIT 5 (Trust Score + Provenance + Control Report, 2026-10-07): a
+    // field matching BOTH a redactable rule (secrets/pii) and a non-
+    // redactable one (destructive wording, etc.) at once used to report
+    // ONLY whichever branch `repair.repaired !== null` picked -- repairing
+    // the redactable match and silently dropping the separate non-
+    // redactable finding in the same scan, since repairContent's own diff
+    // only ever covers what it actually redacted. Splitting the matches
+    // up front (same pattern checkWebsiteAssembly below already uses)
+    // means both groups are reported independently, regardless of
+    // whether the other one existed.
+    const redactableMatches = scan.matches.filter((m) => isRedactableMatch(m));
+    const nonRedactableMatches = scan.matches.filter((m) => !isRedactableMatch(m));
+
+    if (redactableMatches.length) {
+      const repair = repairContent(text, redactableMatches);
+      if (repair.repaired !== null) {
+        if (field === "systemPrompt") systemPrompt = repair.repaired; else decisionPolicy = repair.repaired;
+        const note = `Your agent's ${fieldLabel} had content matching your safety rule(s) (${repair.diff.map((d) => d.detail).join(", ")}) redacted at final-assembly check.`;
+        notes.push(note);
+        // This redaction used to be reported ONLY in this function's
+        // return value. The one caller that reads it (agent-runtime's
+        // first-deploy gate) only ever wrote it to an agent_events row of
+        // a kind ("first_deploy_check") nothing in the UI reads --
+        // confirmed by searching every agent_events consumer in src/. The
+        // finding was real and persisted, but never reached a human.
+        // manifest.guardrails is this agent's one channel that both IS
+        // already rendered (GeneratedAgentDashboard.tsx's guardrail_panel
+        // widget) and is already how this same function reports a
+        // blocked TOOL just above -- using it here too, instead of
+        // inventing a new surface.
+        addedGuardrails.push({ rule: note, requiresApproval: false });
+        repaired = true;
+      }
+    }
+    if (nonRedactableMatches.length) {
+      // A real safety-rule match with nothing mechanically excisable
+      // (destructive wording, etc.) used to be dropped with NO note, NO
+      // guardrail, nothing -- the exact same situation for a website
+      // (checkWebsiteAssembly's own nonRedactable branch, just below in
+      // this file) already surfaces as a visible "worth reviewing" note.
+      // Mirrors that here instead of silently discarding the finding.
+      const note = `Your agent's ${fieldLabel} touches your safety rule(s) (${nonRedactableMatches.map((m) => m.name).join(", ")}) -- not something this check can mechanically fix, but worth reviewing.`;
+      notes.push(note);
+      addedGuardrails.push({ rule: note, requiresApproval: false });
     }
   }
 
-  if (repaired) {
+  // Persist whenever there's something new to show, not only when
+  // `repaired` (actual content change) is true -- a flagged-but-not-fixed
+  // guardrail note is still a real finding that must reach the agent's
+  // own guardrail list.
+  if (addedGuardrails.length) {
     await admin.from("agents").update({
       manifest: { ...manifest, tools: keptTools, guardrails: [...guardrails, ...addedGuardrails], systemPrompt, decisionPolicy },
     }).eq("id", agentId);

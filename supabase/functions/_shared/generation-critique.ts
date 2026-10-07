@@ -96,6 +96,30 @@ const EMAIL_RE = /[a-z0-9.+_-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 const PHONE_RE = /\b(?:\+?\d{1,3}[-.\s])?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b/g;
 const URL_RE = /\bhttps?:\/\/[^\s"')]+/gi;
 
+// AUDIT 4 (Generator quality, 2026-10-07): the greedy URL character class
+// above has no reason to stop at trailing sentence punctuation, so a URL
+// quoted verbatim from the source but followed by a different punctuation
+// mark than it happened to have in the source ("...pricing," in the brief,
+// "...pricing." at the end of a different generated sentence) came back
+// with that punctuation stitched onto the match -- "https://acme.com/
+// pricing." never appears in a source that only ever wrote "https://acme.
+// com/pricing,", so a URL that IS grounded got flagged as fabricated.
+// Demonstrated directly: same domain+path, different trailing punctuation,
+// false "fabricated URL" finding on content that was entirely accurate.
+const TRAILING_PUNCTUATION_RE = /[.,;:!?)'"]+$/;
+
+// A phone number the model reformatted (dots -> parens/dashes, spacing
+// changes) is numerically identical to the source's own number but fails
+// the plain substring check applied to every other fact kind, producing
+// the same false-"fabricated" outcome -- demonstrated with "555.123.4567"
+// in the source vs. "(555) 123-4567" in the generated copy. Comparing
+// phones by their digits only (not full containment) fixes this without
+// weakening detection of an actually-fabricated number, since a fabricated
+// number's digit sequence still won't appear anywhere in the source.
+function digitsOnly(s: string): string {
+  return s.replace(/\D/g, "");
+}
+
 /**
  * Pure -- finds every email/phone/URL in `generatedText` that does NOT
  * appear anywhere in `sourceText` (the business profile + the operator's
@@ -108,6 +132,7 @@ const URL_RE = /\bhttps?:\/\/[^\s"')]+/gi;
 export function findUngroundedFacts(generatedText: string, sourceText: string): FactCheckFinding[] {
   const findings: FactCheckFinding[] = [];
   const sourceLower = sourceText.toLowerCase();
+  const sourceDigits = digitsOnly(sourceText);
   const patterns: { kind: FactCheckFinding["kind"]; re: RegExp }[] = [
     { kind: "email", re: EMAIL_RE },
     { kind: "phone", re: PHONE_RE },
@@ -115,7 +140,12 @@ export function findUngroundedFacts(generatedText: string, sourceText: string): 
   ];
   for (const { kind, re } of patterns) {
     for (const m of generatedText.matchAll(re)) {
-      const value = m[0];
+      let value = m[0];
+      if (kind === "url") value = value.replace(TRAILING_PUNCTUATION_RE, "");
+      if (kind === "phone") {
+        if (!sourceDigits.includes(digitsOnly(value))) findings.push({ kind, value });
+        continue;
+      }
       if (!sourceLower.includes(value.toLowerCase())) {
         findings.push({ kind, value });
       }

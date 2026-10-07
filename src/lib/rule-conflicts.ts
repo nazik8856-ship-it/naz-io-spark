@@ -8,7 +8,13 @@
 // duplicated here rather than imported since that file lives outside the
 // Vite frontend's root (same reasoning as coverage-gaps.ts).
 
-function globToRe(pattern: string): RegExp {
+// AUDIT 1 (Shared Criteria Library, 2026-10-06): exported, not just module-
+// private, so a cross-file parity test (src/test/criteria-library-parity.
+// test.ts) can call this exact copy against the canonical one in
+// supabase/functions/_shared/rule-matching.ts and fail CI the moment either
+// one drifts -- this file's own header comment already documents that drift
+// risk; this makes it a caught regression instead of a silent one.
+export function globToRe(pattern: string): RegExp {
   return new RegExp(
     "^" + pattern.trim().split("*").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$",
     "i",

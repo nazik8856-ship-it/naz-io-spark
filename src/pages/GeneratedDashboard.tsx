@@ -582,8 +582,34 @@ export default function GeneratedDashboard() {
         const { data: assembly } = await supabase.functions.invoke("final-assembly-check", {
           body: { kind: "website", website_id: id },
         });
-        if (assembly?.repaired) {
-          toast.info("Final check redacted some content against your safety rules before publishing.");
+        // AUDIT 5 (Trust Score + Provenance + Control Report, 2026-10-07):
+        // used to only show a generic toast, and only when `repaired` was
+        // true -- discarding assembly.notes' actual detail entirely, and
+        // saying nothing at all for checkWebsiteAssembly's own
+        // non-redactable "worth reviewing" findings (repaired stays false
+        // for those). Both are real, computed results of this exact
+        // check; persisting them onto the website's own generation_notes
+        // is what makes WebsiteControlReport below (the widget built
+        // specifically to show this) actually reflect what final-assembly
+        // check found, not just what generation time found.
+        const assemblyNotes: string[] = Array.isArray(assembly?.notes) ? assembly.notes : [];
+        const existingNotes: string[] = Array.isArray(website?.generation_notes) ? website.generation_notes : [];
+        // A redacted finding won't recur on the next publish (the matched
+        // span is gone from the content), but a non-redactable "worth
+        // reviewing" finding re-matches the SAME unchanged content every
+        // time the account owner republishes without acting on it --
+        // without this filter, the Control Report would grow one duplicate
+        // copy of that exact note per republish.
+        const newNotes = assemblyNotes.filter((n) => !existingNotes.includes(n));
+        if (newNotes.length) {
+          const mergedNotes = [...existingNotes, ...newNotes];
+          const { error: notesErr } = await supabase.from("websites").update({ generation_notes: mergedNotes } as any).eq("id", id);
+          if (!notesErr) setWebsite((w: any) => (w ? { ...w, generation_notes: mergedNotes } : w));
+          toast.info(
+            assembly.repaired
+              ? "Final check redacted some content against your safety rules before publishing -- see the Control Report below."
+              : "Final check flagged some content worth reviewing against your safety rules -- see the Control Report below.",
+          );
         }
       } catch { /* a check failure must never block the site from going live */ }
 
