@@ -593,8 +593,16 @@ export default function GeneratedDashboard() {
         // specifically to show this) actually reflect what final-assembly
         // check found, not just what generation time found.
         const assemblyNotes: string[] = Array.isArray(assembly?.notes) ? assembly.notes : [];
-        if (assemblyNotes.length) {
-          const mergedNotes = [...(Array.isArray(website?.generation_notes) ? website.generation_notes : []), ...assemblyNotes];
+        const existingNotes: string[] = Array.isArray(website?.generation_notes) ? website.generation_notes : [];
+        // A redacted finding won't recur on the next publish (the matched
+        // span is gone from the content), but a non-redactable "worth
+        // reviewing" finding re-matches the SAME unchanged content every
+        // time the account owner republishes without acting on it --
+        // without this filter, the Control Report would grow one duplicate
+        // copy of that exact note per republish.
+        const newNotes = assemblyNotes.filter((n) => !existingNotes.includes(n));
+        if (newNotes.length) {
+          const mergedNotes = [...existingNotes, ...newNotes];
           const { error: notesErr } = await supabase.from("websites").update({ generation_notes: mergedNotes } as any).eq("id", id);
           if (!notesErr) setWebsite((w: any) => (w ? { ...w, generation_notes: mergedNotes } : w));
           toast.info(
