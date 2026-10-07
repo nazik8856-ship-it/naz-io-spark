@@ -232,7 +232,16 @@ serve(async (req) => {
       .eq("agent_id", agentId);
     if ((priorRunCount ?? 0) === 0) {
       const assembly = await checkAgentAssembly(supabase, userId, agentId);
-      if (assembly.repaired) {
+      // AUDIT 5 (Trust Score + Provenance + Control Report, 2026-10-07):
+      // used to gate on `assembly.repaired` alone -- a flagged-but-not-
+      // mechanically-fixed finding (checkAgentAssembly's non-redactable
+      // prose branch) sets `notes` without setting `repaired`, and used
+      // to vanish here with zero record of it ever having run. Gating on
+      // `notes.length` instead catches that case too; checkAgentAssembly
+      // already persists every one of these notes onto the agent's own
+      // manifest.guardrails (the real, rendered surface for this), so the
+      // manifest is always worth re-reading whenever there's a note.
+      if (assembly.notes.length) {
         const { data: refreshed } = await supabase.from("agents").select("manifest").eq("id", agentId).maybeSingle();
         manifest = ((refreshed as { manifest?: Manifest } | null)?.manifest ?? manifest) as Manifest;
         for (const note of assembly.notes) {

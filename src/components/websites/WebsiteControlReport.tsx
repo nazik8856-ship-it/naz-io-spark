@@ -11,7 +11,16 @@ export default function WebsiteControlReport({ notes }: { notes: string[] | null
   const [open, setOpen] = useState(false);
   const list = Array.isArray(notes) ? notes : [];
   const clean = list.length === 0;
-  const redacted = list.filter((n) => n.includes("redacted at generation time"));
+  // AUDIT 5 (Trust Score + Provenance + Control Report, 2026-10-07): this
+  // used to match the exact generation-time phrase ("redacted at
+  // generation time") only -- a note from the final-assembly check
+  // (checkWebsiteAssembly's "...was redacted across this site at
+  // final-assembly check...", now also merged into this same notes array
+  // at publish time) was something that WAS actually redacted, but got
+  // miscounted into the "flagged" bucket below purely because its wording
+  // differs. Matching "was redacted" catches both callers' real redaction
+  // notes without caring which check phase wrote them.
+  const redacted = list.filter((n) => n.includes("was redacted"));
   const flagged = list.filter((n) => !redacted.includes(n));
 
   return (
