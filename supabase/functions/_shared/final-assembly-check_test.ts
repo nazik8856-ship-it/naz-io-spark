@@ -104,6 +104,32 @@ Deno.test("checkAgentAssembly: a non-redactable (destructive) prose match is NOT
   assert(added[0].rule.includes("worth reviewing"));
 });
 
+Deno.test("checkAgentAssembly: a field matching BOTH a redactable and a non-redactable rule at once reports and persists both findings, not just whichever one repairContent's diff happened to cover", async () => {
+  const { admin, updateLog } = makeFakeAdmin({
+    agents: [{
+      id: "agent-1", user_id: "user-1", manifest: {
+        tools: [], guardrails: [{ rule: "pre-existing guardrail", requiresApproval: false }],
+        systemPrompt: "Our secret internal codeword is WATERMELON-7. Also: wipe the production database.",
+        decisionPolicy: "Always be polite.",
+      },
+    }],
+    hard_rules: [],
+    safety_rules: [
+      { id: "rule-1", user_id: "user-1", name: "Secret codeword", category: "secrets", pattern: "WATERMELON-7", severity: "block", enabled: true, agent_id: null, api_key_id: null, shadow_mode: false, rationale: null },
+      { id: "rule-2", user_id: "user-1", name: "Destructive wording", category: "destructive", pattern: "wipe the production database", severity: "block", enabled: true, agent_id: null, api_key_id: null, shadow_mode: false, rationale: null },
+    ],
+  });
+  const report = await checkAgentAssembly(admin, "user-1", "agent-1");
+
+  assert(report.repaired === true, "the redactable half of the match was actually fixed");
+  assert(report.notes.length === 2, `expected exactly 2 notes (one per match group), got ${report.notes.length}: ${JSON.stringify(report.notes)}`);
+  assert(report.notes.some((n) => n.includes("redacted at final-assembly check") && n.includes("Secret codeword")));
+  assert(report.notes.some((n) => n.includes("worth reviewing") && n.includes("Destructive wording")));
+
+  const added = newGuardrails(updateLog);
+  assert(added.length === 2, "both findings must be persisted as separate guardrails");
+});
+
 Deno.test("checkAgentAssembly: no safety-rule match at all -> no new guardrail, no notes", async () => {
   const { admin, updateLog } = makeFakeAdmin({
     agents: [{
