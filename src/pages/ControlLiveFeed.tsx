@@ -70,6 +70,16 @@ type OuterEvalRow = {
   content_kind: "text" | "action";
   action_type: string | null;
   executed: boolean;
+  // Problem 5 (one controlled machine, 2026-10-08): always stored on this
+  // table (every evaluateExternalText call writes both columns), but never
+  // selected or shown here -- an Inner row's origin (agent / API key /
+  // chat) was always named via originName() below; an Outer row's never
+  // was, even though the exact same fact exists for it. Reusing the same
+  // helper instead of inventing a second one is the whole fix: one shared
+  // concept for "who triggered this," not two parallel ones that happen to
+  // look similar.
+  agent_id: string | null;
+  api_key_id: string | null;
 };
 const OUTER_VERDICT_STYLE: Record<OuterVerdict, string> = {
   allow: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10",
@@ -137,7 +147,7 @@ export default function ControlLiveFeed() {
         .limit(50),
       anyDb
         .from("outer_control_evaluations")
-        .select("id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed")
+        .select("id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed, agent_id, api_key_id")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false })
         .limit(50),
@@ -242,7 +252,8 @@ export default function ControlLiveFeed() {
                   </div>
                   {r.summary && <p className="mt-1 text-xs text-zinc-400">{r.summary}</p>}
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-mono uppercase text-zinc-500">
-                    <span className="text-cyan-400">external AI: {r.source_model}</span>
+                    <span className="text-cyan-400">via {originName(r.agent_id, r.api_key_id)}</span>
+                    <span>external AI: {r.source_model}</span>
                     <span>· trust {r.trust_score}</span>
                     {r.content_kind === "action" && (
                       <span className={r.executed ? "text-emerald-300" : undefined}>· {r.executed ? "executed" : "evaluated only"}</span>
