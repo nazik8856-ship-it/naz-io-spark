@@ -933,7 +933,26 @@ serve(async (req) => {
         return json({ error: "blocked_by_safety_rule", message: refinedGated.blockReason }, 422);
       }
       const nextManifest = refinedGated.manifest;
-      const generationNotes = refinedGated.notes;
+      // Problem 3 follow-up (fresh audit, 2026-10-08): findUngroundedFacts
+      // was wired into the fresh-generation/rebuild path only -- an edit
+      // through this chat-refine branch never ran it at all, even though an
+      // edit prompt ("add a pricing section") is typically SHORTER and less
+      // detailed than a full site brief, exactly the condition the audit
+      // named as the trigger for invented facts. Grounds against the
+      // site's original brief PLUS this edit's own request, since a fact
+      // the user just typed in their edit is legitimately sourced, not
+      // fabricated. Advisory note only, same as the fresh-path check --
+      // never blocks or alters content.
+      const editFactCheckNotes: string[] = [];
+      {
+        const ungrounded = findUngroundedFacts(JSON.stringify(nextManifest.pages), `${existing.prompt || ""}\n${prompt}`);
+        if (ungrounded.length) {
+          editFactCheckNotes.push(
+            `This edit's copy includes ${ungrounded.map((f) => `a ${f.kind} ("${f.value}")`).join(", ")} not found in your original brief or this request -- verify before publishing.`,
+          );
+        }
+      }
+      const generationNotes = [...refinedGated.notes, ...editFactCheckNotes];
       // The model's step-2 output from REFINE_DOC — the concrete, atomic edits
       // it identified from the request before deciding how to implement them.
       // Surfaced to the user so "identifies the wished edits" is a real,
