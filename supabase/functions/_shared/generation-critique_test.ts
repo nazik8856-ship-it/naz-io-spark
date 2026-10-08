@@ -44,6 +44,41 @@ Deno.test("findUngroundedFacts: no facts at all in generated text returns empty"
   assertEquals(findUngroundedFacts("Just plain descriptive copy with no contact details.", "source"), []);
 });
 
+// ---- PROBLEM 3 (Remaining hallucinations, 2026-10-08): "invented prices"
+// was the audit's own named example of a hallucination this pipeline never
+// checked at all -- only email/phone/URL were ever grounded. A price is
+// exactly as concrete and checkable as those three.
+// ---------------------------------------------------------------------------
+
+Deno.test("findUngroundedFacts: a price with no basis anywhere in the brief is flagged", () => {
+  const findings = findUngroundedFacts(
+    "Our signature espresso is just $4.50, and catering starts at $250.",
+    "A coffee shop in Austin that serves espresso drinks and pastries.",
+  );
+  assert(findings.some((f) => f.kind === "price" && f.value === "$4.50"));
+  assert(findings.some((f) => f.kind === "price" && f.value === "$250"));
+});
+
+Deno.test("findUngroundedFacts: a price reformatted from the brief ($4 -> $4.00) is not flagged", () => {
+  const findings = findUngroundedFacts("Our espresso is $4.00.", "We charge $4 for espresso.");
+  assertEquals(findings, []);
+});
+
+Deno.test("findUngroundedFacts: a price that exactly matches the brief is not flagged", () => {
+  const findings = findUngroundedFacts("Monthly membership is $29/month.", "Our gym charges $29/month for membership.");
+  assertEquals(findings, []);
+});
+
+Deno.test("findUngroundedFacts: a DIFFERENT price than the one the brief specifies is still flagged", () => {
+  const findings = findUngroundedFacts("Haircuts start at $60.", "Our salon charges $45 for a basic haircut.");
+  assert(findings.some((f) => f.kind === "price" && f.value === "$60"));
+});
+
+Deno.test("findUngroundedFacts: a bare number with no currency symbol is never treated as a price (years, step counts, durations)", () => {
+  const findings = findUngroundedFacts("Founded in 1998, step 3 of our process takes about 45 minutes.", "A pottery studio.");
+  assertEquals(findings, []);
+});
+
 // ---- AUDIT 4 (Generator quality, 2026-10-07): two real false-positive bugs
 // found by actually running realistic generated/source pairs, not by
 // inspection -- both would have trained users to ignore this check's

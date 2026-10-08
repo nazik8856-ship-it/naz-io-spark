@@ -15,14 +15,15 @@
 //      something that already compiled successfully.
 //
 //   2. findUngroundedFacts: a deterministic (no extra model call) check
-//      for the single most concrete, checkable hallucination failure
-//      mode in a business-context generator -- inventing a contact
-//      detail (email, phone, URL) that was never actually present
-//      anywhere in the business profile, the operator's own prompt, or
-//      the plan it was asked to compile. This is NOT a general fact-
-//      checker (verifying arbitrary claims needs real reasoning a pure
-//      text-containment check can't do) -- just the one class of
-//      fabrication this kind of check catches reliably.
+//      for the most concrete, checkable hallucination failure modes in a
+//      business-context generator -- inventing a contact detail (email,
+//      phone, URL) OR A PRICE that was never actually present anywhere in
+//      the business profile, the operator's own prompt, or the plan it
+//      was asked to compile. This is NOT a general fact-checker (verifying
+//      arbitrary claims -- "industry-leading", "10,000 happy customers" --
+//      needs real reasoning a pure text-containment/numeric-comparison
+//      check can't do) -- just the classes of fabrication this kind of
+//      check catches reliably.
 import type { GatewayConfig } from "./ai-gateway.ts";
 
 export const QUALITY_RUBRIC_PROMPT = `You are a strict quality reviewer for AI-generated business artifacts. Judge the given JSON against this rubric:
@@ -88,13 +89,22 @@ export async function critiqueAndRevise<T>(
   }
 }
 
-export type FactCheckFinding = { kind: "email" | "phone" | "url"; value: string };
+export type FactCheckFinding = { kind: "email" | "phone" | "url" | "price"; value: string };
 
 const EMAIL_RE = /[a-z0-9.+_-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 // Deliberately requires area-code-shaped grouping (not just any 10 digits)
 // to keep false positives (order numbers, zip+4, etc.) low.
 const PHONE_RE = /\b(?:\+?\d{1,3}[-.\s])?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b/g;
 const URL_RE = /\bhttps?:\/\/[^\s"')]+/gi;
+// Problem 3 (Remaining hallucinations, 2026-10-08): the audit's own named
+// example -- "invented prices" -- was never checked at all. A website's
+// pricing section (schema-level feature in compile-website-manifest) is
+// exactly where an under-specified brief tempts the model to invent a
+// number nobody ever gave it. Requires a currency symbol so this doesn't
+// fire on every bare number in the copy (a phone extension, a year, a
+// step count) -- the same false-positive discipline PHONE_RE's own
+// area-code-shaped requirement already applies.
+const PRICE_RE = /[$€£]\s?\d[\d,]*(?:\.\d{1,2})?/g;
 
 // AUDIT 4 (Generator quality, 2026-10-07): the greedy URL character class
 // above has no reason to stop at trailing sentence punctuation, so a URL
@@ -120,23 +130,39 @@ function digitsOnly(s: string): string {
   return s.replace(/\D/g, "");
 }
 
+// A price's digit sequence can't be compared the way a phone number's can
+// -- "$4" and "$4.00" are the same price but "4" and "400" are different
+// digit strings, so reusing digitsOnly() here would make an accurately-
+// reformatted price fail the same way a reformatted phone number used to
+// (AUDIT 4). Parsing to its actual numeric value instead means "$4",
+// "$4.00", and "$ 4" all compare equal, while a genuinely different price
+// ($5 vs $4) still doesn't.
+function parsePriceValue(raw: string): number | null {
+  const n = parseFloat(raw.replace(/[^\d.]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
 /**
- * Pure -- finds every email/phone/URL in `generatedText` that does NOT
- * appear anywhere in `sourceText` (the business profile + the operator's
- * own prompt/plan, concatenated). A finding doesn't necessarily mean the
- * content is wrong (the model may have correctly normalized formatting),
- * so callers surface this as a visible note for a human to check, same
- * posture the existing safety-rule "worth reviewing" notes already use --
- * never an automatic block.
+ * Pure -- finds every email/phone/URL/price in `generatedText` that does
+ * NOT appear anywhere in `sourceText` (the business profile + the
+ * operator's own prompt/plan, concatenated). A finding doesn't
+ * necessarily mean the content is wrong (the model may have correctly
+ * normalized formatting), so callers surface this as a visible note for
+ * a human to check, same posture the existing safety-rule "worth
+ * reviewing" notes already use -- never an automatic block.
  */
 export function findUngroundedFacts(generatedText: string, sourceText: string): FactCheckFinding[] {
   const findings: FactCheckFinding[] = [];
   const sourceLower = sourceText.toLowerCase();
   const sourceDigits = digitsOnly(sourceText);
+  const sourcePriceValues = new Set(
+    Array.from(sourceText.matchAll(PRICE_RE), (m) => parsePriceValue(m[0])).filter((v): v is number => v !== null),
+  );
   const patterns: { kind: FactCheckFinding["kind"]; re: RegExp }[] = [
     { kind: "email", re: EMAIL_RE },
     { kind: "phone", re: PHONE_RE },
     { kind: "url", re: URL_RE },
+    { kind: "price", re: PRICE_RE },
   ];
   for (const { kind, re } of patterns) {
     for (const m of generatedText.matchAll(re)) {
@@ -144,6 +170,11 @@ export function findUngroundedFacts(generatedText: string, sourceText: string): 
       if (kind === "url") value = value.replace(TRAILING_PUNCTUATION_RE, "");
       if (kind === "phone") {
         if (!sourceDigits.includes(digitsOnly(value))) findings.push({ kind, value });
+        continue;
+      }
+      if (kind === "price") {
+        const v = parsePriceValue(value);
+        if (v !== null && !sourcePriceValues.has(v)) findings.push({ kind, value });
         continue;
       }
       if (!sourceLower.includes(value.toLowerCase())) {
