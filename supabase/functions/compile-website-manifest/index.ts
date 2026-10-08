@@ -389,6 +389,46 @@ function ensureLegalPages(pages: Page[], name: string): void {
   if (!pages.some((p) => TERMS_SLUG_ALIASES.has(p.slug.toLowerCase()))) pages.push(legalPage("terms", name));
 }
 
+// Problem 2 (Generator quality, 2026-10-08): SCHEMA_DOC's own "FIRST-ATTEMPT
+// COMPLETENESS" rule already states this as non-negotiable -- "there MUST
+// be a dedicated 'contact' page containing a real 'contact' section with
+// concrete form_fields... a 'cta' teaser section alone never satisfies
+// this" -- but nothing ever verified the model actually did it. That
+// instruction was pure prompt-level steering with zero deterministic
+// enforcement: a thin generation under a vague brief could (and did) ship
+// with no real way to contact the business at all. Same established
+// pattern as ensureLegalPages just above -- deterministic, no extra model
+// call, so this can never be skipped the way a soft instruction can.
+function hasRealContactSection(pages: Page[]): boolean {
+  return pages.some((p) =>
+    p.sections.some((s) => {
+      if (s.type !== "contact") return false;
+      const fields = (s.content as { form_fields?: unknown }).form_fields;
+      return Array.isArray(fields) && fields.length > 0;
+    }),
+  );
+}
+
+function contactPage(name: string): Page {
+  return {
+    slug: "contact",
+    title: "Contact",
+    seo_description: `Get in touch with ${name}.`.slice(0, 160),
+    sections: [{
+      type: "contact",
+      content: {
+        heading: "Get in touch",
+        body: `Have a question or want to work with ${name}? Send a message below and we'll get back to you.`,
+        form_fields: ["name", "email", "message"],
+      },
+    }],
+  };
+}
+
+function ensureContactPage(pages: Page[], name: string): void {
+  if (!hasRealContactSection(pages)) pages.push(contactPage(name));
+}
+
 // GAP 3 (Output Modification & Repair Engine): routes each string leaf
 // through the same shared repairContent primitive Outer Control's own
 // correction path and compile-agent-manifest's prose scan use, instead of
@@ -569,8 +609,41 @@ function normalize(raw: unknown, prompt: string): Manifest {
   }
 
   ensureLegalPages(pages, name);
+  ensureContactPage(pages, name);
 
   return { name, tagline, theme, pages };
+}
+
+// Problem 2 (Generator quality, 2026-10-08): the OTHER half of SCHEMA_DOC's
+// "FIRST-ATTEMPT COMPLETENESS" rule, which can't be mechanically backfilled
+// the way a missing contact page can (fabricating 3 "real" service items
+// would itself be the hallucination problem) -- so this stays a detection,
+// not a silent fix. Nothing deterministic ever checked whether the model
+// actually followed it, and generation-critique.ts's own QUALITY_RUBRIC_
+// PROMPT doesn't check structure either (only specificity/contradictions/
+// coherence/fabrication) -- a thin home page (hero + one more section) was
+// never flagged by anything in this pipeline, no matter how far it fell
+// short of the brief SCHEMA_DOC itself asks for.
+function findStructuralIssues(manifest: Manifest): string[] {
+  const home = manifest.pages[0];
+  if (!home) return [];
+  const issues: string[] = [];
+  const types = new Set(home.sections.map((s) => s.type));
+  if (!types.has("about") && !types.has("feature-split")) {
+    issues.push(`The "home" page is missing an "about" or "feature-split" section describing what the business actually does.`);
+  }
+  const servicesSection = home.sections.find((s) => s.type === "services");
+  const serviceItems = Array.isArray((servicesSection?.content as { items?: unknown[] } | undefined)?.items)
+    ? ((servicesSection!.content as { items: unknown[] }).items)
+    : [];
+  if (serviceItems.length < 3) {
+    issues.push(`The "home" page needs a "services" section with at least 3 real, specific items (currently has ${serviceItems.length}).`);
+  }
+  const hasExtra = (["testimonials", "gallery", "stats", "faq", "process"] as const).some((t) => types.has(t));
+  if (!hasExtra) {
+    issues.push(`The "home" page needs one more section (testimonials, gallery, stats, faq, or process) -- right now it reads as a thin landing page, not a complete site.`);
+  }
+  return issues;
 }
 
 const REFINE_DOC = `You are NazAI Website Refiner. The user is editing an EXISTING generated website via chat.
@@ -1040,31 +1113,48 @@ serve(async (req) => {
     if (!usedFallback && !servedFromCache) {
       if (user) await reportProgress(admin, requestId, user.id, "refining");
       const critiqueContext = `\n\nORIGINAL BRIEF:\n${compilePrompt.slice(0, 2000)}`;
-      const { result: revisedManifest } = await critiqueAndRevise(
-        callAiGateway, gw, manifest, critiqueContext,
-        async (issues) => {
-          const reviseResp = await callAiGateway({
-            model: gw.deepModel,
-            messages: [
-              { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}` },
-              { role: "user", content: `Revise this website manifest to fix ONLY the specific issues listed below -- keep everything else intact. Return only the corrected JSON object.\n\nISSUES TO FIX:\n${issues.join("\n")}\n\nCURRENT MANIFEST:\n${JSON.stringify(manifest)}${critiqueContext}` },
-            ],
-            temperature: 0.3,
-            response_format: { type: "json_object" },
-          }, gw);
-          if (!reviseResp.ok) return null;
-          const data = await reviseResp.json();
-          const raw = data?.choices?.[0]?.message?.content ?? "{}";
-          try {
-            const parsed = JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw)));
-            return normalize(parsed, compilePrompt);
-          } catch {
-            return null;
-          }
-        },
-        (candidate) => Boolean(candidate.name && candidate.pages?.length),
-      );
-      if (revisedManifest) manifest = revisedManifest;
+      const isValidRevision = (candidate: Manifest) => Boolean(candidate.name && candidate.pages?.length);
+      const revise = async (issues: string[]): Promise<Manifest | null> => {
+        const reviseResp = await callAiGateway({
+          model: gw.deepModel,
+          messages: [
+            { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}` },
+            { role: "user", content: `Revise this website manifest to fix ONLY the specific issues listed below -- keep everything else intact. Return only the corrected JSON object.\n\nISSUES TO FIX:\n${issues.join("\n")}\n\nCURRENT MANIFEST:\n${JSON.stringify(manifest)}${critiqueContext}` },
+          ],
+          temperature: 0.3,
+          response_format: { type: "json_object" },
+        }, gw);
+        if (!reviseResp.ok) return null;
+        const data = await reviseResp.json();
+        const raw = data?.choices?.[0]?.message?.content ?? "{}";
+        try {
+          const parsed = JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw)));
+          return normalize(parsed, compilePrompt);
+        } catch {
+          return null;
+        }
+      };
+
+      // Problem 2 (Generator quality, 2026-10-08): a REAL, deterministic
+      // structural gap (see findStructuralIssues above) forces the
+      // revision call directly with the exact, concrete issue(s) found --
+      // never waits on the model's own self-critique to maybe also notice
+      // the same gap SCHEMA_DOC already told it not to leave. The model's
+      // soft self-critique (critiqueAndRevise, unchanged) still runs for
+      // tone/specificity/contradiction/fabrication issues on top of this,
+      // but only once there's no deterministic structural issue left to
+      // fix, so the one bounded revision this pipeline allows is always
+      // spent on the most concrete, verifiable gap first.
+      const structuralIssues = findStructuralIssues(manifest);
+      if (structuralIssues.length) {
+        const revised = await revise(structuralIssues);
+        if (revised && isValidRevision(revised)) manifest = revised;
+      } else {
+        const { result: revisedManifest } = await critiqueAndRevise(
+          callAiGateway, gw, manifest, critiqueContext, revise, isValidRevision,
+        );
+        if (revisedManifest) manifest = revisedManifest;
+      }
     }
 
     // GAP 7: post-generation fact-check -- grounds the site's copy
