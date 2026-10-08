@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Bot, KeyRound, LayoutList } from "lucide-react";
+import { ArrowLeft, Bot, Globe, KeyRound, LayoutList } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
@@ -22,17 +22,22 @@ type ApiKeyRow = {
   revoked_at: string | null; paused_until: string | null; expires_at: string | null;
 };
 type RuleRow = { id: string; enabled: boolean; agent_id: string | null };
+type WebsiteRow = { id: string; name: string | null; created_at: string };
 
 type Entity = {
   id: string;
-  kind: "agent" | "api_key";
+  kind: "agent" | "api_key" | "website";
   name: string;
   status: "active" | "paused" | "killed" | "revoked" | "expired";
   createdAt: string;
   decisionsToday: number;
   rulesApplied: number;
   // GAP 4 (Trust Score + Provenance + Control Report): null only while
-  // still loading -- see the second-pass load() call below.
+  // still loading -- see the second-pass load() call below. Permanently
+  // null for a website (Problem 1, 2026-10-08): a website doesn't make
+  // "decisions" the way an agent/key does, so the three signals this
+  // score composes from don't apply -- shown as "—", never a fabricated
+  // number.
   trustScore: TrustScoreReport | null;
   // GAP 10 (Unified UX): one traffic light combining trustScore +
   // rulesApplied + this entity's own today's-spend-vs-cap.
@@ -87,9 +92,17 @@ export default function ControlEntities() {
     todayStart.setUTCHours(0, 0, 0, 0);
     const day = new Date().toISOString().slice(0, 10);
 
-    const [{ data: agentRows }, { data: keyRows }, { data: hardRules }, { data: safetyRules }, { data: allDecisionsToday }, { data: spendRow }] = await Promise.all([
+    const [{ data: agentRows }, { data: keyRows }, { data: websiteRows }, { data: hardRules }, { data: safetyRules }, { data: allDecisionsToday }, { data: spendRow }] = await Promise.all([
       anyDb.from("agents").select("id, name, status, created_at, kill_switch, kill_switch_auto").eq("user_id", accountId).order("created_at", { ascending: false }),
       anyDb.from("api_keys").select("id, name, created_at, revoked_at, paused_until, expires_at").eq("user_id", accountId).order("created_at", { ascending: false }),
+      // Problem 1 (Control Gate weak on websites, 2026-10-08): a website
+      // was never one of the two kinds this registry recognized -- every
+      // website on the account was invisible here, with no row, no rule
+      // count, nothing. hard_rules/safety_rules have no website_id column
+      // (they're action-shaped, not content-shaped), so a website is
+      // governed only by the account-wide safety_rules, same scope
+      // compile-website-manifest's own applySafetyGate already uses.
+      anyDb.from("websites").select("id, name, created_at").eq("user_id", accountId).order("created_at", { ascending: false }),
       anyDb.from("hard_rules").select("id, enabled, agent_id").eq("user_id", accountId),
       anyDb.from("safety_rules").select("id, enabled, agent_id").eq("user_id", accountId),
       // Blueprint "10 tasks" round, item 6 -- this is the "proof the whole
@@ -145,6 +158,7 @@ export default function ControlEntities() {
     });
     const agents = (agentRows ?? []) as AgentRow[];
     const keys = (keyRows ?? []) as ApiKeyRow[];
+    const websites = (websiteRows ?? []) as WebsiteRow[];
     const hard = (hardRules ?? []) as RuleRow[];
     const safety = (safetyRules ?? []) as RuleRow[];
 
@@ -154,6 +168,11 @@ export default function ControlEntities() {
     const accountWide =
       hard.filter((r) => r.agent_id === null && r.enabled !== false).length +
       safety.filter((r) => r.agent_id === null && r.enabled !== false).length;
+    // A website is never matched by a hard_rule (those are action-shaped --
+    // action_type/provider -- and a website has no action_type), only by
+    // the account-wide safety_rules, same scope applySafetyGate/
+    // checkWebsiteAssembly actually enforce against.
+    const accountWideSafetyOnly = safety.filter((r) => r.agent_id === null && r.enabled !== false).length;
     setAccountWideRuleCount(accountWide);
 
     const agentIds = agents.map((a) => a.id);
@@ -275,7 +294,27 @@ export default function ControlEntities() {
       };
     });
 
-    setEntities([...agentEntities, ...keyEntities].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)));
+    // Problem 1 (Control Gate weak on websites, 2026-10-08): no decisions,
+    // no trust score, no health -- those signals genuinely don't exist for
+    // a website yet, so they stay null/0 rather than faked. The point is
+    // just that a website now appears here AT ALL, with its real rule
+    // count, instead of being completely absent from the one place this
+    // account can see "everything governed."
+    const websiteEntities: Entity[] = websites.map((w) => ({
+      id: w.id,
+      kind: "website" as const,
+      name: w.name || "Untitled website",
+      status: "active" as const,
+      createdAt: w.created_at,
+      decisionsToday: 0,
+      rulesApplied: accountWideSafetyOnly,
+      trustScore: null,
+      health: null,
+    }));
+
+    setEntities(
+      [...agentEntities, ...keyEntities, ...websiteEntities].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
+    );
   }, [accountId]);
 
   useEffect(() => { void load(); }, [load]);
@@ -284,6 +323,7 @@ export default function ControlEntities() {
 
   const agentCount = entities?.filter((e) => e.kind === "agent").length ?? 0;
   const keyCount = entities?.filter((e) => e.kind === "api_key").length ?? 0;
+  const websiteCount = entities?.filter((e) => e.kind === "website").length ?? 0;
 
   return (
     <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#020617" }}>
@@ -303,13 +343,14 @@ export default function ControlEntities() {
           <LayoutList className="h-5 w-5 text-cyan-300" /> Governed entities
         </h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Every Generator agent and every Outer Control API key on this account, in one list — the two are
-          separate things by design (an agent you built here vs. an external AI you're governing), but both
-          report into the same rules and the same decision feed below. The numbers here are the proof: if the
-          pipeline is actually connected end to end, decisions from all three sources show up live.
+          Every Generator agent, every Outer Control API key, and every generated website on this account, in
+          one list — report into the same rules below. A website has no "decisions" the way an agent/key does,
+          so it shows no trust score — but it's governed by your account-wide safety rules, and now shows up
+          here instead of being invisible. The numbers here are the proof: if the pipeline is actually connected
+          end to end, decisions from all three sources show up live.
         </p>
 
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
           <div className="rounded border border-white/10 bg-white/[0.02] p-4">
             <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Generator agents</div>
             <div className="mt-1 text-lg font-semibold">{agentCount}</div>
@@ -317,6 +358,10 @@ export default function ControlEntities() {
           <div className="rounded border border-white/10 bg-white/[0.02] p-4">
             <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Outer Control keys</div>
             <div className="mt-1 text-lg font-semibold">{keyCount}</div>
+          </div>
+          <div className="rounded border border-white/10 bg-white/[0.02] p-4">
+            <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Websites</div>
+            <div className="mt-1 text-lg font-semibold">{websiteCount}</div>
           </div>
           <div className="rounded border border-white/10 bg-white/[0.02] p-4">
             <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Account-wide rules</div>
@@ -363,13 +408,17 @@ export default function ControlEntities() {
                 <tr><td colSpan={8} className="px-3 py-6 text-center text-zinc-500">Loading…</td></tr>
               ) : entities.length === 0 ? (
                 <tr><td colSpan={8} className="px-3 py-6 text-center text-zinc-500">
-                  Nothing governed yet — create an agent in Generator or an API key under Outer Control to see it here.
+                  Nothing governed yet — create an agent in Generator, an API key under Outer Control, or a website, to see it here.
                 </td></tr>
               ) : (
                 entities.map((e) => (
                   <tr
                     key={`${e.kind}:${e.id}`}
-                    onClick={() => navigate(e.kind === "agent" ? `/control-system/agent-policy?agent=${e.id}` : `/control-system/api-keys`)}
+                    onClick={() => navigate(
+                      e.kind === "agent" ? `/control-system/agent-policy?agent=${e.id}`
+                        : e.kind === "website" ? `/generated/website/${e.id}`
+                        : `/control-system/api-keys`,
+                    )}
                     className="cursor-pointer border-b border-white/5 last:border-0 hover:bg-white/[0.03]"
                   >
                     <td className="px-3 py-2">
@@ -378,8 +427,10 @@ export default function ControlEntities() {
                     <td className="px-3 py-2 text-zinc-200">{e.name}</td>
                     <td className="px-3 py-2">
                       <span className="inline-flex items-center gap-1.5 text-xs text-zinc-400">
-                        {e.kind === "agent" ? <Bot className="h-3.5 w-3.5 text-cyan-400" /> : <KeyRound className="h-3.5 w-3.5 text-violet-400" />}
-                        {e.kind === "agent" ? "Generator agent" : "Outer Control key"}
+                        {e.kind === "agent" ? <Bot className="h-3.5 w-3.5 text-cyan-400" />
+                          : e.kind === "website" ? <Globe className="h-3.5 w-3.5 text-emerald-400" />
+                          : <KeyRound className="h-3.5 w-3.5 text-violet-400" />}
+                        {e.kind === "agent" ? "Generator agent" : e.kind === "website" ? "Website" : "Outer Control key"}
                       </span>
                     </td>
                     <td className="px-3 py-2">
