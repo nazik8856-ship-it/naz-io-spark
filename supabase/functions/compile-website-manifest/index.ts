@@ -417,9 +417,9 @@ function redactDeep(value: unknown, matches: SafetyMatch[]): unknown {
 // through. scanWithRules' own flatten() already walks ANY nested JSON
 // shape field-by-field -- no page-schema-specific extraction needed, the
 // whole pages[] tree is handed to it directly.
-function applySafetyGate(manifest: Manifest, rules: SafetyRule[]): { manifest: Manifest; notes: string[] } {
+function applySafetyGate(manifest: Manifest, rules: SafetyRule[]): { manifest: Manifest; notes: string[]; blocked: boolean; blockReason: string | null } {
   const scan = scanWithRules(rules, manifest.pages, "");
-  if (!scan.matched) return { manifest, notes: [] };
+  if (!scan.matched) return { manifest, notes: [], blocked: false, blockReason: null };
   const redactable = scan.matches.filter((m) => isRedactableMatch(m));
   const nonRedactable = scan.matches.filter((m) => !isRedactableMatch(m));
   const notes: string[] = [];
@@ -430,14 +430,31 @@ function applySafetyGate(manifest: Manifest, rules: SafetyRule[]): { manifest: M
     pages = redactDeep(manifest.pages, redactable) as Page[];
     notes.push(`Content matching your safety rule(s) (${redactable.map((m) => m.name).join(", ")}) was redacted at generation time.`);
   }
-  if (nonRedactable.length) {
-    // Everything else (destructive wording, mass-audience, disposable-
-    // recipient...) can be entirely legitimate copy for a business whose
-    // actual offering touches that category -- surfaced visibly rather
-    // than blocking the page outright.
-    notes.push(`This page's copy touches your safety rule(s) (${nonRedactable.map((m) => m.name).join(", ")}) -- not blocked, review before publishing.`);
+  // Problem 1 (Control Gate weak on websites, 2026-10-08): a block-severity
+  // match with nothing mechanically redactable (destructive wording, etc.)
+  // used to get the SAME "not blocked, review before publishing" note as a
+  // require_approval match -- "block" severity never actually blocked
+  // anything for a website, the one path in this system where it didn't.
+  // Every real agent action already stops outright on a non-redactable
+  // block match (decision-scoring.ts); this makes websites match that,
+  // instead of just noting the same thing require_approval content gets.
+  // require_approval content (mass-audience wording, a refund mention,
+  // etc.) is routine, legitimate business copy far more often than not, so
+  // that stays a visible note, never a block.
+  const blockSeverityNonRedactable = nonRedactable.filter((m) => m.severity === "block");
+  const requireApprovalNonRedactable = nonRedactable.filter((m) => m.severity !== "block");
+  if (requireApprovalNonRedactable.length) {
+    notes.push(`This page's copy touches your safety rule(s) (${requireApprovalNonRedactable.map((m) => m.name).join(", ")}) -- not blocked, review before publishing.`);
   }
-  return { manifest: { ...manifest, pages }, notes };
+  if (blockSeverityNonRedactable.length) {
+    return {
+      manifest: { ...manifest, pages },
+      notes,
+      blocked: true,
+      blockReason: `This page's copy matches your safety rule(s) (${blockSeverityNonRedactable.map((m) => m.name).join(", ")}) -- a block-severity rule with nothing mechanically redactable here, so generation is stopped rather than published with just a note.`,
+    };
+  }
+  return { manifest: { ...manifest, pages }, notes, blocked: false, blockReason: null };
 }
 
 function normalize(raw: unknown, prompt: string): Manifest {
@@ -839,6 +856,9 @@ serve(async (req) => {
         return json({ error: "Couldn't apply that edit — the AI didn't return a usable update. Nothing was changed; please try again or rephrase your request." }, 502);
       }
       const refinedGated = applySafetyGate(normalize(refinedManifestRaw, existing.prompt || prompt), gateSafetyRules);
+      if (refinedGated.blocked) {
+        return json({ error: "blocked_by_safety_rule", message: refinedGated.blockReason }, 422);
+      }
       const nextManifest = refinedGated.manifest;
       const generationNotes = refinedGated.notes;
       // The model's step-2 output from REFINE_DOC — the concrete, atomic edits
@@ -1075,6 +1095,9 @@ serve(async (req) => {
     // this is a no-op for it, but a single gate point is simpler than two.
     // Also covers the REBUILD branch below, which reuses this same `manifest`.
     const freshGated = applySafetyGate(manifest, gateSafetyRules);
+    if (freshGated.blocked) {
+      return json({ error: "blocked_by_safety_rule", message: freshGated.blockReason }, 422);
+    }
     manifest = freshGated.manifest;
     const generationNotes = [...freshGated.notes, ...factCheckNotes];
 

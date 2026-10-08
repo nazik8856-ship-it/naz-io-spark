@@ -575,9 +575,12 @@ export default function GeneratedDashboard() {
       // COMPLETE, currently-live page tree against the account's CURRENT
       // safety rules right before declaring this site published -- catches
       // a rule added since generation, or content hand-edited through the
-      // builder after the generation-time scan already ran. Never blocks
-      // the publish itself (the site is already reachable at its link
-      // either way); just surfaces what it found/fixed.
+      // builder after the generation-time scan already ran. A redactable
+      // match is fixed silently; Problem 1 (Control Gate weak on websites,
+      // 2026-10-08) made a block-severity, non-redactable match actually
+      // refuse to confirm the publish below, instead of only ever noting
+      // it -- the one place in this system "block" severity didn't
+      // previously block anything.
       try {
         const { data: assembly } = await supabase.functions.invoke("final-assembly-check", {
           body: { kind: "website", website_id: id },
@@ -611,7 +614,15 @@ export default function GeneratedDashboard() {
               : "Final check flagged some content worth reviewing against your safety rules -- see the Control Report below.",
           );
         }
-      } catch { /* a check failure must never block the site from going live */ }
+        // A hard refusal: a block-severity safety rule matched content
+        // this check could not mechanically redact. Do not confirm the
+        // publish -- the notes above (already persisted into the Control
+        // Report) already named exactly what and why.
+        if (assembly?.blocked) {
+          toast.error(assembly.blockReason || "Publish blocked: this site's content matches a block-severity safety rule. Fix it and try again.");
+          return;
+        }
+      } catch { /* a check FAILURE (network/5xx) must never block the site from going live -- only an actual blocked:true verdict does */ }
 
       setPublishOpen(false);
       window.open(`/website-preview/${id}`, "_blank");

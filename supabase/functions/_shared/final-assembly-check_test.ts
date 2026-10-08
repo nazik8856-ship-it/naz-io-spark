@@ -15,7 +15,7 @@
 // code paths these tests care about.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/final-assembly-check_test.ts
-import { checkAgentAssembly } from "./final-assembly-check.ts";
+import { checkAgentAssembly, checkWebsiteAssembly } from "./final-assembly-check.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -145,4 +145,69 @@ Deno.test("checkAgentAssembly: no safety-rule match at all -> no new guardrail, 
   assert(report.repaired === false);
   assert(report.notes.length === 0);
   assert(updateLog.length === 0, "nothing new to persist means no update call at all");
+});
+
+// ---- checkWebsiteAssembly: Problem 1 (Control Gate weak on websites,
+// 2026-10-08) -- a block-severity, non-redactable match used to get the
+// exact same "not blocked... worth reviewing" note as a require_approval
+// match. "block" severity never actually blocked anything for a website,
+// unlike every other path in this system. These prove the new
+// blocked/blockReason fields actually fire, and that the real content
+// still gets whatever redaction IS possible even when it's also blocked.
+// ---------------------------------------------------------------------------
+
+function websiteTables(sections: unknown, rules: Row[]): Record<string, Row[]> {
+  return {
+    websites: [{ id: "site-1", user_id: "user-1" }],
+    website_pages: [{ id: "page-1", website_id: "site-1", slug: "home", sections }],
+    safety_rules: rules,
+  };
+}
+
+const destructiveRule: Row = {
+  id: "r1", user_id: "user-1", name: "Destructive wording", category: "destructive",
+  pattern: "wipe the entire database", severity: "block", enabled: true,
+  agent_id: null, api_key_id: null, shadow_mode: false, rationale: null,
+};
+const secretRule: Row = {
+  id: "r2", user_id: "user-1", name: "Secret key", category: "secrets",
+  pattern: "sk-[A-Za-z0-9]{16,}", severity: "block", enabled: true,
+  agent_id: null, api_key_id: null, shadow_mode: false, rationale: null,
+};
+
+Deno.test("checkWebsiteAssembly: a block-severity, non-redactable match (destructive wording) blocks the publish", async () => {
+  const { admin, updateLog } = makeFakeAdmin(
+    websiteTables("Our team will wipe the entire database every Friday.", [destructiveRule]),
+  );
+  const report = await checkWebsiteAssembly(admin, "user-1", "site-1");
+  assert(report.blocked === true, "a block-severity, non-redactable match must block the publish");
+  assert(typeof report.blockReason === "string" && report.blockReason.includes("Destructive wording"));
+  assert(!updateLog.some((u) => u.table === "website_pages"), "nothing was redactable, so content must be left untouched");
+});
+
+Deno.test("checkWebsiteAssembly: a block-severity, REDACTABLE match (a secret) redacts but does not block", async () => {
+  const { admin, updateLog } = makeFakeAdmin(
+    websiteTables("Our API key is sk-1234567890abcdef, contact us for access.", [secretRule]),
+  );
+  const report = await checkWebsiteAssembly(admin, "user-1", "site-1");
+  assert(report.blocked === false, "a redactable match must redact, not block");
+  assert(report.repaired === true);
+  assert(updateLog.some((u) => u.table === "website_pages"), "the secret must actually be redacted from the stored content");
+});
+
+Deno.test("checkWebsiteAssembly: a secret (redactable) alongside destructive wording (non-redactable) in the SAME content -- the secret is still redacted even though the publish is blocked", async () => {
+  const { admin, updateLog } = makeFakeAdmin(
+    websiteTables("Key: sk-1234567890abcdef. Also we wipe the entire database weekly.", [secretRule, destructiveRule]),
+  );
+  const report = await checkWebsiteAssembly(admin, "user-1", "site-1");
+  assert(report.blocked === true, "the non-redactable destructive match must still block the publish");
+  assert(report.repaired === true, "the redactable secret must still be fixed, independent of the block");
+  assert(updateLog.some((u) => u.table === "website_pages"), "the secret redaction must still be persisted");
+});
+
+Deno.test("checkWebsiteAssembly: clean content is never blocked", async () => {
+  const { admin } = makeFakeAdmin(websiteTables("We sell artisanal coffee beans online.", [destructiveRule, secretRule]));
+  const report = await checkWebsiteAssembly(admin, "user-1", "site-1");
+  assert(report.blocked === false);
+  assert(report.notes.length === 0);
 });
