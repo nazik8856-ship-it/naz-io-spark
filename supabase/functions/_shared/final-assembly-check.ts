@@ -22,6 +22,17 @@ export type AssemblyCheckReport = {
   /** True when this check itself changed something (stripped a tool, redacted prose/content) -- the caller should treat the entity as freshly modified, not just read-checked. */
   repaired: boolean;
   notes: string[];
+  /**
+   * Problem 1 (Control Gate weak on websites, 2026-10-08): true when a
+   * block-severity safety-rule match was found with nothing mechanically
+   * redactable -- the caller MUST NOT confirm this publish/deploy
+   * succeeded when this is true. Always false for checkAgentAssembly
+   * (an agent's real actions are already hard-gated at run time by the
+   * full control gate; this first-deploy prose check stays advisory-only,
+   * unchanged).
+   */
+  blocked: boolean;
+  blockReason: string | null;
 };
 
 type HardRuleRow = { id: string; rule_text: string; action_type_pattern: string; effect: string; provider: string | null; agent_id: string | null; api_key_id: string | null };
@@ -45,7 +56,7 @@ export async function checkAgentAssembly(admin: SupabaseClient, userId: string, 
   let repaired = false;
 
   const { data: agentRow } = await admin.from("agents").select("manifest").eq("id", agentId).eq("user_id", userId).maybeSingle();
-  if (!agentRow) return { ok: false, repaired: false, notes: ["Agent not found."] };
+  if (!agentRow) return { ok: false, repaired: false, notes: ["Agent not found."], blocked: false, blockReason: null };
   const manifest = ((agentRow as { manifest: AgentManifest | null }).manifest ?? {}) as AgentManifest;
   const tools = Array.isArray(manifest.tools) ? manifest.tools : [];
   const guardrails = Array.isArray(manifest.guardrails) ? manifest.guardrails : [];
@@ -144,7 +155,7 @@ export async function checkAgentAssembly(admin: SupabaseClient, userId: string, 
     }).eq("id", agentId);
   }
 
-  return { ok: true, repaired, notes };
+  return { ok: true, repaired, notes, blocked: false, blockReason: null };
 }
 
 /**
@@ -155,18 +166,18 @@ export async function checkAgentAssembly(admin: SupabaseClient, userId: string, 
  */
 export async function checkWebsiteAssembly(admin: SupabaseClient, userId: string, websiteId: string): Promise<AssemblyCheckReport> {
   const { data: websiteRow } = await admin.from("websites").select("id").eq("id", websiteId).eq("user_id", userId).maybeSingle();
-  if (!websiteRow) return { ok: false, repaired: false, notes: ["Website not found."] };
+  if (!websiteRow) return { ok: false, repaired: false, notes: ["Website not found."], blocked: false, blockReason: null };
 
   const { data: pageRows } = await admin.from("website_pages").select("id, slug, sections").eq("website_id", websiteId);
   const pages = (pageRows ?? []) as { id: string; slug: string; sections: unknown }[];
-  if (!pages.length) return { ok: true, repaired: false, notes: [] };
+  if (!pages.length) return { ok: true, repaired: false, notes: [], blocked: false, blockReason: null };
 
   // Websites have no agent_id of their own -- the account-wide rule set is
   // the only one that ever governs them, same as compile-website-manifest's
   // own applySafetyGate already established.
   const safetyRules = await loadSafetyRules(admin, userId, null);
   const scan = scanWithRules(safetyRules, pages.map((p) => p.sections), "");
-  if (!scan.matched) return { ok: true, repaired: false, notes: [] };
+  if (!scan.matched) return { ok: true, repaired: false, notes: [], blocked: false, blockReason: null };
 
   const redactDeep = (value: unknown, matches: SafetyMatch[]): unknown => {
     if (typeof value === "string") return repairContent(value, matches).repaired ?? value;
@@ -194,9 +205,29 @@ export async function checkWebsiteAssembly(admin: SupabaseClient, userId: string
     }
     notes.push(`Content matching your safety rule(s) (${redactable.map((m) => m.name).join(", ")}) was redacted across this site at final-assembly check -- it may have been added or edited after this site was first generated.`);
   }
-  if (nonRedactable.length) {
-    notes.push(`This site's assembled content touches your safety rule(s) (${nonRedactable.map((m) => m.name).join(", ")}) -- not blocked (descriptive content, not an action), but worth reviewing before publishing.`);
+  // Problem 1 (Control Gate weak on websites, 2026-10-08): mirrors
+  // compile-website-manifest's own applySafetyGate -- a block-severity
+  // match with nothing mechanically redactable used to get the exact same
+  // "not blocked... worth reviewing" note as a require_approval match, at
+  // the one checkpoint (publish/republish) a website ever passes through.
+  // The caller (GeneratedDashboard.tsx's confirmPublish) must refuse to
+  // confirm the publish when this fires, instead of treating it as just
+  // another FYI note next to the require_approval ones.
+  const blockSeverityNonRedactable = nonRedactable.filter((m) => m.severity === "block");
+  const requireApprovalNonRedactable = nonRedactable.filter((m) => m.severity !== "block");
+  if (requireApprovalNonRedactable.length) {
+    notes.push(`This site's assembled content touches your safety rule(s) (${requireApprovalNonRedactable.map((m) => m.name).join(", ")}) -- not blocked (descriptive content, not an action), but worth reviewing before publishing.`);
+  }
+  if (blockSeverityNonRedactable.length) {
+    notes.push(`This site's assembled content matches your safety rule(s) (${blockSeverityNonRedactable.map((m) => m.name).join(", ")}) -- a block-severity rule with nothing mechanically redactable, so this publish is NOT confirmed.`);
+    return {
+      ok: true,
+      repaired,
+      notes,
+      blocked: true,
+      blockReason: `This site's content matches your safety rule(s) (${blockSeverityNonRedactable.map((m) => m.name).join(", ")}) -- fix or remove that content before republishing.`,
+    };
   }
 
-  return { ok: true, repaired, notes };
+  return { ok: true, repaired, notes, blocked: false, blockReason: null };
 }
