@@ -483,6 +483,16 @@ export default function GeneratorHome() {
         if (body?.usedFallback) {
           toast.warning("Something went wrong compiling a custom agent — this is a generic starter for the role. Try regenerating for an agent built for your business.");
         }
+        // GAP 5 (Guided UX, 2026-10-09): parity with the website publish
+        // flow's own toast.info pointer (GeneratedDashboard.tsx's
+        // confirmPublish) -- compile-agent-manifest's hard-rule/safety-rule
+        // gate has written generation_notes since GAP 3, but nothing ever
+        // told the user to go look. Without this, the only way to learn a
+        // tool was stripped or a rule matched was to stumble onto the new
+        // AgentControlReport widget on the next page unprompted.
+        if (Array.isArray(body?.generation_notes) && body.generation_notes.length) {
+          toast.info("Some tools or content were flagged against your account rules — see the Control Report on this agent's page.");
+        }
         navigate(`/generated/agent/${body.agentId}`);
       } catch (e) {
         const timedOut = e instanceof DOMException && e.name === "AbortError";
