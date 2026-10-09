@@ -7,10 +7,18 @@
 import { useState } from "react";
 import { ShieldCheck, ShieldAlert, ChevronDown, ChevronRight } from "lucide-react";
 
-export default function WebsiteControlReport({ notes }: { notes: string[] | null | undefined }) {
+export default function WebsiteControlReport({ notes, trustScore }: { notes: string[] | null | undefined; trustScore?: number | null }) {
   const [open, setOpen] = useState(false);
   const list = Array.isArray(notes) ? notes : [];
   const clean = list.length === 0;
+  // GAP 3 (Trust Score + Provenance + Control Report, 2026-10-09): the
+  // same computeTrustScore (outer-control-scoring.ts) score persisted on
+  // the website row by applySafetyGate/checkWebsiteAssembly -- not
+  // recomputed here, just rendered. A website generated before this GAP
+  // shipped has trustScore === null/undefined; falls back to the clean/
+  // flagged read `notes` already gives rather than showing a bare dash.
+  const score = typeof trustScore === "number" ? trustScore : clean ? 100 : null;
+  const scoreColor = score === null ? "text-white/40" : score >= 80 ? "text-emerald-300" : score >= 50 ? "text-amber-300" : "text-red-400";
   // AUDIT 5 (Trust Score + Provenance + Control Report, 2026-10-07): this
   // used to match the exact generation-time phrase ("redacted at
   // generation time") only -- a note from the final-assembly check
@@ -43,11 +51,16 @@ export default function WebsiteControlReport({ notes }: { notes: string[] | null
           <ShieldAlert className="h-4 w-4 text-amber-300 shrink-0" />
         )}
         <span className="text-sm font-bold text-white">Control Report — this generation</span>
+        {score !== null && (
+          <span className={`ml-auto text-xs font-mono font-bold ${scoreColor}`} title="Trust score: 100 minus a fixed cost per safety-rule match found during generation.">
+            {score}
+          </span>
+        )}
         {clean ? (
-          <span className="ml-auto text-[10px] font-mono uppercase text-emerald-300/80">clean</span>
+          <span className={score !== null ? "ml-2 text-[10px] font-mono uppercase text-emerald-300/80" : "ml-auto text-[10px] font-mono uppercase text-emerald-300/80"}>clean</span>
         ) : (
           <>
-            <span className="ml-auto text-[10px] font-mono uppercase text-amber-300/80">
+            <span className="ml-2 text-[10px] font-mono uppercase text-amber-300/80">
               {redacted.length ? `${redacted.length} redacted` : ""}
               {redacted.length && flagged.length ? " · " : ""}
               {flagged.length ? `${flagged.length} flagged` : ""}

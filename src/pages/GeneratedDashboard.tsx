@@ -372,6 +372,7 @@ export default function GeneratedDashboard() {
           tagline: manifest.tagline,
           theme: manifest.theme,
           generation_notes: Array.isArray(responseData.generation_notes) ? responseData.generation_notes : [],
+          trust_score: typeof responseData.trust_score === "number" ? responseData.trust_score : website?.trust_score,
         };
         const immediatePages = manifest.pages.map((page: any, index: number) => ({
           ...page,
@@ -1061,7 +1062,7 @@ export default function GeneratedDashboard() {
         <section className="flex-1 flex flex-col min-w-0 bg-[#0a0f1e]">
           {kind === "website" && (
             <div className="flex-1 min-h-0 flex flex-col">
-              <WebsiteControlReport notes={website?.generation_notes} />
+              <WebsiteControlReport notes={website?.generation_notes} trustScore={website?.trust_score} />
               {webView === "preview" && id && (
                 // Explicit absolute positioning + fixed inset guarantees the
                 // iframe fills the pane. Prior `h-full` on a flex item under
