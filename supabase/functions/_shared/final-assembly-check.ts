@@ -15,7 +15,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ruleMatchesAction, selectRulesForEntity } from "./rule-matching.ts";
 import { loadSafetyRules, scanWithRules, type SafetyMatch } from "./safety-scanner.ts";
 import { repairContent } from "./repair-engine.ts";
-import { isRedactableMatch } from "./outer-control-scoring.ts";
+import { computeTrustScore, isRedactableMatch } from "./outer-control-scoring.ts";
 
 export type AssemblyCheckReport = {
   ok: boolean;
@@ -33,6 +33,16 @@ export type AssemblyCheckReport = {
    */
   blocked: boolean;
   blockReason: string | null;
+  /**
+   * GAP 3 (Trust Score + Provenance + Control Report, 2026-10-09): the
+   * exact same computeTrustScore Outer Control's own evaluations already
+   * use, applied to this check's own safety-rule matches (prose + memory
+   * for an agent; page content for a website) -- not the hard-rule tool
+   * removals above, which have no "severity" of the kind this function
+   * scores. 100 when nothing matched. Persisted on every call (clean or
+   * not) so the score never goes stale once a flagged issue is fixed.
+   */
+  trustScore: number;
 };
 
 type HardRuleRow = { id: string; rule_text: string; action_type_pattern: string; effect: string; provider: string | null; agent_id: string | null; api_key_id: string | null };
@@ -55,11 +65,19 @@ export async function checkAgentAssembly(admin: SupabaseClient, userId: string, 
   const notes: string[] = [];
   let repaired = false;
 
-  const { data: agentRow } = await admin.from("agents").select("manifest").eq("id", agentId).eq("user_id", userId).maybeSingle();
-  if (!agentRow) return { ok: false, repaired: false, notes: ["Agent not found."], blocked: false, blockReason: null };
+  const { data: agentRow } = await admin.from("agents").select("manifest, generation_notes").eq("id", agentId).eq("user_id", userId).maybeSingle();
+  if (!agentRow) return { ok: false, repaired: false, notes: ["Agent not found."], blocked: false, blockReason: null, trustScore: 100 };
   const manifest = ((agentRow as { manifest: AgentManifest | null }).manifest ?? {}) as AgentManifest;
+  const existingGenerationNotes = Array.isArray((agentRow as { generation_notes: string[] | null }).generation_notes)
+    ? (agentRow as { generation_notes: string[] }).generation_notes
+    : [];
   const tools = Array.isArray(manifest.tools) ? manifest.tools : [];
   const guardrails = Array.isArray(manifest.guardrails) ? manifest.guardrails : [];
+  // GAP 3: every safety-rule match found below (prose + memory), fed to
+  // computeTrustScore at the end -- kept separate from the hard-rule tool
+  // removals above, which this function already tracks via `notes` but
+  // which have no comparable "severity" to score.
+  const allSafetyMatches: SafetyMatch[] = [];
 
   const { data: hardRuleRows } = await admin.from("hard_rules")
     .select("id, rule_text, action_type_pattern, effect, provider, enabled, agent_id, api_key_id")
@@ -108,6 +126,7 @@ export async function checkAgentAssembly(admin: SupabaseClient, userId: string, 
     // up front (same pattern checkWebsiteAssembly below already uses)
     // means both groups are reported independently, regardless of
     // whether the other one existed.
+    allSafetyMatches.push(...scan.matches);
     const redactableMatches = scan.matches.filter((m) => isRedactableMatch(m));
     const nonRedactableMatches = scan.matches.filter((m) => !isRedactableMatch(m));
 
@@ -162,6 +181,7 @@ export async function checkAgentAssembly(admin: SupabaseClient, userId: string, 
     if (!row.value) continue;
     const scan = scanWithRules(safetyRules, row.value, "");
     if (!scan.matched) continue;
+    allSafetyMatches.push(...scan.matches);
     const redactableMatches = scan.matches.filter((m) => isRedactableMatch(m));
     const nonRedactableMatches = scan.matches.filter((m) => !isRedactableMatch(m));
     const originNote = row.source === "external_ai" ? " (sourced from an external AI's response)" : "";
@@ -183,17 +203,29 @@ export async function checkAgentAssembly(admin: SupabaseClient, userId: string, 
     }
   }
 
-  // Persist whenever there's something new to show, not only when
-  // `repaired` (actual content change) is true -- a flagged-but-not-fixed
-  // guardrail note is still a real finding that must reach the agent's
-  // own guardrail list.
-  if (addedGuardrails.length) {
-    await admin.from("agents").update({
-      manifest: { ...manifest, tools: keptTools, guardrails: [...guardrails, ...addedGuardrails], systemPrompt, decisionPolicy },
-    }).eq("id", agentId);
-  }
+  // GAP 3: computed from this run's own safety-rule matches only -- 100
+  // when none matched, same posture a clean checkWebsiteAssembly run
+  // takes below.
+  const trustScore = computeTrustScore(allSafetyMatches);
+  // Deduped the same way websites.generation_notes already merges (never
+  // re-append a note this exact check already recorded on a prior run).
+  const newGenerationNotes = notes.filter((n) => !existingGenerationNotes.includes(n));
+  const mergedGenerationNotes = [...existingGenerationNotes, ...newGenerationNotes];
 
-  return { ok: true, repaired, notes, blocked: false, blockReason: null };
+  // Persisted on every call, not only when something changed -- the
+  // manifest write stays conditional on addedGuardrails (nothing to
+  // rewrite there otherwise), but trust_score/generation_notes must
+  // always reflect THIS run's result, including a clean run resetting a
+  // previously-bad score back to 100 once the offending rule is gone.
+  await admin.from("agents").update({
+    ...(addedGuardrails.length
+      ? { manifest: { ...manifest, tools: keptTools, guardrails: [...guardrails, ...addedGuardrails], systemPrompt, decisionPolicy } }
+      : {}),
+    trust_score: trustScore,
+    generation_notes: mergedGenerationNotes,
+  }).eq("id", agentId);
+
+  return { ok: true, repaired, notes, blocked: false, blockReason: null, trustScore };
 }
 
 /**
@@ -204,18 +236,26 @@ export async function checkAgentAssembly(admin: SupabaseClient, userId: string, 
  */
 export async function checkWebsiteAssembly(admin: SupabaseClient, userId: string, websiteId: string): Promise<AssemblyCheckReport> {
   const { data: websiteRow } = await admin.from("websites").select("id").eq("id", websiteId).eq("user_id", userId).maybeSingle();
-  if (!websiteRow) return { ok: false, repaired: false, notes: ["Website not found."], blocked: false, blockReason: null };
+  if (!websiteRow) return { ok: false, repaired: false, notes: ["Website not found."], blocked: false, blockReason: null, trustScore: 100 };
 
   const { data: pageRows } = await admin.from("website_pages").select("id, slug, sections").eq("website_id", websiteId);
   const pages = (pageRows ?? []) as { id: string; slug: string; sections: unknown }[];
-  if (!pages.length) return { ok: true, repaired: false, notes: [], blocked: false, blockReason: null };
+  if (!pages.length) return { ok: true, repaired: false, notes: [], blocked: false, blockReason: null, trustScore: 100 };
 
   // Websites have no agent_id of their own -- the account-wide rule set is
   // the only one that ever governs them, same as compile-website-manifest's
   // own applySafetyGate already established.
   const safetyRules = await loadSafetyRules(admin, userId, null);
   const scan = scanWithRules(safetyRules, pages.map((p) => p.sections), "");
-  if (!scan.matched) return { ok: true, repaired: false, notes: [], blocked: false, blockReason: null };
+  if (!scan.matched) {
+    // GAP 3: persisted even on a clean run -- resets a previously-bad
+    // score back to 100 once the offending rule/content is gone, same
+    // "always write, never go stale" posture checkAgentAssembly takes.
+    await admin.from("websites").update({ trust_score: 100 }).eq("id", websiteId);
+    return { ok: true, repaired: false, notes: [], blocked: false, blockReason: null, trustScore: 100 };
+  }
+  const trustScore = computeTrustScore(scan.matches);
+  await admin.from("websites").update({ trust_score: trustScore }).eq("id", websiteId);
 
   const redactDeep = (value: unknown, matches: SafetyMatch[]): unknown => {
     if (typeof value === "string") return repairContent(value, matches).repaired ?? value;
@@ -264,8 +304,9 @@ export async function checkWebsiteAssembly(admin: SupabaseClient, userId: string
       notes,
       blocked: true,
       blockReason: `This site's content matches your safety rule(s) (${blockSeverityNonRedactable.map((m) => m.name).join(", ")}) -- fix or remove that content before republishing.`,
+      trustScore,
     };
   }
 
-  return { ok: true, repaired, notes, blocked: false, blockReason: null };
+  return { ok: true, repaired, notes, blocked: false, blockReason: null, trustScore };
 }

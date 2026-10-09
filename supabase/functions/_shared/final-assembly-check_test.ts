@@ -144,7 +144,11 @@ Deno.test("checkAgentAssembly: no safety-rule match at all -> no new guardrail, 
   const report = await checkAgentAssembly(admin, "user-1", "agent-1");
   assert(report.repaired === false);
   assert(report.notes.length === 0);
-  assert(updateLog.length === 0, "nothing new to persist means no update call at all");
+  assert(report.trustScore === 100, "no match at all must score a clean 100");
+  // GAP 3: trust_score/generation_notes are now written on every run (so a
+  // score never goes stale), but the manifest itself (tools/guardrails)
+  // is only rewritten when there's an actual new guardrail to add.
+  assert(updateLog.length === 1 && !("manifest" in updateLog[0].patch), "trust_score still gets (re)written even with nothing new to flag, but the manifest itself is left untouched");
 });
 
 // ---- checkAgentAssembly: GAP 1 / GAP 2 (Persistent Ongoing Enforcement /
@@ -215,7 +219,8 @@ Deno.test("checkAgentAssembly: a clean memory value with no rule match produces 
   ));
   const report = await checkAgentAssembly(admin, "user-1", "agent-1");
   assert(report.notes.length === 0);
-  assert(updateLog.length === 0);
+  assert(report.trustScore === 100);
+  assert(updateLog.length === 1 && !("manifest" in updateLog[0].patch), "trust_score still gets (re)written, but nothing flagged means the manifest is untouched");
 });
 
 Deno.test("checkWebsiteAssembly: catches a rule violation inside content that was MATERIALIZED FROM AN EXTERNAL SOURCE (a CSV row, an integration snapshot) exactly like model-authored copy -- GAP 2 (external contributions, 2026-10-09), documenting a path that was already closed rather than assuming it, since the scan walks website_pages.sections blindly regardless of how that content got there", async () => {
@@ -293,4 +298,40 @@ Deno.test("checkWebsiteAssembly: clean content is never blocked", async () => {
   const report = await checkWebsiteAssembly(admin, "user-1", "site-1");
   assert(report.blocked === false);
   assert(report.notes.length === 0);
+});
+
+// ---- GAP 3 (Trust Score + Provenance + Control Report, 2026-10-09): the
+// same computeTrustScore Outer Control's own evaluations already use,
+// applied to the Generator's own checks -- and always persisted, so the
+// score never goes stale once a flagged issue is fixed.
+// ---------------------------------------------------------------------------
+
+Deno.test("checkWebsiteAssembly: clean content scores a perfect 100 and persists it", async () => {
+  const { admin, updateLog } = makeFakeAdmin(websiteTables("We sell artisanal coffee beans online.", [destructiveRule]));
+  const report = await checkWebsiteAssembly(admin, "user-1", "site-1");
+  assert(report.trustScore === 100);
+  assert(updateLog.some((u) => u.table === "websites" && u.patch.trust_score === 100));
+});
+
+Deno.test("checkWebsiteAssembly: a block-severity match scores lower than a require_approval-only match", async () => {
+  const mildRule: Row = { ...destructiveRule, severity: "require_approval" };
+  const { admin: adminBlock } = makeFakeAdmin(websiteTables("Our team will wipe the entire database every Friday.", [destructiveRule]));
+  const { admin: adminMild } = makeFakeAdmin(websiteTables("Our team will wipe the entire database every Friday.", [mildRule]));
+  const blockReport = await checkWebsiteAssembly(adminBlock, "user-1", "site-1");
+  const mildReport = await checkWebsiteAssembly(adminMild, "user-1", "site-1");
+  assert(blockReport.trustScore < mildReport.trustScore, `expected block (${blockReport.trustScore}) < require_approval (${mildReport.trustScore})`);
+});
+
+Deno.test("checkAgentAssembly: trust score drops on a flagged prose match and recovers to 100 once the rule no longer matches", async () => {
+  const { admin: dirty } = makeFakeAdmin(baseTables("destructive", "block"));
+  const dirtyReport = await checkAgentAssembly(dirty, "user-1", "agent-1");
+  assert(dirtyReport.trustScore < 100, "a real block-severity finding must lower the score below a clean 100");
+
+  const { admin: clean, updateLog } = makeFakeAdmin({
+    agents: [{ id: "agent-1", user_id: "user-1", manifest: { tools: [], guardrails: [], systemPrompt: "Nothing sensitive.", decisionPolicy: "Be polite." } }],
+    hard_rules: [], safety_rules: [],
+  });
+  const cleanReport = await checkAgentAssembly(clean, "user-1", "agent-1");
+  assert(cleanReport.trustScore === 100, "once nothing matches, the score must reset to a clean 100, not stay stuck at whatever it was before");
+  assert(updateLog.some((u) => u.table === "agents" && u.patch.trust_score === 100));
 });

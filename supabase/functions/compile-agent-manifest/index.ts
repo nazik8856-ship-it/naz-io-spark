@@ -11,9 +11,9 @@ import { deriveCronLabel, nextRunFromCron } from "../_shared/agent-schedule.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 import { reconcileGuardrailsToHardRules } from "../_shared/guardrail-reconciliation.ts";
 import { ruleMatchesAction } from "../_shared/rule-matching.ts";
-import { loadSafetyRules, scanWithRules } from "../_shared/safety-scanner.ts";
+import { loadSafetyRules, scanWithRules, type SafetyMatch } from "../_shared/safety-scanner.ts";
 import { repairContent } from "../_shared/repair-engine.ts";
-import { isRedactableMatch } from "../_shared/outer-control-scoring.ts";
+import { computeTrustScore, isRedactableMatch } from "../_shared/outer-control-scoring.ts";
 import { critiqueAndRevise, findUngroundedFacts } from "../_shared/generation-critique.ts";
 import { generationCacheKeyFor, findCachedGeneration, storeCachedGeneration } from "../_shared/generation-cache.ts";
 import { reportProgress } from "../_shared/generation-progress.ts";
@@ -557,6 +557,16 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     // to the soft warning + real-time enforcement, same as today). Every
     // removal is recorded as a real guardrail entry so it's visible on the
     // agent's own dashboard, not a silent change the operator never sees.
+    // GAP 3 (Trust Score + Provenance + Control Report, 2026-10-09): mirrors
+    // compile-website-manifest's own applySafetyGate -- generationNotes is
+    // this generation's own report (replaced each run, same as websites'
+    // generation_notes), kept separate from allSafetyMatches, which feeds
+    // ONLY computeTrustScore below (the hard-rule tool removals just below
+    // have no "severity" of the kind that function scores, same posture
+    // final-assembly-check.ts's checkAgentAssembly already takes).
+    const generationNotes: string[] = [];
+    const allSafetyMatches: SafetyMatch[] = [];
+
     if (accountHardRules.length) {
       const kept: Tool[] = [];
       const blockedNotes: string[] = [];
@@ -576,6 +586,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
           ...normalized.guardrails,
           ...blockedNotes.map((rule) => ({ rule, requiresApproval: false })),
         ];
+        generationNotes.push(...blockedNotes);
       }
     }
 
@@ -599,6 +610,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
         if (!text) continue;
         const scan = scanWithRules(safetyRules, text, "");
         if (!scan.matched) continue;
+        allSafetyMatches.push(...scan.matches);
         // GAP 3 (Output Modification & Repair Engine): same repairContent
         // primitive Outer Control's own correction path uses -- a secret/
         // PII span gets excised, the rest of the field is unaffected and
@@ -627,8 +639,15 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
           ...normalized.guardrails,
           ...safetyNotes.map((rule) => ({ rule, requiresApproval: false })),
         ];
+        generationNotes.push(...safetyNotes);
       }
     }
+
+    // GAP 3: computed from this run's own safety-rule matches only -- 100
+    // when none matched, same posture compile-website-manifest's
+    // applySafetyGate and final-assembly-check.ts's checkAgentAssembly
+    // already take.
+    const trustScore = computeTrustScore(allSafetyMatches);
 
     // Stamp role onto the manifest so the Integrations panel picks the right
     // platform recommendations even when it only receives the manifest.
@@ -693,6 +712,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
               role, schedule_cron: cron, schedule_label: label,
               next_run_at: nextRunFromCron(cron),
               business_profile_id: businessProfileId ?? null,
+              trust_score: trustScore, generation_notes: generationNotes,
             })
             .eq("id", existingAgentId)
             .eq("user_id", user.id);
@@ -732,6 +752,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
               role, schedule_cron: cron, schedule_label: label,
               next_run_at: nextRunFromCron(cron),
               business_profile_id: businessProfileId ?? null,
+              trust_score: trustScore, generation_notes: generationNotes,
             })
             .eq("id", bySlug.id)
             .eq("user_id", user.id);
@@ -764,6 +785,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
             schedule_cron: finalScheduleCron, schedule_label: finalScheduleLabel,
             next_run_at, business_profile_id: businessProfileId ?? null,
             autonomy: "guarded",
+            trust_score: trustScore, generation_notes: generationNotes,
           })
           .select("id").single();
         if (insErr) return json({ error: insErr.message, manifest: normalized, agentId: null }, 500);
@@ -796,7 +818,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       }
     }
 
-    return json({ manifest: normalized, agentId, mode, role, schedule_cron: finalScheduleCron, schedule_label: finalScheduleLabel, usedFallback });
+    return json({ manifest: normalized, agentId, mode, role, schedule_cron: finalScheduleCron, schedule_label: finalScheduleLabel, usedFallback, generation_notes: generationNotes, trust_score: trustScore });
   } catch (e) {
     console.error("compile-agent-manifest error", e);
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
