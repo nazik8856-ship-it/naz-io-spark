@@ -1114,7 +1114,17 @@ function SectionBlock({
                 return (
                   <div key={i} className={`nz-gallery-item ${showcaseSpan} ${stripSize} ${heightClass}`}
                     style={{ background: `linear-gradient(135deg, ${palette.accent}22, ${palette.accentSecondary}22)` }}>
-                    <img src={contentImageUrl(it, fieldStr(it, "image_prompt") || fieldStr(it, "caption"), 900, 900, palette, "photo")} alt={fieldStr(it, "caption")} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    {/* Image-relevance quality loop (2026-10-09): this used to pass
+                        mediaStyle="photo" unconditionally for every gallery item,
+                        regardless of manifest content -- gallery items have no
+                        media_style field of their own (see SCHEMA_DOC), so an item
+                        with no real asset_url fell straight through to
+                        photoUrl()'s blind Lorem Picsum seed lookup with no way for
+                        the Generator or any control gate to prevent it. Only request
+                        "photo" when a real asset_url is actually present; otherwise
+                        this safely defaults to the bespoke signature, same as the
+                        services-item image call just above already does. */}
+                    <img src={contentImageUrl(it, fieldStr(it, "image_prompt") || fieldStr(it, "caption"), 900, 900, palette, fieldStr(it, "asset_url") ? "photo" : undefined)} alt={fieldStr(it, "caption")} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     {fieldStr(it, "caption") && <div className="cap">{fieldStr(it, "caption")}</div>}
                   </div>
                 );

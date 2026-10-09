@@ -235,6 +235,46 @@ Deno.test("checkWebsiteAssembly: catches a rule violation inside content that wa
   assert(updateLog.some((u) => u.table === "website_pages"));
 });
 
+// ---- Image-relevance quality loop (2026-10-09): checkWebsiteAssembly is
+// the Outer Control / persistent-re-check layer for the exact failure
+// named in the request (a cafe in Vienna producing space-sky/desert/beach
+// stock photos). Runs independent of the safety-rule scan above -- a page
+// can be perfectly clean on safety rules and still carry a dangling
+// media_style:"photo" with nothing backing it.
+// ---------------------------------------------------------------------------
+
+Deno.test("checkWebsiteAssembly: a dangling media_style:\"photo\" with no asset_url is repaired even when nothing matches any safety rule", async () => {
+  const { admin, updateLog } = makeFakeAdmin({
+    websites: [{ id: "site-1", user_id: "user-1" }],
+    website_pages: [{
+      id: "page-1", website_id: "site-1", slug: "home",
+      sections: [{ type: "hero", content: { headline: "x", media_style: "photo", image_prompt: "aesthetic cafe interior, Vienna" } }],
+    }],
+    safety_rules: [],
+  });
+  const report = await checkWebsiteAssembly(admin, "user-1", "site-1");
+  assert(report.repaired === true, "a dangling photo request must be repaired even with zero safety-rule matches");
+  assert(report.notes.some((n) => n.includes("forced to the bespoke illustration style")));
+  const pageUpdate = updateLog.find((u) => u.table === "website_pages");
+  assert(!!pageUpdate, "the repaired sections must actually be persisted");
+  const sections = (pageUpdate!.patch as { sections: { content: Record<string, unknown> }[] }).sections;
+  assert(sections[0].content.media_style === "illustration");
+});
+
+Deno.test("checkWebsiteAssembly: an already-persisted, real asset_url is never second-guessed on a re-check", async () => {
+  const { admin, updateLog } = makeFakeAdmin({
+    websites: [{ id: "site-1", user_id: "user-1" }],
+    website_pages: [{
+      id: "page-1", website_id: "site-1", slug: "home",
+      sections: [{ type: "about", content: { heading: "x", media_style: "photo", asset_url: "https://storage.example.com/real-cafe-photo.jpg" } }],
+    }],
+    safety_rules: [],
+  });
+  const report = await checkWebsiteAssembly(admin, "user-1", "site-1");
+  assert(report.repaired === false, "an existing real photo must never be stripped on a later re-check");
+  assert(!updateLog.some((u) => u.table === "website_pages"), "no page update should be written when nothing needed repair");
+});
+
 // ---- checkWebsiteAssembly: Problem 1 (Control Gate weak on websites,
 // 2026-10-08) -- a block-severity, non-redactable match used to get the
 // exact same "not blocked... worth reviewing" note as a require_approval

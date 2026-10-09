@@ -7,6 +7,7 @@ import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 import { loadSafetyRules, scanWithRules, type SafetyMatch, type SafetyRule } from "../_shared/safety-scanner.ts";
 import { computeTrustScore, isRedactableMatch } from "../_shared/outer-control-scoring.ts";
+import { enforceImageRelevance, collectAssetUrls } from "../_shared/image-relevance.ts";
 import { repairContent } from "../_shared/repair-engine.ts";
 import { critiqueAndRevise, findUngroundedFacts } from "../_shared/generation-critique.ts";
 import { generationCacheKeyFor, findCachedGeneration, storeCachedGeneration } from "../_shared/generation-cache.ts";
@@ -122,7 +123,7 @@ C. COLOR — pick a palette FAMILY that fits the brand, not a default
 D. VISUAL SIGNATURE — prefer bespoke over stock
 - The renderer generates a unique abstract SVG signature (gradient mesh + geometric marks seeded from the site) for every image_prompt whose media_style is "illustration", "gradient", or "pattern". This is what makes each site look bespoke.
 - Set media_style to "illustration"/"gradient"/"pattern" by default — that gives you the bespoke visual signature per site.
-- Use media_style: "photo" only when the brand genuinely requires photography (real estate listings, food menus, gallery of past work, portrait-led hospitality). Do NOT default to photo.
+- Use media_style: "photo" ONLY when this request includes a real uploaded/linked image for that exact section (its asset_url will be set from that real attachment). Never request "photo" as a general stylistic choice for a business that "feels photo-y" (food, hospitality, real estate, galleries) -- a deterministic post-processing check rewrites any "photo" request with no matching real attachment to "illustration" before it's saved, so asking for one without a real attachment wastes this turn's effort for no visual benefit.
 - Image prompts are still specific (subject + mood + palette hint) even for signature use — they seed the pattern generator so each section gets a distinct signature.
 
 E. DENSITY CONTRAST
@@ -299,7 +300,7 @@ function fallbackManifest(prompt: string): Manifest {
         sections: [
           { type: "hero", variant: "split-image", content: { eyebrow: "Crafted with intent", headline: `Meet the ~remarkable~ side of ${name}.`, subheadline: `Discover ${offering} shaped around the people who expect more from every detail.`, cta_primary: "Explore our work", cta_primary_href: "services", cta_secondary: "Start a conversation", cta_secondary_href: "contact", image_prompt: `${name}, expressive editorial composition, tactile details, dramatic directional light`, media_style: "illustration", stats: [{ value: "100%", label: "Made with care" }, { value: "01", label: "Distinct point of view" }] } },
           { type: "stats", content: { heading: "Built around what matters", items: [{ value: "01", label: "Clear promise" }, { value: "03", label: "Ways to explore" }, { value: "24/7", label: "Digital access" }] } },
-          { type: "feature-split", variant: "editorial", content: { heading: `A more ~considered~ experience.`, body: `Every part of ${name} is designed to feel coherent, useful, and unmistakably its own.`, bullets: ["A focused, memorable identity", "Details shaped around real needs", "Clear paths from interest to action"], image_prompt: `${name}, close-up material study, refined craftsmanship, category-specific objects`, media_style: isFood ? "photo" : "pattern", reverse: true } },
+          { type: "feature-split", variant: "editorial", content: { heading: `A more ~considered~ experience.`, body: `Every part of ${name} is designed to feel coherent, useful, and unmistakably its own.`, bullets: ["A focused, memorable identity", "Details shaped around real needs", "Clear paths from interest to action"], image_prompt: `${name}, close-up material study, refined craftsmanship, category-specific objects`, media_style: "pattern", reverse: true } },
           { type: "services", variant: "numbered", content: { heading: `What makes us ~different~.`, items: [{ title: "Purposeful craft", description: "Every choice supports a clear outcome instead of adding noise." }, { title: "Personal attention", description: "A thoughtful experience that respects context, taste, and time." }, { title: "Lasting character", description: "Work designed to remain distinctive long after the first impression." }] } },
           { type: "cta", content: { headline: `Ready to find your ~new favorite~?`, subheadline: `Step inside ${name} and see what thoughtful craft can feel like.`, cta_primary: "Get started", cta_primary_href: "contact", cta_secondary: "Contact us", cta_secondary_href: "contact" } },
         ],
@@ -764,6 +765,13 @@ serve(async (req) => {
     const visualAttachments = Array.isArray(attachments)
       ? attachments.filter((a: any) => a && a.kind === "image" && (a.assetUrl || a.url)).slice(0, 6)
       : [];
+    // Image-relevance quality loop (2026-10-09): the only asset_url values
+    // ever genuinely trustworthy are ones that came from a real upload/link
+    // the user attached to THIS request -- anything else in a manifest's
+    // asset_url is either echoed from a PAST save (handled separately, see
+    // enforceImageRelevance's no-verified-set mode) or invented by the
+    // model. Built once, reused by every save path below.
+    const verifiedImageUrls = new Set(visualAttachments.map((a: any) => a.assetUrl || a.url));
     if (!prompt || typeof prompt !== "string") return json({ error: "prompt required" }, 400);
 
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -950,7 +958,15 @@ serve(async (req) => {
       if (refinedGated.blocked) {
         return json({ error: "blocked_by_safety_rule", message: refinedGated.blockReason }, 422);
       }
-      const nextManifest = refinedGated.manifest;
+      // Image-relevance quality loop (2026-10-09): REFINE_DOC tells the
+      // model to echo untouched sections back verbatim, so a section this
+      // edit never touched can legitimately carry an asset_url that was
+      // verified and saved at an EARLIER generation -- folded into this
+      // request's own verifiedImageUrls so it's never mistaken for a fresh
+      // hallucination just because it wasn't re-attached this time.
+      const refineVerifiedUrls = new Set([...verifiedImageUrls, ...collectAssetUrls(currentManifest.pages)]);
+      const imageGated = enforceImageRelevance(refinedGated.manifest.pages, refineVerifiedUrls);
+      const nextManifest = { ...refinedGated.manifest, pages: imageGated.pages };
       // Problem 3 follow-up (fresh audit, 2026-10-08): findUngroundedFacts
       // was wired into the fresh-generation/rebuild path only -- an edit
       // through this chat-refine branch never ran it at all, even though an
@@ -970,7 +986,7 @@ serve(async (req) => {
           );
         }
       }
-      const generationNotes = [...refinedGated.notes, ...editFactCheckNotes];
+      const generationNotes = [...refinedGated.notes, ...editFactCheckNotes, ...imageGated.notes];
       // The model's step-2 output from REFINE_DOC — the concrete, atomic edits
       // it identified from the request before deciding how to implement them.
       // Surfaced to the user so "identifies the wished edits" is a real,
@@ -1228,7 +1244,13 @@ serve(async (req) => {
       return json({ error: "blocked_by_safety_rule", message: freshGated.blockReason }, 422);
     }
     manifest = freshGated.manifest;
-    const generationNotes = [...freshGated.notes, ...factCheckNotes];
+    // Image-relevance quality loop (2026-10-09): a fresh compile or a full
+    // rebuild has no "untouched parts" to preserve -- every asset_url here
+    // either came from this request's own real attachments or was invented,
+    // so verifiedImageUrls alone (no existing-pages union) is correct.
+    const imageGated = enforceImageRelevance(manifest.pages, verifiedImageUrls);
+    manifest = { ...manifest, pages: imageGated.pages };
+    const generationNotes = [...freshGated.notes, ...factCheckNotes, ...imageGated.notes];
 
     if (!save) return json({ manifest, generation_notes: generationNotes, trust_score: freshGated.trustScore, used_fallback: usedFallback });
     // A caller that asked to save (the frontend's default) but has no
