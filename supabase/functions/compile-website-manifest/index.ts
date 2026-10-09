@@ -6,7 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 import { loadSafetyRules, scanWithRules, type SafetyMatch, type SafetyRule } from "../_shared/safety-scanner.ts";
-import { isRedactableMatch } from "../_shared/outer-control-scoring.ts";
+import { computeTrustScore, isRedactableMatch } from "../_shared/outer-control-scoring.ts";
 import { repairContent } from "../_shared/repair-engine.ts";
 import { critiqueAndRevise, findUngroundedFacts } from "../_shared/generation-critique.ts";
 import { generationCacheKeyFor, findCachedGeneration, storeCachedGeneration } from "../_shared/generation-cache.ts";
@@ -457,9 +457,15 @@ function redactDeep(value: unknown, matches: SafetyMatch[]): unknown {
 // through. scanWithRules' own flatten() already walks ANY nested JSON
 // shape field-by-field -- no page-schema-specific extraction needed, the
 // whole pages[] tree is handed to it directly.
-function applySafetyGate(manifest: Manifest, rules: SafetyRule[]): { manifest: Manifest; notes: string[]; blocked: boolean; blockReason: string | null } {
+function applySafetyGate(manifest: Manifest, rules: SafetyRule[]): { manifest: Manifest; notes: string[]; blocked: boolean; blockReason: string | null; trustScore: number } {
   const scan = scanWithRules(rules, manifest.pages, "");
-  if (!scan.matched) return { manifest, notes: [], blocked: false, blockReason: null };
+  if (!scan.matched) return { manifest, notes: [], blocked: false, blockReason: null, trustScore: 100 };
+  // GAP 3 (Trust Score + Provenance + Control Report, 2026-10-09): same
+  // computeTrustScore Outer Control's own evaluations and
+  // checkWebsiteAssembly (final-assembly-check.ts) already use -- this is
+  // the generation-time half of the same score, computed from this
+  // generation's own matches before any redaction below.
+  const trustScore = computeTrustScore(scan.matches);
   const redactable = scan.matches.filter((m) => isRedactableMatch(m));
   const nonRedactable = scan.matches.filter((m) => !isRedactableMatch(m));
   const notes: string[] = [];
@@ -492,9 +498,10 @@ function applySafetyGate(manifest: Manifest, rules: SafetyRule[]): { manifest: M
       notes,
       blocked: true,
       blockReason: `This page's copy matches your safety rule(s) (${blockSeverityNonRedactable.map((m) => m.name).join(", ")}) -- a block-severity rule with nothing mechanically redactable here, so generation is stopped rather than published with just a note.`,
+      trustScore,
     };
   }
-  return { manifest: { ...manifest, pages }, notes, blocked: false, blockReason: null };
+  return { manifest: { ...manifest, pages }, notes, blocked: false, blockReason: null, trustScore };
 }
 
 function normalize(raw: unknown, prompt: string): Manifest {
@@ -827,12 +834,23 @@ serve(async (req) => {
     let compilePrompt = prompt;
     let rebuildWebsiteId: string | null = null;
     let routeInfo: { route: "edit" | "rebuild" | "new"; reason: string } = { route: "edit", reason: "" };
+    // GAP 4 (Speed & Reliability Layer, 2026-10-09): hoisted out of the two
+    // "REFINE PATH" blocks below -- both used to fetch this SAME website +
+    // its SAME pages independently (the routing block only to read
+    // `existing.name` for the classifier prompt, the edit block to build
+    // currentManifest), paying for the website_pages round-trip twice on
+    // every single chat-edit request, the single most common path through
+    // this function. Fetched once here and reused by both.
+    let existing: Record<string, unknown> | null = null;
+    let existingPages: Record<string, unknown>[] | null = null;
 
     // ============ REFINE PATH ============
     if (refine && previousWebsiteId && user) {
-      const { data: existing } = await supabase.from("websites").select("*").eq("id", previousWebsiteId).eq("user_id", user.id).maybeSingle();
-      if (!existing) return json({ error: "Website not found" }, 404);
-      const { data: existingPages } = await supabase.from("website_pages").select("*").eq("website_id", previousWebsiteId).order("order_index", { ascending: true });
+      const { data: existingRow } = await supabase.from("websites").select("*").eq("id", previousWebsiteId).eq("user_id", user.id).maybeSingle();
+      if (!existingRow) return json({ error: "Website not found" }, 404);
+      existing = existingRow;
+      const { data: existingPagesRows } = await supabase.from("website_pages").select("*").eq("website_id", previousWebsiteId).order("order_index", { ascending: true });
+      existingPages = existingPagesRows ?? [];
 
       const routed = await routeWebsiteChatIntent(gw, prompt, String(existing.name || "this website"));
       routeInfo = { route: routed.route, reason: routed.reason };
@@ -843,11 +861,11 @@ serve(async (req) => {
     }
 
     if (refine && previousWebsiteId && user && routeInfo.route === "edit") {
-      const { data: existing } = await supabase.from("websites").select("*").eq("id", previousWebsiteId).eq("user_id", user.id).maybeSingle();
+      // Always set by the routing block above (it runs first, under the
+      // same `refine && previousWebsiteId && user` guard, and returns 404
+      // before routeInfo can become "edit" otherwise) -- this check only
+      // narrows the type for everything below without a redundant DB call.
       if (!existing) return json({ error: "Website not found" }, 404);
-      const { data: existingPages } = await supabase.from("website_pages").select("*").eq("website_id", previousWebsiteId).order("order_index", { ascending: true });
-
-
       const currentManifest = {
         name: existing.name,
         tagline: existing.tagline,
@@ -1040,6 +1058,7 @@ serve(async (req) => {
           tagline: nextManifest.tagline,
           theme: nextManifest.theme,
           generation_notes: generationNotes,
+          trust_score: refinedGated.trustScore,
         })
         .eq("id", previousWebsiteId)
         .eq("user_id", user.id);
@@ -1048,6 +1067,7 @@ serve(async (req) => {
       return json({
         manifest: nextManifest,
         generation_notes: generationNotes,
+        trust_score: refinedGated.trustScore,
         website_id: previousWebsiteId,
         pages: nextManifest.pages,
         intent: refined.intent || "mixed",
@@ -1210,7 +1230,7 @@ serve(async (req) => {
     manifest = freshGated.manifest;
     const generationNotes = [...freshGated.notes, ...factCheckNotes];
 
-    if (!save) return json({ manifest, generation_notes: generationNotes, used_fallback: usedFallback });
+    if (!save) return json({ manifest, generation_notes: generationNotes, trust_score: freshGated.trustScore, used_fallback: usedFallback });
     // A caller that asked to save (the frontend's default) but has no
     // resolved session used to fall into the same branch as "preview only"
     // above, silently returning {manifest} with no website_id and no error
@@ -1264,6 +1284,7 @@ serve(async (req) => {
           theme: manifest.theme,
           prompt: compilePrompt,
           generation_notes: generationNotes,
+          trust_score: freshGated.trustScore,
         })
         .eq("id", rebuildWebsiteId)
         .eq("user_id", user.id);
@@ -1272,6 +1293,7 @@ serve(async (req) => {
       return json({
         manifest,
         generation_notes: generationNotes,
+        trust_score: freshGated.trustScore,
         website_id: rebuildWebsiteId,
         pages: manifest.pages,
         intent: "rebuild",
@@ -1303,6 +1325,7 @@ serve(async (req) => {
         prompt: compilePrompt,
         html: "",
         generation_notes: generationNotes,
+        trust_score: freshGated.trustScore,
       })
       .select("id")
       .single();
@@ -1336,6 +1359,7 @@ serve(async (req) => {
     return json({
       manifest,
       generation_notes: generationNotes,
+      trust_score: freshGated.trustScore,
       website_id: siteRow.id,
       pages: pagesOut,
       used_fallback: usedFallback,

@@ -13,12 +13,12 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 import WebsiteControlReport from "@/components/websites/WebsiteControlReport";
 
-function renderBadge(notes: string[]) {
+function renderBadge(notes: string[], trustScore?: number | null) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   act(() => {
-    root.render(<WebsiteControlReport notes={notes} />);
+    root.render(<WebsiteControlReport notes={notes} trustScore={trustScore} />);
   });
   return container;
 }
@@ -60,5 +60,39 @@ describe("WebsiteControlReport", () => {
   it("no notes renders the clean state", () => {
     const container = renderBadge([]);
     expect(container.textContent).toContain("clean");
+  });
+
+  // GAP 3 (Trust Score + Provenance + Control Report, 2026-10-09): renders
+  // the numeric score compile-website-manifest/final-assembly-check.ts now
+  // persist on the website row, not just the clean/flagged note badge.
+  it("renders a passed-in trust score", () => {
+    const container = renderBadge(
+      [`This site's assembled content touches your safety rule(s) (Destructive wording) -- not blocked.`],
+      60,
+    );
+    expect(container.textContent).toContain("60");
+  });
+
+  it("falls back to 100 when clean and no trust score was passed", () => {
+    const container = renderBadge([]);
+    expect(container.textContent).toContain("100");
+  });
+
+  // Correctness verification follow-up (2026-10-09): the score badge's
+  // "ml-auto" is what pushes the whole right-hand group to the header's
+  // far edge. When there's no numeric trust score to show (an older
+  // website with flagged notes but trust_score still null -- the state
+  // any website generated before this GAP shipped is in until its next
+  // publish or sweep run), the score badge doesn't render at all, so
+  // something else in the row must carry that "ml-auto" or the flagged/
+  // redacted count badge collapses left instead of staying right-aligned.
+  it("the flagged/redacted badge keeps its right-alignment margin when no numeric trust score is available", () => {
+    const container = renderBadge([
+      `This site's assembled content touches your safety rule(s) (Destructive wording) -- not blocked.`,
+    ]);
+    const spans = Array.from(container.querySelectorAll("span"));
+    const countBadge = spans.find((s) => s.textContent?.includes("flagged"));
+    expect(countBadge, "expected to find the flagged-count badge").toBeTruthy();
+    expect(countBadge!.className).toContain("ml-auto");
   });
 });

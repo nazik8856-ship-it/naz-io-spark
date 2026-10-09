@@ -1,0 +1,46 @@
+-- GAP 1 (Persistent Ongoing Enforcement, 2026-10-09): checkAgentAssembly and
+-- checkWebsiteAssembly (_shared/final-assembly-check.ts) were each wired
+-- into exactly ONE one-time checkpoint (agent-runtime's first-deploy gate;
+-- the manual publish button) -- confirmed by grepping every call site in
+-- supabase/functions. A rule added or changed after that one checkpoint
+-- already passed was never re-enforced against an already-delivered
+-- agent/website. supabase/functions/recurring-assembly-sweep runs the exact
+-- same two functions, with zero new validation logic, against every
+-- agent/website for every account, on a schedule.
+--
+-- No schema change here -- it reads the existing agents/websites/
+-- agent_memory tables and writes through the existing checkAgentAssembly/
+-- checkWebsiteAssembly update paths. Kept as its own migration file purely
+-- to document the cron registration alongside the feature it schedules,
+-- same convention as every other scheduled sweep in this codebase
+-- (20261002010000_schedule_measure_decision_outcomes.sql).
+--
+-- ============================================================
+-- POST-MIGRATION STEP (same convention as every other scheduled sweep in
+-- this codebase -- applied directly, not committed as static SQL, since it
+-- needs a project-specific service_role key and function URL):
+--
+-- CRON JOB (pg_cron): schedule 'recurring-assembly-sweep-daily' once a day,
+-- reusing the existing 'email_queue_service_role_key' vault secret as the
+-- Authorization bearer token, and recording the request via
+-- scheduled_job_requests (same convention as measure-decision-outcomes-daily)
+-- so cron-health-check covers this job's own liveness too:
+--
+--    SELECT cron.schedule(
+--      'recurring-assembly-sweep-daily',
+--      '15 3 * * *',
+--      $$
+--      INSERT INTO public.scheduled_job_requests (job_name, request_id)
+--      SELECT 'recurring-assembly-sweep-daily', net.http_post(
+--        url := '<SUPABASE_URL>/functions/v1/recurring-assembly-sweep',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
+--        ),
+--        body := '{}'::jsonb
+--      );
+--      $$
+--    );
+--
+--    To revert: SELECT cron.unschedule('recurring-assembly-sweep-daily');
+-- ============================================================

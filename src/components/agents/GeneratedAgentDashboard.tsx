@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import RichMarkdown from "@/components/chat/RichMarkdown";
 import { RunOutcomes } from "@/components/agents/RunOutcomes";
+import AgentControlReport from "@/components/agents/AgentControlReport";
 
 
 export type Widget =
@@ -196,6 +197,8 @@ export default function GeneratedAgentDashboard({
           </div>
         </div>
       </header>
+
+      <AgentControlReport agentId={agentId} />
 
       {/* Widget grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">

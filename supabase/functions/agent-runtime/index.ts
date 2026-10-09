@@ -15,8 +15,10 @@ import {
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
-import { repairParams, verifyRepair } from "../_shared/repair-engine.ts";
+import { repairParams, repairContent, verifyRepair } from "../_shared/repair-engine.ts";
+import { scanAction } from "../_shared/safety-scanner.ts";
 import type { SafetyMatch } from "../_shared/safety-scanner.ts";
+import { isRedactableMatch } from "../_shared/outer-control-scoring.ts";
 import { checkAgentAssembly } from "../_shared/final-assembly-check.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
@@ -1403,6 +1405,12 @@ Rules:
 
     let finalSummary = "Run ended without explicit summary.";
     let steps = 0, finished = false, paused = false;
+    // GAP 2 (external contributions, 2026-10-09): one tool call per step in
+    // this loop, so "the tool called in the step right before this one" is
+    // enough signal to tag a `remember` write as sourced from an external
+    // AI's http_post result rather than the agent's own reasoning -- read
+    // (then updated) right after `tool` is resolved for each step, below.
+    let lastToolWasHttpPost = false;
     // Blueprint task #73: the loop used to infer "hit the step limit" purely
     // from `!finished && !paused`, so EVERY early `break` below (rate limit,
     // AI credits exhausted, a gateway error, this run's own spend ceiling)
@@ -1777,6 +1785,8 @@ Rules:
       } else if (parsed.action === "tool") {
         const toolName = String(parsed.tool || "");
         const tool = effectiveTools.find((t) => t.name === toolName) || effectiveTools.find((t) => t.kind === toolName);
+        const toolFollowsHttpPost = lastToolWasHttpPost;
+        lastToolWasHttpPost = tool?.kind === "http_post";
         if (!tool) {
           await logEvent("tool_error", { tool: toolName, message: "Unknown tool" });
           messages.push({ role: "user", content: `Unknown tool "${toolName}". Available: ${effectiveTools.map((t) => t.name).join(", ")}` });
@@ -2286,9 +2296,43 @@ Rules:
         }
         if (tool.kind === "remember") {
           const k = String(input.key || "").slice(0, 120);
-          const v = String(input.value || "").slice(0, 600);
+          let v = String(input.value || "").slice(0, 600);
           if (k && v) {
-            await supabase.from("agent_memory").insert({ agent_id: agentId, user_id: userId, key: k, value: v, source: "agent" });
+            // GAP 1 (Persistent Ongoing Enforcement, 2026-10-09): this was the
+            // one content-bearing write in this runtime that never passed
+            // through the safety scanner -- every other field this agent
+            // emits (systemPrompt/decisionPolicy at generation time, action
+            // params at execution time, just above) is scanned first, but a
+            // fact written via remember reached agent_memory with zero
+            // check, including a fact paraphrased from an external AI's
+            // http_post result that was only ever gated once, at ingestion.
+            // Same split as checkAgentAssembly's own prose scan: redact what
+            // can be mechanically excised, refuse the write outright when a
+            // block-severity match has nothing redactable left, same
+            // "stopped, not just noted" posture applySafetyGate already
+            // applies to website publishing.
+            const scan = await scanAction(supabase, userId, v, "", null, agentId);
+            if (scan.matched && scan.severity) {
+              const redactable = scan.matches.filter((m) => isRedactableMatch(m));
+              const nonRedactable = scan.matches.filter((m) => !isRedactableMatch(m));
+              if (nonRedactable.length) {
+                const summary = `Memory NOT saved -- this value matches your safety rule(s) (${nonRedactable.map((m) => m.name).join(", ")}) with nothing mechanically redactable.`;
+                await logEvent("tool_result", { tool: tool.name, kind: "remember", ok: false, skipped: true, summary, humanMessage: summary, category: "safety" });
+                messages.push({ role: "user", content: `${summary} Remove that content before trying to remember it again.` });
+                continue;
+              }
+              if (redactable.length) {
+                const repair = repairContent(v, redactable);
+                if (repair.repaired !== null) v = repair.repaired;
+              }
+            }
+            // GAP 2 (external contributions, 2026-10-09): a remember call
+            // immediately after an http_post result is persisting something
+            // the agent learned from an external AI, not from its own
+            // reasoning -- tagging that provenance here is what lets
+            // checkAgentAssembly's memory scan (final-assembly-check.ts)
+            // name the source in its finding later.
+            await supabase.from("agent_memory").insert({ agent_id: agentId, user_id: userId, key: k, value: v, source: toolFollowsHttpPost ? "external_ai" : "agent" });
             await logEvent("memory_write", { key: k, value: v });
             messages.push({ role: "user", content: `Memory saved: ${k}. Continue.` });
           } else {
