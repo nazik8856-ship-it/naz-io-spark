@@ -1,7 +1,8 @@
 // "Sweep safety & observability" front, item 4: a dedicated pause switch for
-// the 3 sweeps that take real, hard-to-reverse account-state actions
+// the sweeps that take real, hard-to-reverse account-state actions
 // (control-api-abuse-sweep pauses keys, outcome-quality-sweep downgrades
-// on_uncertain, stuck-approval-sweep auto-resolves approvals). The existing
+// on_uncertain, stuck-approval-sweep auto-resolves approvals, and GAP 1's
+// recurring-assembly-sweep redacts content / strips tools). The existing
 // platform-wide kill switch (platform_settings.kill_switch) never reaches
 // any of the three -- it's checked only inside control-gate.ts's per-decision
 // verdict path, and none of these sweeps ever calls control-gate.ts. This is

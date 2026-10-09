@@ -145,6 +145,44 @@ export async function checkAgentAssembly(admin: SupabaseClient, userId: string, 
     }
   }
 
+  // GAP 1 / GAP 2 (Persistent Ongoing Enforcement / external contributions,
+  // 2026-10-09): agent_memory is where a fact survives past every other
+  // checkpoint -- written once via the `remember` tool (now scanned at
+  // write time in agent-runtime/index.ts) but never re-checked against a
+  // rule added AFTER it was written, and never covered by this function
+  // at all until now. It's also the one place a fact the agent derived
+  // from an external AI's http_post result (gated once at ingestion,
+  // tagged source: "external_ai") could persist unexamined -- the
+  // "complete package" this function re-validates was never actually
+  // complete without it. Same redact-or-flag posture as the prose fields
+  // above, applied per memory row.
+  const { data: memoryRows } = await admin.from("agent_memory")
+    .select("id, key, value, source").eq("agent_id", agentId).eq("user_id", userId);
+  for (const row of (memoryRows ?? []) as { id: string; key: string; value: string; source: string | null }[]) {
+    if (!row.value) continue;
+    const scan = scanWithRules(safetyRules, row.value, "");
+    if (!scan.matched) continue;
+    const redactableMatches = scan.matches.filter((m) => isRedactableMatch(m));
+    const nonRedactableMatches = scan.matches.filter((m) => !isRedactableMatch(m));
+    const originNote = row.source === "external_ai" ? " (sourced from an external AI's response)" : "";
+
+    if (redactableMatches.length) {
+      const repair = repairContent(row.value, redactableMatches);
+      if (repair.repaired !== null) {
+        await admin.from("agent_memory").update({ value: repair.repaired }).eq("id", row.id);
+        const note = `Memory "${row.key}"${originNote} had content matching your safety rule(s) (${repair.diff.map((d) => d.detail).join(", ")}) redacted at final-assembly check.`;
+        notes.push(note);
+        addedGuardrails.push({ rule: note, requiresApproval: false });
+        repaired = true;
+      }
+    }
+    if (nonRedactableMatches.length) {
+      const note = `Memory "${row.key}"${originNote} touches your safety rule(s) (${nonRedactableMatches.map((m) => m.name).join(", ")}) -- not something this check can mechanically fix, but worth reviewing.`;
+      notes.push(note);
+      addedGuardrails.push({ rule: note, requiresApproval: false });
+    }
+  }
+
   // Persist whenever there's something new to show, not only when
   // `repaired` (actual content change) is true -- a flagged-but-not-fixed
   // guardrail note is still a real finding that must reach the agent's
