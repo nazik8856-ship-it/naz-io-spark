@@ -16,6 +16,7 @@ import { ruleMatchesAction, selectRulesForEntity } from "./rule-matching.ts";
 import { loadSafetyRules, scanWithRules, type SafetyMatch } from "./safety-scanner.ts";
 import { repairContent } from "./repair-engine.ts";
 import { computeTrustScore, isRedactableMatch } from "./outer-control-scoring.ts";
+import { enforceImageRelevance } from "./image-relevance.ts";
 
 export type AssemblyCheckReport = {
   ok: boolean;
@@ -239,7 +240,30 @@ export async function checkWebsiteAssembly(admin: SupabaseClient, userId: string
   if (!websiteRow) return { ok: false, repaired: false, notes: ["Website not found."], blocked: false, blockReason: null, trustScore: 100 };
 
   const { data: pageRows } = await admin.from("website_pages").select("id, slug, sections").eq("website_id", websiteId);
-  const pages = (pageRows ?? []) as { id: string; slug: string; sections: unknown }[];
+  const pages = (pageRows ?? []) as { id: string; slug: string; sections: unknown[] }[];
+
+  // Image-relevance quality loop (2026-10-09): independent of the
+  // safety-rule scan below -- a page can be perfectly clean on safety
+  // rules and still carry a dangling media_style:"photo" with nothing
+  // backing it (a hand-edit through the builder's raw editor, or content
+  // that predates this check). Runs unconditionally, BEFORE the
+  // clean-scan early return, so it's never skipped just because nothing
+  // else matched. No verified-attachment set is available this far after
+  // generation -- enforceImageRelevance's no-set mode only ever catches a
+  // dangling photo-with-no-url; it never second-guesses an asset_url
+  // that's already persisted, since that was already verified once at
+  // generation time.
+  const imageNotes: string[] = [];
+  for (const page of pages) {
+    const gated = enforceImageRelevance([{ slug: page.slug, sections: page.sections as { content?: Record<string, unknown> }[] }]);
+    if (gated.repaired) {
+      await admin.from("website_pages").update({ sections: gated.pages[0].sections }).eq("id", page.id);
+      page.sections = gated.pages[0].sections;
+      imageNotes.push(...gated.notes);
+    }
+  }
+  const imageRepaired = imageNotes.length > 0;
+
   if (!pages.length) {
     // GAP 3 verification follow-up (2026-10-09): a website whose pages were
     // all deleted through the builder (the row itself survives independently
@@ -262,7 +286,7 @@ export async function checkWebsiteAssembly(admin: SupabaseClient, userId: string
     // score back to 100 once the offending rule/content is gone, same
     // "always write, never go stale" posture checkAgentAssembly takes.
     await admin.from("websites").update({ trust_score: 100 }).eq("id", websiteId);
-    return { ok: true, repaired: false, notes: [], blocked: false, blockReason: null, trustScore: 100 };
+    return { ok: true, repaired: imageRepaired, notes: imageNotes, blocked: false, blockReason: null, trustScore: 100 };
   }
   const trustScore = computeTrustScore(scan.matches);
   await admin.from("websites").update({ trust_score: trustScore }).eq("id", websiteId);
@@ -280,8 +304,8 @@ export async function checkWebsiteAssembly(admin: SupabaseClient, userId: string
 
   const redactable = scan.matches.filter((m) => isRedactableMatch(m));
   const nonRedactable = scan.matches.filter((m) => !isRedactableMatch(m));
-  const notes: string[] = [];
-  let repaired = false;
+  const notes: string[] = [...imageNotes];
+  let repaired = imageRepaired;
 
   if (redactable.length) {
     for (const page of pages) {
