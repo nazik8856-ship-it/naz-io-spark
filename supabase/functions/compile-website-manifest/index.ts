@@ -958,13 +958,25 @@ serve(async (req) => {
       if (refinedGated.blocked) {
         return json({ error: "blocked_by_safety_rule", message: refinedGated.blockReason }, 422);
       }
+      // A linked/uploaded asset is an executable instruction, not prose --
+      // hoisted above the image-relevance gate (was computed below, after
+      // nextManifest already existed) because a URL the user typed directly
+      // into their edit prompt is just as real an instruction as a file
+      // attachment, and must be in the verified set BEFORE enforcement runs
+      // or the gate strips it as "unverified" and the missing-asset check
+      // below then fails an edit that actually worked correctly.
+      const requestedAssetUrls = Array.from(prompt.matchAll(/https?:\/\/[^\s)\]}>"']+/g))
+        .map((match) => match[0])
+        .filter((url) => /(?:\/storage\/v1\/object\/public\/|\.(?:avif|gif|jpe?g|png|webp)(?:[?#]|$))/i.test(url));
       // Image-relevance quality loop (2026-10-09): REFINE_DOC tells the
       // model to echo untouched sections back verbatim, so a section this
       // edit never touched can legitimately carry an asset_url that was
       // verified and saved at an EARLIER generation -- folded into this
       // request's own verifiedImageUrls so it's never mistaken for a fresh
-      // hallucination just because it wasn't re-attached this time.
-      const refineVerifiedUrls = new Set([...verifiedImageUrls, ...collectAssetUrls(currentManifest.pages)]);
+      // hallucination just because it wasn't re-attached this time. A URL
+      // the user explicitly typed into this edit's prompt (requestedAssetUrls)
+      // is the same tier of trust as a file attachment and joins the set too.
+      const refineVerifiedUrls = new Set([...verifiedImageUrls, ...collectAssetUrls(currentManifest.pages), ...requestedAssetUrls]);
       const imageGated = enforceImageRelevance(refinedGated.manifest.pages, refineVerifiedUrls);
       const nextManifest = { ...refinedGated.manifest, pages: imageGated.pages };
       // Problem 3 follow-up (fresh audit, 2026-10-08): findUngroundedFacts
@@ -1024,11 +1036,10 @@ serve(async (req) => {
         }, 422);
       }
 
-      // A linked/uploaded asset is an executable instruction, not prose. If the
-      // model omitted the exact URL, fail visibly instead of claiming success.
-      const requestedAssetUrls = Array.from(prompt.matchAll(/https?:\/\/[^\s)\]}>"']+/g))
-        .map((match) => match[0])
-        .filter((url) => /(?:\/storage\/v1\/object\/public\/|\.(?:avif|gif|jpe?g|png|webp)(?:[?#]|$))/i.test(url));
+      // requestedAssetUrls is computed above, before the image-relevance
+      // gate runs, so it can be folded into refineVerifiedUrls. If the
+      // model still omitted the exact URL, fail visibly instead of
+      // claiming success.
       if (requestedAssetUrls.length) {
         const serializedManifest = JSON.stringify(nextManifest);
         const missingAssets = requestedAssetUrls.filter((url) => !serializedManifest.includes(url));
