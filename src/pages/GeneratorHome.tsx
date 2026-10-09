@@ -326,6 +326,16 @@ export default function GeneratorHome() {
     saving: "Saving…",
   };
   const [compileStage, setCompileStage] = useState<string | null>(null);
+  // GAP 4 (Speed & Reliability Layer, 2026-10-09): generation_progress.
+  // updated_at is refreshed by reportProgress on EVERY real stage
+  // transition (generation-progress.ts) -- a request that's genuinely
+  // stuck (the AI call or edge function hung, same failure mode
+  // COMPILE_TIMEOUT_MS below exists to eventually abort) shows the exact
+  // same static label for the full 60s with zero signal that anything is
+  // unusual, right up until the generic abort error. Comparing against
+  // this timestamp on every poll tick lets a stalled stage say so BEFORE
+  // that hard timeout, instead of silence followed by one generic failure.
+  const STAGE_STALE_MS = 15_000;
   useEffect(() => {
     if (!compiling || !generationRequestId) {
       setCompileStage(null);
@@ -336,12 +346,14 @@ export default function GeneratorHome() {
     const poll = async () => {
       const { data } = await supabase
         .from("generation_progress")
-        .select("stage")
+        .select("stage, updated_at")
         .eq("request_id", generationRequestId)
         .maybeSingle();
-      if (!cancelled && data?.stage) {
-        setCompileStage(STAGE_LABELS[data.stage as string] || "Compiling…");
-      }
+      if (cancelled || !data?.stage) return;
+      const label = STAGE_LABELS[data.stage as string] || "Compiling…";
+      const updatedAt = typeof data.updated_at === "string" ? Date.parse(data.updated_at) : NaN;
+      const stale = Number.isFinite(updatedAt) && Date.now() - updatedAt > STAGE_STALE_MS;
+      setCompileStage(stale ? `${label} (taking longer than usual…)` : label);
     };
     poll();
     const interval = setInterval(poll, 1300);

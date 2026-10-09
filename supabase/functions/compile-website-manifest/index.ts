@@ -834,12 +834,23 @@ serve(async (req) => {
     let compilePrompt = prompt;
     let rebuildWebsiteId: string | null = null;
     let routeInfo: { route: "edit" | "rebuild" | "new"; reason: string } = { route: "edit", reason: "" };
+    // GAP 4 (Speed & Reliability Layer, 2026-10-09): hoisted out of the two
+    // "REFINE PATH" blocks below -- both used to fetch this SAME website +
+    // its SAME pages independently (the routing block only to read
+    // `existing.name` for the classifier prompt, the edit block to build
+    // currentManifest), paying for the website_pages round-trip twice on
+    // every single chat-edit request, the single most common path through
+    // this function. Fetched once here and reused by both.
+    let existing: Record<string, unknown> | null = null;
+    let existingPages: Record<string, unknown>[] | null = null;
 
     // ============ REFINE PATH ============
     if (refine && previousWebsiteId && user) {
-      const { data: existing } = await supabase.from("websites").select("*").eq("id", previousWebsiteId).eq("user_id", user.id).maybeSingle();
-      if (!existing) return json({ error: "Website not found" }, 404);
-      const { data: existingPages } = await supabase.from("website_pages").select("*").eq("website_id", previousWebsiteId).order("order_index", { ascending: true });
+      const { data: existingRow } = await supabase.from("websites").select("*").eq("id", previousWebsiteId).eq("user_id", user.id).maybeSingle();
+      if (!existingRow) return json({ error: "Website not found" }, 404);
+      existing = existingRow;
+      const { data: existingPagesRows } = await supabase.from("website_pages").select("*").eq("website_id", previousWebsiteId).order("order_index", { ascending: true });
+      existingPages = existingPagesRows ?? [];
 
       const routed = await routeWebsiteChatIntent(gw, prompt, String(existing.name || "this website"));
       routeInfo = { route: routed.route, reason: routed.reason };
@@ -850,11 +861,11 @@ serve(async (req) => {
     }
 
     if (refine && previousWebsiteId && user && routeInfo.route === "edit") {
-      const { data: existing } = await supabase.from("websites").select("*").eq("id", previousWebsiteId).eq("user_id", user.id).maybeSingle();
+      // Always set by the routing block above (it runs first, under the
+      // same `refine && previousWebsiteId && user` guard, and returns 404
+      // before routeInfo can become "edit" otherwise) -- this check only
+      // narrows the type for everything below without a redundant DB call.
       if (!existing) return json({ error: "Website not found" }, 404);
-      const { data: existingPages } = await supabase.from("website_pages").select("*").eq("website_id", previousWebsiteId).order("order_index", { ascending: true });
-
-
       const currentManifest = {
         name: existing.name,
         tagline: existing.tagline,
