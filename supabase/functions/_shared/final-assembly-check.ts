@@ -240,7 +240,17 @@ export async function checkWebsiteAssembly(admin: SupabaseClient, userId: string
 
   const { data: pageRows } = await admin.from("website_pages").select("id, slug, sections").eq("website_id", websiteId);
   const pages = (pageRows ?? []) as { id: string; slug: string; sections: unknown }[];
-  if (!pages.length) return { ok: true, repaired: false, notes: [], blocked: false, blockReason: null, trustScore: 100 };
+  if (!pages.length) {
+    // GAP 3 verification follow-up (2026-10-09): a website whose pages were
+    // all deleted through the builder (the row itself survives independently
+    // of website_pages) used to leave trust_score exactly as stale as before
+    // those pages were removed -- the one early return in this function that
+    // skipped the "always write, never go stale" persist the clean-scan
+    // branch just below already does for the exact same "nothing to flag"
+    // outcome.
+    await admin.from("websites").update({ trust_score: 100 }).eq("id", websiteId);
+    return { ok: true, repaired: false, notes: [], blocked: false, blockReason: null, trustScore: 100 };
+  }
 
   // Websites have no agent_id of their own -- the account-wide rule set is
   // the only one that ever governs them, same as compile-website-manifest's

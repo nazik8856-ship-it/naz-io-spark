@@ -313,6 +313,17 @@ Deno.test("checkWebsiteAssembly: clean content scores a perfect 100 and persists
   assert(updateLog.some((u) => u.table === "websites" && u.patch.trust_score === 100));
 });
 
+Deno.test("checkWebsiteAssembly: a website whose pages were all deleted (now zero website_pages rows) resets a previously-bad trust_score back to 100, not left stale", async () => {
+  const { admin, updateLog } = makeFakeAdmin({
+    websites: [{ id: "site-1", user_id: "user-1", trust_score: 20 }],
+    website_pages: [],
+    safety_rules: [],
+  });
+  const report = await checkWebsiteAssembly(admin, "user-1", "site-1");
+  assert(report.trustScore === 100, `expected 100, got ${report.trustScore}`);
+  assert(updateLog.some((u) => u.table === "websites" && u.patch.trust_score === 100), "a zero-page website must still get its stale trust_score reset to 100, same as any other clean run");
+});
+
 Deno.test("checkWebsiteAssembly: a block-severity match scores lower than a require_approval-only match", async () => {
   const mildRule: Row = { ...destructiveRule, severity: "require_approval" };
   const { admin: adminBlock } = makeFakeAdmin(websiteTables("Our team will wipe the entire database every Friday.", [destructiveRule]));

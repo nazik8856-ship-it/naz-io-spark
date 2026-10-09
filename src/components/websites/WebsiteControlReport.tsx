@@ -60,7 +60,7 @@ export default function WebsiteControlReport({ notes, trustScore }: { notes: str
           <span className={score !== null ? "ml-2 text-[10px] font-mono uppercase text-emerald-300/80" : "ml-auto text-[10px] font-mono uppercase text-emerald-300/80"}>clean</span>
         ) : (
           <>
-            <span className="ml-2 text-[10px] font-mono uppercase text-amber-300/80">
+            <span className={score !== null ? "ml-2 text-[10px] font-mono uppercase text-amber-300/80" : "ml-auto text-[10px] font-mono uppercase text-amber-300/80"}>
               {redacted.length ? `${redacted.length} redacted` : ""}
               {redacted.length && flagged.length ? " · " : ""}
               {flagged.length ? `${flagged.length} flagged` : ""}
