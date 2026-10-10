@@ -459,7 +459,13 @@ function redactDeep(value: unknown, matches: SafetyMatch[]): unknown {
 // shape field-by-field -- no page-schema-specific extraction needed, the
 // whole pages[] tree is handed to it directly.
 function applySafetyGate(manifest: Manifest, rules: SafetyRule[]): { manifest: Manifest; notes: string[]; blocked: boolean; blockReason: string | null; trustScore: number } {
-  const scan = scanWithRules(rules, manifest.pages, "");
+  // GAP 3 (Hard Rule Coverage Expansion, 2026-10-10): this used to scan only
+  // manifest.pages -- the model-authored business name and tagline are
+  // top-level fields, not inside pages[], and were never scanned or
+  // redacted at all. Both are free text the model writes from the user's
+  // prompt, exactly the same provenance as page copy, so they get the same
+  // scan and the same redaction/block treatment below.
+  const scan = scanWithRules(rules, { name: manifest.name, tagline: manifest.tagline, pages: manifest.pages }, "");
   if (!scan.matched) return { manifest, notes: [], blocked: false, blockReason: null, trustScore: 100 };
   // GAP 3 (Trust Score + Provenance + Control Report, 2026-10-09): same
   // computeTrustScore Outer Control's own evaluations and
@@ -471,10 +477,15 @@ function applySafetyGate(manifest: Manifest, rules: SafetyRule[]): { manifest: M
   const nonRedactable = scan.matches.filter((m) => !isRedactableMatch(m));
   const notes: string[] = [];
   let pages = manifest.pages;
+  let name = manifest.name;
+  let tagline = manifest.tagline;
   if (redactable.length) {
     // Secrets/PII have an excisable span -- strip just that; every other
-    // field across every page is unaffected and still ships as written.
+    // field across every page (and the business name/tagline, now that
+    // they're scanned above too) is unaffected and still ships as written.
     pages = redactDeep(manifest.pages, redactable) as Page[];
+    name = redactDeep(manifest.name, redactable) as string;
+    tagline = redactDeep(manifest.tagline, redactable) as string;
     notes.push(`Content matching your safety rule(s) (${redactable.map((m) => m.name).join(", ")}) was redacted at generation time.`);
   }
   // Problem 1 (Control Gate weak on websites, 2026-10-08): a block-severity
@@ -495,14 +506,14 @@ function applySafetyGate(manifest: Manifest, rules: SafetyRule[]): { manifest: M
   }
   if (blockSeverityNonRedactable.length) {
     return {
-      manifest: { ...manifest, pages },
+      manifest: { ...manifest, name, tagline, pages },
       notes,
       blocked: true,
       blockReason: `This page's copy matches your safety rule(s) (${blockSeverityNonRedactable.map((m) => m.name).join(", ")}) -- a block-severity rule with nothing mechanically redactable here, so generation is stopped rather than published with just a note.`,
       trustScore,
     };
   }
-  return { manifest: { ...manifest, pages }, notes, blocked: false, blockReason: null, trustScore };
+  return { manifest: { ...manifest, name, tagline, pages }, notes, blocked: false, blockReason: null, trustScore };
 }
 
 function normalize(raw: unknown, prompt: string): Manifest {

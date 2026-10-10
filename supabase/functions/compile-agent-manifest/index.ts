@@ -634,6 +634,55 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
           safetyNotes.push(`Your ${field === "systemPrompt" ? "agent's system prompt" : "agent's decision policy"} touches your safety rule(s) (${nonRedactable.map((m) => m.name).join(", ")}) -- not blocked, since this is a description, not an action, but worth knowing before you deploy.`);
         }
       }
+      // GAP 3 (Hard Rule Coverage Expansion, 2026-10-10): the checks above
+      // cover prose (systemPrompt/decisionPolicy) and TOOL KINDS against
+      // hard_rules -- neither touches the guardrail text the model writes
+      // itself, nor each tool's own config object (a notify tool's
+      // channel, a webhook URL, etc.), both free text with the same
+      // provenance as systemPrompt/decisionPolicy and the same risk of
+      // echoing a real secret or matching an account's own safety rule.
+      const redactString = (text: string, matches: SafetyMatch[]): string => repairContent(text, matches).repaired ?? text;
+      const redactConfigDeep = (value: unknown, matches: SafetyMatch[]): unknown => {
+        if (typeof value === "string") return redactString(value, matches);
+        if (Array.isArray(value)) return value.map((v) => redactConfigDeep(v, matches));
+        if (value && typeof value === "object") {
+          const out: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = redactConfigDeep(v, matches);
+          return out;
+        }
+        return value;
+      };
+      normalized.guardrails = normalized.guardrails.map((g, i) => {
+        if (!g.rule) return g;
+        const scan = scanWithRules(safetyRules, g.rule, "");
+        if (!scan.matched) return g;
+        allSafetyMatches.push(...scan.matches);
+        const repairedRule = redactString(g.rule, scan.matches);
+        if (repairedRule !== g.rule) {
+          safetyNotes.push(`Guardrail #${i + 1} ("${g.rule.slice(0, 60)}") had content matching your safety rule(s) redacted at generation time.`);
+        }
+        const nonRedactable = scan.matches.filter((m) => !isRedactableMatch(m));
+        if (nonRedactable.length) {
+          safetyNotes.push(`Guardrail #${i + 1} touches your safety rule(s) (${nonRedactable.map((m) => m.name).join(", ")}) -- not blocked, since this is descriptive text, but worth reviewing.`);
+        }
+        return { ...g, rule: repairedRule };
+      });
+      normalized.tools = normalized.tools.map((t) => {
+        if (!t.config || !Object.keys(t.config).length) return t;
+        const scan = scanWithRules(safetyRules, t.config, "");
+        if (!scan.matched) return t;
+        allSafetyMatches.push(...scan.matches);
+        const repairedConfig = redactConfigDeep(t.config, scan.matches) as Record<string, unknown>;
+        if (JSON.stringify(repairedConfig) !== JSON.stringify(t.config)) {
+          safetyNotes.push(`"${t.name}"'s configuration had content matching your safety rule(s) redacted at generation time.`);
+        }
+        const nonRedactable = scan.matches.filter((m) => !isRedactableMatch(m));
+        if (nonRedactable.length) {
+          safetyNotes.push(`"${t.name}"'s configuration touches your safety rule(s) (${nonRedactable.map((m) => m.name).join(", ")}) -- not blocked, worth reviewing.`);
+        }
+        return { ...t, config: repairedConfig };
+      });
+
       if (safetyNotes.length) {
         normalized.guardrails = [
           ...normalized.guardrails,

@@ -157,7 +157,15 @@ function flatten(params: unknown, description: string): { blob: string; fields: 
     fields[path || "value"] = String(v);
   };
   walk(params, "");
-  fields["description"] = description;
+  // GAP 3 (Hard Rule Coverage Expansion, 2026-10-10): this used to be
+  // `fields["description"] = description`, unconditionally overwriting
+  // whatever `walk()` had already put at "description" -- so a params
+  // object with a field literally named `description` had that text
+  // silently dropped from scanning, never merged. Given its own reserved
+  // key (one no real params path can ever produce) so both texts are
+  // scanned independently and `matched_on` stays attributable to the
+  // right one.
+  if (description) fields["__action_description__"] = description;
   return { blob: Object.values(fields).join("\n"), fields };
 }
 
