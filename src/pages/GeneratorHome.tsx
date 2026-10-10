@@ -428,6 +428,16 @@ export default function GeneratorHome() {
               : "Something went wrong generating a custom design — this is a starter template. Try regenerating for a design built for your business.",
           );
         }
+        // LOOP 1 (Silent Failure / Missing-Parameter Handling, 2026-10-10):
+        // parity with the agent path's own generation_notes toast just
+        // below -- compile-website-manifest has computed this (safety/
+        // hard-rule matches AND the fact-check pass that flags invented
+        // contact details not present in the brief) since GAP 3/7, but
+        // nothing here ever read it. A real signal was being silently
+        // dropped on the floor for every generated website.
+        if (Array.isArray(body?.generation_notes) && body.generation_notes.length) {
+          toast.info("Some content was flagged or adjusted against your account rules — see the Control Report on this site's page.");
+        }
         // Seed the standalone preview before navigation. The database remains
         // authoritative, but this removes the empty-frame window while the new
         // workspace performs its first owner-protected read.
