@@ -989,11 +989,21 @@ export default function GeneratedDashboard() {
             {kind === "agent" && id && (
               <button
                 onClick={() => navigate(`/control-system/agent-policy?agent=${id}`)}
-                title={agentRuleCount === null ? "View this agent's rules and control status in Control System" : `Protected by ${agentRuleCount} account rule${agentRuleCount === 1 ? "" : "s"} — view in Control System`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/40 transition"
+                title={
+                  agentRuleCount === null
+                    ? "View this agent's rules and control status in Control System"
+                    : agentRuleCount === 0
+                      ? "No account or agent-specific rule governs this agent yet (built-in content scanning still applies) — add one in Control System"
+                      : `Protected by ${agentRuleCount} account rule${agentRuleCount === 1 ? "" : "s"} — view in Control System`
+                }
+                className={
+                  agentRuleCount === 0
+                    ? "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 transition"
+                    : "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/40 transition"
+                }
               >
                 <ShieldCheck className="h-3.5 w-3.5" />
-                {agentRuleCount === null ? "Control System" : `Protected by ${agentRuleCount} rule${agentRuleCount === 1 ? "" : "s"}`}
+                {agentRuleCount === null ? "Control System" : agentRuleCount === 0 ? "No rules yet — add one" : `Protected by ${agentRuleCount} rule${agentRuleCount === 1 ? "" : "s"}`}
               </button>
             )}
           </div>

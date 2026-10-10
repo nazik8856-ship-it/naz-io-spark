@@ -34,7 +34,6 @@ import { isValidTriggerPhrase, isValidRuleAnswer, isValidMatchType, MAX_RESPONSE
 import { findOverlappingCandidates, excerptOf } from "../_shared/rule-context-overlap.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
-import { seedStarterHardRuleIfNone } from "../_shared/starter-rules.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
 
 const corsHeaders = {
@@ -1092,12 +1091,6 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Couldn't create the key" }, 500);
-
-    // LOOP 2 (Low/Zero Rule Coverage, 2026-10-10): unlike an agent, a new
-    // API key has no manifest/guardrails to reconcile from -- it starts
-    // with literally zero hard_rules unless the account has separately
-    // created one of its own. No-op if this key somehow already has one.
-    await seedStarterHardRuleIfNone(admin, targetUserId, { apiKeyId: (data as { id: string }).id });
 
     return json({ ok: true, key: rawKey, ...data });
   }

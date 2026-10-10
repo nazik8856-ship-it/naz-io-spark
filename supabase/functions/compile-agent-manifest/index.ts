@@ -10,7 +10,6 @@ import { pickRole } from "../_shared/agent-role-classifier.ts";
 import { deriveCronLabel, nextRunFromCron } from "../_shared/agent-schedule.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 import { reconcileGuardrailsToHardRules } from "../_shared/guardrail-reconciliation.ts";
-import { seedStarterHardRuleIfNone } from "../_shared/starter-rules.ts";
 import { ruleMatchesAction } from "../_shared/rule-matching.ts";
 import { loadSafetyRules, scanWithRules, type SafetyMatch } from "../_shared/safety-scanner.ts";
 import { repairContent } from "../_shared/repair-engine.ts";
@@ -892,13 +891,6 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       // reasonably believe it was enforced when it never was.
       if (agentId) {
         await reconcileGuardrailsToHardRules(supabase, user.id, agentId, normalized.guardrails);
-        // LOOP 2 (Low/Zero Rule Coverage, 2026-10-10): the reconciliation
-        // above only inserts a rule for a guardrail that already requires
-        // approval -- an agent whose guardrails are all soft/informational
-        // (or has none) still ends up with literally zero hard_rules, same
-        // as if this call didn't exist. No-ops if reconciliation (or the
-        // account itself) already left at least one real rule here.
-        await seedStarterHardRuleIfNone(supabase, user.id, { agentId });
       }
     }
 
