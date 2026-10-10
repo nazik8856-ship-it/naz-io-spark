@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Globe2, ShieldCheck, Gauge, ArrowUpRight, KeyRound, Lock, Plug, ScanEye } from "lucide-react";
+import { ArrowLeft, Globe2, ShieldCheck, Gauge, ArrowUpRight, KeyRound, Lock, Plug, ScanEye, ChevronDown, ChevronRight } from "lucide-react";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { supabase } from "@/integrations/supabase/client";
 // outer_control_evaluations isn't in the generated Supabase types yet --
@@ -20,6 +20,18 @@ type EvaluationRow = {
   content_kind: "text" | "action";
   action_type: string | null;
   executed: boolean;
+  // GAP 6 (Visible Control Decision Trail, 2026-10-10): the data a decision-
+  // detail view needs -- which rule(s) matched, and the before/after pair
+  // for whichever content kind this row is. Inner Control's agent_decisions
+  // already renders this class of detail (DecisionExplanationPanel); this
+  // is Outer Control's own equivalent, scoped to what this table actually
+  // stores for a text vs an action evaluation.
+  matches: { rule_id: string; name: string; category: string; severity: string; sample?: string; rationale?: string | null }[] | null;
+  input_excerpt: string | null;
+  output_text: string | null;
+  action_params: Record<string, unknown> | null;
+  corrected_params: Record<string, unknown> | null;
+  execution_summary: string | null;
 };
 
 // Status colors, reserved for verdict meaning only (never reused as a
@@ -258,28 +270,55 @@ export default function OuterControlSystem() {
   const [loading, setLoading] = useState(true);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [rows, setRows] = useState<EvaluationRow[]>([]);
+  // GAP 2 (Outer Control Full Activation, 2026-10-10): a registered api key
+  // that has NEVER sent anything to POST /outer-control/evaluate is
+  // structurally indistinguishable from one that's working fine but just
+  // hasn't fired recently -- both show an empty-ish feed. Per-key last-seen
+  // (or never) makes an inert key visible instead of silently zero.
+  const [keyHealth, setKeyHealth] = useState<{ id: string; name: string; lastEvaluatedAt: string | null }[]>([]);
+  // GAP 6 (Visible Control Decision Trail, 2026-10-10): which row's detail
+  // is expanded, if any -- mirrors the click-to-expand pattern ControlLiveFeed
+  // already uses for Inner Control decisions.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!accountId) return;
     let cancelled = false;
     setLoading(true);
     (async () => {
-      const [keysRes, evalRes] = await Promise.all([
+      const [keysRes, evalRes, keyActivityRes] = await Promise.all([
         anyDb
           .from("api_keys")
-          .select("id", { count: "exact", head: true })
+          .select("id, name")
           .eq("user_id", accountId)
           .is("revoked_at", null)
           .contains("scopes", ["control:verdict"]),
         anyDb
           .from("outer_control_evaluations")
-          .select("id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed")
+          .select("id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed, matches, input_excerpt, output_text, action_params, corrected_params, execution_summary")
           .eq("user_id", accountId)
           .order("created_at", { ascending: false })
           .limit(50),
+        // GAP 2: ordered newest-first, so the FIRST row seen per api_key_id
+        // while walking this (client-side, below) is that key's most recent
+        // evaluation -- avoids a separate GROUP BY/aggregate round trip for
+        // what's normally a handful of keys.
+        anyDb
+          .from("outer_control_evaluations")
+          .select("api_key_id, created_at")
+          .eq("user_id", accountId)
+          .not("api_key_id", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(500),
       ]);
       if (cancelled) return;
-      setHasApiKey((keysRes.count ?? 0) > 0);
+      const keys = (keysRes.data ?? []) as { id: string; name: string }[];
+      setHasApiKey(keys.length > 0);
+      const lastSeenByKey = new Map<string, string>();
+      for (const row of (keyActivityRes.data ?? []) as { api_key_id: string; created_at: string }[]) {
+        if (!lastSeenByKey.has(row.api_key_id)) lastSeenByKey.set(row.api_key_id, row.created_at);
+      }
+      setKeyHealth(keys.map((k) => ({ id: k.id, name: k.name, lastEvaluatedAt: lastSeenByKey.get(k.id) ?? null })));
       setRows((evalRes.data ?? []) as EvaluationRow[]);
       setLoading(false);
     })();
@@ -361,6 +400,38 @@ export default function OuterControlSystem() {
             </div>
           </div>
 
+          {/* GAP 2 (Outer Control Full Activation, 2026-10-10): a registered
+              key that has never actually sent anything to
+              POST /outer-control/evaluate looks identical to one that's
+              working fine but quiet -- both just show a sparse feed below.
+              Named explicitly here, with the exact integration call to fix
+              it, instead of leaving it to be inferred from an empty chart. */}
+          {keyHealth.some((k) => !k.lastEvaluatedAt) && (
+            <div className="hud-glass rounded-2xl border border-amber-500/30 px-6 py-5">
+              <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-amber-300">
+                <ScanEye className="h-3.5 w-3.5" />
+                {keyHealth.filter((k) => !k.lastEvaluatedAt).length === 1 ? "An API key has" : "API keys have"} never received traffic
+              </div>
+              <div className="mt-2 space-y-1">
+                {keyHealth.filter((k) => !k.lastEvaluatedAt).map((k) => (
+                  <div key={k.id} className="text-sm text-zinc-300">
+                    <span className="font-medium text-zinc-100">{k.name}</span>
+                    <span className="text-zinc-500"> — registered, but your own system has never called </span>
+                    <code className="text-cyan-300">POST /outer-control/evaluate</code>
+                    <span className="text-zinc-500"> with it.</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => navigate("/control-system/api-docs")}
+                className="mt-3 flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:text-cyan-200"
+              >
+                See the integration snippet
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Stat tiles, each with a real 7-day sparkline */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="hud-glass rounded-2xl px-5 py-4">
@@ -432,32 +503,98 @@ export default function OuterControlSystem() {
                 )}
                 {rows.slice(0, 12).map((r) => {
                   const style = VERDICT_STYLE[r.verdict];
+                  const expanded = expandedId === r.id;
+                  const hasDetail = !!(r.matches?.length || r.action_params || r.corrected_params || r.input_excerpt || r.output_text || r.execution_summary);
                   return (
                     <div key={r.id} className={`rounded-xl border ${style.border} ${style.bg} px-3 py-2.5`}>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-medium text-zinc-200 truncate">
-                          {r.source_model}
-                          {r.content_kind === "action" && r.action_type && (
-                            <span className="ml-1.5 text-zinc-500">· {r.action_type}</span>
+                      <button
+                        type="button"
+                        onClick={() => hasDetail && setExpandedId(expanded ? null : r.id)}
+                        className={`w-full text-left ${hasDetail ? "cursor-pointer" : "cursor-default"}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1 text-xs font-medium text-zinc-200 truncate">
+                            {hasDetail && (expanded ? <ChevronDown className="h-3 w-3 shrink-0 text-zinc-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-zinc-500" />)}
+                            {r.source_model}
+                            {r.content_kind === "action" && r.action_type && (
+                              <span className="ml-1.5 text-zinc-500">· {r.action_type}</span>
+                            )}
+                          </span>
+                          <span className={`shrink-0 rounded-full border ${style.border} px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${style.text}`}>
+                            {style.label}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-500">
+                          <span>Trust {r.trust_score}</span>
+                          <span className="flex items-center gap-2">
+                            {r.content_kind === "action" && (
+                              <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wide ${
+                                r.executed ? "border-emerald-500/40 text-emerald-300" : "border-white/15 text-zinc-500"
+                              }`}>
+                                {r.executed ? "Executed" : "Evaluated only"}
+                              </span>
+                            )}
+                            {timeAgo(r.created_at)}
+                          </span>
+                        </div>
+                      </button>
+                      {expanded && (
+                        <div className="mt-2 space-y-2 rounded border border-white/10 bg-black/20 p-2.5 text-[11px]">
+                          {r.summary && <p className="text-zinc-300">{r.summary}</p>}
+                          {!!r.matches?.length && (
+                            <div>
+                              <div className="text-zinc-500 font-mono uppercase text-[10px]">Matched rule(s)</div>
+                              <ul className="mt-1 space-y-0.5">
+                                {r.matches.map((m, i) => (
+                                  <li key={i} className="text-zinc-300">
+                                    <span className="text-zinc-200">{m.name}</span>
+                                    <span className="text-zinc-500"> · {m.category} · {m.severity}</span>
+                                    {m.rationale && <span className="text-zinc-500"> — {m.rationale}</span>}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
                           )}
-                        </span>
-                        <span className={`shrink-0 rounded-full border ${style.border} px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${style.text}`}>
-                          {style.label}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-500">
-                        <span>Trust {r.trust_score}</span>
-                        <span className="flex items-center gap-2">
-                          {r.content_kind === "action" && (
-                            <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wide ${
-                              r.executed ? "border-emerald-500/40 text-emerald-300" : "border-white/15 text-zinc-500"
-                            }`}>
-                              {r.executed ? "Executed" : "Evaluated only"}
-                            </span>
+                          {r.content_kind === "text" && (r.input_excerpt || r.output_text) && (
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              {r.input_excerpt && (
+                                <div>
+                                  <div className="text-zinc-500 font-mono uppercase text-[10px]">Before</div>
+                                  <p className="mt-0.5 whitespace-pre-wrap text-zinc-400">{r.input_excerpt}</p>
+                                </div>
+                              )}
+                              {r.output_text && (
+                                <div>
+                                  <div className="text-zinc-500 font-mono uppercase text-[10px]">After</div>
+                                  <p className="mt-0.5 whitespace-pre-wrap text-zinc-300">{r.output_text}</p>
+                                </div>
+                              )}
+                            </div>
                           )}
-                          {timeAgo(r.created_at)}
-                        </span>
-                      </div>
+                          {r.content_kind === "action" && (r.action_params || r.corrected_params) && (
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              {r.action_params && (
+                                <div>
+                                  <div className="text-zinc-500 font-mono uppercase text-[10px]">Before</div>
+                                  <pre className="mt-0.5 overflow-x-auto text-zinc-400">{JSON.stringify(r.action_params, null, 2)}</pre>
+                                </div>
+                              )}
+                              {r.corrected_params && (
+                                <div>
+                                  <div className="text-zinc-500 font-mono uppercase text-[10px]">After (corrected)</div>
+                                  <pre className="mt-0.5 overflow-x-auto text-zinc-300">{JSON.stringify(r.corrected_params, null, 2)}</pre>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {r.execution_summary && (
+                            <div>
+                              <div className="text-zinc-500 font-mono uppercase text-[10px]">Execution</div>
+                              <p className="mt-0.5 text-zinc-300">{r.execution_summary}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

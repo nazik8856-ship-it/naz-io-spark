@@ -49,6 +49,12 @@ export type CriticalAlertEvent =
   // human heard about it was approval-escalated hours later.
   | "approval_created"
   | "approval_escalated"
+  // GAP 5 (Action Execution Feedback Loop, 2026-10-10): approval and
+  // execution are two deliberately separate steps (a real second safety
+  // checkpoint, not a bug) -- but nothing previously reminded anyone that
+  // an APPROVED action was still sitting un-executed. Distinct from
+  // approval_escalated, which only ever fires for a row still "pending".
+  | "approval_unexecuted"
   // Pillar 4: agent-runtime's own low-confidence escalation (escalateLowConfidence)
   // only ever logged an agent_events row and paused -- no sweep, no alert,
   // nothing outside that specific agent's own cockpit page ever surfaced
@@ -150,6 +156,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   gate_error_fail_open: "⚠️ Control gate hit an unexpected error and failed OPEN (per API key policy)",
   approval_created: "📥 A new approval needs a human's review",
   approval_escalated: "⏰ A pending approval has been waiting too long",
+  approval_unexecuted: "▶️ An approved action is still waiting to be run",
   agent_clarification_needed: "❓ An agent paused mid-run and needs your input",
   confidence_miscalibrated: "📉 The model is overconfident in a real confidence range",
   break_glass_override: "🔓 A blocked action was overridden by a human",

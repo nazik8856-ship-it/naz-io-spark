@@ -418,8 +418,15 @@ export default function GeneratorHome() {
         // a generic 3-flavor fallback template with no signal at all -- the
         // response looks like a normal success. Tell the user plainly so
         // they know to regenerate rather than assume this is their real site.
+        // GAP 7 (Graceful Degradation, 2026-10-10): fallback_reason names
+        // the specific cause instead of this blanket message -- same fix as
+        // the agent path above.
         if (body?.used_fallback) {
-          toast.warning("Something went wrong generating a custom design — this is a starter template. Try regenerating for a design built for your business.");
+          toast.warning(
+            body?.fallback_reason
+              ? `${body.fallback_reason} Used a starter template instead — try regenerating with more specific detail about your business.`
+              : "Something went wrong generating a custom design — this is a starter template. Try regenerating for a design built for your business.",
+          );
         }
         // Seed the standalone preview before navigation. The database remains
         // authoritative, but this removes the empty-frame window while the new
@@ -480,8 +487,17 @@ export default function GeneratorHome() {
         }
         // Same fallback-visibility fix as the website path: an AI failure during
         // compile silently drops into a generic role-blueprint template.
+        // GAP 7 (Graceful Degradation, 2026-10-10): fallback_reason names the
+        // SPECIFIC cause (gateway unreachable, unparsable response, or a
+        // response missing a name/tools -- usually a too-short/vague
+        // request) instead of this blanket "something went wrong," which
+        // gave the user nothing concrete to fix on their next attempt.
         if (body?.usedFallback) {
-          toast.warning("Something went wrong compiling a custom agent — this is a generic starter for the role. Try regenerating for an agent built for your business.");
+          toast.warning(
+            body?.fallback_reason
+              ? `${body.fallback_reason} Used a generic starter for the role instead — try regenerating with more specific detail about your business.`
+              : "Something went wrong compiling a custom agent — this is a generic starter for the role. Try regenerating for an agent built for your business.",
+          );
         }
         // GAP 5 (Guided UX, 2026-10-09): parity with the website publish
         // flow's own toast.info pointer (GeneratedDashboard.tsx's

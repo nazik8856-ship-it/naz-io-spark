@@ -1405,6 +1405,41 @@ Rules:
 
     let finalSummary = "Run ended without explicit summary.";
     let steps = 0, finished = false, paused = false;
+    // GAP 1 (Proactive Missing-Parameter Handling, 2026-10-10): tracks which
+    // (tool kind, missing-field-set) combinations have already been asked
+    // about this run, so a field the operator genuinely can't supply doesn't
+    // get asked forever -- asked once, then the validation-failure path
+    // falls back to today's bounce-to-model behavior (which still has
+    // failGuard's own 3-strikes-then-replan safety net below).
+    const askedMissingFieldCombos = new Set<string>();
+    // Fires the exact same clarification_request/tool_result/pause sequence
+    // the real ask_user tool handler uses further down, so a required field
+    // that is genuinely ABSENT from the model's own input (not just
+    // malformed) gets a real question naming it -- instead of looping the
+    // validation error back to the model, which can "fix" it by inventing a
+    // plausible-looking value Zod has no way to distinguish from a real one.
+    const pauseForMissingFields = async (toolName: string, question: string) => {
+      await recordQuestionIssue(supabase, { userId, agentId, question }).catch(() => null);
+      await logEvent("clarification_request", {
+        question,
+        input_type: "text",
+        fix_action: "input",
+        humanMessage: question,
+        requested_at: new Date().toISOString(),
+        response_timeout_ms: 180_000,
+      });
+      await logEvent("tool_result", {
+        tool: toolName,
+        kind: "ask_user",
+        ok: true,
+        waiting_for_user: true,
+        input_type: "text",
+        summary: `Asked you: ${question}`,
+        humanMessage: `Waiting for your input: ${question}`,
+      });
+      paused = true;
+      finalSummary = `Paused — waiting for your input: ${question}`;
+    };
     // GAP 2 (external contributions, 2026-10-09): one tool call per step in
     // this loop, so "the tool called in the step right before this one" is
     // enough signal to tag a `remember` write as sourced from an external
@@ -1797,6 +1832,34 @@ Rules:
         // ---- Zod schema gate: validate BEFORE any executor runs ----
         const validation = validateToolInput(tool.kind, tool.name, rawInput);
         if (!validation.success) {
+          // GAP 1 (Proactive Missing-Parameter Handling, 2026-10-10): a field
+          // genuinely absent from rawInput (not merely malformed -- a bad
+          // date format, say, which the model itself supplied and can
+          // plausibly self-correct) is the one failure mode where bouncing
+          // the error back to the model risks it fabricating a value Zod
+          // can't tell from a real one. Checked against rawInput directly,
+          // not validation.details' zod error codes, since "too_small" on an
+          // empty string and "invalid_type" on an absent key both mean the
+          // same thing here: nothing usable was actually supplied.
+          const isAbsent = (field: string): boolean => {
+            if (field === "(root)") return true;
+            let v: unknown = rawInput;
+            for (const part of field.split(".")) {
+              if (v === null || typeof v !== "object") return true;
+              v = (v as Record<string, unknown>)[part];
+            }
+            return v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0);
+          };
+          const missingFields = validation.details.filter((d) => isAbsent(d.field));
+          const comboKey = `${tool.kind}::${missingFields.map((d) => d.field).sort().join(",")}`;
+          if (missingFields.length && !askedMissingFieldCombos.has(comboKey)) {
+            askedMissingFieldCombos.add(comboKey);
+            await logEvent("tool_call", { tool: tool.name, kind: tool.kind, input: rawInput, rejected: true });
+            const fieldLabels = missingFields.map((d) => d.label).join(", ");
+            const question = `To run "${tool.name}" I need ${missingFields.length > 1 ? "these" : "this"}: ${fieldLabels}. What should I use?`;
+            await pauseForMissingFields(tool.name, question);
+            break;
+          }
           const payload = {
             success: false,
             error: "validation_error",

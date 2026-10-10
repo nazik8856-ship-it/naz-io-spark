@@ -275,6 +275,51 @@ Deno.test("checkWebsiteAssembly: an already-persisted, real asset_url is never s
   assert(!updateLog.some((u) => u.table === "website_pages"), "no page update should be written when nothing needed repair");
 });
 
+// ---- GAP 3 (Hard Rule Coverage Expansion, 2026-10-10): name/tagline
+// (website row) and title/seo_description (per-page) used to be excluded
+// from this function's query entirely -- never scanned, never redacted,
+// a narrower surface than compile-website-manifest's own generation-time
+// scan. ---------------------------------------------------------------------
+
+Deno.test("checkWebsiteAssembly: a secret in the website's name is redacted and persisted -- pre-fix, name was never even fetched", async () => {
+  const { admin, updateLog } = makeFakeAdmin({
+    websites: [{ id: "site-1", user_id: "user-1", name: "Acme sk-1234567890abcdef Inc", tagline: "Fine coffee" }],
+    website_pages: [{ id: "page-1", website_id: "site-1", slug: "home", sections: [], title: "Home", seo_description: "Welcome" }],
+    safety_rules: [secretRule],
+  });
+  const report = await checkWebsiteAssembly(admin, "user-1", "site-1");
+  assert(report.repaired === true, "a secret in the name must be redacted");
+  const siteUpdate = updateLog.find((u) => u.table === "websites" && "name" in u.patch);
+  assert(!!siteUpdate, "the redacted name must actually be persisted to websites");
+  assert(!String((siteUpdate!.patch as { name: string }).name).includes("sk-1234567890abcdef"));
+});
+
+Deno.test("checkWebsiteAssembly: a secret in a page's seo_description is redacted and persisted -- pre-fix this column was never fetched or scanned", async () => {
+  const { admin, updateLog } = makeFakeAdmin({
+    websites: [{ id: "site-1", user_id: "user-1", name: "Acme Inc", tagline: "Fine coffee" }],
+    website_pages: [{
+      id: "page-1", website_id: "site-1", slug: "home", sections: [],
+      title: "Home", seo_description: "Contact us, use code sk-1234567890abcdef",
+    }],
+    safety_rules: [secretRule],
+  });
+  const report = await checkWebsiteAssembly(admin, "user-1", "site-1");
+  assert(report.repaired === true, "a secret in seo_description must be redacted");
+  const pageUpdate = updateLog.find((u) => u.table === "website_pages" && "seo_description" in u.patch);
+  assert(!!pageUpdate, "the redacted seo_description must actually be persisted to website_pages");
+  assert(!String((pageUpdate!.patch as { seo_description: string }).seo_description).includes("sk-1234567890abcdef"));
+});
+
+Deno.test("checkWebsiteAssembly: destructive wording in the tagline blocks, same as it would in page copy", async () => {
+  const { admin } = makeFakeAdmin({
+    websites: [{ id: "site-1", user_id: "user-1", name: "Acme Inc", tagline: "We wipe the entire database for you" }],
+    website_pages: [{ id: "page-1", website_id: "site-1", slug: "home", sections: [], title: "Home", seo_description: "Welcome" }],
+    safety_rules: [destructiveRule],
+  });
+  const report = await checkWebsiteAssembly(admin, "user-1", "site-1");
+  assert(report.blocked === true, "destructive wording in the tagline must block, same as page copy would");
+});
+
 // ---- checkWebsiteAssembly: Problem 1 (Control Gate weak on websites,
 // 2026-10-08) -- a block-severity, non-redactable match used to get the
 // exact same "not blocked... worth reviewing" note as a require_approval

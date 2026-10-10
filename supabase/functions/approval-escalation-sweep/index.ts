@@ -10,7 +10,7 @@
 // and re-arms the claim optimistically against whatever value was actually
 // read, instead of assuming it's always NULL.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { isOverdueForEscalation, hoursSince, type PendingApprovalLike } from "../_shared/escalation.ts";
+import { isOverdueForEscalation, isOverdueForExecution, hoursSince, type PendingApprovalLike } from "../_shared/escalation.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
 
@@ -99,5 +99,57 @@ Deno.serve(async (req) => {
     escalated++;
   }
 
-  return json({ ok: true, checked: (rows ?? []).length, escalated });
+  // GAP 5 (Action Execution Feedback Loop, 2026-10-10): a SEPARATE pass --
+  // approval and execution are two deliberately separate steps, but
+  // nothing previously reminded anyone that an APPROVED action was still
+  // sitting un-executed. Same repeat-nudge shape as the loop above, reusing
+  // escalated_at as the "last nudge" marker (safe: a row is never both
+  // "pending" and "approved" at once, so the two loops' usage of it never
+  // overlaps).
+  const { data: unexecutedRows, error: unexecutedError } = await admin
+    .from("pending_approvals")
+    .select("id, user_id, action_type, provider, risk_tier, resolved_at, executed_at, escalated_at, status, decision_id, assigned_to")
+    .eq("status", "approved")
+    .is("executed_at", null);
+  let unexecutedReminded = 0;
+  if (!unexecutedError) {
+    for (const row of (unexecutedRows ?? []) as (Row & { resolved_at: string | null })[]) {
+      if (!isOverdueForExecution(row, now)) continue;
+      const isRepeatNudge = row.escalated_at != null;
+
+      let claimQuery = admin
+        .from("pending_approvals")
+        .update({ escalated_at: now.toISOString() })
+        .eq("id", row.id);
+      claimQuery = isRepeatNudge ? claimQuery.eq("escalated_at", row.escalated_at as string) : claimQuery.is("escalated_at", null);
+      const { data: claimed } = await claimQuery.select("id").maybeSingle();
+      if (!claimed) continue;
+
+      const waitedHours = row.resolved_at ? Math.round(hoursSince(row.resolved_at, now)) : null;
+      await sendCriticalAlert(admin, row.user_id, {
+        event: "approval_unexecuted",
+        summary: isRepeatNudge
+          ? `A ${row.risk_tier} risk "${row.action_type}" action was approved${waitedHours !== null ? ` ${waitedHours}h ago` : ""} and is STILL waiting to be run -- this is a repeat nudge.`
+          : `A ${row.risk_tier} risk "${row.action_type}" action was approved${waitedHours !== null ? ` ${waitedHours}h ago` : ""} and hasn't been run yet.`,
+        decisionId: row.decision_id,
+        actionType: row.action_type,
+        provider: row.provider,
+        skipIncident: isRepeatNudge,
+        assignedTo: row.assigned_to,
+      });
+      await triggerWebhooks(admin, row.user_id, "approval_unexecuted", {
+        approval_id: row.id, action_type: row.action_type, provider: row.provider, risk_tier: row.risk_tier,
+        waited_hours: waitedHours, repeat_nudge: isRepeatNudge,
+      });
+      try {
+        await admin.from("pending_approval_events").insert({
+          approval_id: row.id, user_id: row.user_id, event_type: "execution_reminder",
+          note: `Approved but still not run${waitedHours !== null ? ` (${waitedHours}h)` : ""}`,
+        });
+      } catch { /* the reminder itself already happened; a missing timeline entry must never block it */ }
+      unexecutedReminded++;
+    }
+  }
+
+  return json({ ok: true, checked: (rows ?? []).length, escalated, unexecutedReminded });
 });

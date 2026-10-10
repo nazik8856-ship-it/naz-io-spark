@@ -20,6 +20,10 @@ const EVENTS = [
   "approval_auto_resolved", "hard_rule_auto_drafted", "api_key_auto_paused",
   "api_key_on_uncertain_downgraded", "automation_readiness_ready", "shadow_policy_promotion_ready",
   "response_grounding_failed",
+  // GAP 5 (Action Execution Feedback Loop, 2026-10-10): added to the
+  // backend's canonical WEBHOOK_EVENTS list (_shared/webhooks.ts) alongside
+  // this one, same "keep both in sync" pattern as the comments above.
+  "approval_unexecuted",
 ] as const;
 
 type WebhookRow = {

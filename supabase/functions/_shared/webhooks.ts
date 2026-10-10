@@ -66,6 +66,11 @@ export const WEBHOOK_EVENTS = [
   "incident_acknowledged",
   "incident_assigned",
   "incident_escalated",
+  // GAP 5 (Action Execution Feedback Loop, 2026-10-10): fires when an
+  // approved action has sat un-executed past EXECUTION_REMINDER_HOURS --
+  // distinct from "approval_escalated" (which only ever fires for a row
+  // still "pending", before a human has even decided).
+  "approval_unexecuted",
 ] as const;
 export type WebhookEvent = typeof WEBHOOK_EVENTS[number];
 

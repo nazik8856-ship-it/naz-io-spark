@@ -335,6 +335,14 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     // manifest built from the role blueprint so the agent ALWAYS appears.
     let normalized: Manifest | null = null;
     let usedFallback = false;
+    // GAP 7 (Graceful Degradation, 2026-10-10): usedFallback alone told the
+    // frontend only a generic "something went wrong" -- never WHAT was
+    // actually missing or wrong, so a customer had nothing concrete to fix
+    // in their next attempt. Set alongside usedFallback below, naming the
+    // real cause (gateway unreachable/rate-limited vs. a response that
+    // couldn't be parsed vs. one missing a name/tools) instead of leaving it
+    // to a single blanket message.
+    let fallbackReason: string | null = null;
     // GAP 8 (Speed & Reliability Layer): never applied to an EDIT of an
     // existing agent -- an edit is inherently request-specific (scoped by
     // existingAgentId + the live current manifest, not just the plan
@@ -390,6 +398,15 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
         return json({ error: "Couldn't apply that edit right now — the agent compiler is unavailable. Nothing was changed; please try again." }, 502);
       }
       usedFallback = true;
+      // GAP 7 (Graceful Degradation, 2026-10-10): the one signal available at
+      // this point for WHY the real compile failed -- surfaced instead of
+      // discarded, so "something went wrong" can become a specific message.
+      const errMsg = aiErr instanceof Error ? aiErr.message : String(aiErr);
+      fallbackReason = errMsg === "missing fields"
+        ? "The AI's response was missing a name or tools -- usually means the request was too short or vague for it to infer a concrete role."
+        : errMsg === "parse failed"
+          ? "The AI's response wasn't valid JSON this time."
+          : "The AI compiler was unreachable or rate-limited.";
       normalized = buildFallbackManifest(plan, userPrompt, role, blueprint, profile);
     }
     }
@@ -566,6 +583,16 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     // final-assembly-check.ts's checkAgentAssembly already takes).
     const generationNotes: string[] = [];
     const allSafetyMatches: SafetyMatch[] = [];
+    // GAP 7 (Graceful Degradation, 2026-10-10): the specific reason a
+    // fallback manifest was used, not just the fact that it was -- same
+    // surface (generation_notes) the account rules/safety-rule findings
+    // already render through, so this isn't a new UI, just a more honest
+    // use of the existing one.
+    if (fallbackReason) {
+      generationNotes.push(
+        `This agent's custom compile didn't complete, so a generic starter for the "${role}" role was used instead. ${fallbackReason} Try regenerating with more specific detail about your business, and/or edit the agent afterward to tailor it.`,
+      );
+    }
 
     if (accountHardRules.length) {
       const kept: Tool[] = [];
@@ -634,6 +661,55 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
           safetyNotes.push(`Your ${field === "systemPrompt" ? "agent's system prompt" : "agent's decision policy"} touches your safety rule(s) (${nonRedactable.map((m) => m.name).join(", ")}) -- not blocked, since this is a description, not an action, but worth knowing before you deploy.`);
         }
       }
+      // GAP 3 (Hard Rule Coverage Expansion, 2026-10-10): the checks above
+      // cover prose (systemPrompt/decisionPolicy) and TOOL KINDS against
+      // hard_rules -- neither touches the guardrail text the model writes
+      // itself, nor each tool's own config object (a notify tool's
+      // channel, a webhook URL, etc.), both free text with the same
+      // provenance as systemPrompt/decisionPolicy and the same risk of
+      // echoing a real secret or matching an account's own safety rule.
+      const redactString = (text: string, matches: SafetyMatch[]): string => repairContent(text, matches).repaired ?? text;
+      const redactConfigDeep = (value: unknown, matches: SafetyMatch[]): unknown => {
+        if (typeof value === "string") return redactString(value, matches);
+        if (Array.isArray(value)) return value.map((v) => redactConfigDeep(v, matches));
+        if (value && typeof value === "object") {
+          const out: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = redactConfigDeep(v, matches);
+          return out;
+        }
+        return value;
+      };
+      normalized.guardrails = normalized.guardrails.map((g, i) => {
+        if (!g.rule) return g;
+        const scan = scanWithRules(safetyRules, g.rule, "");
+        if (!scan.matched) return g;
+        allSafetyMatches.push(...scan.matches);
+        const repairedRule = redactString(g.rule, scan.matches);
+        if (repairedRule !== g.rule) {
+          safetyNotes.push(`Guardrail #${i + 1} ("${g.rule.slice(0, 60)}") had content matching your safety rule(s) redacted at generation time.`);
+        }
+        const nonRedactable = scan.matches.filter((m) => !isRedactableMatch(m));
+        if (nonRedactable.length) {
+          safetyNotes.push(`Guardrail #${i + 1} touches your safety rule(s) (${nonRedactable.map((m) => m.name).join(", ")}) -- not blocked, since this is descriptive text, but worth reviewing.`);
+        }
+        return { ...g, rule: repairedRule };
+      });
+      normalized.tools = normalized.tools.map((t) => {
+        if (!t.config || !Object.keys(t.config).length) return t;
+        const scan = scanWithRules(safetyRules, t.config, "");
+        if (!scan.matched) return t;
+        allSafetyMatches.push(...scan.matches);
+        const repairedConfig = redactConfigDeep(t.config, scan.matches) as Record<string, unknown>;
+        if (JSON.stringify(repairedConfig) !== JSON.stringify(t.config)) {
+          safetyNotes.push(`"${t.name}"'s configuration had content matching your safety rule(s) redacted at generation time.`);
+        }
+        const nonRedactable = scan.matches.filter((m) => !isRedactableMatch(m));
+        if (nonRedactable.length) {
+          safetyNotes.push(`"${t.name}"'s configuration touches your safety rule(s) (${nonRedactable.map((m) => m.name).join(", ")}) -- not blocked, worth reviewing.`);
+        }
+        return { ...t, config: repairedConfig };
+      });
+
       if (safetyNotes.length) {
         normalized.guardrails = [
           ...normalized.guardrails,
@@ -818,7 +894,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       }
     }
 
-    return json({ manifest: normalized, agentId, mode, role, schedule_cron: finalScheduleCron, schedule_label: finalScheduleLabel, usedFallback, generation_notes: generationNotes, trust_score: trustScore });
+    return json({ manifest: normalized, agentId, mode, role, schedule_cron: finalScheduleCron, schedule_label: finalScheduleLabel, usedFallback, fallback_reason: fallbackReason, generation_notes: generationNotes, trust_score: trustScore });
   } catch (e) {
     console.error("compile-agent-manifest error", e);
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);

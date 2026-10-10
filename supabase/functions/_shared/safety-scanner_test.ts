@@ -155,14 +155,24 @@ Deno.test("a disabled rule is never matched", () => {
   assertFalse(r.matched);
 });
 
-Deno.test("a params field literally named 'description' is overwritten by the real description argument, not merged", () => {
-  // flatten() unconditionally does `fields["description"] = description`
-  // AFTER walking params, so a params.description value is silently
-  // discarded rather than scanned. Documented here as real behavior (found
-  // while writing these tests) — if any caller's action params ever
-  // legitimately uses a "description" key, that text is never scanned.
+Deno.test("GAP 3 fix: a params field literally named 'description' is scanned, not clobbered by the real description argument", () => {
+  // flatten() used to do `fields["description"] = description` AFTER
+  // walking params, unconditionally overwriting whatever walk() had
+  // already put at "description" -- so a params.description value was
+  // silently discarded rather than scanned. Now the action's own
+  // description gets a reserved, non-colliding key, so both are scanned
+  // independently.
   const r = scanWithRules(BUILTIN_SAFETY_RULES, { description: "delete all customer records" }, "");
-  assertFalse(r.matched, "the params.description text must NOT be scanned — it's clobbered by the real description arg");
+  assert(r.matched, "the params.description text must be scanned, not clobbered by the real description arg");
+  assert(r.matches.some((m) => m.rule_id === "builtin:destructive"));
+});
+
+Deno.test("GAP 3 fix: the action's own description and a params.description are both scanned independently, with correct per-field attribution", () => {
+  const r = scanWithRules(BUILTIN_SAFETY_RULES, { description: `a normal note containing ${FAKE_OPENAI_KEY}` }, "delete all customer records");
+  assert(r.matched);
+  const fieldsHit = r.matches.map((m) => m.matched_on);
+  assert(fieldsHit.includes("description"), "the params.description secret match must be attributed to the params field");
+  assert(fieldsHit.includes("__action_description__"), "the destructive-wording match must be attributed to the action's own description");
 });
 
 Deno.test("an invalid custom regex pattern is skipped, not thrown", () => {

@@ -10,7 +10,7 @@
 // safety scanner.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/control-gate_test.ts
-import { runControlGate, recordBreakerAttempt, AGENT_DECISION_SOURCES, createPendingApproval, loadOnUncertainPolicy } from "./control-gate.ts";
+import { runControlGate, recordBreakerAttempt, AGENT_DECISION_SOURCES, createPendingApproval, loadOnUncertainPolicy, matchHardRule } from "./control-gate.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -175,6 +175,61 @@ Deno.test("a logged block has a null api_key_id when the request didn't come thr
   assertFalse(result.ok);
   const logged = (inserts.agent_decisions ?? [])[0] as { api_key_id?: string | null } | undefined;
   assertEquals(logged?.api_key_id ?? null, null);
+});
+
+// ---- GAP 4 (Consistent Cross-Control Rule Sync, 2026-10-10): matchHardRule
+// is the ONE function both Inner Control (agentId) and Outer Control
+// (apiKeyId) call -- live-verified against the real database that
+// build_policy_snapshot's SQL now captures api_key_id on every hard_rule
+// and safety_rule (it silently didn't before, a real migration fix, not
+// unit-testable from here). These lock in the TS-side contract: given a
+// well-formed snapshot that DOES carry api_key_id, matchHardRule scopes an
+// api-key-specific rule to that one key, exactly as selectRulesForEntity's
+// own tests already prove for the live-table path -- so the snapshot path
+// and the live-table path agree, which is the actual cross-control
+// guarantee this gap asked for. -----------------------------------------
+
+Deno.test("matchHardRule (GAP 4): an api-key-scoped rule read from the snapshot matches only its own key, not a different one", async () => {
+  const snapshotHardRules = [{
+    id: "r1", rule_text: "No refunds over $500", action_type_pattern: "send_email",
+    effect: "always_block", provider: null, enabled: true, shadow_mode: false,
+    agent_id: null, api_key_id: "key-1", required_approvals: null,
+  }];
+  const { client } = fakeSupabase({}, {
+    get_active_policy_version: { data: [{ version: 1, snapshot: { hard_rules: snapshotHardRules } }], error: null },
+  });
+  const forItsOwnKey = await matchHardRule(client, "user-1", "send_email", "Gmail", null, "key-1");
+  assertEquals(forItsOwnKey.rule?.id, "r1", "the rule must apply to the key it's scoped to");
+  const forADifferentKey = await matchHardRule(client, "user-1", "send_email", "Gmail", null, "key-2");
+  assertEquals(forADifferentKey.rule, null, "the SAME rule must never apply to a different api key");
+});
+
+Deno.test("matchHardRule (GAP 4): an api-key-scoped rule read from the snapshot never leaks into Inner Control's agent-scoped resolution", async () => {
+  const snapshotHardRules = [{
+    id: "r1", rule_text: "No refunds over $500", action_type_pattern: "send_email",
+    effect: "always_block", provider: null, enabled: true, shadow_mode: false,
+    agent_id: null, api_key_id: "key-1", required_approvals: null,
+  }];
+  const { client } = fakeSupabase({}, {
+    get_active_policy_version: { data: [{ version: 1, snapshot: { hard_rules: snapshotHardRules } }], error: null },
+  });
+  const forAnAgent = await matchHardRule(client, "user-1", "send_email", "Gmail", "agent-1", null);
+  assertEquals(forAnAgent.rule, null, "an api-key-scoped rule must never govern an agent's own actions");
+});
+
+Deno.test("matchHardRule (GAP 4): an account-wide rule (both scoping columns null) in the snapshot applies identically whether resolved for an agent or an api key", async () => {
+  const snapshotHardRules = [{
+    id: "acct-rule", rule_text: "Never delete customer data", action_type_pattern: "*",
+    effect: "always_block", provider: null, enabled: true, shadow_mode: false,
+    agent_id: null, api_key_id: null, required_approvals: null,
+  }];
+  const { client } = fakeSupabase({}, {
+    get_active_policy_version: { data: [{ version: 1, snapshot: { hard_rules: snapshotHardRules } }], error: null },
+  });
+  const forAnAgent = await matchHardRule(client, "user-1", "delete_record", "Gmail", "agent-1", null);
+  const forAnApiKey = await matchHardRule(client, "user-1", "delete_record", "Gmail", null, "key-1");
+  assertEquals(forAnAgent.rule?.id, "acct-rule");
+  assertEquals(forAnApiKey.rule?.id, "acct-rule");
 });
 
 Deno.test("daily spend cap over budget blocks, same as the kill switch", async () => {

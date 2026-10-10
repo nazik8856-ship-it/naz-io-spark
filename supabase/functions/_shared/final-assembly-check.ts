@@ -236,11 +236,18 @@ export async function checkAgentAssembly(admin: SupabaseClient, userId: string, 
  * Persists any redaction directly to website_pages.sections.
  */
 export async function checkWebsiteAssembly(admin: SupabaseClient, userId: string, websiteId: string): Promise<AssemblyCheckReport> {
-  const { data: websiteRow } = await admin.from("websites").select("id").eq("id", websiteId).eq("user_id", userId).maybeSingle();
+  // GAP 3 (Hard Rule Coverage Expansion, 2026-10-10): this used to select
+  // only "id" from websites and only "id, slug, sections" from
+  // website_pages -- name/tagline (scanned at generation time, see
+  // compile-website-manifest's applySafetyGate) and title/seo_description
+  // (never scanned at all, at generation or here) were silently excluded
+  // from every later re-check, a narrower surface than generation time.
+  const { data: websiteRow } = await admin.from("websites").select("id, name, tagline").eq("id", websiteId).eq("user_id", userId).maybeSingle();
   if (!websiteRow) return { ok: false, repaired: false, notes: ["Website not found."], blocked: false, blockReason: null, trustScore: 100 };
+  const website = websiteRow as { id: string; name: string | null; tagline: string | null };
 
-  const { data: pageRows } = await admin.from("website_pages").select("id, slug, sections").eq("website_id", websiteId);
-  const pages = (pageRows ?? []) as { id: string; slug: string; sections: unknown[] }[];
+  const { data: pageRows } = await admin.from("website_pages").select("id, slug, sections, title, seo_description").eq("website_id", websiteId);
+  const pages = (pageRows ?? []) as { id: string; slug: string; sections: unknown[]; title: string | null; seo_description: string | null }[];
 
   // Image-relevance quality loop (2026-10-09): independent of the
   // safety-rule scan below -- a page can be perfectly clean on safety
@@ -280,7 +287,11 @@ export async function checkWebsiteAssembly(admin: SupabaseClient, userId: string
   // the only one that ever governs them, same as compile-website-manifest's
   // own applySafetyGate already established.
   const safetyRules = await loadSafetyRules(admin, userId, null);
-  const scan = scanWithRules(safetyRules, pages.map((p) => p.sections), "");
+  const scan = scanWithRules(safetyRules, {
+    name: website.name,
+    tagline: website.tagline,
+    pages: pages.map((p) => ({ title: p.title, seo_description: p.seo_description, sections: p.sections })),
+  }, "");
   if (!scan.matched) {
     // GAP 3: persisted even on a clean run -- resets a previously-bad
     // score back to 100 once the offending rule/content is gone, same
@@ -310,10 +321,25 @@ export async function checkWebsiteAssembly(admin: SupabaseClient, userId: string
   if (redactable.length) {
     for (const page of pages) {
       const newSections = redactDeep(page.sections, redactable);
-      if (JSON.stringify(newSections) !== JSON.stringify(page.sections)) {
-        await admin.from("website_pages").update({ sections: newSections }).eq("id", page.id);
+      const newTitle = redactDeep(page.title, redactable);
+      const newSeo = redactDeep(page.seo_description, redactable);
+      const pageUpdate: Record<string, unknown> = {};
+      if (JSON.stringify(newSections) !== JSON.stringify(page.sections)) pageUpdate.sections = newSections;
+      if (newTitle !== page.title) pageUpdate.title = newTitle;
+      if (newSeo !== page.seo_description) pageUpdate.seo_description = newSeo;
+      if (Object.keys(pageUpdate).length) {
+        await admin.from("website_pages").update(pageUpdate).eq("id", page.id);
         repaired = true;
       }
+    }
+    const newName = redactDeep(website.name, redactable);
+    const newTagline = redactDeep(website.tagline, redactable);
+    const siteUpdate: Record<string, unknown> = {};
+    if (newName !== website.name) siteUpdate.name = newName;
+    if (newTagline !== website.tagline) siteUpdate.tagline = newTagline;
+    if (Object.keys(siteUpdate).length) {
+      await admin.from("websites").update(siteUpdate).eq("id", websiteId);
+      repaired = true;
     }
     notes.push(`Content matching your safety rule(s) (${redactable.map((m) => m.name).join(", ")}) was redacted across this site at final-assembly check -- it may have been added or edited after this site was first generated.`);
   }
