@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Globe2, ShieldCheck, Gauge, ArrowUpRight, KeyRound, Lock, Plug, ScanEye, ChevronDown, ChevronRight } from "lucide-react";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 // outer_control_evaluations isn't in the generated Supabase types yet --
 // same established workaround as every other page touching a table this
 // sandbox can't regenerate types for.
@@ -280,6 +281,35 @@ export default function OuterControlSystem() {
   // is expanded, if any -- mirrors the click-to-expand pattern ControlLiveFeed
   // already uses for Inner Control decisions.
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // LOOP 3 (Outer Control Incomplete Activation, 2026-10-10): which key's
+  // test evaluation is currently in flight, if any.
+  const [testingKeyId, setTestingKeyId] = useState<string | null>(null);
+
+  const runSelfTest = async (keyId: string) => {
+    setTestingKeyId(keyId);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token ?? SUPABASE_ANON;
+      const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/api-keys/${keyId}/self-test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON },
+        body: JSON.stringify({}),
+      });
+      const body = await resp.json().catch(() => ({}));
+      if (!resp.ok || !body?.ok) {
+        toast.error(body?.message || "Test evaluation failed.");
+        return;
+      }
+      toast.success(`Test evaluation sent — verdict: ${body.verdict}.`);
+      // Clears the never-received-traffic warning for this key immediately,
+      // without waiting on a full page refetch.
+      setKeyHealth((prev) => prev.map((k) => (k.id === keyId ? { ...k, lastEvaluatedAt: body.evaluated_at ?? new Date().toISOString() } : k)));
+    } catch {
+      toast.error("Test evaluation failed — please try again.");
+    } finally {
+      setTestingKeyId(null);
+    }
+  };
 
   useEffect(() => {
     if (!accountId) return;
@@ -412,13 +442,29 @@ export default function OuterControlSystem() {
                 <ScanEye className="h-3.5 w-3.5" />
                 {keyHealth.filter((k) => !k.lastEvaluatedAt).length === 1 ? "An API key has" : "API keys have"} never received traffic
               </div>
-              <div className="mt-2 space-y-1">
+              <div className="mt-2 space-y-2">
                 {keyHealth.filter((k) => !k.lastEvaluatedAt).map((k) => (
-                  <div key={k.id} className="text-sm text-zinc-300">
-                    <span className="font-medium text-zinc-100">{k.name}</span>
-                    <span className="text-zinc-500"> — registered, but your own system has never called </span>
-                    <code className="text-cyan-300">POST /outer-control/evaluate</code>
-                    <span className="text-zinc-500"> with it.</span>
+                  <div key={k.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-zinc-300">
+                    <div>
+                      <span className="font-medium text-zinc-100">{k.name}</span>
+                      <span className="text-zinc-500"> — registered, but your own system has never called </span>
+                      <code className="text-cyan-300">POST /outer-control/evaluate</code>
+                      <span className="text-zinc-500"> with it.</span>
+                    </div>
+                    {/* LOOP 3 (Outer Control Incomplete Activation, 2026-10-10):
+                        this used to only link to docs -- the documented
+                        activation path requires wiring up an external tool
+                        first, so there was no way to confirm a key even
+                        works before doing that. This fires a real, harmless
+                        evaluation right now and clears the warning the
+                        moment it lands. */}
+                    <button
+                      onClick={() => runSelfTest(k.id)}
+                      disabled={testingKeyId === k.id}
+                      className="shrink-0 rounded-md border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider text-cyan-300 transition hover:bg-cyan-500/20 disabled:opacity-50"
+                    >
+                      {testingKeyId === k.id ? "Testing…" : "Send test evaluation"}
+                    </button>
                   </div>
                 ))}
               </div>

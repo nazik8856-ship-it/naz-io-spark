@@ -34,6 +34,8 @@ import { isValidTriggerPhrase, isValidRuleAnswer, isValidMatchType, MAX_RESPONSE
 import { findOverlappingCandidates, excerptOf } from "../_shared/rule-context-overlap.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { seedStarterHardRuleIfNone } from "../_shared/starter-rules.ts";
+import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -100,6 +102,54 @@ Deno.serve(async (req) => {
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ ok: true, already_revoked: true });
     return json({ ok: true, revoked: true });
+  }
+
+  // ---- POST /api-keys/:id/self-test --------------------------------------
+  // LOOP 3 (Outer Control Incomplete Activation, 2026-10-10): confirmed live,
+  // 15 of 16 real API keys had never once been sent to
+  // POST /outer-control/evaluate -- full documentation already existed
+  // (ControlApiDocs.tsx), but nothing let an account confirm a key actually
+  // works without first wiring up an external tool end-to-end. This runs
+  // the exact same text-review gate that endpoint runs (same function,
+  // same DB side effects -- a real outer_control_evaluations row, matched
+  // against this account's real hard rules and safety rules) against a
+  // clearly-synthetic sample, triggered from the dashboard the account is
+  // already signed into rather than the key's own bearer secret (which,
+  // by design, isn't retrievable after creation -- see the key-creation
+  // comment above). isTest is always forced true regardless of this key's
+  // own is_test flag, so a self-test never pollutes real-usage aggregates
+  // (automation-value, content gaps) the way sandbox traffic already
+  // doesn't.
+  const selfTestMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/self-test\/?$/);
+  if (req.method === "POST" && selfTestMatch) {
+    const keyId = selfTestMatch[1];
+    const body = await req.json().catch(() => ({}));
+    const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    const rate = await checkRateLimit(admin, userId, "api-keys-self-test", CREATE_KEY_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many test-evaluation attempts — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const { data: keyRow } = await admin
+      .from("api_keys").select("id, revoked_at").eq("id", keyId).eq("user_id", targetUserId).maybeSingle();
+    if (!keyRow) return json({ error: "Key not found for this account." }, 404);
+    if ((keyRow as { revoked_at?: string | null }).revoked_at) {
+      return json({ error: "key_revoked", message: "This key has been revoked." }, 409);
+    }
+
+    const result = await evaluateExternalText(admin, {
+      userId: targetUserId, agentId: null, apiKeyId: keyId, isTest: true,
+      sourceModel: "nazai-dashboard-test",
+      content: "This is a self-test evaluation sent from the NazAI dashboard to confirm this key is wired up correctly. No real content was involved.",
+      origin: "external-api",
+    });
+    if (!result.evaluationId) return json({ error: "internal_error", message: "Could not record the test evaluation." }, 500);
+    return json({ ok: true, verdict: result.verdict, summary: result.summary, evaluated_at: result.evaluatedAt });
   }
 
   // ---- POST /api-keys/:id/rotate ----------------------------------------
@@ -1042,6 +1092,12 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Couldn't create the key" }, 500);
+
+    // LOOP 2 (Low/Zero Rule Coverage, 2026-10-10): unlike an agent, a new
+    // API key has no manifest/guardrails to reconcile from -- it starts
+    // with literally zero hard_rules unless the account has separately
+    // created one of its own. No-op if this key somehow already has one.
+    await seedStarterHardRuleIfNone(admin, targetUserId, { apiKeyId: (data as { id: string }).id });
 
     return json({ ok: true, key: rawKey, ...data });
   }
