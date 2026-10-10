@@ -1124,6 +1124,11 @@ serve(async (req) => {
     // generation for their business. Threaded through every response below
     // that returns `manifest` so the frontend can tell the difference.
     let usedFallback = false;
+    // GAP 7 (Graceful Degradation, 2026-10-10): usedFallback alone only ever
+    // told the frontend "something went wrong," never WHAT, so a customer
+    // had nothing concrete to change in their next attempt. Set alongside
+    // usedFallback in the catch block below.
+    let fallbackReason: string | null = null;
     // GAP 8 (Speed & Reliability Layer): skip the expensive AI call(s)
     // entirely on an identical repeated request (a double-submit, or a
     // retry after a network blip) -- scoped by the exact brief text, so a
@@ -1169,6 +1174,17 @@ serve(async (req) => {
       manifest = normalize(parsed, compilePrompt);
     } catch (err) {
       console.error("compile-website-manifest AI failure", err);
+      // GAP 7 (Graceful Degradation, 2026-10-10): the one signal available
+      // here for WHY the real generation failed -- surfaced instead of
+      // discarded, same reasoning as compile-agent-manifest's own fix.
+      const errMsg = err instanceof Error ? err.message : String(err);
+      fallbackReason = /^gateway 429/.test(errMsg)
+        ? "The AI gateway was rate-limited."
+        : /^gateway 402/.test(errMsg)
+          ? "AI credits were exhausted for this workspace."
+          : /^gateway \d/.test(errMsg)
+            ? "The AI gateway was unreachable."
+            : "The AI's response wasn't valid JSON this time -- can happen on an unusually short or ambiguous brief.";
       manifest = fallbackManifest(compilePrompt);
       usedFallback = true;
     }
@@ -1273,8 +1289,16 @@ serve(async (req) => {
     const imageGated = enforceImageRelevance(manifest.pages, verifiedImageUrls);
     manifest = { ...manifest, pages: imageGated.pages };
     const generationNotes = [...freshGated.notes, ...factCheckNotes, ...imageGated.notes];
+    // GAP 7 (Graceful Degradation, 2026-10-10): same surface the account
+    // rules/safety-rule/image-relevance findings above already render
+    // through -- a specific reason instead of a silent generic template.
+    if (fallbackReason) {
+      generationNotes.push(
+        `This site's custom generation didn't complete, so a starter template was used instead. ${fallbackReason} Try regenerating with more specific detail about your business.`,
+      );
+    }
 
-    if (!save) return json({ manifest, generation_notes: generationNotes, trust_score: freshGated.trustScore, used_fallback: usedFallback });
+    if (!save) return json({ manifest, generation_notes: generationNotes, trust_score: freshGated.trustScore, used_fallback: usedFallback, fallback_reason: fallbackReason });
     // A caller that asked to save (the frontend's default) but has no
     // resolved session used to fall into the same branch as "preview only"
     // above, silently returning {manifest} with no website_id and no error
@@ -1343,9 +1367,10 @@ serve(async (req) => {
         intent: "rebuild",
         rebuilt: true,
         summary: usedFallback
-          ? `Something went wrong generating a custom design for "${manifest.name}" — showing a starter template instead. Try rebuilding again or refining it via chat.`
+          ? `${fallbackReason ?? "Something went wrong generating a custom design"} for "${manifest.name}" — showing a starter template instead. Try rebuilding again or refining it via chat.`
           : `Regenerated "${manifest.name}" from scratch — ${manifest.pages.length} page${manifest.pages.length === 1 ? "" : "s"} with a completely new design.`,
         used_fallback: usedFallback,
+        fallback_reason: fallbackReason,
         route_reason: routeInfo.reason,
       });
     }
@@ -1407,12 +1432,13 @@ serve(async (req) => {
       website_id: siteRow.id,
       pages: pagesOut,
       used_fallback: usedFallback,
+      fallback_reason: fallbackReason,
       ...(routeInfo.route === "new"
         ? {
             intent: "new",
             created_new: true,
             summary: usedFallback
-              ? `Something went wrong generating a custom design for "${manifest.name}" — showing a starter template instead. Try regenerating or refining it via chat.`
+              ? `${fallbackReason ?? "Something went wrong generating a custom design"} for "${manifest.name}" — showing a starter template instead. Try regenerating or refining it via chat.`
               : `Built a separate new website — "${manifest.name}" (${manifest.pages.length} page${manifest.pages.length === 1 ? "" : "s"}). Opening it now; your previous site is untouched.`,
             route_reason: routeInfo.reason,
           }
