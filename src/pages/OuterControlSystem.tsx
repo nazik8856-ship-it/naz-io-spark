@@ -4,6 +4,7 @@ import { ArrowLeft, Globe2, ShieldCheck, Gauge, ArrowUpRight, KeyRound, Lock, Pl
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { selectRulesForEntity, type EntityScopedLike } from "@/lib/agent-policy";
 // outer_control_evaluations isn't in the generated Supabase types yet --
 // same established workaround as every other page touching a table this
 // sandbox can't regenerate types for.
@@ -276,7 +277,7 @@ export default function OuterControlSystem() {
   // structurally indistinguishable from one that's working fine but just
   // hasn't fired recently -- both show an empty-ish feed. Per-key last-seen
   // (or never) makes an inert key visible instead of silently zero.
-  const [keyHealth, setKeyHealth] = useState<{ id: string; name: string; lastEvaluatedAt: string | null }[]>([]);
+  const [keyHealth, setKeyHealth] = useState<{ id: string; name: string; lastEvaluatedAt: string | null; ruleCount: number }[]>([]);
   // GAP 6 (Visible Control Decision Trail, 2026-10-10): which row's detail
   // is expanded, if any -- mirrors the click-to-expand pattern ControlLiveFeed
   // already uses for Inner Control decisions.
@@ -316,7 +317,7 @@ export default function OuterControlSystem() {
     let cancelled = false;
     setLoading(true);
     (async () => {
-      const [keysRes, evalRes, keyActivityRes] = await Promise.all([
+      const [keysRes, evalRes, keyActivityRes, hardRulesRes, safetyRulesRes] = await Promise.all([
         anyDb
           .from("api_keys")
           .select("id, name")
@@ -340,6 +341,13 @@ export default function OuterControlSystem() {
           .not("api_key_id", "is", null)
           .order("created_at", { ascending: false })
           .limit(500),
+        // LOOP 2 (Low/Zero Rule Coverage, 2026-10-10): account-wide + this
+        // key's own hard_rules/safety_rules -- mirrors GeneratedDashboard.tsx's
+        // own agentRuleCount query. Built-in content scanning (safety-scanner.ts's
+        // BUILTIN_SAFETY_RULES) always applies regardless of this count, so a
+        // 0 here means "no account-specific business rule," never "unprotected."
+        anyDb.from("hard_rules").select("id, agent_id, api_key_id, enabled").eq("user_id", accountId),
+        anyDb.from("safety_rules").select("id, agent_id, api_key_id, enabled").eq("user_id", accountId),
       ]);
       if (cancelled) return;
       const keys = (keysRes.data ?? []) as { id: string; name: string }[];
@@ -348,7 +356,16 @@ export default function OuterControlSystem() {
       for (const row of (keyActivityRes.data ?? []) as { api_key_id: string; created_at: string }[]) {
         if (!lastSeenByKey.has(row.api_key_id)) lastSeenByKey.set(row.api_key_id, row.created_at);
       }
-      setKeyHealth(keys.map((k) => ({ id: k.id, name: k.name, lastEvaluatedAt: lastSeenByKey.get(k.id) ?? null })));
+      const hardRules = (hardRulesRes.data ?? []) as (EntityScopedLike & { id: string; enabled: boolean })[];
+      const safetyRules = (safetyRulesRes.data ?? []) as (EntityScopedLike & { id: string; enabled: boolean })[];
+      const ruleCountFor = (keyId: string) =>
+        selectRulesForEntity(hardRules, "api_key", keyId).filter((r) => r.enabled !== false).length
+        + selectRulesForEntity(safetyRules, "api_key", keyId).filter((r) => r.enabled !== false).length;
+      setKeyHealth(keys.map((k) => ({
+        id: k.id, name: k.name,
+        lastEvaluatedAt: lastSeenByKey.get(k.id) ?? null,
+        ruleCount: ruleCountFor(k.id),
+      })));
       setRows((evalRes.data ?? []) as EvaluationRow[]);
       setLoading(false);
     })();
@@ -473,6 +490,41 @@ export default function OuterControlSystem() {
                 className="mt-3 flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:text-cyan-200"
               >
                 See the integration snippet
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* LOOP 2 (Low/Zero Rule Coverage, 2026-10-10): confirmed live
+              that 0 enabled hard_rules/safety_rules existed account-wide in
+              production -- an account-specific business rule (e.g. "always
+              require approval for a refund action") never gets added unless
+              someone goes looking for HardRulesPanel/ControlSafetyRules on
+              their own. Built-in content scanning (secrets, PII, destructive
+              wording, financial-no-reference, mass-audience, disposable
+              recipients) always applies regardless, so this is a real but
+              non-urgent gap -- named plainly rather than left to be noticed
+              only after something slips through that a business rule would
+              have caught. */}
+          {keyHealth.some((k) => k.ruleCount === 0) && (
+            <div className="hud-glass rounded-2xl border border-amber-500/30 px-6 py-5">
+              <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-amber-300">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                No account-specific rule governs {keyHealth.filter((k) => k.ruleCount === 0).length === 1 ? "this key" : "these keys"} yet
+              </div>
+              <div className="mt-2 space-y-1">
+                {keyHealth.filter((k) => k.ruleCount === 0).map((k) => (
+                  <div key={k.id} className="text-sm text-zinc-300">
+                    <span className="font-medium text-zinc-100">{k.name}</span>
+                    <span className="text-zinc-500"> — built-in content scanning still applies, but no hard rule or custom safety rule (account-wide or scoped to this key) exists yet.</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => navigate("/control-system")}
+                className="mt-3 flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:text-cyan-200"
+              >
+                Add a rule in Control System
                 <ArrowUpRight className="h-3.5 w-3.5" />
               </button>
             </div>
