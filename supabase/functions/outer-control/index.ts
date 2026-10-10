@@ -265,6 +265,11 @@ async function handleActionEvaluation(
       execution_summary: executionSummary,
       execution_ref: executionRef,
       execution_url: executionUrl,
+      // GAP 6 (Visible Control Decision Trail, 2026-10-10): the "after" half
+      // of a before/after pair, same shape agent_decisions already has
+      // (params/modified_params) -- previously computed but only ever
+      // returned in this one HTTP response, never persisted.
+      corrected_params: suggestedCorrection?.params ?? null,
     })
     .select("id, created_at")
     .maybeSingle();

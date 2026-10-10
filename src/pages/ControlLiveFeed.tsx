@@ -80,6 +80,15 @@ type OuterEvalRow = {
   // look similar.
   agent_id: string | null;
   api_key_id: string | null;
+  // GAP 6 (Visible Control Decision Trail, 2026-10-10): an Outer Control row
+  // had no "Why" expansion at all here, unlike an Inner row's
+  // DecisionExplanationPanel -- these are the fields that detail needs.
+  matches: { rule_id: string; name: string; category: string; severity: string; rationale?: string | null }[] | null;
+  input_excerpt: string | null;
+  output_text: string | null;
+  action_params: Record<string, unknown> | null;
+  corrected_params: Record<string, unknown> | null;
+  execution_summary: string | null;
 };
 const OUTER_VERDICT_STYLE: Record<OuterVerdict, string> = {
   allow: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10",
@@ -147,7 +156,7 @@ export default function ControlLiveFeed() {
         .limit(50),
       anyDb
         .from("outer_control_evaluations")
-        .select("id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed, agent_id, api_key_id")
+        .select("id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed, agent_id, api_key_id, matches, input_excerpt, output_text, action_params, corrected_params, execution_summary")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false })
         .limit(50),
@@ -240,6 +249,7 @@ export default function ControlLiveFeed() {
           ) : rows.map((item) => {
             if (item.kind === "outer") {
               const r = item.row;
+              const hasDetail = !!(r.matches?.length || r.action_params || r.corrected_params || r.input_excerpt || r.output_text || r.execution_summary);
               return (
                 <li key={item.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
                   <div className="flex flex-wrap items-center gap-2">
@@ -259,6 +269,71 @@ export default function ControlLiveFeed() {
                       <span className={r.executed ? "text-emerald-300" : undefined}>· {r.executed ? "executed" : "evaluated only"}</span>
                     )}
                   </div>
+                  {hasDetail && (
+                    <button
+                      onClick={() => toggleTrace(item.id)}
+                      className="mt-1 flex items-center gap-1 font-mono text-[10px] uppercase text-zinc-500 hover:text-zinc-300"
+                    >
+                      {expanded.has(item.id) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                      Why
+                    </button>
+                  )}
+                  {hasDetail && expanded.has(item.id) && (
+                    <div className="mt-2 space-y-2 rounded border border-white/10 bg-black/20 p-2.5 text-[11px]">
+                      {!!r.matches?.length && (
+                        <div>
+                          <div className="text-zinc-500 font-mono uppercase text-[10px]">Matched rule(s)</div>
+                          <ul className="mt-1 space-y-0.5">
+                            {r.matches.map((m, i) => (
+                              <li key={i} className="text-zinc-300">
+                                <span className="text-zinc-200">{m.name}</span>
+                                <span className="text-zinc-500"> · {m.category} · {m.severity}</span>
+                                {m.rationale && <span className="text-zinc-500"> — {m.rationale}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {r.content_kind === "text" && (r.input_excerpt || r.output_text) && (
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {r.input_excerpt && (
+                            <div>
+                              <div className="text-zinc-500 font-mono uppercase text-[10px]">Before</div>
+                              <p className="mt-0.5 whitespace-pre-wrap text-zinc-400">{r.input_excerpt}</p>
+                            </div>
+                          )}
+                          {r.output_text && (
+                            <div>
+                              <div className="text-zinc-500 font-mono uppercase text-[10px]">After</div>
+                              <p className="mt-0.5 whitespace-pre-wrap text-zinc-300">{r.output_text}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {r.content_kind === "action" && (r.action_params || r.corrected_params) && (
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {r.action_params && (
+                            <div>
+                              <div className="text-zinc-500 font-mono uppercase text-[10px]">Before</div>
+                              <pre className="mt-0.5 overflow-x-auto text-zinc-400">{JSON.stringify(r.action_params, null, 2)}</pre>
+                            </div>
+                          )}
+                          {r.corrected_params && (
+                            <div>
+                              <div className="text-zinc-500 font-mono uppercase text-[10px]">After (corrected)</div>
+                              <pre className="mt-0.5 overflow-x-auto text-zinc-300">{JSON.stringify(r.corrected_params, null, 2)}</pre>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {r.execution_summary && (
+                        <div>
+                          <div className="text-zinc-500 font-mono uppercase text-[10px]">Execution</div>
+                          <p className="mt-0.5 text-zinc-300">{r.execution_summary}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </li>
               );
             }
