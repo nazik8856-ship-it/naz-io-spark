@@ -41,6 +41,12 @@ type Approval = {
   resolved_at: string | null;
   resolved_by: string | null;
   executed_at: string | null;
+  // GAP 5 (Action Execution Feedback Loop, 2026-10-10): persisted durably on
+  // the row itself (control-engine's /execute endpoint) so a failure stays
+  // visible past the one-time toast that reported it, distinguishable from
+  // "nobody has tried yet" (both null).
+  execution_summary: string | null;
+  execution_error: string | null;
   escalated_at: string | null;
   assigned_to: string | null;
 };
@@ -512,6 +518,12 @@ export default function ControlApprovals() {
           {row.resolved_by && <span className="text-zinc-500">· by {nameFor(row.resolved_by)}</span>}
           {row.comment && <span className="text-zinc-500">· {row.comment}</span>}
           {row.executed_at && <span className="text-zinc-500">· ran {new Date(row.executed_at).toLocaleString()}</span>}
+          {row.executed_at && row.execution_summary && (
+            <span className="text-emerald-300/80">· {row.execution_summary}</span>
+          )}
+          {!row.executed_at && row.execution_error && (
+            <span className="text-rose-300/90">· last attempt failed: {row.execution_error}</span>
+          )}
           {row.status === "approved" && !row.executed_at && (
             <button
               disabled={busy === row.id}

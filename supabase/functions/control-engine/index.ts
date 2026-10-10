@@ -452,6 +452,7 @@ serve(async (req) => {
         return json({
           ok: true, executed: false, already_executed: true,
           message: "This action was already carried out — nothing ran again.",
+          summary: ap.execution_summary ?? null,
         });
       }
 
@@ -492,9 +493,23 @@ serve(async (req) => {
       const result = await runProviderWrite(
         actType, supabase, userId, String(ap.agent_id || ""), (ap.params ?? {}) as Record<string, unknown>,
       );
+      // GAP 5 (Action Execution Feedback Loop, 2026-10-10): this outcome used
+      // to exist only in this one HTTP response -- gone the moment it was
+      // sent, with nothing persisted to distinguish "failed" from "nobody
+      // has tried yet" once the caller's tab closed. Persisted here, on the
+      // SAME row the approvals list and the live feed already read, so a
+      // failure is a durable, visible state, not a transient toast.
       if (!result.ok) {
         // Nothing real happened — release the claim so this stays retryable.
         await releaseRowClaim(supabase, "pending_approvals", approvalId, "executed_at");
+        await supabase.from("pending_approvals").update({
+          execution_error: result.summary || "Execution failed.",
+        }).eq("id", approvalId);
+      } else {
+        await supabase.from("pending_approvals").update({
+          execution_summary: result.summary || "Executed.",
+          execution_error: null,
+        }).eq("id", approvalId);
       }
       return json({
         ok: result.ok, executed: result.ok, approvals: distinct, required: needed,

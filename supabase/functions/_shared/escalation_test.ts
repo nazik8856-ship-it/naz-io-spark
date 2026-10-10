@@ -1,7 +1,7 @@
 // Real tests for the escalation-timer pure logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/escalation_test.ts
-import { isOverdueForEscalation, hoursSince, ESCALATION_HOURS } from "./escalation.ts";
+import { isOverdueForEscalation, hoursSince, ESCALATION_HOURS, isOverdueForExecution, EXECUTION_REMINDER_HOURS } from "./escalation.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -66,4 +66,41 @@ Deno.test("ESCALATION_HOURS has exactly the three documented tiers", () => {
   assert(ESCALATION_HOURS.high === 4);
   assert(ESCALATION_HOURS.medium === 12);
   assert(ESCALATION_HOURS.low === 24);
+});
+
+// ---- GAP 5 (Action Execution Feedback Loop, 2026-10-10): isOverdueForExecution
+// -- a separate, shorter clock for an APPROVED row still sitting un-executed.
+// ---------------------------------------------------------------------------
+
+Deno.test("isOverdueForExecution: a high-risk approved action is overdue after 1h since resolution, not before", () => {
+  assertFalse(isOverdueForExecution({ status: "approved", risk_tier: "high", resolved_at: hoursAgo(0.9), executed_at: null, escalated_at: null }, NOW));
+  assert(isOverdueForExecution({ status: "approved", risk_tier: "high", resolved_at: hoursAgo(1), executed_at: null, escalated_at: null }, NOW));
+});
+
+Deno.test("isOverdueForExecution: a low-risk approved action uses the longer 4h threshold, not the high-risk 1h one", () => {
+  assertFalse(isOverdueForExecution({ status: "approved", risk_tier: "low", resolved_at: hoursAgo(2), executed_at: null, escalated_at: null }, NOW));
+  assert(isOverdueForExecution({ status: "approved", risk_tier: "low", resolved_at: hoursAgo(5), executed_at: null, escalated_at: null }, NOW));
+});
+
+Deno.test("isOverdueForExecution: a row that was already executed is never overdue, regardless of timing", () => {
+  assertFalse(isOverdueForExecution({ status: "approved", risk_tier: "high", resolved_at: hoursAgo(100), executed_at: hoursAgo(1), escalated_at: null }, NOW));
+});
+
+Deno.test("isOverdueForExecution: a row still 'pending' is never covered here -- that's isOverdueForEscalation's job", () => {
+  assertFalse(isOverdueForExecution({ status: "pending", risk_tier: "high", resolved_at: null, executed_at: null, escalated_at: null }, NOW));
+});
+
+Deno.test("isOverdueForExecution: repeat nudges measure from escalated_at (last nudge), not resolved_at, once one has fired", () => {
+  assertFalse(isOverdueForExecution({ status: "approved", risk_tier: "high", resolved_at: hoursAgo(10), executed_at: null, escalated_at: hoursAgo(0.5) }, NOW));
+  assert(isOverdueForExecution({ status: "approved", risk_tier: "high", resolved_at: hoursAgo(10), executed_at: null, escalated_at: hoursAgo(1.5) }, NOW));
+});
+
+Deno.test("isOverdueForExecution: a row with no resolved_at is never overdue (defensive -- shouldn't happen for a real 'approved' row)", () => {
+  assertFalse(isOverdueForExecution({ status: "approved", risk_tier: "high", resolved_at: null, executed_at: null, escalated_at: null }, NOW));
+});
+
+Deno.test("EXECUTION_REMINDER_HOURS is strictly faster than ESCALATION_HOURS at every tier -- an already-approved action deserves a faster nudge, never a slower one", () => {
+  for (const tier of ["low", "medium", "high"] as const) {
+    assert(EXECUTION_REMINDER_HOURS[tier] < ESCALATION_HOURS[tier], `${tier}: ${EXECUTION_REMINDER_HOURS[tier]} must be < ${ESCALATION_HOURS[tier]}`);
+  }
 });
