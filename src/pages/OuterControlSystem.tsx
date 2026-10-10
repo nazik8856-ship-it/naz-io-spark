@@ -270,6 +270,12 @@ export default function OuterControlSystem() {
   const [loading, setLoading] = useState(true);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [rows, setRows] = useState<EvaluationRow[]>([]);
+  // GAP 2 (Outer Control Full Activation, 2026-10-10): a registered api key
+  // that has NEVER sent anything to POST /outer-control/evaluate is
+  // structurally indistinguishable from one that's working fine but just
+  // hasn't fired recently -- both show an empty-ish feed. Per-key last-seen
+  // (or never) makes an inert key visible instead of silently zero.
+  const [keyHealth, setKeyHealth] = useState<{ id: string; name: string; lastEvaluatedAt: string | null }[]>([]);
   // GAP 6 (Visible Control Decision Trail, 2026-10-10): which row's detail
   // is expanded, if any -- mirrors the click-to-expand pattern ControlLiveFeed
   // already uses for Inner Control decisions.
@@ -280,10 +286,10 @@ export default function OuterControlSystem() {
     let cancelled = false;
     setLoading(true);
     (async () => {
-      const [keysRes, evalRes] = await Promise.all([
+      const [keysRes, evalRes, keyActivityRes] = await Promise.all([
         anyDb
           .from("api_keys")
-          .select("id", { count: "exact", head: true })
+          .select("id, name")
           .eq("user_id", accountId)
           .is("revoked_at", null)
           .contains("scopes", ["control:verdict"]),
@@ -293,9 +299,26 @@ export default function OuterControlSystem() {
           .eq("user_id", accountId)
           .order("created_at", { ascending: false })
           .limit(50),
+        // GAP 2: ordered newest-first, so the FIRST row seen per api_key_id
+        // while walking this (client-side, below) is that key's most recent
+        // evaluation -- avoids a separate GROUP BY/aggregate round trip for
+        // what's normally a handful of keys.
+        anyDb
+          .from("outer_control_evaluations")
+          .select("api_key_id, created_at")
+          .eq("user_id", accountId)
+          .not("api_key_id", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(500),
       ]);
       if (cancelled) return;
-      setHasApiKey((keysRes.count ?? 0) > 0);
+      const keys = (keysRes.data ?? []) as { id: string; name: string }[];
+      setHasApiKey(keys.length > 0);
+      const lastSeenByKey = new Map<string, string>();
+      for (const row of (keyActivityRes.data ?? []) as { api_key_id: string; created_at: string }[]) {
+        if (!lastSeenByKey.has(row.api_key_id)) lastSeenByKey.set(row.api_key_id, row.created_at);
+      }
+      setKeyHealth(keys.map((k) => ({ id: k.id, name: k.name, lastEvaluatedAt: lastSeenByKey.get(k.id) ?? null })));
       setRows((evalRes.data ?? []) as EvaluationRow[]);
       setLoading(false);
     })();
@@ -376,6 +399,38 @@ export default function OuterControlSystem() {
               />
             </div>
           </div>
+
+          {/* GAP 2 (Outer Control Full Activation, 2026-10-10): a registered
+              key that has never actually sent anything to
+              POST /outer-control/evaluate looks identical to one that's
+              working fine but quiet -- both just show a sparse feed below.
+              Named explicitly here, with the exact integration call to fix
+              it, instead of leaving it to be inferred from an empty chart. */}
+          {keyHealth.some((k) => !k.lastEvaluatedAt) && (
+            <div className="hud-glass rounded-2xl border border-amber-500/30 px-6 py-5">
+              <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-amber-300">
+                <ScanEye className="h-3.5 w-3.5" />
+                {keyHealth.filter((k) => !k.lastEvaluatedAt).length === 1 ? "An API key has" : "API keys have"} never received traffic
+              </div>
+              <div className="mt-2 space-y-1">
+                {keyHealth.filter((k) => !k.lastEvaluatedAt).map((k) => (
+                  <div key={k.id} className="text-sm text-zinc-300">
+                    <span className="font-medium text-zinc-100">{k.name}</span>
+                    <span className="text-zinc-500"> — registered, but your own system has never called </span>
+                    <code className="text-cyan-300">POST /outer-control/evaluate</code>
+                    <span className="text-zinc-500"> with it.</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => navigate("/control-system/api-docs")}
+                className="mt-3 flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:text-cyan-200"
+              >
+                See the integration snippet
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
 
           {/* Stat tiles, each with a real 7-day sparkline */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
