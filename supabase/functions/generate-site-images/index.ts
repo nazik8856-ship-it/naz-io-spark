@@ -145,10 +145,17 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") ?? "";
     if (!authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
     const url = Deno.env.get("SUPABASE_URL")!;
-    const userClient = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
-    const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
-    const user = userData.user;
+    // The backfill sweep (site-images-backfill-sweep) calls this with the
+    // service-role key to give sites that predate image generation their
+    // pictures; every other caller is the signed-in owner of the site.
+    const isService = authHeader === `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`;
+    let userId: string | null = null;
+    if (!isService) {
+      const userClient = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
+      const { data: userData, error: userErr } = await userClient.auth.getUser();
+      if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
+      userId = userData.user.id;
+    }
 
     const body = await req.json().catch(() => ({}));
     const websiteId = typeof body?.website_id === "string" ? body.website_id : "";
@@ -157,14 +164,16 @@ Deno.serve(async (req) => {
     const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { data: site } = await admin.from("websites")
       .select("id, user_id, name, tagline, prompt, theme, images_status, images_started_at").eq("id", websiteId).maybeSingle();
-    if (!site || site.user_id !== user.id) return json({ error: "Website not found" }, 404);
+    if (!site || (!isService && site.user_id !== userId)) return json({ error: "Website not found" }, 404);
 
     if ((site.images_status === "pending" || site.images_status === "running") && site.images_started_at
       && Date.now() - new Date(site.images_started_at).getTime() < STALE_RUN_MS) {
       return json({ ok: true, status: "already_running" }, 202);
     }
-    const rate = await checkRateLimit(admin, user.id, "generate-site-images", 12, 3600);
-    if (!rate.allowed) return json({ error: "rate_limited", message: "Too many image generations in the last hour. Try again later." }, 429);
+    if (!isService) {
+      const rate = await checkRateLimit(admin, userId!, "generate-site-images", 12, 3600);
+      if (!rate.allowed) return json({ error: "rate_limited", message: "Too many image generations in the last hour. Try again later." }, 429);
+    }
 
     const gw = pickAiGateway();
     if (!gw) {
