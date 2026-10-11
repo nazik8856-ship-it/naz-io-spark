@@ -24,6 +24,11 @@ const SINGLE_SECTION_OK_SLUGS = new Set([
   "terms", "terms-of-service", "terms-conditions", "terms-and-conditions", "tos",
 ]);
 export const MIN_SECTIONS_NON_HOME = 2;
+// SCHEMA_DOC asks for 3-6 pages total (home + content + contact). Contact and
+// legal pages are auto-injected, so they cannot count toward "is this a real
+// multi-page site": live runs for "a bakery website" and "a freelance wedding
+// photographer" came back as home + contact + legal only.
+export const MIN_CONTENT_PAGES = 2;
 
 export function findStructuralIssues(manifest: ManifestLike): string[] {
   const home = manifest.pages[0];
@@ -46,6 +51,10 @@ export function findStructuralIssues(manifest: ManifestLike): string[] {
   const hasExtra = (["testimonials", "gallery", "stats", "faq", "process"] as const).some((t) => types.has(t));
   if (!hasExtra) {
     issues.push(`The "home" page needs one more section (gallery, faq, or process -- testimonials or stats only if the brief supplied real ones) -- right now it reads as a thin landing page, not a complete site.`);
+  }
+  const contentPages = manifest.pages.filter((p) => !SINGLE_SECTION_OK_SLUGS.has(p.slug.toLowerCase()));
+  if (contentPages.length < MIN_CONTENT_PAGES) {
+    issues.push(`The site has only ${contentPages.length} content page(s) besides contact and legal pages -- add at least ${MIN_CONTENT_PAGES - contentPages.length} more real page(s) the business needs, such as about, services, menu, pricing, gallery, or faq, each with at least ${MIN_SECTIONS_NON_HOME} sections.`);
   }
   for (const page of manifest.pages.slice(1)) {
     if (SINGLE_SECTION_OK_SLUGS.has(page.slug.toLowerCase())) continue;

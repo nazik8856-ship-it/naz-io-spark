@@ -60,6 +60,7 @@ Deno.test("a one-section non-home page is flagged by slug", () => {
 
 Deno.test("contact and legal pages are exempt from the 2-section minimum", () => {
   const m: ManifestLike = { pages: [completeHome(),
+    { slug: "menu", sections: [{ type: "gallery" }, { type: "cta" }] },
     { slug: "contact", sections: [{ type: "contact" }] },
     { slug: "privacy-policy", sections: [{ type: "about" }] },
     { slug: "terms", sections: [{ type: "about" }] },
@@ -75,8 +76,29 @@ Deno.test("home must start with a hero", () => {
 });
 
 Deno.test("home missing about/services/extra is flagged for each gap", () => {
-  const issues = findStructuralIssues({ pages: [{ slug: "home", sections: [{ type: "hero" }] }] });
+  const issues = findStructuralIssues({ pages: [{ slug: "home", sections: [{ type: "hero" }] }, { slug: "menu", sections: [{ type: "gallery" }, { type: "cta" }] }] });
   assertEquals(issues.length, 3);
+});
+
+Deno.test("home + contact + legal only (no real second content page) is flagged", () => {
+  const m: ManifestLike = { pages: [completeHome(),
+    { slug: "contact", sections: [{ type: "contact" }] },
+    { slug: "privacy-policy", sections: [{ type: "about" }] },
+    { slug: "terms", sections: [{ type: "about" }] },
+  ] };
+  const issues = findStructuralIssues(m);
+  assertEquals(issues.length, 1);
+  assert(issues[0].includes("content page"));
+});
+
+Deno.test("contact and legal pages never count toward the content-page minimum", () => {
+  const m: ManifestLike = { pages: [completeHome(), { slug: "Contact", sections: [{ type: "contact" }] }, { slug: "tos", sections: [{ type: "about" }] }] };
+  assert(findStructuralIssues(m).some((i) => i.includes("only 1 content page")));
+});
+
+Deno.test("home + one real 2-section page is the minimum that passes", () => {
+  const m: ManifestLike = { pages: [completeHome(), { slug: "about", sections: [{ type: "about" }, { type: "process" }] }] };
+  assertEquals(findStructuralIssues(m), []);
 });
 
 // ---- LOOP 4: invented testimonials / stats ---------------------------------
