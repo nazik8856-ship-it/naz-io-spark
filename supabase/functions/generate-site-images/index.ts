@@ -29,6 +29,8 @@ const CONCURRENCY = 3;
 const SITE_DEADLINE_MS = 110_000;
 const PER_IMAGE_TIMEOUT_MS = 70_000;
 const STALE_RUN_MS = 5 * 60_000;
+const RETRY_BACKOFF_MS = [2_000, 6_000, 15_000];
+const FAILURE_NOTE_PREFIX = "Custom images could not be generated";
 const LOVABLE_IMAGE_MODELS = ["google/gemini-2.5-flash-image", "google/gemini-3-pro-image-preview"];
 const OPENAI_IMAGES_URL = "https://api.openai.com/v1/images/generations";
 
@@ -41,21 +43,22 @@ async function requestImage(gw: GatewayConfig, model: string, prompt: string, sl
   const body = isOpenAi
     ? { model, prompt, size: slot.aspect === "wide" ? "1536x1024" : "1024x1024", n: 1 }
     : { model, messages: [{ role: "user", content: prompt }], modalities: ["image", "text"] };
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < RETRY_BACKOFF_MS.length + 1; attempt++) {
     try {
       const res = await fetch(url, {
         method: "POST", headers: aiGatewayHeaders(gw), body: JSON.stringify(body),
         signal: AbortSignal.timeout(PER_IMAGE_TIMEOUT_MS),
       });
       if (res.status === 429 || res.status >= 500) {
-        if (attempt === 0) { await new Promise((r) => setTimeout(r, 1500)); continue; }
+        // A rate-limited gateway usually recovers within seconds: back off and retry.
+        if (attempt < RETRY_BACKOFF_MS.length) { await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS[attempt])); continue; }
         return { ok: false, status: res.status, parsed: null, detail: `provider ${res.status}` };
       }
       if (!res.ok) return { ok: false, status: res.status, parsed: null, detail: (await res.text()).slice(0, 200) };
       const parsed = parseImageResponse(await res.json());
       return { ok: !!parsed, status: res.status, parsed, detail: parsed ? undefined : "no image in response" };
     } catch (e) {
-      if (attempt === 1) return { ok: false, status: 0, parsed: null, detail: e instanceof Error ? e.message : "request failed" };
+      if (attempt === RETRY_BACKOFF_MS.length) return { ok: false, status: 0, parsed: null, detail: e instanceof Error ? e.message : "request failed" };
     }
   }
   return { ok: false, status: 0, parsed: null, detail: "request failed" };
@@ -125,10 +128,14 @@ async function run(admin: AnyAdmin, gw: GatewayConfig, site: { id: string; user_
 
     const skipped = slots.length - succeeded - failed;
     const update: Record<string, unknown> = { images_status: succeeded > 0 || slots.length === 0 ? "done" : "failed" };
+    const { data: w } = await admin.from("websites").select("generation_notes").eq("id", site.id).maybeSingle();
+    const notes: unknown[] = Array.isArray(w?.generation_notes) ? w.generation_notes : [];
     if (slots.length > 0 && succeeded === 0) {
-      const { data: w } = await admin.from("websites").select("generation_notes").eq("id", site.id).maybeSingle();
-      const notes = Array.isArray(w?.generation_notes) ? w.generation_notes : [];
-      update.generation_notes = [...notes, `Custom images could not be generated this time (${lastFailure || "no image returned"}), so decorative illustrations are shown instead.`];
+      update.generation_notes = [...notes, `${FAILURE_NOTE_PREFIX} this time (${lastFailure || "no image returned"}), so decorative illustrations are shown instead.`];
+    } else if (succeeded > 0) {
+      // An earlier attempt's failure note no longer describes the site.
+      const kept = notes.filter((n) => !(typeof n === "string" && n.startsWith(FAILURE_NOTE_PREFIX)));
+      if (kept.length !== notes.length) update.generation_notes = kept;
     }
     console.log(`[generate-site-images] ${site.id}: ${succeeded} ok, ${failed} failed, ${skipped} skipped of ${slots.length} slots`);
     await admin.from("websites").update(update).eq("id", site.id);

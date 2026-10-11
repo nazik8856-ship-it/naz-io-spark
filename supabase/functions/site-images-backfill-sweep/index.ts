@@ -3,11 +3,13 @@
 // kicked off by compile-website-manifest; this sweep covers everything that
 // existed before that shipped, plus any site whose kickoff call was lost.
 //
-// Deliberately slow and bounded: a few sites per run (each costs 5-8 image
-// requests of AI gateway credit). A site with nothing to illustrate is marked
-// 'done' so it is never looked at again; a site whose generation fails is
-// marked 'failed' by generate-site-images and is NOT retried automatically
-// (no unbounded credit burn); a failed run also leaves a generation note on the site.
+// Deliberately slow and bounded: ONE site per run (each costs 5-8 image
+// requests of AI gateway credit, and two sites at once got rate-limited by the
+// gateway on the first live run). A site with nothing to illustrate is marked
+// 'done' so it is never looked at again. A site whose generation fails is
+// marked 'failed' (with a generation note) by generate-site-images and is
+// retried after RETRY_AFTER_MS, at most MAX_ATTEMPTS times in total, so a
+// transient gateway 429 does not strand it but nothing can loop forever.
 // User-supplied images are never replaced: collectImageSlots skips any slot
 // that already has an asset_url.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -21,9 +23,12 @@ const corsHeaders = {
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-const BATCH = 2;            // sites started per run
+const BATCH = 1;            // sites started per run
 const SCAN = 20;            // candidates examined per run (most have nothing to do or are skipped quickly)
 const SETTLE_MS = 10 * 60_000; // leave brand-new sites to the normal kickoff path
+const RETRY_AFTER_MS = 30 * 60_000;
+const MAX_ATTEMPTS = 3;
+const FAILURE_NOTE_PREFIX = "Custom images could not be generated";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -40,7 +45,7 @@ Deno.serve(async (req) => {
   if (await areConsequentialSweepsPaused(admin)) return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });
 
   const cutoff = new Date(Date.now() - SETTLE_MS).toISOString();
-  const { data: sites, error } = await admin.from("websites")
+  const { data: fresh, error } = await admin.from("websites")
     .select("id, name, theme")
     .is("images_status", null)
     .lt("created_at", cutoff)
@@ -48,8 +53,20 @@ Deno.serve(async (req) => {
     .limit(SCAN);
   if (error) return json({ error: error.message }, 500);
 
+  // Failed earlier (e.g. gateway 429): try again later, up to MAX_ATTEMPTS failure notes.
+  const { data: failedRows } = await admin.from("websites")
+    .select("id, name, theme, generation_notes")
+    .eq("images_status", "failed")
+    .lt("images_started_at", new Date(Date.now() - RETRY_AFTER_MS).toISOString())
+    .order("images_started_at", { ascending: true })
+    .limit(SCAN);
+  const retryable = ((failedRows ?? []) as { id: string; name: string | null; theme: { layout?: string } | null; generation_notes: unknown }[])
+    .filter((r) => (Array.isArray(r.generation_notes) ? r.generation_notes : [])
+      .filter((n) => typeof n === "string" && n.startsWith(FAILURE_NOTE_PREFIX)).length < MAX_ATTEMPTS);
+  const sites = [...(fresh ?? []), ...retryable];
+
   let started = 0, markedDone = 0, errors = 0;
-  for (const site of (sites ?? []) as { id: string; name: string | null; theme: { layout?: string } | null }[]) {
+  for (const site of sites as { id: string; name: string | null; theme: { layout?: string } | null }[]) {
     if (started >= BATCH) break;
     try {
       const { data: pageRows } = await admin.from("website_pages").select("slug, sections, order_index")
@@ -75,5 +92,5 @@ Deno.serve(async (req) => {
       console.error("site-images-backfill-sweep: site failed", site.id, e);
     }
   }
-  return json({ ok: true, scanned: (sites ?? []).length, started, marked_done: markedDone, errors });
+  return json({ ok: true, scanned: sites.length, started, marked_done: markedDone, errors });
 });
