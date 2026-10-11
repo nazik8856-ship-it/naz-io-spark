@@ -466,6 +466,50 @@ export default function WebsitePreview() {
     return () => { cancelled = true; };
   }, [id, initialCache]);
 
+  // Custom image generation (2026-10-11): compile-website-manifest saves the
+  // site first and generate-site-images fills in real pictures in the
+  // background. Poll while that runs so images appear without a manual
+  // refresh; stops on done/failed or after ~4 minutes. Best-effort: any
+  // failure here leaves the page exactly as it already rendered.
+  const [imagesStatus, setImagesStatus] = useState<string | null>(null);
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let polls = 0;
+    let wasRunning = false;
+    const refreshPages = async () => {
+      const { data: rows } = await supabase
+        .from("website_pages")
+        .select("id, slug, title, seo_description, sections, order_index")
+        .eq("website_id", id)
+        .order("order_index", { ascending: true });
+      if (cancelled || !rows) return;
+      setPages(rows as unknown as Page[]);
+      try {
+        const cached = readPreviewCache(id);
+        localStorage.setItem(`nazai_website_preview_${id}`, JSON.stringify({ website: cached?.website ?? null, pages: rows, cachedAt: Date.now() }));
+      } catch { /* cache is best-effort */ }
+    };
+    const tick = async () => {
+      try {
+        const { data } = await (supabase as any).from("websites").select("images_status").eq("id", id).maybeSingle();
+        if (cancelled) return;
+        const status = (data?.images_status as string | null) ?? null;
+        setImagesStatus(status);
+        if (status === "running" || status === "pending") {
+          wasRunning = true;
+          await refreshPages();
+          if (++polls < 48) timer = setTimeout(tick, 5000);
+        } else if (wasRunning) {
+          await refreshPages();
+        }
+      } catch { /* best-effort */ }
+    };
+    tick();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [id]);
+
   const theme = useMemo<Theme>(() => {
     const t = site?.theme;
     if (!t || typeof t !== "object") return DEFAULT_THEME;
@@ -800,6 +844,15 @@ export default function WebsitePreview() {
       <style>{scopedCss}</style>
       <div className="nz-pattern" aria-hidden="true" />
       <div className="nz-grain" aria-hidden="true" />
+      {(imagesStatus === "running" || imagesStatus === "pending") && (
+        <div
+          role="status"
+          className="fixed bottom-4 right-4 z-[60] rounded-full px-4 py-2 text-xs font-medium shadow-lg"
+          style={{ background: "rgba(0,0,0,0.78)", color: "#fff", backdropFilter: "blur(6px)" }}
+        >
+          Creating custom images for your site…
+        </div>
+      )}
 
       {isEmbed ? (
       /* Builder-only preview chrome -- never shown on the real/shared URL */
