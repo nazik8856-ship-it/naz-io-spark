@@ -1,0 +1,33 @@
+-- Custom image backfill (2026-10-11): sites generated before image generation
+-- shipped have images_status IS NULL and show only the abstract illustration
+-- fallback. supabase/functions/site-images-backfill-sweep picks a couple of
+-- them every 10 minutes (oldest first), skips any slot that already has an
+-- asset_url (user-supplied images always win), marks sites with nothing to
+-- illustrate 'done', and hands the rest to generate-site-images.
+--
+-- No schema change (images_status / images_started_at already exist from
+-- 20261011040000). Kept as its own file to document the cron registration,
+-- same convention as 20261009040000_schedule_recurring_assembly_sweep.sql.
+--
+-- ============================================================
+-- POST-MIGRATION STEP (applied directly; needs the project URL and vault key):
+--
+--    SELECT cron.schedule(
+--      'site-images-backfill-10min',
+--      '*/10 * * * *',
+--      $$
+--      INSERT INTO public.scheduled_job_requests (job_name, request_id)
+--      SELECT 'site-images-backfill-10min', net.http_post(
+--        url := '<SUPABASE_URL>/functions/v1/site-images-backfill-sweep',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
+--        ),
+--        body := '{}'::jsonb
+--      );
+--      $$
+--    );
+--
+--    Stop it: SELECT cron.unschedule('site-images-backfill-10min');
+--    Or pause every consequential sweep: platform_settings.consequential_sweeps_paused = true.
+-- ============================================================
