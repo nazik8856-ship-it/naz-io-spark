@@ -10,6 +10,7 @@ import { computeTrustScore, isRedactableMatch } from "../_shared/outer-control-s
 import { enforceImageRelevance, collectAssetUrls } from "../_shared/image-relevance.ts";
 import { repairContent } from "../_shared/repair-engine.ts";
 import { critiqueAndRevise, findUngroundedFacts } from "../_shared/generation-critique.ts";
+import { assessProfessionalFloor, repairUngroundedClaims } from "../_shared/generation-floor.ts";
 import { generationCacheKeyFor, findCachedGeneration, storeCachedGeneration } from "../_shared/generation-cache.ts";
 import { reportProgress } from "../_shared/generation-progress.ts";
 
@@ -216,10 +217,11 @@ When the user supplies an exact image URL or uploaded image and asks to place/us
 
 Rules:
 - 3-6 pages total. First page slug MUST be "home" and MUST start with a hero.
-- FIRST-ATTEMPT COMPLETENESS: this is very likely the ONLY generation the user will see before judging the product — do not ship a thin starting point that assumes they'll fill in the gaps by chatting further. The "home" page alone must include, at minimum: hero, about OR feature-split, services (with at least 3 real items), and one more of (testimonials|gallery|stats|faq|process) chosen to fit the business. In addition, there MUST be a dedicated "contact" page containing a real "contact" section with concrete "form_fields" (e.g. ["name","email","message"]) — a "cta" teaser section alone never satisfies this; a customer must have an actual working form to fill in on the first attempt, not a button that only leads to a promise of one. Every button/CTA anywhere in the manifest (hero, cta section, pricing tier) is genuinely pressable: it MUST have a resolvable href per MULTIPAGE NAVIGATION below — never an empty/omitted href "for later".
+- FIRST-ATTEMPT COMPLETENESS: this is very likely the ONLY generation the user will see before judging the product — do not ship a thin starting point that assumes they'll fill in the gaps by chatting further. The "home" page alone must include, at minimum: hero, about OR feature-split, services (with at least 3 real items), and one more of (gallery|faq|process) chosen to fit the business (testimonials or stats ONLY when the brief itself supplies real customer quotes or real figures -- see NO INVENTED SOCIAL PROOF below). Every page other than "contact" and legal pages needs at least 2 sections (e.g. a heading section plus a supporting faq, process, or cta) -- never a page that is one lone section. In addition, there MUST be a dedicated "contact" page containing a real "contact" section with concrete "form_fields" (e.g. ["name","email","message"]) — a "cta" teaser section alone never satisfies this; a customer must have an actual working form to fill in on the first attempt, not a button that only leads to a promise of one. Every button/CTA anywhere in the manifest (hero, cta section, pricing tier) is genuinely pressable: it MUST have a resolvable href per MULTIPAGE NAVIGATION below — never an empty/omitted href "for later".
 - Vary section variants across pages so the site doesn't feel templated.
 - Copy must be specific to the described business — mention what it actually does, for whom, with real language.
 - No lorem ipsum, no "Coming soon", no placeholder text.
+- NO INVENTED SOCIAL PROOF: never write a testimonial, review, or quote attributed to a person (no "Jane Doe", no first-name-only customers) and never write a customer count, rating, percentage, years-in-business, or other statistic unless the brief states that exact person/number. When the brief gives none, omit "testimonials" and numeric "stats" sections and hero "stats" entirely -- a real faq, process, or gallery section is always better than a fabricated endorsement. Descriptions of what the business does are fine; claims about its track record are not.
 - Palette must have readable contrast between bg and text (WCAG AA).
 - Fonts must be real Google Fonts families.
 
@@ -298,8 +300,8 @@ function fallbackManifest(prompt: string): Manifest {
         title: "Home",
         seo_description: `${name} offers ${offering} with a distinctive, carefully considered experience.`.slice(0, 160),
         sections: [
-          { type: "hero", variant: "split-image", content: { eyebrow: "Crafted with intent", headline: `Meet the ~remarkable~ side of ${name}.`, subheadline: `Discover ${offering} shaped around the people who expect more from every detail.`, cta_primary: "Explore our work", cta_primary_href: "services", cta_secondary: "Start a conversation", cta_secondary_href: "contact", image_prompt: `${name}, expressive editorial composition, tactile details, dramatic directional light`, media_style: "illustration", stats: [{ value: "100%", label: "Made with care" }, { value: "01", label: "Distinct point of view" }] } },
-          { type: "stats", content: { heading: "Built around what matters", items: [{ value: "01", label: "Clear promise" }, { value: "03", label: "Ways to explore" }, { value: "24/7", label: "Digital access" }] } },
+          { type: "hero", variant: "split-image", content: { eyebrow: "Crafted with intent", headline: `Meet the ~remarkable~ side of ${name}.`, subheadline: `Discover ${offering} shaped around the people who expect more from every detail.`, cta_primary: "Explore our work", cta_primary_href: "services", cta_secondary: "Start a conversation", cta_secondary_href: "contact", image_prompt: `${name}, expressive editorial composition, tactile details, dramatic directional light`, media_style: "illustration", stats: [{ value: "01", label: "Distinct point of view" }, { value: "02", label: "Ways to get in touch" }] } },
+          { type: "stats", content: { heading: "Built around what matters", items: [{ value: "01", label: "Clear promise" }, { value: "02", label: "Ways to get in touch" }, { value: "03", label: "Ways to explore" }] } },
           { type: "feature-split", variant: "editorial", content: { heading: `A more ~considered~ experience.`, body: `Every part of ${name} is designed to feel coherent, useful, and unmistakably its own.`, bullets: ["A focused, memorable identity", "Details shaped around real needs", "Clear paths from interest to action"], image_prompt: `${name}, close-up material study, refined craftsmanship, category-specific objects`, media_style: "pattern", reverse: true } },
           { type: "services", variant: "numbered", content: { heading: `What makes us ~different~.`, items: [{ title: "Purposeful craft", description: "Every choice supports a clear outcome instead of adding noise." }, { title: "Personal attention", description: "A thoughtful experience that respects context, taste, and time." }, { title: "Lasting character", description: "Work designed to remain distinctive long after the first impression." }] } },
           { type: "cta", content: { headline: `Ready to find your ~new favorite~?`, subheadline: `Step inside ${name} and see what thoughtful craft can feel like.`, cta_primary: "Get started", cta_primary_href: "contact", cta_secondary: "Contact us", cta_secondary_href: "contact" } },
@@ -633,37 +635,8 @@ function normalize(raw: unknown, prompt: string): Manifest {
   return { name, tagline, theme, pages };
 }
 
-// Problem 2 (Generator quality, 2026-10-08): the OTHER half of SCHEMA_DOC's
-// "FIRST-ATTEMPT COMPLETENESS" rule, which can't be mechanically backfilled
-// the way a missing contact page can (fabricating 3 "real" service items
-// would itself be the hallucination problem) -- so this stays a detection,
-// not a silent fix. Nothing deterministic ever checked whether the model
-// actually followed it, and generation-critique.ts's own QUALITY_RUBRIC_
-// PROMPT doesn't check structure either (only specificity/contradictions/
-// coherence/fabrication) -- a thin home page (hero + one more section) was
-// never flagged by anything in this pipeline, no matter how far it fell
-// short of the brief SCHEMA_DOC itself asks for.
-function findStructuralIssues(manifest: Manifest): string[] {
-  const home = manifest.pages[0];
-  if (!home) return [];
-  const issues: string[] = [];
-  const types = new Set(home.sections.map((s) => s.type));
-  if (!types.has("about") && !types.has("feature-split")) {
-    issues.push(`The "home" page is missing an "about" or "feature-split" section describing what the business actually does.`);
-  }
-  const servicesSection = home.sections.find((s) => s.type === "services");
-  const serviceItems = Array.isArray((servicesSection?.content as { items?: unknown[] } | undefined)?.items)
-    ? ((servicesSection!.content as { items: unknown[] }).items)
-    : [];
-  if (serviceItems.length < 3) {
-    issues.push(`The "home" page needs a "services" section with at least 3 real, specific items (currently has ${serviceItems.length}).`);
-  }
-  const hasExtra = (["testimonials", "gallery", "stats", "faq", "process"] as const).some((t) => types.has(t));
-  if (!hasExtra) {
-    issues.push(`The "home" page needs one more section (testimonials, gallery, stats, faq, or process) -- right now it reads as a thin landing page, not a complete site.`);
-  }
-  return issues;
-}
+// findStructuralIssues now lives in ../_shared/generation-floor.ts (pure, tested), where it
+// also checks non-home pages -- it used to inspect only the home page.
 
 const REFINE_DOC = `You are NazAI Website Refiner. The user is editing an EXISTING generated website via chat.
 
@@ -1228,26 +1201,48 @@ serve(async (req) => {
         }
       };
 
-      // Problem 2 (Generator quality, 2026-10-08): a REAL, deterministic
-      // structural gap (see findStructuralIssues above) forces the
-      // revision call directly with the exact, concrete issue(s) found --
-      // never waits on the model's own self-critique to maybe also notice
-      // the same gap SCHEMA_DOC already told it not to leave. The model's
-      // soft self-critique (critiqueAndRevise, unchanged) still runs for
-      // tone/specificity/contradiction/fabrication issues on top of this,
-      // but only once there's no deterministic structural issue left to
-      // fix, so the one bounded revision this pipeline allows is always
-      // spent on the most concrete, verifiable gap first.
-      const structuralIssues = findStructuralIssues(manifest);
-      if (structuralIssues.length) {
-        const revised = await revise(structuralIssues);
-        if (revised && isValidRevision(revised)) manifest = revised;
+      // Generator Quality (2026-10-11): the deterministic floor
+      // (_shared/generation-floor.ts) replaces the old home-page-only
+      // structural check. It covers every page's minimum structure, invented
+      // testimonials/statistics, and placeholder copy -- the defects a live
+      // "a bakery website" run shipped with trust_score 100 because the
+      // model's own soft critique passed them. Deterministic issues force the
+      // revision call directly with the exact, concrete issue list; up to TWO
+      // bounded revisions run, only while issues remain, and a revision that
+      // makes things worse (more issues) is discarded. The soft critique
+      // (critiqueAndRevise, unchanged) still runs for tone/specificity when
+      // the floor already passes.
+      let floorIssues = assessProfessionalFloor(manifest, compilePrompt).issues;
+      if (floorIssues.length) {
+        for (let attempt = 0; attempt < 2 && floorIssues.length; attempt++) {
+          const revised = await revise(floorIssues);
+          if (!revised || !isValidRevision(revised)) break;
+          const nextIssues = assessProfessionalFloor(revised, compilePrompt).issues;
+          if (nextIssues.length > floorIssues.length) break;
+          manifest = revised;
+          floorIssues = nextIssues;
+        }
       } else {
         const { result: revisedManifest } = await critiqueAndRevise(
           callAiGateway, gw, manifest, critiqueContext, revise, isValidRevision,
         );
         if (revisedManifest) manifest = revisedManifest;
       }
+    }
+
+    // Generator Quality LOOP 4/5: whatever survived revision, an invented
+    // testimonial or statistic is removed outright (never published, never
+    // merely flagged), for fresh, cached, and fallback manifests alike. What
+    // the floor still finds afterward (a structurally thin page the model
+    // failed to fix twice) can't be backfilled without inventing content, so
+    // it is disclosed in generation_notes instead, and the result is not
+    // cached so a regenerate gets a fresh attempt.
+    const claimRepair = repairUngroundedClaims(manifest, compilePrompt);
+    manifest = claimRepair.manifest;
+    const floorNotes: string[] = [...claimRepair.notes];
+    const remainingFloorIssues = assessProfessionalFloor(manifest, compilePrompt).issues;
+    if (remainingFloorIssues.length) {
+      floorNotes.push(`Quality check: ${remainingFloorIssues.join(" ")} Ask the chat to fix this, or regenerate with more detail.`);
     }
 
     // GAP 7: post-generation fact-check -- grounds the site's copy
@@ -1269,7 +1264,7 @@ serve(async (req) => {
     // for a deterministic fallback or a value that just came FROM the
     // cache (would just rewrite the same row with a refreshed TTL for no
     // real benefit).
-    if (generationCacheKey && user && !usedFallback && !servedFromCache) {
+    if (generationCacheKey && user && !usedFallback && !servedFromCache && remainingFloorIssues.length === 0) {
       await storeCachedGeneration(admin, user.id, "website", generationCacheKey, manifest);
     }
 
@@ -1288,7 +1283,7 @@ serve(async (req) => {
     // so verifiedImageUrls alone (no existing-pages union) is correct.
     const imageGated = enforceImageRelevance(manifest.pages, verifiedImageUrls);
     manifest = { ...manifest, pages: imageGated.pages };
-    const generationNotes = [...freshGated.notes, ...factCheckNotes, ...imageGated.notes];
+    const generationNotes = [...freshGated.notes, ...floorNotes, ...factCheckNotes, ...imageGated.notes];
     // GAP 7 (Graceful Degradation, 2026-10-10): same surface the account
     // rules/safety-rule/image-relevance findings above already render
     // through -- a specific reason instead of a silent generic template.
