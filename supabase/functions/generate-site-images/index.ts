@@ -31,6 +31,8 @@ const PER_IMAGE_TIMEOUT_MS = 70_000;
 const STALE_RUN_MS = 5 * 60_000;
 const RETRY_BACKOFF_MS = [2_000, 6_000, 15_000];
 const FAILURE_NOTE_PREFIX = "Custom images could not be generated";
+// An empty provider account is not a transient error: retrying immediately is pointless.
+const OUT_OF_CREDITS = /no credits|insufficient[_ ]quota|exceeded your current quota|billing/i;
 const LOVABLE_IMAGE_MODELS = ["google/gemini-2.5-flash-image", "google/gemini-3-pro-image-preview"];
 const OPENAI_IMAGES_URL = "https://api.openai.com/v1/images/generations";
 
@@ -53,7 +55,7 @@ async function requestImage(gw: GatewayConfig, model: string, prompt: string, sl
         // Keep the provider's own message: "rate limited" and "out of credits" need different fixes.
         const reason = (await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 140);
         // A rate-limited gateway usually recovers within seconds: back off and retry.
-        if (attempt < RETRY_BACKOFF_MS.length) { await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS[attempt])); continue; }
+        if (attempt < RETRY_BACKOFF_MS.length && !OUT_OF_CREDITS.test(reason)) { await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS[attempt])); continue; }
         return { ok: false, status: res.status, parsed: null, detail: `provider ${res.status}${reason ? `: ${reason}` : ""}` };
       }
       if (!res.ok) return { ok: false, status: res.status, parsed: null, detail: (await res.text()).slice(0, 200) };
@@ -133,7 +135,9 @@ async function run(admin: AnyAdmin, gw: GatewayConfig, site: { id: string; user_
     const { data: w } = await admin.from("websites").select("generation_notes").eq("id", site.id).maybeSingle();
     const notes: unknown[] = Array.isArray(w?.generation_notes) ? w.generation_notes : [];
     if (slots.length > 0 && succeeded === 0) {
-      update.generation_notes = [...notes, `${FAILURE_NOTE_PREFIX} this time (${lastFailure || "no image returned"}), so decorative illustrations are shown instead.`];
+      // A credits outage repeats on every retry: keep a single note instead of one per attempt.
+      const base = OUT_OF_CREDITS.test(lastFailure) ? notes.filter((n) => !(typeof n === "string" && n.startsWith(FAILURE_NOTE_PREFIX))) : notes;
+      update.generation_notes = [...base, `${FAILURE_NOTE_PREFIX} this time (${lastFailure || "no image returned"}), so decorative illustrations are shown instead.`];
     } else if (succeeded > 0) {
       // An earlier attempt's failure note no longer describes the site.
       const kept = notes.filter((n) => !(typeof n === "string" && n.startsWith(FAILURE_NOTE_PREFIX)));
