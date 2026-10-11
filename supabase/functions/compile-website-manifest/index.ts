@@ -635,6 +635,25 @@ function normalize(raw: unknown, prompt: string): Manifest {
   return { name, tagline, theme, pages };
 }
 
+// Custom image generation (2026-10-11): once a site is saved, ask
+// generate-site-images to create the pictures. That function answers 202
+// immediately and keeps working in the background, so this never delays the
+// response by more than its own round trip. Best-effort by design -- a failure
+// here must never fail a generation that already saved; the site simply keeps
+// its decorative illustrations and the preview shows no spinner.
+async function kickOffImageGeneration(websiteId: string, authHeader: string): Promise<void> {
+  try {
+    await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-site-images`, {
+      method: "POST",
+      headers: { Authorization: authHeader, "Content-Type": "application/json", apikey: Deno.env.get("SUPABASE_ANON_KEY") ?? "" },
+      body: JSON.stringify({ website_id: websiteId }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (e) {
+    console.error("generate-site-images kickoff failed", e);
+  }
+}
+
 // findStructuralIssues now lives in ../_shared/generation-floor.ts (pure, tested), where it
 // also checks non-home pages -- it used to inspect only the home page.
 
@@ -1353,6 +1372,7 @@ serve(async (req) => {
         .eq("user_id", user.id);
       if (wErr) return json({ error: wErr.message }, 500);
 
+      await kickOffImageGeneration(String(rebuildWebsiteId), authHeader);
       return json({
         manifest,
         generation_notes: generationNotes,
@@ -1420,6 +1440,7 @@ serve(async (req) => {
       return json({ manifest, website_id: siteRow.id, error: pagesErr.message }, 500);
     }
 
+    await kickOffImageGeneration(String(siteRow.id), authHeader);
     return json({
       manifest,
       generation_notes: generationNotes,
