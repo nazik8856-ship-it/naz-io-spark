@@ -29,6 +29,9 @@ const SETTLE_MS = 10 * 60_000; // leave brand-new sites to the normal kickoff pa
 const RETRY_AFTER_MS = 30 * 60_000;
 const MAX_ATTEMPTS = 3;
 const FAILURE_NOTE_PREFIX = "Custom images could not be generated";
+// Out-of-credits failures do not use up a site's attempts: once the provider
+// account is topped up, the sweep picks these sites up again by itself.
+const OUT_OF_CREDITS = /no credits|insufficient[_ ]quota|exceeded your current quota|billing/i;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -62,7 +65,7 @@ Deno.serve(async (req) => {
     .limit(SCAN);
   const retryable = ((failedRows ?? []) as { id: string; name: string | null; theme: { layout?: string } | null; generation_notes: unknown }[])
     .filter((r) => (Array.isArray(r.generation_notes) ? r.generation_notes : [])
-      .filter((n) => typeof n === "string" && n.startsWith(FAILURE_NOTE_PREFIX)).length < MAX_ATTEMPTS);
+      .filter((n) => typeof n === "string" && n.startsWith(FAILURE_NOTE_PREFIX) && !OUT_OF_CREDITS.test(n)).length < MAX_ATTEMPTS);
   const sites = [...(fresh ?? []), ...retryable];
 
   let started = 0, markedDone = 0, errors = 0;
