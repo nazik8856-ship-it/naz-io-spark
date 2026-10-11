@@ -17,6 +17,14 @@ type PageLike = { slug: string; sections: SectionLike[] };
 
 export const MAX_IMAGES_PER_SITE = 8;
 
+// Pages that must never get generated pictures: the auto-injected legal pages
+// carry an "about" section, which a live run happily illustrated with two
+// pointless photos.
+const NO_IMAGE_PAGE_SLUGS = new Set([
+  "contact", "privacy-policy", "privacy", "privacy-notice",
+  "terms", "terms-of-service", "terms-conditions", "terms-and-conditions", "tos",
+]);
+
 export type SlotKind = "hero" | "about" | "feature-split" | "gallery-item" | "services-item";
 export type ImageSlot = {
   pageSlug: string;
@@ -68,6 +76,7 @@ export function collectImageSlots(
   const found: Tiered[] = [];
   let order = 0;
   pages.forEach((page, pi) => {
+    if (NO_IMAGE_PAGE_SLUGS.has(page.slug.toLowerCase())) return;
     page.sections.forEach((section, si) => {
       const c = (section.content ?? {}) as Record<string, unknown>;
       const isHome = pi === 0;
@@ -186,4 +195,15 @@ export function extensionForMime(mime: string): string {
   if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
   if (mime.includes("webp")) return "webp";
   return "png";
+}
+
+/**
+ * Public URL for a stored image, routed through Supabase Storage's image
+ * transformation endpoint. A browser asking for it gets a resized WebP (live
+ * check: a 2.7 MB PNG became 118 KB) instead of the multi-megabyte original
+ * PNG the image model returns. The raw object stays in storage untouched.
+ */
+export function optimizedImageUrl(supabaseUrl: string, bucket: string, path: string, aspect: "wide" | "square"): string {
+  const width = aspect === "wide" ? 1600 : 1000;
+  return `${supabaseUrl.replace(/\/$/, "")}/storage/v1/render/image/public/${bucket}/${path}?width=${width}&quality=78`;
 }

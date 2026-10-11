@@ -11,7 +11,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, aiGatewayHeaders, type GatewayConfig } from "../_shared/ai-gateway.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import {
-  applyImageToSections, buildImagePrompt, collectImageSlots, extensionForMime, parseImageResponse,
+  applyImageToSections, buildImagePrompt, collectImageSlots, extensionForMime, optimizedImageUrl, parseImageResponse,
   type ImageSlot, type ParsedImage,
 } from "../_shared/site-images.ts";
 
@@ -104,6 +104,7 @@ async function run(admin: AnyAdmin, gw: GatewayConfig, site: { id: string; user_
         const slot = slots[cursor++];
         const prompt = buildImagePrompt(slot, ctx);
         let result = await requestImage(gw, models[modelIdx], prompt, slot);
+        console.log(`[generate-site-images] ${gw.provider}/${models[modelIdx]} ${slot.kind} -> ${result.ok ? "ok" : "fail " + (result.detail ?? result.status)}`);
         // A model the gateway rejects (unknown / not image-capable) falls through to the next candidate.
         while (!result.ok && (result.status === 400 || result.status === 404) && modelIdx < models.length - 1) {
           modelIdx++;
@@ -115,8 +116,7 @@ async function run(admin: AnyAdmin, gw: GatewayConfig, site: { id: string; user_
         const path = `website-images/${site.user_id}/${site.id}/${crypto.randomUUID()}.${extensionForMime(file.mime)}`;
         const { error: upErr } = await admin.storage.from(BUCKET).upload(path, file.bytes, { contentType: file.mime, upsert: false });
         if (upErr) { failed++; lastFailure = upErr.message; continue; }
-        const { data: pub } = admin.storage.from(BUCKET).getPublicUrl(path);
-        await writeSlot(slot, pub.publicUrl);
+        await writeSlot(slot, optimizedImageUrl(Deno.env.get("SUPABASE_URL")!, BUCKET, path, slot.aspect));
         succeeded++;
       }
     };

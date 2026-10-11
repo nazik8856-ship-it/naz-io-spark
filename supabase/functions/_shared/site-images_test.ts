@@ -6,6 +6,7 @@ import {
   extensionForMime,
   heroUsesImage,
   MAX_IMAGES_PER_SITE,
+  optimizedImageUrl,
   parseImageResponse,
 } from "./site-images.ts";
 
@@ -84,6 +85,22 @@ Deno.test("the cap is enforced and the most visible slots survive it", () => {
 Deno.test("a gallery item with no caption and no prompt is skipped", () => {
   const pages = [{ slug: "home", sections: [{ type: "gallery", content: { items: [{}, { caption: "ok" }] } }] }];
   assertEquals(collectImageSlots(pages, { siteName: "S" }).length, 1);
+});
+
+Deno.test("contact and legal pages never get images (a live run illustrated privacy-policy and terms)", () => {
+  const pages = [
+    { slug: "home", sections: [{ type: "about", content: { heading: "a" } }] },
+    { slug: "contact", sections: [{ type: "about", content: { heading: "c" } }] },
+    { slug: "privacy-policy", sections: [{ type: "about", content: { heading: "p" } }] },
+    { slug: "Terms", sections: [{ type: "about", content: { heading: "t" } }] },
+  ];
+  assertEquals(collectImageSlots(pages, { siteName: "S" }).map((s) => s.pageSlug), ["home"]);
+});
+
+Deno.test("optimizedImageUrl routes through the render endpoint with a width per aspect", () => {
+  const u = optimizedImageUrl("https://x.supabase.co/", "mission-assets", "website-images/u/w/a.png", "wide");
+  assertEquals(u, "https://x.supabase.co/storage/v1/render/image/public/mission-assets/website-images/u/w/a.png?width=1600&quality=78");
+  assert(optimizedImageUrl("https://x.supabase.co", "b", "p.png", "square").includes("width=1000"));
 });
 
 // ---- prompt ----------------------------------------------------------------
