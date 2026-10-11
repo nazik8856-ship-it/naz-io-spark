@@ -1319,6 +1319,16 @@ function SectionBlock({
   }
 }
 
+// Generator Quality LOOP 2 (Visual Inconsistency, 2026-10-11): the six hero
+// variants below each hand-wrote their own vertical padding (py-20/28,
+// py-24/32, py-24/36, py-28/36, py-32/44, py-32/48), so the same component
+// type had up to ~60% different whitespace depending on which variant the
+// model picked, with no design intent behind the spread. Two shared steps
+// now: standard for contained heroes, tall for the two immersive variants
+// (full-bleed image, minimal-luxury) where extra air is the point.
+const HERO_PAD_STANDARD = "py-24 md:py-32";
+const HERO_PAD_TALL = "py-32 md:py-44";
+
 function Hero({
   c, variant, palette, containerMax, displayFont, motif,
 }: { c: Record<string, unknown>; variant: string; palette: Palette; containerMax: string; displayFont?: string; motif?: { key: string; path: string } }) {
@@ -1364,7 +1374,7 @@ function Hero({
     return (
       <section className="relative overflow-hidden border-b" style={{ borderColor: palette.border }}>
         {decor()}
-        <div className={`${containerMax} mx-auto px-6 py-20 md:py-28 grid gap-10 md:grid-cols-2 items-center relative`}>
+        <div className={`${containerMax} mx-auto px-6 ${HERO_PAD_STANDARD} grid gap-10 md:grid-cols-2 items-center relative`}>
           <div className="nz-hero-in">
             {eyebrowEl}
             <h1 className="nz-h text-5xl md:text-7xl font-extrabold leading-[1.02] mt-3">{rHead(headline)}</h1>
@@ -1389,7 +1399,7 @@ function Hero({
           </div>
         )}
         {decor(true)}
-        <div className={`${containerMax} mx-auto px-6 py-32 md:py-44 relative nz-hero-in`}>
+        <div className={`${containerMax} mx-auto px-6 ${HERO_PAD_TALL} relative nz-hero-in`}>
           {eyebrowEl}
           <h1 className="nz-h text-6xl md:text-8xl font-extrabold leading-[1.0] mt-3 max-w-4xl">{rHead(headline)}</h1>
           {subheadline && <p className="mt-6 text-xl opacity-90 max-w-2xl">{subheadline}</p>}
@@ -1403,7 +1413,7 @@ function Hero({
     return (
       <section className="relative overflow-hidden border-b" style={{ borderColor: palette.border }}>
         {decor()}
-        <div className={`${containerMax} mx-auto px-6 py-24 md:py-32 nz-hero-in relative`}>
+        <div className={`${containerMax} mx-auto px-6 ${HERO_PAD_STANDARD} nz-hero-in relative`}>
           {eyebrowEl}
           <h1 className="nz-h text-6xl md:text-8xl font-black leading-[0.95] mt-4 max-w-5xl">{rHead(headline)}</h1>
           {subheadline && <p className="mt-8 text-xl opacity-80 max-w-2xl border-l-2 pl-6" style={{ borderColor: palette.accent }}>{subheadline}</p>}
@@ -1417,7 +1427,7 @@ function Hero({
     return (
       <section className="relative overflow-hidden border-b" style={{ borderColor: palette.border }}>
         {decor(true)}
-        <div className={`${containerMax} mx-auto px-6 py-24 md:py-36 grid md:grid-cols-12 gap-8 items-end relative nz-hero-in`}>
+        <div className={`${containerMax} mx-auto px-6 ${HERO_PAD_STANDARD} grid md:grid-cols-12 gap-8 items-end relative nz-hero-in`}>
           <div className="md:col-span-8">
             {eyebrowEl}
             <h1 className="nz-h text-6xl md:text-8xl font-black leading-[0.95] mt-4">{rHead(headline)}</h1>
@@ -1435,7 +1445,7 @@ function Hero({
     return (
       <section className="relative overflow-hidden">
         {decor()}
-        <div className={`${containerMax} mx-auto px-6 py-32 md:py-48 text-center nz-hero-in relative`}>
+        <div className={`${containerMax} mx-auto px-6 ${HERO_PAD_TALL} text-center nz-hero-in relative`}>
           {eyebrowEl}
           <h1 className="nz-h text-5xl md:text-7xl font-light tracking-tight leading-[1.05] mt-4">{rHead(headline)}</h1>
           {subheadline && <p className="mt-8 text-lg opacity-70 max-w-xl mx-auto">{subheadline}</p>}
@@ -1449,7 +1459,7 @@ function Hero({
   return (
     <section className="relative overflow-hidden border-b" style={{ borderColor: palette.border, background: `linear-gradient(135deg, ${palette.bg} 0%, ${palette.surface} 100%)` }}>
       {decor(true)}
-      <div className={`${containerMax} mx-auto px-6 py-28 md:py-36 text-center nz-hero-in relative`}>
+      <div className={`${containerMax} mx-auto px-6 ${HERO_PAD_STANDARD} text-center nz-hero-in relative`}>
         {eyebrowEl}
         <h1 className="nz-h text-5xl md:text-7xl font-extrabold tracking-tight leading-[1.05] mt-3">{rHead(headline)}</h1>
         {subheadline && <p className="mt-6 text-lg md:text-xl opacity-80 max-w-2xl mx-auto">{subheadline}</p>}

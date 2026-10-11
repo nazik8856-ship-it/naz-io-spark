@@ -436,7 +436,7 @@ export default function GeneratorHome() {
         // nothing here ever read it. A real signal was being silently
         // dropped on the floor for every generated website.
         if (Array.isArray(body?.generation_notes) && body.generation_notes.length) {
-          toast.info("Some content was flagged or adjusted against your account rules — see the Control Report on this site's page.");
+          toast.info("Some content was removed, flagged, or needs attention — see the Control Report on this site's page.");
         }
         // Seed the standalone preview before navigation. The database remains
         // authoritative, but this removes the empty-frame window while the new
