@@ -50,9 +50,11 @@ async function requestImage(gw: GatewayConfig, model: string, prompt: string, sl
         signal: AbortSignal.timeout(PER_IMAGE_TIMEOUT_MS),
       });
       if (res.status === 429 || res.status >= 500) {
+        // Keep the provider's own message: "rate limited" and "out of credits" need different fixes.
+        const reason = (await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 140);
         // A rate-limited gateway usually recovers within seconds: back off and retry.
         if (attempt < RETRY_BACKOFF_MS.length) { await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS[attempt])); continue; }
-        return { ok: false, status: res.status, parsed: null, detail: `provider ${res.status}` };
+        return { ok: false, status: res.status, parsed: null, detail: `provider ${res.status}${reason ? `: ${reason}` : ""}` };
       }
       if (!res.ok) return { ok: false, status: res.status, parsed: null, detail: (await res.text()).slice(0, 200) };
       const parsed = parseImageResponse(await res.json());
