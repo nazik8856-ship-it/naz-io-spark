@@ -144,6 +144,7 @@ export function applyImageToSections(
   sections: SectionLike[],
   slot: Pick<ImageSlot, "sectionIndex" | "itemIndex" | "kind" | "subject">,
   url: string,
+  opts: { replacePrompt?: boolean } = {},
 ): SectionLike[] | null {
   const section = sections[slot.sectionIndex];
   if (!section) return null;
@@ -156,13 +157,15 @@ export function applyImageToSections(
     content.asset_url = url;
     // About renders its image only when image_prompt exists, so a derived
     // subject has to be stored alongside the URL.
-    if (!str(content.image_prompt)) content.image_prompt = slot.subject;
+    // replacePrompt: the Relevance Guard rewrote an unrelated image_prompt, so
+    // the saved description must match the picture that was generated from it.
+    if (opts.replacePrompt || !str(content.image_prompt)) content.image_prompt = slot.subject;
     content.media_style = "photo";
   } else {
     const items = Array.isArray(content.items) ? [...(content.items as Record<string, unknown>[])] : [];
     const item = items[slot.itemIndex];
     if (!item || typeof item !== "object" || str(item.asset_url)) return null;
-    items[slot.itemIndex] = { ...item, asset_url: url, ...(str(item.image_prompt) ? {} : { image_prompt: slot.subject }) };
+    items[slot.itemIndex] = { ...item, asset_url: url, ...(str(item.image_prompt) && !opts.replacePrompt ? {} : { image_prompt: slot.subject }) };
     content.items = items;
   }
   return sections.map((s, i) => (i === slot.sectionIndex ? { ...s, content } : s));

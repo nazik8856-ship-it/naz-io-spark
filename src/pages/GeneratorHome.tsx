@@ -9,6 +9,15 @@ import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
 import MissionGovernanceStrip from "@/components/generator/MissionGovernanceStrip";
+import StructureSelector from "@/components/generator/StructureSelector";
+import OutlineEditor from "@/components/generator/OutlineEditor";
+import QualityStrip from "@/components/generator/QualityStrip";
+import StageStepper from "@/components/generator/StageStepper";
+import { Switch } from "@/components/ui/switch";
+import {
+  DEFAULT_STRUCTURE, INITIAL_CHECKS, isAutoFixNote, normalizeChecks, structureLabel,
+  type Outline, type QualityCheck, type StructureId,
+} from "@/lib/site-structures";
 import { RecentOutcomes } from "@/components/agents/RunOutcomes";
 import { computeRunOutcome, type Outcome } from "@/lib/agent-outcome";
 import {
@@ -87,6 +96,21 @@ export default function GeneratorHome() {
   const { user } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [activeType, setActiveType] = useState("website");
+  // Generator UX (2026-10-12): structure choice, Strict Mode, the stage-1
+  // outline review, and the live quality checks. Structure/strict are
+  // remembered per browser as a convenience only.
+  const readPref = <T,>(key: string, fallback: T): T => {
+    try { const v = localStorage.getItem(key); return v === null ? fallback : (JSON.parse(v) as T); } catch { return fallback; }
+  };
+  const [structure, setStructure] = useState<StructureId>(() => readPref<StructureId>("nazai_gen_structure", DEFAULT_STRUCTURE));
+  const [strict, setStrict] = useState<boolean>(() => readPref<boolean>("nazai_gen_strict", false));
+  useEffect(() => { try { localStorage.setItem("nazai_gen_structure", JSON.stringify(structure)); } catch { /* optional */ } }, [structure]);
+  useEffect(() => { try { localStorage.setItem("nazai_gen_strict", JSON.stringify(strict)); } catch { /* optional */ } }, [strict]);
+  const [phase, setPhase] = useState<"compose" | "outline">("compose");
+  const [outline, setOutline] = useState<Outline | null>(null);
+  const [outlineNote, setOutlineNote] = useState<string | null>(null);
+  const [briefForBuild, setBriefForBuild] = useState<string>("");
+  const [liveChecks, setLiveChecks] = useState<QualityCheck[]>(INITIAL_CHECKS);
 
   const WEBSITES_PAGE_SIZE = 9;
   const AGENTS_PAGE_SIZE = 6;
@@ -346,10 +370,12 @@ export default function GeneratorHome() {
     const poll = async () => {
       const { data } = await supabase
         .from("generation_progress")
-        .select("stage, updated_at")
+        .select("stage, updated_at, checks" as "stage, updated_at")
         .eq("request_id", generationRequestId)
         .maybeSingle();
       if (cancelled || !data?.stage) return;
+      const rawChecks = (data as unknown as { checks?: unknown }).checks;
+      if (rawChecks) setLiveChecks(normalizeChecks(rawChecks));
       const label = STAGE_LABELS[data.stage as string] || "Compiling…";
       const updatedAt = typeof data.updated_at === "string" ? Date.parse(data.updated_at) : NaN;
       const stale = Number.isFinite(updatedAt) && Date.now() - updatedAt > STAGE_STALE_MS;
@@ -364,11 +390,13 @@ export default function GeneratorHome() {
   // 10-20s; anything past this almost certainly means the AI call or the
   // edge function hung, not that it's still working. Without this, a hang
   // left Generate disabled with an infinite spinner and no way out.
+  // Strict Mode allows a third revision attempt, and the structure floor can
+  // trigger up to two, so both get a longer allowance than a plain run.
   const COMPILE_TIMEOUT_MS = 60_000;
 
-  const fetchWithTimeout = (url: string, init: RequestInit) => {
+  const fetchWithTimeout = (url: string, init: RequestInit, timeoutMs: number = COMPILE_TIMEOUT_MS) => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), COMPILE_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
   };
 
@@ -396,81 +424,31 @@ export default function GeneratorHome() {
     }
 
     if (activeType === "website") {
+      // Progressive refinement, stage 1 (Structure): propose the outline for
+      // the chosen structure and let the user review/adjust it before any
+      // content is written. No credit is charged for this step.
       try {
         const { data: sess } = await supabase.auth.getSession();
         const token = sess.session?.access_token ?? SUPABASE_ANON;
         const resp = await fetchWithTimeout(`${SUPABASE_FUNCTIONS_URL}/compile-website-manifest`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-            apikey: SUPABASE_ANON,
-          },
-          body: JSON.stringify({ prompt: p, save: true, requestId: reqId }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON },
+          body: JSON.stringify({ prompt: p, mode: "outline", structure }),
         });
         const body = await resp.json().catch(() => ({}));
-        if (!resp.ok || !body?.website_id) {
-          toast.error(body?.error || `Website compile failed (${resp.status})`);
+        if (!resp.ok || !body?.outline) {
+          toast.error(body?.error || `Couldn't prepare the structure (${resp.status})`);
           setCompiling(false);
           return;
         }
-        // Was previously silent: an AI failure during generation drops into
-        // a generic 3-flavor fallback template with no signal at all -- the
-        // response looks like a normal success. Tell the user plainly so
-        // they know to regenerate rather than assume this is their real site.
-        // GAP 7 (Graceful Degradation, 2026-10-10): fallback_reason names
-        // the specific cause instead of this blanket message -- same fix as
-        // the agent path above.
-        if (body?.used_fallback) {
-          toast.warning(
-            body?.fallback_reason
-              ? `${body.fallback_reason} Used a starter template instead — try regenerating with more specific detail about your business.`
-              : "Something went wrong generating a custom design — this is a starter template. Try regenerating for a design built for your business.",
-          );
-        }
-        // LOOP 1 (Silent Failure / Missing-Parameter Handling, 2026-10-10):
-        // parity with the agent path's own generation_notes toast just
-        // below -- compile-website-manifest has computed this (safety/
-        // hard-rule matches AND the fact-check pass that flags invented
-        // contact details not present in the brief) since GAP 3/7, but
-        // nothing here ever read it. A real signal was being silently
-        // dropped on the floor for every generated website.
-        if (Array.isArray(body?.generation_notes) && body.generation_notes.length) {
-          toast.info("Some content was removed, flagged, or needs attention — see the Control Report on this site's page.");
-        }
-        // Seed the standalone preview before navigation. The database remains
-        // authoritative, but this removes the empty-frame window while the new
-        // workspace performs its first owner-protected read.
-        if (body?.manifest && Array.isArray(body.manifest.pages)) {
-          try {
-            localStorage.setItem(
-              `nazai_website_preview_${body.website_id}`,
-              JSON.stringify({
-                website: {
-                  id: body.website_id,
-                  name: body.manifest.name,
-                  tagline: body.manifest.tagline,
-                  theme: body.manifest.theme,
-                  prompt: p,
-                },
-                pages: body.manifest.pages.map((page: Record<string, unknown>, index: number) => ({
-                  ...page,
-                  id: `compiled-${body.website_id}-${index}`,
-                  order_index: index,
-                })),
-                cachedAt: Date.now(),
-              }),
-            );
-          } catch {
-            // Storage can be unavailable in privacy modes; the cloud read below
-            // still opens the same generated website.
-          }
-        }
-        // Unified dashboard for any generated thing.
-        navigate(`/generated/website/${body.website_id}`);
+        setBriefForBuild(p);
+        setOutline(body.outline as Outline);
+        setOutlineNote(typeof body.note === "string" ? body.note : null);
+        setPhase("outline");
+        setCompiling(false);
       } catch (e) {
         const timedOut = e instanceof DOMException && e.name === "AbortError";
-        toast.error(timedOut ? "Taking too long to respond — please try again." : e instanceof Error ? e.message : "Website compile failed");
+        toast.error(timedOut ? "Taking too long to respond — please try again." : e instanceof Error ? e.message : "Couldn't prepare the structure");
         setCompiling(false);
       }
       return;
@@ -533,6 +511,85 @@ export default function GeneratorHome() {
     // than a silent no-op if that ever changes.
     toast.error("This type isn't available yet");
     setCompiling(false);
+  };
+
+  // Progressive refinement, stage 2 (Content): generate the full site from the
+  // approved outline. The server enforces the outline and the chosen
+  // structure; the result lands on the site page with stage 3 (visual
+  // polish) waiting there.
+  const handleBuildFromOutline = async () => {
+    if (!outline || compiling) return;
+    setCompiling(true);
+    setLiveChecks(INITIAL_CHECKS);
+    const reqId = crypto.randomUUID();
+    setGenerationRequestId(reqId);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token ?? SUPABASE_ANON;
+      const resp = await fetchWithTimeout(`${SUPABASE_FUNCTIONS_URL}/compile-website-manifest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON },
+        body: JSON.stringify({ prompt: briefForBuild, save: true, requestId: reqId, structure, strict, outline, staged: true }),
+      }, strict ? 120_000 : 90_000);
+      const body = await resp.json().catch(() => ({}));
+      if (!resp.ok || !body?.website_id) {
+        toast.error(body?.error || `Website compile failed (${resp.status})`);
+        setCompiling(false);
+        return;
+      }
+      if (Array.isArray(body?.quality_checks)) setLiveChecks(normalizeChecks(body.quality_checks));
+      // Was previously silent: an AI failure during generation drops into
+      // a generic 3-flavor fallback template with no signal at all -- the
+      // response looks like a normal success. Tell the user plainly so
+      // they know to regenerate rather than assume this is their real site.
+      // GAP 7 (Graceful Degradation, 2026-10-10): fallback_reason names
+      // the specific cause instead of this blanket message.
+      if (body?.used_fallback) {
+        toast.warning(
+          body?.fallback_reason
+            ? `${body.fallback_reason} Used a starter template instead — try regenerating with more specific detail about your business.`
+            : "Something went wrong generating a custom design — this is a starter template. Try regenerating for a design built for your business.",
+        );
+      }
+      // LOOP 1 (2026-10-10): generation_notes the user should look at. Notes
+      // the Generator already fixed by itself (Relevance Guard / Visual fix)
+      // are reported separately so they don't read as problems.
+      const notes: unknown[] = Array.isArray(body?.generation_notes) ? body.generation_notes : [];
+      const attention = notes.filter((n) => !isAutoFixNote(n));
+      const autoFixed = notes.filter(isAutoFixNote);
+      if (attention.length) {
+        toast.info("Some content was removed, flagged, or needs attention — see the Control Report on this site's page.");
+      } else if (autoFixed.length) {
+        toast.success(`The Generator fixed ${autoFixed.length} thing${autoFixed.length === 1 ? "" : "s"} automatically — see what changed on the site page.`);
+      }
+      // Seed the standalone preview before navigation. The database remains
+      // authoritative, but this removes the empty-frame window while the new
+      // workspace performs its first owner-protected read.
+      if (body?.manifest && Array.isArray(body.manifest.pages)) {
+        try {
+          localStorage.setItem(
+            `nazai_website_preview_${body.website_id}`,
+            JSON.stringify({
+              website: { id: body.website_id, name: body.manifest.name, tagline: body.manifest.tagline, theme: body.manifest.theme, prompt: briefForBuild },
+              pages: body.manifest.pages.map((page: Record<string, unknown>, index: number) => ({
+                ...page, id: `compiled-${body.website_id}-${index}`, order_index: index,
+              })),
+              cachedAt: Date.now(),
+            }),
+          );
+        } catch {
+          // Storage can be unavailable in privacy modes; the cloud read below
+          // still opens the same generated website.
+        }
+      }
+      // Let the final check states be seen for a moment before moving on.
+      await new Promise((r) => setTimeout(r, 1200));
+      navigate(`/generated/website/${body.website_id}`);
+    } catch (e) {
+      const timedOut = e instanceof DOMException && e.name === "AbortError";
+      toast.error(timedOut ? "Taking too long to respond — please try again." : e instanceof Error ? e.message : "Website compile failed");
+      setCompiling(false);
+    }
   };
 
   return (
@@ -611,7 +668,52 @@ export default function GeneratorHome() {
           })}
         </div>
 
-        {/* Prompt box */}
+        {activeType === "website" && phase === "compose" && (
+          <div className="mt-8">
+            <div className="text-[11px] font-mono tracking-[0.3em] text-zinc-500 mb-3">CHOOSE A STRUCTURE</div>
+            <StructureSelector value={structure} onChange={setStructure} disabled={compiling} />
+          </div>
+        )}
+
+        {/* Stage 1 review: the proposed outline, editable before content is written */}
+        {activeType === "website" && phase === "outline" && outline ? (
+          <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl p-5" data-testid="outline-step">
+            <StageStepper current={compiling ? "content" : "structure"} />
+            <h2 className="mt-4 text-lg font-semibold">Review the structure</h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              {structureLabel(structure)} · adjust pages and sections, then continue. Nothing is written until you do, and this step costs no credit.
+            </p>
+            {outlineNote && <p className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">{outlineNote}</p>}
+            <div className="mt-4">
+              <OutlineEditor outline={outline} onChange={setOutline} disabled={compiling} />
+            </div>
+            {compiling && (
+              <div className="mt-4">
+                <QualityStrip checks={liveChecks} />
+              </div>
+            )}
+            <div className="flex items-center justify-between pt-5">
+              <button
+                type="button"
+                disabled={compiling}
+                onClick={() => { setPhase("compose"); setOutline(null); setOutlineNote(null); }}
+                className="text-sm text-zinc-400 hover:text-white disabled:opacity-40"
+              >
+                ← Back to prompt
+              </button>
+              <button
+                type="button"
+                onClick={handleBuildFromOutline}
+                disabled={compiling}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-purple-400/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {compiling ? <Loader2 className="h-4 w-4 text-purple-300 animate-spin shrink-0" /> : <Zap className="h-4 w-4 text-purple-300" />}
+                <span className="text-sm whitespace-nowrap">{compiling ? compileStage || "Generating content…" : "Generate content"}</span>
+                {!compiling && <span className="text-purple-300">↗</span>}
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl p-5">
           <textarea
             value={prompt}
@@ -647,17 +749,27 @@ export default function GeneratorHome() {
                 );
               })()}
             </div>
+            {activeType === "website" && (
+              <label
+                className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer select-none"
+                title="Applies the hardest quality rules: conventional layout, calm factual wording, every link and image resolvable. No creative risks."
+              >
+                <Switch checked={strict} onCheckedChange={setStrict} disabled={compiling} aria-label="Strict mode" />
+                <span>Strict mode</span>
+              </label>
+            )}
             <button
               onClick={handleGenerate}
               disabled={!prompt.trim() || compiling}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-purple-400/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {compiling ? <Loader2 className="h-4 w-4 text-purple-300 animate-spin shrink-0" /> : <Zap className="h-4 w-4 text-purple-300" />}
-              <span className="text-sm whitespace-nowrap">{compiling ? compileStage || "Compiling…" : "Generate"}</span>
+              <span className="text-sm whitespace-nowrap">{compiling ? compileStage || "Compiling…" : activeType === "website" ? "Plan structure" : "Generate"}</span>
               {!compiling && <span className="text-purple-300">↗</span>}
             </button>
           </div>
         </div>
+        )}
         <MissionGovernanceStrip userId={user?.id} />
 
         {/* Recent */}

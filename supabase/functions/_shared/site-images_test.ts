@@ -170,3 +170,21 @@ Deno.test("anything else (text-only reply, http:// url, empty) parses to null in
 Deno.test("extensionForMime", () => {
   assertEquals([extensionForMime("image/jpeg"), extensionForMime("image/webp"), extensionForMime("image/png")], ["jpg", "webp", "png"]);
 });
+
+Deno.test("replacePrompt overwrites an existing (unrelated) image_prompt; the default keeps it", () => {
+  const sections = [{ type: "about", content: { heading: "a", image_prompt: "desert dunes at dusk" } }];
+  const slot = { sectionIndex: 0, itemIndex: null, kind: "about" as const, subject: "Vienna Brew Café -- about -- Specialty coffee" };
+  const kept = applyImageToSections(sections, slot, "https://cdn/x.png")!;
+  assertEquals((kept[0].content as any).image_prompt, "desert dunes at dusk");
+  const replaced = applyImageToSections(sections, slot, "https://cdn/x.png", { replacePrompt: true })!;
+  assertEquals((replaced[0].content as any).image_prompt, slot.subject);
+  assertEquals((sections[0].content as any).image_prompt, "desert dunes at dusk", "input not mutated");
+});
+
+Deno.test("replacePrompt also applies to gallery items", () => {
+  const sections = [{ type: "gallery", content: { items: [{ caption: "c", image_prompt: "beach" }] } }];
+  const slot = { sectionIndex: 0, itemIndex: 0, kind: "gallery-item" as const, subject: "Ember -- bread" };
+  const out = applyImageToSections(sections, slot, "https://cdn/x.png", { replacePrompt: true })!;
+  assertEquals((out[0].content as any).items[0].image_prompt, "Ember -- bread");
+  assertEquals((out[0].content as any).items[0].asset_url, "https://cdn/x.png");
+});

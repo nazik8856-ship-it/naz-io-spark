@@ -774,7 +774,9 @@ async function snapshotWebsiteVersion(
 /** Instruction blocks appended to the system prompt for every generation/revision call. */
 function directiveBlocks(structure: StructureId | null, strict: boolean, outline: Outline | null): string {
   return [
-    structure ? structurePromptBlock(structure) : "",
+    // With an approved outline, the outline is the authority: the template's
+    // page rules would contradict a user edit.
+    structure && !outline ? structurePromptBlock(structure) : "",
     outline ? outlinePromptBlock(outline) : "",
     strict ? STRICT_PROMPT_BLOCK : "",
   ].filter(Boolean).join("\n\n");
@@ -1350,6 +1352,11 @@ serve(async (req) => {
     // genuinely different brief (including a rebuild with new intent)
     // never collides with an older one.
     const directive = directiveBlocks(structure, strict, approvedOutline);
+    // An outline the user approved (and possibly edited) is THE structure: where
+    // it departs from the chosen template the user's version wins, and the
+    // departure is reported on the structure check instead of being "fixed".
+    const outlineDeviations = approvedOutline && structure ? findOutlineTemplateIssues(approvedOutline, structure) : [];
+    const savedStructure: StructureId | null = approvedOutline && outlineDeviations.length ? null : structure;
     const floorOpts = { template: structure ?? undefined, strict, outline: approvedOutline ?? undefined };
     // Live Quality Preview Strip: the four check states, published to
     // generation_progress as each one resolves so GeneratorHome can render them.
@@ -1439,7 +1446,7 @@ serve(async (req) => {
         visualRepair.notes.length ? visualRepair.notes[0] : visualAfter ? `${visualAfter} wording/rhythm issue(s) left to review` : "Palette, contrast, layout and hero variants are consistent");
     }
     const structIssuesOf = (m: Manifest) => [
-      ...findStructuralIssues(m, structure ?? undefined),
+      ...findStructuralIssues(m, approvedOutline ? undefined : structure ?? undefined, { outlineMode: !!approvedOutline }),
       ...(approvedOutline ? findOutlineConformanceIssues(m, approvedOutline) : []),
     ];
     const structureBefore = structIssuesOf(manifest).length;
@@ -1509,6 +1516,7 @@ serve(async (req) => {
       checks = setCheck(checks, "structure", statusFromCounts(structureBefore, structureAfter.length),
         structureAfter.length
           ? `${structureAfter.length} structure issue(s) could not be fixed automatically`
+          : approvedOutline ? `Built to your approved outline${outlineDeviations.length ? ` (differs from the ${getTemplate(structure!).label} structure: ${outlineDeviations[0].replace(/^Structure "[^"]+": /, "")})` : ""}`
           : structure ? `Follows the ${getTemplate(structure).label} structure${structureBefore ? " (corrected)" : ""}` : `${manifest.pages.length} pages, complete home page${structureBefore ? " (corrected)" : ""}`);
     }
 
@@ -1626,7 +1634,7 @@ serve(async (req) => {
           prompt: compilePrompt,
           generation_notes: generationNotes,
           trust_score: freshGated.trustScore,
-          ...(structure ? { structure_template: structure } : {}),
+          ...(savedStructure ? { structure_template: savedStructure } : {}),
           ...(strict ? { strict_mode: true } : {}),
         })
         .eq("id", rebuildWebsiteId)
@@ -1672,7 +1680,7 @@ serve(async (req) => {
         html: "",
         generation_notes: generationNotes,
         trust_score: freshGated.trustScore,
-        structure_template: structure,
+        structure_template: savedStructure,
         strict_mode: strict,
         generation_stage: staged ? "content" : null,
       })
@@ -1713,7 +1721,8 @@ serve(async (req) => {
       website_id: siteRow.id,
       pages: pagesOut,
       quality_checks: checks,
-      structure,
+      structure: savedStructure,
+      outline_deviations: outlineDeviations,
       used_fallback: usedFallback,
       fallback_reason: fallbackReason,
       ...(routeInfo.route === "new"

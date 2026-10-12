@@ -213,3 +213,27 @@ Deno.test("outlinePromptBlock lists every page and section in order", () => {
   const p = outlinePromptBlock(defaultOutline("simple-landing"));
   assert(p.includes("home") && p.includes("hero[split-image] → about") && p.includes("contact"));
 });
+
+Deno.test("an approved outline replaces the template's page rules: a user-edited agency outline without a process section is NOT a floor violation", () => {
+  const outline = defaultOutline("agency");
+  outline.pages = outline.pages.map((p) => (p.slug === "services" ? { ...p, sections: [{ type: "services", variant: "zigzag" }, { type: "faq" }] } : p));
+  const m = {
+    pages: outline.pages.map((p) => ({
+      slug: p.slug, title: p.title,
+      sections: p.sections.map((s) => ({ type: s.type, variant: s.variant, content: { heading: "H", items: [1, 2, 3], tiers: [1, 2, 3] } })),
+    })),
+  };
+  assert(findOutlineTemplateIssues(outline, "agency").some((i) => /"process" section somewhere/.test(i)), "the edit does deviate from the template");
+  assertEquals(assessProfessionalFloor(m as any, "a design studio", { template: "agency", outline }).issues.filter((i) => /Structure "/.test(i) || /content page/.test(i)), []);
+  // ...while the same manifest WITHOUT the outline is held to the template.
+  assert(assessProfessionalFloor(m as any, "a design studio", { template: "agency" }).issues.some((i) => /"process" section somewhere/.test(i)));
+});
+
+Deno.test("outline mode still requires a hero first and no thin pages", () => {
+  const outline = defaultOutline("full-business");
+  const m = { pages: outline.pages.map((p) => ({ slug: p.slug, sections: p.sections.map((s) => ({ type: s.type, content: { heading: "H" } })) })) };
+  m.pages[0].sections.reverse();
+  m.pages[1].sections = m.pages[1].sections.slice(0, 1);
+  const issues = findStructuralIssues(m as any, undefined, { outlineMode: true });
+  assert(issues.some((i) => /must start with a "hero"/.test(i)) && issues.some((i) => /only 1 section/.test(i)));
+});

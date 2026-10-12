@@ -38,6 +38,8 @@ import GovernanceHealthDot from "@/components/governance/GovernanceHealthDot";
 import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockpit";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import WebsiteControlReport from "@/components/websites/WebsiteControlReport";
+import SiteImprovementBar from "@/components/generator/SiteImprovementBar";
+import { isAutoFixNote } from "@/lib/site-structures";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
 import { cn } from "@/lib/utils";
 import ExecutionLog from "@/components/execution/ExecutionLog";
@@ -537,6 +539,16 @@ export default function GeneratedDashboard() {
     ? `/website-preview/${id}?embed=1${currentPage?.slug ? `&page=${encodeURIComponent(currentPage.slug)}` : ""}`
     : "";
   const refreshPreview = () => setPreviewKey((k) => k + 1);
+  // Re-reads the saved site after the Generator changed it (professional pass).
+  const reloadWebsite = async () => {
+    if (!id) return;
+    const { data: site } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
+    const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
+    if (site) setWebsite(site);
+    if (pgs) setPages(pgs);
+    if (site && pgs) cacheWebsitePreview(id, site, pgs);
+    setPreviewKey((k) => k + 1);
+  };
   const copyShare = async () => {
     if (!liveUrl) return;
     try {
@@ -1072,7 +1084,23 @@ export default function GeneratedDashboard() {
         <section className="flex-1 flex flex-col min-w-0 bg-[#0a0f1e]">
           {kind === "website" && (
             <div className="flex-1 min-h-0 flex flex-col">
-              <WebsiteControlReport notes={website?.generation_notes} trustScore={website?.trust_score} />
+              {id && (
+                <SiteImprovementBar
+                  websiteId={id}
+                  website={website}
+                  pages={pages}
+                  previewKey={previewKey}
+                  onReload={reloadWebsite}
+                  onRestoreVersion={(vid) => setRestoreConfirm({ id: vid, label: "Previous version" })}
+                />
+              )}
+              {/* Notes the Generator already fixed on its own are listed in the
+                  improvement bar above; the Control Report keeps only what
+                  needs the owner's attention. */}
+              <WebsiteControlReport
+                notes={Array.isArray(website?.generation_notes) ? website.generation_notes.filter((n: unknown) => !isAutoFixNote(n)) : website?.generation_notes}
+                trustScore={website?.trust_score}
+              />
               {webView === "preview" && id && (
                 // Explicit absolute positioning + fixed inset guarantees the
                 // iframe fills the pane. Prior `h-full` on a flex item under
