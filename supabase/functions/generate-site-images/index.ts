@@ -14,6 +14,10 @@ import {
   applyImageToSections, buildImagePrompt, collectImageSlots, extensionForMime, optimizedImageUrl, parseImageResponse,
   type ImageSlot, type ParsedImage,
 } from "../_shared/site-images.ts";
+import {
+  buildVerifyPrompt, businessSubject, describeGuardTally, emptyTally, kindLabel, parseVerifyResponse, reinforcePrompt,
+  subjectMatchesBusiness, withoutImageGuardNotes, type VerifyResult,
+} from "../_shared/image-guard.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
@@ -80,7 +84,40 @@ async function toBytes(img: ParsedImage): Promise<{ bytes: Uint8Array; mime: str
   return { bytes: new Uint8Array(await r.arrayBuffer()), mime: r.headers.get("content-type")?.split(";")[0] || "image/png" };
 }
 
-async function run(admin: AnyAdmin, gw: GatewayConfig, site: { id: string; user_id: string; name: string; tagline: string | null; prompt: string | null; theme: { layout?: string } | null }) {
+const VERIFY_TIMEOUT_MS = 25_000;
+
+/**
+ * Relevance Guard, image side: shows the finished image (a small WebP rendered
+ * by Storage, so no multi-megabyte upload is re-sent) to the chat model and
+ * asks whether it matches the subject. Fails OPEN: any error or unreadable
+ * answer returns match=null and the image is accepted.
+ */
+async function verifyImage(gw: GatewayConfig, imageUrl: string, subject: string, ctx: { siteName: string; tagline?: string; brief?: string }): Promise<VerifyResult> {
+  try {
+    const res = await fetch(gw.url, {
+      method: "POST",
+      headers: aiGatewayHeaders(gw),
+      body: JSON.stringify({
+        model: gw.model,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [{ role: "user", content: [
+          { type: "text", text: buildVerifyPrompt(subject, ctx) },
+          { type: "image_url", image_url: { url: imageUrl } },
+        ] }],
+      }),
+      signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
+    });
+    if (!res.ok) return { match: null, reason: "" };
+    return parseVerifyResponse(await res.json());
+  } catch {
+    return { match: null, reason: "" };
+  }
+}
+
+const verifyUrlFor = (path: string) => `${Deno.env.get("SUPABASE_URL")!.replace(/\/$/, "")}/storage/v1/render/image/public/${BUCKET}/${path}?width=512&quality=60`;
+
+async function run(admin: AnyAdmin, gw: GatewayConfig, opts: { verify: boolean; snapshotFirst: boolean }, site: { id: string; user_id: string; name: string; tagline: string | null; prompt: string | null; theme: { layout?: string } | null }) {
   const started = Date.now();
   let succeeded = 0;
   let failed = 0;
@@ -90,6 +127,30 @@ async function run(admin: AnyAdmin, gw: GatewayConfig, site: { id: string; user_
     const pages = ((pageRows ?? []) as { slug: string; sections: unknown }[]).map((p) => ({ slug: p.slug, sections: Array.isArray(p.sections) ? p.sections : [] }));
     const slots = collectImageSlots(pages, { siteName: site.name, layout: site.theme?.layout });
     const ctx = { siteName: site.name, tagline: site.tagline ?? undefined, brief: site.prompt ?? undefined };
+    const tally = emptyTally();
+    // Relevance Guard layer 1: an image_prompt unrelated to the business is
+    // rewritten before anything is generated from it.
+    const rewritten = new Set<ImageSlot>();
+    for (const slot of slots) {
+      if (!subjectMatchesBusiness(slot.subject, ctx)) {
+        slot.subject = businessSubject(ctx, kindLabel(slot.kind));
+        rewritten.add(slot);
+        tally.promptsRewritten++;
+      }
+    }
+    if (opts.snapshotFirst && slots.length > 0) {
+      // A backfill changes sites their owners did not ask to change: keep the
+      // before state so it can be compared and restored.
+      try {
+        const { data: siteRow } = await admin.from("websites").select("*").eq("id", site.id).maybeSingle();
+        // Full page rows: restore_website_version needs title/seo_description too.
+        const { data: fullPages } = await admin.from("website_pages").select("*").eq("website_id", site.id);
+        await admin.from("website_versions").insert({
+          website_id: site.id, user_id: site.user_id, label: "Before custom images",
+          website_snapshot: siteRow ?? {}, pages_snapshot: fullPages ?? [],
+        });
+      } catch (e) { console.warn("[generate-site-images] snapshot failed (non-fatal)", e); }
+    }
 
     let writeChain: Promise<unknown> = Promise.resolve();
     const writeSlot = (slot: ImageSlot, url: string) => {
@@ -97,7 +158,7 @@ async function run(admin: AnyAdmin, gw: GatewayConfig, site: { id: string; user_
         // Re-read the row: a chat edit may have landed while this image generated.
         const { data: row } = await admin.from("website_pages").select("id, sections").eq("website_id", site.id).eq("slug", slot.pageSlug).maybeSingle();
         if (!row) return;
-        const next = applyImageToSections(Array.isArray(row.sections) ? row.sections : [], slot, url);
+        const next = applyImageToSections(Array.isArray(row.sections) ? row.sections : [], slot, url, { replacePrompt: rewritten.has(slot) });
         if (next) await admin.from("website_pages").update({ sections: next }).eq("id", row.id);
       }).catch(() => undefined);
       return writeChain;
@@ -109,22 +170,55 @@ async function run(admin: AnyAdmin, gw: GatewayConfig, site: { id: string; user_
     const worker = async () => {
       while (cursor < slots.length && Date.now() - started < SITE_DEADLINE_MS) {
         const slot = slots[cursor++];
-        const prompt = buildImagePrompt(slot, ctx);
-        let result = await requestImage(gw, models[modelIdx], prompt, slot);
-        console.log(`[generate-site-images] ${gw.provider}/${models[modelIdx]} ${slot.kind} -> ${result.ok ? "ok" : "fail " + (result.detail ?? result.status)}`);
-        // A model the gateway rejects (unknown / not image-capable) falls through to the next candidate.
-        while (!result.ok && (result.status === 400 || result.status === 404) && modelIdx < models.length - 1) {
-          modelIdx++;
-          result = await requestImage(gw, models[modelIdx], prompt, slot);
+        const basePrompt = buildImagePrompt(slot, ctx);
+        let prompt = basePrompt;
+        let retried = false;
+        let lastReason = "";
+        // A slot whose retry failed technically (after a mismatch) is still a
+        // dropped image for the owner's purposes: count it.
+        const dropAfterMismatch = () => {
+          if (!retried) return;
+          tally.dropped++;
+          if (tally.examples.length < 3) tally.examples.push(`${kindLabel(slot.kind)}: first attempt showed ${lastReason || "something unrelated"}`);
+        };
+        // At most two attempts per slot: the second only after the Relevance
+        // Guard rejected the first, with the rejection reason fed back.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          let result = await requestImage(gw, models[modelIdx], prompt, slot);
+          console.log(`[generate-site-images] ${gw.provider}/${models[modelIdx]} ${slot.kind} -> ${result.ok ? "ok" : "fail " + (result.detail ?? result.status)}`);
+          // A model the gateway rejects (unknown / not image-capable) falls through to the next candidate.
+          while (!result.ok && (result.status === 400 || result.status === 404) && modelIdx < models.length - 1) {
+            modelIdx++;
+            result = await requestImage(gw, models[modelIdx], prompt, slot);
+          }
+          if (!result.ok || !result.parsed) { failed++; lastFailure = result.detail ?? "failed"; dropAfterMismatch(); break; }
+          const file = await toBytes(result.parsed).catch(() => null);
+          if (!file) { failed++; lastFailure = "could not read image"; dropAfterMismatch(); break; }
+          const path = `website-images/${site.user_id}/${site.id}/${crypto.randomUUID()}.${extensionForMime(file.mime)}`;
+          const { error: upErr } = await admin.storage.from(BUCKET).upload(path, file.bytes, { contentType: file.mime, upsert: false });
+          if (upErr) { failed++; lastFailure = upErr.message; dropAfterMismatch(); break; }
+
+          let verdict: VerifyResult = { match: null, reason: "" };
+          if (opts.verify) verdict = await verifyImage(gw, verifyUrlFor(path), slot.subject, ctx);
+          console.log(`[generate-site-images] guard ${slot.kind} attempt ${attempt + 1} -> ${verdict.match === null ? "unchecked" : verdict.match ? "match" : "MISMATCH: " + verdict.reason}`);
+
+          if (verdict.match === false) {
+            await admin.storage.from(BUCKET).remove([path]).catch(() => undefined);
+            lastReason = verdict.reason;
+            if (attempt === 0) { prompt = reinforcePrompt(basePrompt, slot.subject, verdict.reason); retried = true; continue; }
+            tally.dropped++;
+            if (tally.examples.length < 3) tally.examples.push(`${kindLabel(slot.kind)}: showed ${lastReason || "something unrelated"}`);
+            failed++; lastFailure = "no generated image matched your business";
+            break;
+          }
+          await writeSlot(slot, optimizedImageUrl(Deno.env.get("SUPABASE_URL")!, BUCKET, path, slot.aspect));
+          succeeded++;
+          if (retried) {
+            tally.replaced++;
+            if (tally.examples.length < 3) tally.examples.push(`${kindLabel(slot.kind)}: first attempt showed ${lastReason || "something unrelated"}`);
+          }
+          break;
         }
-        if (!result.ok || !result.parsed) { failed++; lastFailure = result.detail ?? "failed"; continue; }
-        const file = await toBytes(result.parsed).catch(() => null);
-        if (!file) { failed++; lastFailure = "could not read image"; continue; }
-        const path = `website-images/${site.user_id}/${site.id}/${crypto.randomUUID()}.${extensionForMime(file.mime)}`;
-        const { error: upErr } = await admin.storage.from(BUCKET).upload(path, file.bytes, { contentType: file.mime, upsert: false });
-        if (upErr) { failed++; lastFailure = upErr.message; continue; }
-        await writeSlot(slot, optimizedImageUrl(Deno.env.get("SUPABASE_URL")!, BUCKET, path, slot.aspect));
-        succeeded++;
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, slots.length) }, worker));
@@ -134,15 +228,18 @@ async function run(admin: AnyAdmin, gw: GatewayConfig, site: { id: string; user_
     const update: Record<string, unknown> = { images_status: succeeded > 0 || slots.length === 0 ? "done" : "failed" };
     const { data: w } = await admin.from("websites").select("generation_notes").eq("id", site.id).maybeSingle();
     const notes: unknown[] = Array.isArray(w?.generation_notes) ? w.generation_notes : [];
+    // Earlier image-guard notes are replaced by this run's, never accumulated.
+    let nextNotes: unknown[] = withoutImageGuardNotes(notes);
     if (slots.length > 0 && succeeded === 0) {
       // A credits outage repeats on every retry: keep a single note instead of one per attempt.
-      const base = OUT_OF_CREDITS.test(lastFailure) ? notes.filter((n) => !(typeof n === "string" && n.startsWith(FAILURE_NOTE_PREFIX))) : notes;
-      update.generation_notes = [...base, `${FAILURE_NOTE_PREFIX} this time (${lastFailure || "no image returned"}), so decorative illustrations are shown instead.`];
+      const base = OUT_OF_CREDITS.test(lastFailure) ? nextNotes.filter((n) => !(typeof n === "string" && n.startsWith(FAILURE_NOTE_PREFIX))) : nextNotes;
+      nextNotes = [...base, `${FAILURE_NOTE_PREFIX} this time (${lastFailure || "no image returned"}), so decorative illustrations are shown instead.`];
     } else if (succeeded > 0) {
       // An earlier attempt's failure note no longer describes the site.
-      const kept = notes.filter((n) => !(typeof n === "string" && n.startsWith(FAILURE_NOTE_PREFIX)));
-      if (kept.length !== notes.length) update.generation_notes = kept;
+      nextNotes = nextNotes.filter((n) => !(typeof n === "string" && n.startsWith(FAILURE_NOTE_PREFIX)));
     }
+    nextNotes = [...nextNotes, ...describeGuardTally(tally, site.name)];
+    if (JSON.stringify(nextNotes) !== JSON.stringify(notes)) update.generation_notes = nextNotes;
     console.log(`[generate-site-images] ${site.id}: ${succeeded} ok, ${failed} failed, ${skipped} skipped of ${slots.length} slots`);
     await admin.from("websites").update(update).eq("id", site.id);
   } catch (e) {
@@ -195,7 +292,9 @@ Deno.serve(async (req) => {
     }
 
     await admin.from("websites").update({ images_status: "running", images_started_at: new Date().toISOString() }).eq("id", site.id);
-    const work = run(admin, gw, site);
+    // verify (default on): the Relevance Guard's vision check on every finished
+    // image. snapshotFirst: backfills (service role) keep a before-state.
+    const work = run(admin, gw, { verify: body?.verify !== false, snapshotFirst: isService }, site);
     if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(work);
     else await work;
     return json({ ok: true, status: "running" }, 202);

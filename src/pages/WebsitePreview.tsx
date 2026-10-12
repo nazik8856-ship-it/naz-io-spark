@@ -14,6 +14,8 @@ type Theme = {
   layout?: string;
   motion?: string;
   design_rationale?: string;
+  /** "professional" (set by the "Make it more professional" pass): one consistent vertical rhythm for every section. */
+  spacing?: string;
 };
 
 // Auto-injected legal pages (see compile-website-manifest's ensureLegalPages)
@@ -414,8 +416,12 @@ export default function WebsitePreview() {
   // never carries it, so it gets the site's real header/nav instead of
   // internal dev tooling ("Back", "· preview", the page-tab switcher).
   const isEmbed = params.get("embed") === "1";
+  // Before/after comparison: ?version=<website_versions.id> renders that saved
+  // snapshot instead of the live site. Read-only: it never touches the preview
+  // cache or the image-generation polling, which belong to the live site.
+  const versionId = params.get("version");
   const navigate = useNavigate();
-  const initialCache = useMemo(() => readPreviewCache(id), [id]);
+  const initialCache = useMemo(() => (versionId ? null : readPreviewCache(id)), [id, versionId]);
   const [site, setSite] = useState<Website | null>(() => initialCache?.website ?? null);
   const [pages, setPages] = useState<Page[]>(() => initialCache?.pages ?? []);
   const [loading, setLoading] = useState(() => !initialCache);
@@ -433,6 +439,34 @@ export default function WebsitePreview() {
         // The preview runs in a fresh iframe document. Wait for the persisted
         // session to hydrate before querying owner-protected website rows.
         await supabase.auth.getSession();
+
+        if (versionId) {
+          const { data: snap, error: snapErr } = await supabase
+            .from("website_versions")
+            .select("website_snapshot, pages_snapshot")
+            .eq("id", versionId)
+            .eq("website_id", id)
+            .maybeSingle();
+          if (cancelled) return;
+          if (snapErr) throw snapErr;
+          if (!snap) throw new Error("That saved version was not found");
+          const ws = (snap.website_snapshot ?? {}) as Record<string, unknown>;
+          const snapPages = (Array.isArray(snap.pages_snapshot) ? snap.pages_snapshot : []) as Record<string, unknown>[];
+          setSite({ id, name: (ws.name as string) ?? null, tagline: (ws.tagline as string) ?? null, theme: (ws.theme as Website["theme"]) ?? null });
+          setPages(
+            snapPages
+              .map((pg, i) => ({
+                id: `version-${versionId}-${i}`,
+                slug: String(pg.slug ?? `page-${i}`),
+                title: String(pg.title ?? ""),
+                seo_description: (pg.seo_description as string) ?? null,
+                sections: (Array.isArray(pg.sections) ? pg.sections : []) as Section[],
+                order_index: typeof pg.order_index === "number" ? pg.order_index : i,
+              }))
+              .sort((a, b) => a.order_index - b.order_index),
+          );
+          return;
+        }
 
         const [siteResult, pagesResult] = await Promise.all([
           supabase.from("websites").select("id, name, tagline, theme").eq("id", id).maybeSingle(),
@@ -464,7 +498,7 @@ export default function WebsitePreview() {
       }
     })();
     return () => { cancelled = true; };
-  }, [id, initialCache]);
+  }, [id, initialCache, versionId]);
 
   // Custom image generation (2026-10-11): compile-website-manifest saves the
   // site first and generate-site-images fills in real pictures in the
@@ -473,7 +507,7 @@ export default function WebsitePreview() {
   // failure here leaves the page exactly as it already rendered.
   const [imagesStatus, setImagesStatus] = useState<string | null>(null);
   useEffect(() => {
-    if (!id) return;
+    if (!id || versionId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let polls = 0;
@@ -508,7 +542,7 @@ export default function WebsitePreview() {
     };
     tick();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [id]);
+  }, [id, versionId]);
 
   const theme = useMemo<Theme>(() => {
     const t = site?.theme;
@@ -520,6 +554,7 @@ export default function WebsitePreview() {
       layout: t.layout ?? "centered",
       motion: t.motion ?? "subtle",
       design_rationale: t.design_rationale,
+      spacing: t.spacing,
     };
   }, [site]);
 
@@ -669,6 +704,37 @@ export default function WebsitePreview() {
     };
   }, [theme, activePage]);
 
+  // Hooks must all run before the loading/error early returns below. This one
+  // used to sit after them, so a visitor with no cached copy (loading -> loaded)
+  // rendered MORE hooks than on the previous render and React threw "Rendered
+  // more hooks than during the previous render" -- the preview showed "Something
+  // went wrong" for anyone whose browser had not seeded the preview cache.
+  const ctaNav: CtaNav = useMemo(() => ({
+    pages: pages.map((pg) => ({ slug: pg.slug, title: pg.title })),
+    go: (url: string) => {
+      if (!url) return;
+      if (url.startsWith("#")) {
+        const el = document.getElementById(url.slice(1));
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      const page = pages.find((pg) => pg.slug === url);
+      if (page) {
+        setActiveSlug(page.slug);
+        try {
+          const sp = new URLSearchParams(window.location.search);
+          sp.set("page", page.slug);
+          window.history.replaceState({}, "", `${window.location.pathname}?${sp.toString()}`);
+        } catch {
+          /* ignore */
+        }
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    },
+    websiteId: id,
+    pageSlug: activeSlug,
+  }), [pages, id, activeSlug]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white gap-3">
@@ -695,31 +761,6 @@ export default function WebsitePreview() {
     layout === "minimal-luxury" ? "max-w-4xl" :
     "max-w-6xl";
 
-  const ctaNav: CtaNav = useMemo(() => ({
-    pages: pages.map((pg) => ({ slug: pg.slug, title: pg.title })),
-    go: (url: string) => {
-      if (!url) return;
-      if (url.startsWith("#")) {
-        const el = document.getElementById(url.slice(1));
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-        return;
-      }
-      const page = pages.find((pg) => pg.slug === url);
-      if (page) {
-        setActiveSlug(page.slug);
-        try {
-          const sp = new URLSearchParams(window.location.search);
-          sp.set("page", page.slug);
-          window.history.replaceState({}, "", `${window.location.pathname}?${sp.toString()}`);
-        } catch {
-          /* ignore */
-        }
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      }
-    },
-    websiteId: id,
-    pageSlug: activeSlug,
-  }), [pages, id, activeSlug]);
 
   // Scoped CSS — palette + fonts + animations
   const scopedCss = `
@@ -912,6 +953,7 @@ export default function WebsitePreview() {
               containerMax={containerMax}
               index={idx}
               displayFont={theme.font.display}
+              uniformSpacing={theme.spacing === "professional"}
               motif={motif}
             />
           </SectionRenderBoundary>
@@ -980,16 +1022,20 @@ export default function WebsitePreview() {
 }
 
 function SectionBlock({
-  section, palette, layout, containerMax, index, displayFont, motif,
+  section, palette, layout, containerMax, index, displayFont, motif, uniformSpacing,
 }: {
   section: Section; palette: Palette; layout: string; containerMax: string; index: number; displayFont?: string;
   motif?: { key: string; path: string };
+  uniformSpacing?: boolean;
 }) {
   const c = section.content ?? {};
   const variant = section.variant ?? "";
   // Density contrast: stats/logos tighter, hero/about/testimonials spacious
   const dense = section.type === "stats" || section.type === "logos";
-  const container = `${containerMax} mx-auto px-6 ${dense ? "py-10 md:py-14" : "py-20 md:py-28"}`;
+  // theme.spacing === "professional" (the "Make it more professional" pass):
+  // every section gets the same vertical rhythm instead of the dense/spacious
+  // alternation, which reads as uneven when the content is thin.
+  const container = `${containerMax} mx-auto px-6 ${uniformSpacing ? "py-16 md:py-24" : dense ? "py-10 md:py-14" : "py-20 md:py-28"}`;
   const headingCls = "nz-h text-3xl md:text-5xl font-bold tracking-tight mb-6";
   const eyebrow = "nz-mono text-[11px] uppercase tracking-[0.28em] mb-3";
   const heading = headingCls; // legacy alias used below

@@ -33,9 +33,18 @@ export const MIN_SECTIONS_NON_HOME = 2;
 // photographer" came back as home + contact + legal only.
 export const MIN_CONTENT_PAGES = 2;
 
-export function findStructuralIssues(manifest: ManifestLike, template?: StructureId): string[] {
+export function findStructuralIssues(manifest: ManifestLike, template?: StructureId, opts: { outlineMode?: boolean } = {}): string[] {
   const home = manifest.pages[0];
   if (!home) return [];
+  // The user approved an explicit outline (progressive flow): that outline IS
+  // the structure, so neither the template's page rules nor the generic ones
+  // apply -- only the basics that hold for any site.
+  if (opts.outlineMode) {
+    return [
+      ...(home.sections[0]?.type !== "hero" ? [`The "home" page must start with a "hero" section (it currently starts with "${home.sections[0]?.type ?? "nothing"}").`] : []),
+      ...thinPageIssues(manifest),
+    ];
+  }
   // A user-chosen structure (Smart Structure Selector) replaces the generic
   // home/page-count rules with that template's own; the "every other page has
   // at least 2 sections" rule below applies either way.
@@ -235,13 +244,13 @@ export type FloorOptions = {
   template?: StructureId;
   /** Strict Mode: also apply the hardest wording/wiring/visual rules. */
   strict?: boolean;
-  /** Progressive refinement: the outline the user approved in stage 1. */
+  /** Progressive refinement: the outline the user approved in stage 1. It replaces the template's/generic page rules. */
   outline?: Outline;
 };
 
 export function assessProfessionalFloor(manifest: ManifestLike, sourceText: string, options: FloorOptions = {}): { pass: boolean; issues: string[] } {
   const issues = [
-    ...findStructuralIssues(manifest, options.template),
+    ...findStructuralIssues(manifest, options.outline ? undefined : options.template, { outlineMode: !!options.outline }),
     ...(options.outline ? findOutlineConformanceIssues(manifest, options.outline) : []),
     ...describeUngroundedClaims(findUngroundedClaims(manifest.pages, sourceText)),
     ...findPlaceholderCopy(manifest),
