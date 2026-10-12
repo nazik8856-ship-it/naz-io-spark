@@ -10,9 +10,18 @@ import { computeTrustScore, isRedactableMatch } from "../_shared/outer-control-s
 import { enforceImageRelevance, collectAssetUrls } from "../_shared/image-relevance.ts";
 import { repairContent } from "../_shared/repair-engine.ts";
 import { critiqueAndRevise, findUngroundedFacts } from "../_shared/generation-critique.ts";
-import { assessProfessionalFloor, repairUngroundedClaims } from "../_shared/generation-floor.ts";
+import { assessProfessionalFloor, findStructuralIssues, repairUngroundedClaims } from "../_shared/generation-floor.ts";
+import { findOutlineConformanceIssues } from "../_shared/generation-templates.ts";
 import { generationCacheKeyFor, findCachedGeneration, storeCachedGeneration } from "../_shared/generation-cache.ts";
-import { reportProgress } from "../_shared/generation-progress.ts";
+import { reportProgress, reportChecks } from "../_shared/generation-progress.ts";
+import {
+  defaultOutline, findOutlineTemplateIssues, getTemplate, isStructureId, OUTLINE_ADDABLE_TYPES, outlinePromptBlock,
+  sanitizeOutline, structurePromptBlock, type Outline, type StructureId,
+} from "../_shared/generation-templates.ts";
+import {
+  findVisualIssues, GUARD_PREFIX, initialChecks, repairVisual, setCheck, statusFromCounts, STRICT_PROMPT_BLOCK, VISUAL_FIX_PREFIX,
+  type QualityCheck,
+} from "../_shared/generation-quality.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -79,6 +88,8 @@ type Theme = {
   layout?: string;
   motion?: string;
   design_rationale?: string;
+  /** "professional" = uniform section rhythm (set by the "Make it more professional" pass; read by WebsitePreview). */
+  spacing?: string;
 };
 type Manifest = {
   name: string;
@@ -554,6 +565,7 @@ function normalize(raw: unknown, prompt: string): Manifest {
     layout: typeof themeRaw.layout === "string" ? themeRaw.layout : "asymmetric",
     motion: typeof themeRaw.motion === "string" ? themeRaw.motion : "subtle",
     design_rationale: typeof themeRaw.design_rationale === "string" ? themeRaw.design_rationale : undefined,
+    spacing: themeRaw.spacing === "professional" ? "professional" : undefined,
   };
   const pagesIn = Array.isArray(r.pages) ? r.pages : [];
   // Slugs must be unique -- they're the page's route, its nav link, and its
@@ -641,12 +653,12 @@ function normalize(raw: unknown, prompt: string): Manifest {
 // response by more than its own round trip. Best-effort by design -- a failure
 // here must never fail a generation that already saved; the site simply keeps
 // its decorative illustrations and the preview shows no spinner.
-async function kickOffImageGeneration(websiteId: string, authHeader: string): Promise<void> {
+async function kickOffImageGeneration(websiteId: string, authHeader: string, extra: Record<string, unknown> = {}): Promise<void> {
   try {
     await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-site-images`, {
       method: "POST",
       headers: { Authorization: authHeader, "Content-Type": "application/json", apikey: Deno.env.get("SUPABASE_ANON_KEY") ?? "" },
-      body: JSON.stringify({ website_id: websiteId }),
+      body: JSON.stringify({ website_id: websiteId, ...extra }),
       signal: AbortSignal.timeout(8000),
     });
   } catch (e) {
@@ -757,6 +769,83 @@ async function snapshotWebsiteVersion(
   }
 }
 
+// ---- Generator UX (2026-10-12) helpers -----------------------------------------
+
+/** Instruction blocks appended to the system prompt for every generation/revision call. */
+function directiveBlocks(structure: StructureId | null, strict: boolean, outline: Outline | null): string {
+  return [
+    structure ? structurePromptBlock(structure) : "",
+    outline ? outlinePromptBlock(outline) : "",
+    strict ? STRICT_PROMPT_BLOCK : "",
+  ].filter(Boolean).join("\n\n");
+}
+
+const OUTLINE_DOC = (templateBlock: string) => `You plan website structures. Return STRICT JSON only: {"pages":[{"slug":string,"title":string,"sections":[{"type":string,"variant"?:string}]}]}
+Allowed section types: hero, about, feature-split, services, gallery, process, faq, pricing, cta, contact. Use testimonials, stats or logos ONLY when the brief itself supplies real ones.
+Rules: the first page has slug "home" and starts with a "hero"; the last page has slug "contact" with one "contact" section; slugs are kebab-case; page titles are specific to this business (for example "Menu" for a café, "Treatments" for a clinic); no empty pages; at most 6 pages and 10 sections per page.
+${templateBlock}`;
+
+/** Stage 1 of the progressive flow. Never throws; a model failure yields the template's default outline. */
+async function proposeOutline(
+  gw: NonNullable<ReturnType<typeof pickAiGateway>>,
+  brief: string,
+  structure: StructureId,
+): Promise<{ outline: Outline; structure: StructureId; source: "model" | "default"; note: string | null; addable_types: readonly string[] }> {
+  const fallback = defaultOutline(structure);
+  const label = getTemplate(structure).label;
+  const base = { structure, addable_types: OUTLINE_ADDABLE_TYPES };
+  try {
+    const resp = await callAiGateway({
+      model: gw.model,
+      messages: [
+        { role: "system", content: OUTLINE_DOC(structurePromptBlock(structure)) },
+        { role: "user", content: `BRIEF:\n${brief.slice(0, 3000)}` },
+      ],
+      temperature: 0.3,
+      response_format: { type: "json_object" },
+    }, gw);
+    if (!resp.ok) throw new Error(`gateway ${resp.status}`);
+    const data = await resp.json();
+    const raw = data?.choices?.[0]?.message?.content ?? "{}";
+    const outline = sanitizeOutline(JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw))));
+    if (!outline) throw new Error("unusable outline");
+    if (findOutlineTemplateIssues(outline, structure).length) {
+      return { ...base, outline: fallback, source: "default", note: `The suggested pages didn't fit the "${label}" structure, so the standard ${label} outline is shown. Adjust it below.` };
+    }
+    return { ...base, outline, source: "model", note: null };
+  } catch (e) {
+    console.error("outline proposal failed", e);
+    return { ...base, outline: fallback, source: "default", note: `Couldn't tailor the outline to your brief this time, so the standard ${label} outline is shown. Adjust it below.` };
+  }
+}
+
+/** One bounded revision call that fixes exactly the listed issues. Returns null on any failure. */
+async function reviseManifestWithIssues(
+  gw: NonNullable<ReturnType<typeof pickAiGateway>>,
+  directive: string,
+  issues: string[],
+  current: Manifest,
+  brief: string,
+): Promise<Manifest | null> {
+  try {
+    const reviseResp = await callAiGateway({
+      model: gw.deepModel,
+      messages: [
+        { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}${directive ? `\n\n${directive}` : ""}` },
+        { role: "user", content: `Revise this website manifest to fix ONLY the specific issues listed below -- keep everything else intact. Return only the corrected JSON object.\n\nISSUES TO FIX:\n${issues.join("\n")}\n\nCURRENT MANIFEST:\n${JSON.stringify(current)}\n\nORIGINAL BRIEF:\n${brief.slice(0, 2000)}` },
+      ],
+      temperature: 0.3,
+      response_format: { type: "json_object" },
+    }, gw);
+    if (!reviseResp.ok) return null;
+    const data = await reviseResp.json();
+    const raw = data?.choices?.[0]?.message?.content ?? "{}";
+    return normalize(JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw))), brief);
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
@@ -765,6 +854,15 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const { prompt, save = true, previousWebsiteId, refine = false, recentTurns = [], attachments = [], requestId = null } = body || {};
+    // Generator UX (2026-10-12): the user's structure choice, Strict Mode,
+    // the stage-1 outline step, and the staged-flow marker. All optional --
+    // a request without them behaves exactly as before.
+    const structure: StructureId | null = isStructureId(body?.structure) ? body.structure : null;
+    const strict = body?.strict === true;
+    const outlineMode = body?.mode === "outline";
+    const approvedOutline: Outline | null = body?.outline ? sanitizeOutline(body.outline) : null;
+    const staged = body?.staged === true;
+    const improveMode = body?.improve === "professional";
     const visualAttachments = Array.isArray(attachments)
       ? attachments.filter((a: any) => a && a.kind === "image" && (a.assetUrl || a.url)).slice(0, 6)
       : [];
@@ -792,6 +890,15 @@ serve(async (req) => {
     const { data: userData } = await supabase.auth.getUser();
     const user = userData?.user;
     await reportProgress(admin, requestId, user?.id, "understanding");
+
+    // Progressive refinement, stage 1 (Structure): propose the page/section
+    // outline for the chosen structure. No content is written, nothing is
+    // saved and no credit is charged -- the user reviews/edits the outline,
+    // then a second request (outline + staged) generates the content.
+    if (outlineMode) {
+      if (!user) return json({ error: "Not authenticated — sign in to generate." }, 401);
+      return json(await proposeOutline(gw, prompt, structure ?? "full-business"));
+    }
 
     // Blueprint task #2: give page generation the same account-rules-
     // awareness compile-agent-manifest's Generator got (task #49). A
@@ -854,6 +961,121 @@ serve(async (req) => {
     // this function. Fetched once here and reused by both.
     let existing: Record<string, unknown> | null = null;
     let existingPages: Record<string, unknown>[] | null = null;
+
+    // ============ PROFESSIONAL PASS ("Make it more professional") ============
+    // Re-runs an EXISTING site through the strict rules: deterministic
+    // colour/variant repair, the strict floor (+ the site's saved structure
+    // template) with bounded revisions, invented-claim removal, the image
+    // relevance gate, and uniform section spacing (theme.spacing). A
+    // snapshot is taken first so the result can be compared and undone.
+    if (improveMode) {
+      if (!user || !previousWebsiteId) return json({ error: "Sign in and open a website to improve it." }, 401);
+      const { data: siteRow } = await supabase.from("websites").select("*").eq("id", previousWebsiteId).eq("user_id", user.id).maybeSingle();
+      if (!siteRow) return json({ error: "Website not found" }, 404);
+      const { data: pageRowsRaw } = await supabase.from("website_pages").select("*").eq("website_id", previousWebsiteId).order("order_index", { ascending: true });
+      const pageRows = pageRowsRaw ?? [];
+      const brief = String(siteRow.prompt || prompt);
+      const siteStructure: StructureId | null = isStructureId(siteRow.structure_template) ? siteRow.structure_template : null;
+      const before = normalize({
+        name: siteRow.name, tagline: siteRow.tagline, theme: siteRow.theme,
+        pages: pageRows.map((p: any) => ({ slug: p.slug, title: p.title, seo_description: p.seo_description, sections: p.sections || [] })),
+      }, brief);
+
+      await reportProgress(admin, requestId, user.id, "refining");
+      let proChecks: QualityCheck[] = initialChecks();
+      const publishPro = async (stage: string) => { await reportChecks(admin, requestId, user.id, stage, proChecks); };
+      const proNotes: string[] = [];
+
+      const vBefore = findVisualIssues(before).length;
+      const visual = repairVisual(before);
+      let working: Manifest = visual.manifest;
+      visual.notes.forEach((n) => proNotes.push(VISUAL_FIX_PREFIX + n));
+      proChecks = setCheck(proChecks, "visual", statusFromCounts(vBefore, findVisualIssues(working).length), visual.notes[0] ?? "Palette, contrast, layout and hero variants are consistent");
+      proChecks = setCheck(setCheck(proChecks, "structure", "checking"), "claims", "checking");
+      await publishPro("refining");
+
+      const proOpts = { template: siteStructure ?? undefined, strict: true };
+      const proDirective = [siteStructure ? structurePromptBlock(siteStructure) : "", STRICT_PROMPT_BLOCK].filter(Boolean).join("\n\n");
+      const structBefore = findStructuralIssues(working, siteStructure ?? undefined).length;
+      let issues = assessProfessionalFloor(working, brief, proOpts).issues;
+      const issuesStart = issues.length;
+      for (let attempt = 0; attempt < 3 && issues.length; attempt++) {
+        const revised = await reviseManifestWithIssues(gw, proDirective, issues, working, brief);
+        if (!revised || !revised.name || !revised.pages?.length) break;
+        const repairedRevision = repairVisual(revised).manifest;
+        const nextIssues = assessProfessionalFloor(repairedRevision, brief, proOpts).issues;
+        if (nextIssues.length > issues.length) break;
+        working = repairedRevision;
+        issues = nextIssues;
+      }
+      if (issuesStart > issues.length) proNotes.push(`${GUARD_PREFIX}Fixed ${issuesStart - issues.length} of ${issuesStart} quality issue(s) (wording, links, structure).`);
+
+      const claimFix = repairUngroundedClaims(working, brief);
+      working = claimFix.manifest;
+      claimFix.notes.forEach((n) => proNotes.push(GUARD_PREFIX + n));
+
+      working = { ...working, theme: { ...working.theme, spacing: "professional" } };
+      if (before.theme.spacing !== "professional") proNotes.push(`${VISUAL_FIX_PREFIX}Applied one consistent vertical rhythm to every section.`);
+
+      const gated = applySafetyGate(working, gateSafetyRules);
+      if (gated.blocked) return json({ error: "blocked_by_safety_rule", message: gated.blockReason }, 422);
+      const imageGate = enforceImageRelevance(gated.manifest.pages, collectAssetUrls(before.pages));
+      const polished: Manifest = { ...gated.manifest, pages: imageGate.pages };
+      imageGate.notes.forEach((n) => proNotes.push(GUARD_PREFIX + n));
+
+      const structAfter = findStructuralIssues(polished, siteStructure ?? undefined);
+      proChecks = setCheck(proChecks, "structure", statusFromCounts(structBefore, structAfter.length),
+        structAfter.length ? `${structAfter.length} structure issue(s) remain` : siteStructure ? `Follows the ${getTemplate(siteStructure).label} structure` : "Complete home page and supporting pages");
+      proChecks = setCheck(proChecks, "claims", claimFix.removed.length ? "fixed" : "passed", claimFix.removed.length ? `Removed ${claimFix.removed.length} invented item(s)` : "No invented testimonials, statistics or placeholder copy");
+      proChecks = setCheck(proChecks, "images", imageGate.notes.length ? "fixed" : "passed", imageGate.notes.length ? `Replaced ${imageGate.notes.length} unverified image(s)` : "Images are checked against your brief");
+      await publishPro("reviewing");
+
+      const remaining = assessProfessionalFloor(polished, brief, proOpts).issues;
+      const keptNotes = (Array.isArray(siteRow.generation_notes) ? siteRow.generation_notes : [])
+        .filter((n: unknown) => typeof n === "string" && !n.startsWith(GUARD_PREFIX) && !n.startsWith(VISUAL_FIX_PREFIX) && !n.startsWith("Quality check:"));
+      const generationNotes = [...new Set([...keptNotes, ...gated.notes, ...proNotes, ...(remaining.length ? [`Quality check: ${remaining.join(" ")}`] : [])])];
+
+      const unchanged = JSON.stringify(normalize(before, brief)) === JSON.stringify(polished);
+      if (unchanged) {
+        await supabase.from("websites").update({ generation_stage: "polished" }).eq("id", previousWebsiteId).eq("user_id", user.id);
+        return json({
+          improved: false, website_id: previousWebsiteId, quality_checks: proChecks, generation_notes: generationNotes,
+          summary: "This site already meets the professional standard — nothing needed to change.",
+        });
+      }
+
+      await reportProgress(admin, requestId, user.id, "saving");
+      await snapshotWebsiteVersion(supabase, String(previousWebsiteId), user.id, "Before professional pass", siteRow, pageRows);
+      const rows = polished.pages.map((p, i) => ({
+        website_id: previousWebsiteId, slug: p.slug, title: p.title, seo_description: p.seo_description ?? null, sections: p.sections, order_index: i,
+      }));
+      const { error: upErr } = await supabase.from("website_pages").upsert(rows, { onConflict: "website_id,slug" });
+      if (upErr) return json({ error: upErr.message }, 500);
+      const keepSlugs = new Set(polished.pages.map((p) => p.slug));
+      const staleIds = pageRows.filter((p: any) => !keepSlugs.has(p.slug)).map((p: any) => p.id);
+      if (staleIds.length) await supabase.from("website_pages").delete().in("id", staleIds);
+      const { error: wErr } = await supabase.from("websites").update({
+        name: polished.name, title: polished.name, tagline: polished.tagline, theme: polished.theme,
+        generation_notes: generationNotes, trust_score: gated.trustScore, generation_stage: "polished",
+      }).eq("id", previousWebsiteId).eq("user_id", user.id);
+      if (wErr) return json({ error: wErr.message }, 500);
+
+      await kickOffImageGeneration(String(previousWebsiteId), authHeader, { polish: true });
+      return json({
+        improved: true,
+        website_id: previousWebsiteId,
+        manifest: polished,
+        pages: polished.pages,
+        generation_notes: generationNotes,
+        quality_checks: proChecks,
+        trust_score: gated.trustScore,
+        polish_notes: proNotes,
+        remaining_issues: remaining,
+        summary: proNotes.length
+          ? `Professional pass applied ${proNotes.length} improvement${proNotes.length === 1 ? "" : "s"}. Compare it with the previous version, or restore that version from History.`
+          : "Professional pass finished.",
+      });
+    }
 
     // ============ REFINE PATH ============
     if (refine && previousWebsiteId && user) {
@@ -1121,12 +1343,19 @@ serve(async (req) => {
     // had nothing concrete to change in their next attempt. Set alongside
     // usedFallback in the catch block below.
     let fallbackReason: string | null = null;
+    let visualRepairNotes: string[] = [];
     // GAP 8 (Speed & Reliability Layer): skip the expensive AI call(s)
     // entirely on an identical repeated request (a double-submit, or a
     // retry after a network blip) -- scoped by the exact brief text, so a
     // genuinely different brief (including a rebuild with new intent)
     // never collides with an older one.
-    const generationCacheKey = user ? await generationCacheKeyFor({ compilePrompt }) : null;
+    const directive = directiveBlocks(structure, strict, approvedOutline);
+    const floorOpts = { template: structure ?? undefined, strict, outline: approvedOutline ?? undefined };
+    // Live Quality Preview Strip: the four check states, published to
+    // generation_progress as each one resolves so GeneratorHome can render them.
+    let checks: QualityCheck[] = initialChecks();
+    const publishChecks = async (stage: string) => { if (user) await reportChecks(admin, requestId, user.id, stage, checks); };
+    const generationCacheKey = user ? await generationCacheKeyFor({ compilePrompt, structure, strict, outline: approvedOutline }) : null;
     if (generationCacheKey && user) {
       manifest = await findCachedGeneration<Manifest>(admin, user.id, "website", generationCacheKey);
     }
@@ -1145,10 +1374,10 @@ serve(async (req) => {
         // ai-gateway.ts's deep tier exists for, not the fast/cheap default.
         model: gw.deepModel,
         messages: [
-          { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}` },
+          { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}${directive ? `\n\n${directive}` : ""}` },
           { role: "user", content: `Compile this website brief into the JSON manifest. Follow user-specified style STRICTLY; invent a distinct identity where the brief is silent. Return only the JSON object.\n\nBRIEF:\n${compilePrompt}${accountRulesBlock}` },
         ],
-        temperature: 0.85,
+        temperature: strict ? 0.4 : 0.85,
         // Was missing here (present on the refine and intent-routing calls)
         // -- relying solely on the "Return STRICT JSON only" prompt
         // instruction meant a higher chance of invalid JSON on exactly the
@@ -1195,30 +1424,34 @@ serve(async (req) => {
     // manifest or a cache hit (GAP 8 -- the cached value was already
     // critiqued-and-revised before it was stored). Any failure anywhere
     // in this pass keeps the original manifest unchanged.
+    // Generator UX (2026-10-12): visual consistency is repaired
+    // deterministically BEFORE the floor runs, so the revision calls below
+    // never spend a model turn on something arithmetic can fix (contrast,
+    // an unsupported variant). Applies to fresh, cached, and fallback
+    // manifests alike.
+    {
+      const visualBefore = findVisualIssues(manifest).length;
+      const visualRepair = repairVisual(manifest);
+      manifest = visualRepair.manifest;
+      visualRepairNotes = visualRepair.notes;
+      const visualAfter = findVisualIssues(manifest).length;
+      checks = setCheck(checks, "visual", statusFromCounts(visualBefore, visualAfter),
+        visualRepair.notes.length ? visualRepair.notes[0] : visualAfter ? `${visualAfter} wording/rhythm issue(s) left to review` : "Palette, contrast, layout and hero variants are consistent");
+    }
+    const structIssuesOf = (m: Manifest) => [
+      ...findStructuralIssues(m, structure ?? undefined),
+      ...(approvedOutline ? findOutlineConformanceIssues(m, approvedOutline) : []),
+    ];
+    const structureBefore = structIssuesOf(manifest).length;
+    checks = setCheck(setCheck(checks, "structure", "checking"), "claims", "checking");
+    await publishChecks("refining");
+
     if (!usedFallback && !servedFromCache) {
       if (user) await reportProgress(admin, requestId, user.id, "refining");
       const critiqueContext = `\n\nORIGINAL BRIEF:\n${compilePrompt.slice(0, 2000)}`;
       const isValidRevision = (candidate: Manifest) => Boolean(candidate.name && candidate.pages?.length);
-      const revise = async (issues: string[]): Promise<Manifest | null> => {
-        const reviseResp = await callAiGateway({
-          model: gw.deepModel,
-          messages: [
-            { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}` },
-            { role: "user", content: `Revise this website manifest to fix ONLY the specific issues listed below -- keep everything else intact. Return only the corrected JSON object.\n\nISSUES TO FIX:\n${issues.join("\n")}\n\nCURRENT MANIFEST:\n${JSON.stringify(manifest)}${critiqueContext}` },
-          ],
-          temperature: 0.3,
-          response_format: { type: "json_object" },
-        }, gw);
-        if (!reviseResp.ok) return null;
-        const data = await reviseResp.json();
-        const raw = data?.choices?.[0]?.message?.content ?? "{}";
-        try {
-          const parsed = JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw)));
-          return normalize(parsed, compilePrompt);
-        } catch {
-          return null;
-        }
-      };
+      const revise = (issues: string[]): Promise<Manifest | null> =>
+        reviseManifestWithIssues(gw, directive, issues, manifest!, compilePrompt);
 
       // Generator Quality (2026-10-11): the deterministic floor
       // (_shared/generation-floor.ts) replaces the old home-page-only
@@ -1231,21 +1464,26 @@ serve(async (req) => {
       // makes things worse (more issues) is discarded. The soft critique
       // (critiqueAndRevise, unchanged) still runs for tone/specificity when
       // the floor already passes.
-      let floorIssues = assessProfessionalFloor(manifest, compilePrompt).issues;
+      // Generator UX (2026-10-12): the floor also enforces the user's chosen
+      // structure template, the approved outline, and (Strict Mode) the
+      // strict wording/wiring/visual rules. Strict Mode gets a third attempt.
+      let floorIssues = assessProfessionalFloor(manifest, compilePrompt, floorOpts).issues;
       if (floorIssues.length) {
-        for (let attempt = 0; attempt < 2 && floorIssues.length; attempt++) {
+        const maxAttempts = strict ? 3 : 2;
+        for (let attempt = 0; attempt < maxAttempts && floorIssues.length; attempt++) {
           const revised = await revise(floorIssues);
           if (!revised || !isValidRevision(revised)) break;
-          const nextIssues = assessProfessionalFloor(revised, compilePrompt).issues;
+          const repairedRevision = repairVisual(revised).manifest;
+          const nextIssues = assessProfessionalFloor(repairedRevision, compilePrompt, floorOpts).issues;
           if (nextIssues.length > floorIssues.length) break;
-          manifest = revised;
+          manifest = repairedRevision;
           floorIssues = nextIssues;
         }
       } else {
         const { result: revisedManifest } = await critiqueAndRevise(
           callAiGateway, gw, manifest, critiqueContext, revise, isValidRevision,
         );
-        if (revisedManifest) manifest = revisedManifest;
+        if (revisedManifest) manifest = repairVisual(revisedManifest).manifest;
       }
     }
 
@@ -1258,10 +1496,20 @@ serve(async (req) => {
     // cached so a regenerate gets a fresh attempt.
     const claimRepair = repairUngroundedClaims(manifest, compilePrompt);
     manifest = claimRepair.manifest;
-    const floorNotes: string[] = [...claimRepair.notes];
-    const remainingFloorIssues = assessProfessionalFloor(manifest, compilePrompt).issues;
+    const floorNotes: string[] = [
+      ...claimRepair.notes.map((n) => GUARD_PREFIX + n),
+      ...visualRepairNotes.map((n) => VISUAL_FIX_PREFIX + n),
+    ];
+    const remainingFloorIssues = assessProfessionalFloor(manifest, compilePrompt, floorOpts).issues;
     if (remainingFloorIssues.length) {
       floorNotes.push(`Quality check: ${remainingFloorIssues.join(" ")} Ask the chat to fix this, or regenerate with more detail.`);
+    }
+    {
+      const structureAfter = structIssuesOf(manifest);
+      checks = setCheck(checks, "structure", statusFromCounts(structureBefore, structureAfter.length),
+        structureAfter.length
+          ? `${structureAfter.length} structure issue(s) could not be fixed automatically`
+          : structure ? `Follows the ${getTemplate(structure).label} structure${structureBefore ? " (corrected)" : ""}` : `${manifest.pages.length} pages, complete home page${structureBefore ? " (corrected)" : ""}`);
     }
 
     // GAP 7: post-generation fact-check -- grounds the site's copy
@@ -1303,6 +1551,17 @@ serve(async (req) => {
     const imageGated = enforceImageRelevance(manifest.pages, verifiedImageUrls);
     manifest = { ...manifest, pages: imageGated.pages };
     const generationNotes = [...freshGated.notes, ...floorNotes, ...factCheckNotes, ...imageGated.notes];
+    {
+      // Live Quality Preview Strip: claims and images resolve last.
+      const removed = claimRepair.removed.length;
+      checks = setCheck(checks, "claims", factCheckNotes.length ? "flagged" : removed ? "fixed" : "passed",
+        factCheckNotes.length
+          ? "Contact details look like placeholders — edit them before publishing"
+          : removed ? `Removed ${removed} invented testimonial/statistic item(s)` : "No invented testimonials, statistics or placeholder copy");
+      checks = setCheck(checks, "images", imageGated.notes.length ? "fixed" : "passed",
+        imageGated.notes.length ? `Replaced ${imageGated.notes.length} unverified stock photo(s) with matching illustrations` : "No unverified stock photos; matching images are generated after saving");
+    }
+    await publishChecks("reviewing");
     // GAP 7 (Graceful Degradation, 2026-10-10): same surface the account
     // rules/safety-rule/image-relevance findings above already render
     // through -- a specific reason instead of a silent generic template.
@@ -1312,7 +1571,7 @@ serve(async (req) => {
       );
     }
 
-    if (!save) return json({ manifest, generation_notes: generationNotes, trust_score: freshGated.trustScore, used_fallback: usedFallback, fallback_reason: fallbackReason });
+    if (!save) return json({ manifest, generation_notes: generationNotes, trust_score: freshGated.trustScore, used_fallback: usedFallback, fallback_reason: fallbackReason, quality_checks: checks });
     // A caller that asked to save (the frontend's default) but has no
     // resolved session used to fall into the same branch as "preview only"
     // above, silently returning {manifest} with no website_id and no error
@@ -1367,6 +1626,8 @@ serve(async (req) => {
           prompt: compilePrompt,
           generation_notes: generationNotes,
           trust_score: freshGated.trustScore,
+          ...(structure ? { structure_template: structure } : {}),
+          ...(strict ? { strict_mode: true } : {}),
         })
         .eq("id", rebuildWebsiteId)
         .eq("user_id", user.id);
@@ -1379,6 +1640,7 @@ serve(async (req) => {
         trust_score: freshGated.trustScore,
         website_id: rebuildWebsiteId,
         pages: manifest.pages,
+        quality_checks: checks,
         intent: "rebuild",
         rebuilt: true,
         summary: usedFallback
@@ -1410,6 +1672,9 @@ serve(async (req) => {
         html: "",
         generation_notes: generationNotes,
         trust_score: freshGated.trustScore,
+        structure_template: structure,
+        strict_mode: strict,
+        generation_stage: staged ? "content" : null,
       })
       .select("id")
       .single();
@@ -1447,6 +1712,8 @@ serve(async (req) => {
       trust_score: freshGated.trustScore,
       website_id: siteRow.id,
       pages: pagesOut,
+      quality_checks: checks,
+      structure,
       used_fallback: usedFallback,
       fallback_reason: fallbackReason,
       ...(routeInfo.route === "new"

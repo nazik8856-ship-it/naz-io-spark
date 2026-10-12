@@ -13,9 +13,12 @@
 // index.ts (importing an edge function's index.ts re-runs its top-level
 // Deno.serve registration -- same hazard guardrail-reconciliation.ts documents).
 
-type SectionLike = { type: string; content?: Record<string, unknown> | null };
-type PageLike = { slug: string; sections: SectionLike[] };
-export type ManifestLike = { name?: string; pages: PageLike[] };
+import { findTemplateIssues, findOutlineConformanceIssues, type Outline, type StructureId } from "./generation-templates.ts";
+import { findStrictIssues, findVisualIssues } from "./generation-quality.ts";
+
+type SectionLike = { type: string; variant?: string; content?: Record<string, unknown> | null };
+type PageLike = { slug: string; title?: string; sections: SectionLike[] };
+export type ManifestLike = { name?: string; theme?: Record<string, unknown>; pages: PageLike[] };
 
 // Pages that are legitimately a single section: the auto-injected legal pages
 // and the dedicated contact form page (ensureContactPage).
@@ -30,9 +33,13 @@ export const MIN_SECTIONS_NON_HOME = 2;
 // photographer" came back as home + contact + legal only.
 export const MIN_CONTENT_PAGES = 2;
 
-export function findStructuralIssues(manifest: ManifestLike): string[] {
+export function findStructuralIssues(manifest: ManifestLike, template?: StructureId): string[] {
   const home = manifest.pages[0];
   if (!home) return [];
+  // A user-chosen structure (Smart Structure Selector) replaces the generic
+  // home/page-count rules with that template's own; the "every other page has
+  // at least 2 sections" rule below applies either way.
+  if (template) return [...findTemplateIssues(manifest, template), ...thinPageIssues(manifest)];
   const issues: string[] = [];
   if (home.sections[0]?.type !== "hero") {
     issues.push(`The "home" page must start with a "hero" section (it currently starts with "${home.sections[0]?.type ?? "nothing"}").`);
@@ -56,6 +63,12 @@ export function findStructuralIssues(manifest: ManifestLike): string[] {
   if (contentPages.length < MIN_CONTENT_PAGES) {
     issues.push(`The site has only ${contentPages.length} content page(s) besides contact and legal pages -- add at least ${MIN_CONTENT_PAGES - contentPages.length} more real page(s) the business needs, such as about, services, menu, pricing, gallery, or faq, each with at least ${MIN_SECTIONS_NON_HOME} sections.`);
   }
+  issues.push(...thinPageIssues(manifest));
+  return issues;
+}
+
+function thinPageIssues(manifest: ManifestLike): string[] {
+  const issues: string[] = [];
   for (const page of manifest.pages.slice(1)) {
     if (SINGLE_SECTION_OK_SLUGS.has(page.slug.toLowerCase())) continue;
     if (page.sections.length < MIN_SECTIONS_NON_HOME) {
@@ -217,11 +230,22 @@ export function findPlaceholderCopy(manifest: ManifestLike): string[] {
 
 // ---- The floor --------------------------------------------------------------
 
-export function assessProfessionalFloor(manifest: ManifestLike, sourceText: string): { pass: boolean; issues: string[] } {
+export type FloorOptions = {
+  /** Smart Structure Selector: the user's chosen structure. */
+  template?: StructureId;
+  /** Strict Mode: also apply the hardest wording/wiring/visual rules. */
+  strict?: boolean;
+  /** Progressive refinement: the outline the user approved in stage 1. */
+  outline?: Outline;
+};
+
+export function assessProfessionalFloor(manifest: ManifestLike, sourceText: string, options: FloorOptions = {}): { pass: boolean; issues: string[] } {
   const issues = [
-    ...findStructuralIssues(manifest),
+    ...findStructuralIssues(manifest, options.template),
+    ...(options.outline ? findOutlineConformanceIssues(manifest, options.outline) : []),
     ...describeUngroundedClaims(findUngroundedClaims(manifest.pages, sourceText)),
     ...findPlaceholderCopy(manifest),
+    ...(options.strict ? [...findStrictIssues(manifest, sourceText), ...findVisualIssues(manifest)] : []),
   ];
   if (manifest.name !== undefined && (!manifest.name.trim() || manifest.name === "Untitled Site")) {
     issues.push(`The site has no real name -- derive a specific business name from the brief.`);
