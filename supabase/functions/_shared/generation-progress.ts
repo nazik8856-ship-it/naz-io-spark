@@ -20,3 +20,28 @@ export async function reportProgress(
     }, { onConflict: "request_id" });
   } catch { /* progress reporting must never break a real generation */ }
 }
+
+/**
+ * Live Quality Preview Strip: publishes the four quality-check states for a
+ * request so the client can render them as they change. Same best-effort
+ * contract as reportProgress -- never allowed to fail or slow a generation.
+ * `stage` is required because generation_progress.stage is NOT NULL.
+ */
+export async function reportChecks(
+  admin: SupabaseClient,
+  requestId: string | null | undefined,
+  userId: string | null | undefined,
+  stage: string,
+  checks: unknown,
+): Promise<void> {
+  if (!requestId || !userId) return;
+  try {
+    await admin.from("generation_progress").upsert({
+      request_id: requestId,
+      user_id: userId,
+      stage,
+      checks,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "request_id" });
+  } catch { /* progress reporting must never break a real generation */ }
+}
