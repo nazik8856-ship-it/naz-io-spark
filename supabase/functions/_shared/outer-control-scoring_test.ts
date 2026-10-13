@@ -1,5 +1,5 @@
 // Run with: deno test --allow-env supabase/functions/_shared/outer-control-scoring_test.ts
-import { computeTrustScore, decideVerdict, isRedactableMatch, redactContent } from "./outer-control-scoring.ts";
+import { computeTrustScore, decideVerdict, isRedactableMatch, redactContent, redactWithChanges } from "./outer-control-scoring.ts";
 
 function assertEquals<T>(actual: T, expected: T, msg?: string): void {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
@@ -151,4 +151,28 @@ Deno.test("redactContent: a dangerous pattern alongside a legitimate one -- the 
     { pattern: "sk-[A-Za-z0-9]{16,}", category: "secrets" },
   ]);
   assertEquals(redacted, "a".repeat(50) + "! key [REDACTED:secrets]");
+});
+
+// ---- Outer Control foundation (steps 3/4) -----------------------------------
+
+Deno.test("decideVerdict: a redactable block match WITH a require_approval match -> escalate, not modify", () => {
+  assertEquals(
+    decideVerdict([{ severity: "block", category: "secrets" }, { severity: "require_approval", category: "financial" }]),
+    "escalate",
+  );
+});
+
+Deno.test("isRedactableMatch: a custom block rule is redactable only when it opts in", () => {
+  assertEquals(isRedactableMatch({ severity: "block", category: "custom" }), false);
+  assertEquals(isRedactableMatch({ severity: "block", category: "custom", redact: true }), true);
+  assertEquals(isRedactableMatch({ severity: "require_approval", category: "custom", redact: true }), false);
+});
+
+Deno.test("redactWithChanges: reports a count per rule and leaves untouched rules out", () => {
+  const out = redactWithChanges("a sk-aaaaaaaaaaaaaaaaaaaa b sk-aaaaaaaaaaaaaaaaaaaa", [
+    { rule_id: "r1", name: "Key", pattern: "sk-[a-z]{16,}", category: "secrets" },
+    { rule_id: "r2", name: "Never matches", pattern: "zzzz", category: "pii" },
+  ]);
+  assertEquals(out.text, "a [REDACTED:secrets] b [REDACTED:secrets]");
+  assertEquals(out.changes, [{ rule_id: "r1", name: "Key", category: "secrets", action: "redacted", count: 2 }]);
 });

@@ -17,8 +17,9 @@
 // exact hazard task #48's guardrail-reconciliation.ts extraction hit and
 // documented).
 import { checkKillSwitches, createPendingApproval, matchHardRule } from "./control-gate.ts";
-import { loadSafetyRules, scanWithRules, type SafetyMatch } from "./safety-scanner.ts";
-import { computeTrustScore, decideVerdict, redactContent } from "./outer-control-scoring.ts";
+import { loadSafetyRules, type SafetyMatch } from "./safety-scanner.ts";
+import { redactWithChanges, type RedactionChange } from "./outer-control-scoring.ts";
+import { decideExternalText, describeChanges, type NextStep } from "./outer-control-decision.ts";
 import { computeTrustScore as computeEntityTrustScore, gatherTrustScoreInput, type TrustScoreReport } from "./trust-score.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { embedDecisionIfExternal } from "./decision-embeddings.ts";
@@ -44,6 +45,12 @@ export type TextReviewResult = {
   evaluationId: string | null;
   evaluatedAt: string | null;
   approvalId?: string | null;
+  /** What Modify removed, per rule (empty for every other verdict). */
+  changes: RedactionChange[];
+  /** What the caller should do with this verdict. */
+  nextStep: NextStep;
+  /** Shadow-mode rules that matched -- observed only, never part of the verdict. */
+  shadowMatches: SafetyMatch[];
   criteria: "inner_control_gate_v1" | "inner_control_safety_rules_v1";
   // GAP 4 (Trust Score + Provenance + Control Report): the governing
   // entity's own aggregate, measured-history trust score -- distinct from
@@ -106,9 +113,12 @@ export async function evaluateExternalText(
     content: string;
     /** Passed straight through to createPendingApproval on a hard-rule require_approval match. */
     origin: "agent-runtime" | "external-api";
+    /** Caller-supplied id so a retried call can be recognised (stored on the evaluation row). */
+    externalId?: string | null;
   },
 ): Promise<TextReviewResult> {
   const { userId, agentId, apiKeyId, isTest, sourceModel, content, origin } = params;
+  const externalId = params.externalId ?? null;
 
   // GAP 4: computed once up front and attached to every return below --
   // an agent, when present, is always the governing entity; otherwise it's
@@ -132,11 +142,12 @@ export async function evaluateExternalText(
       content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: null,
       action_type: TEXT_REVIEW_ACTION_TYPE, action_provider: sourceModel, decision_id: decisionId,
       verdict: "block", trust_score: 0, matches: [], summary: killCheck.reason,
+      next_step: "discard", external_id: externalId,
     });
     return {
       verdict: "block", output: null, trustScore: 0, matches: [], summary: killCheck.reason ?? "Kill switch active.",
       evaluationId: evalRow?.id ?? null, evaluatedAt: evalRow?.created_at ?? null, criteria: "inner_control_gate_v1",
-      entityTrustScore,
+      entityTrustScore, changes: [], nextStep: "discard", shadowMatches: [],
     };
   }
 
@@ -165,11 +176,12 @@ export async function evaluateExternalText(
         content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: null,
         action_type: TEXT_REVIEW_ACTION_TYPE, action_provider: sourceModel, decision_id: decisionId,
         verdict: "block", trust_score: 0, matches: [], summary: reason,
+        next_step: "discard", external_id: externalId,
       });
       return {
         verdict: "block", output: null, trustScore: 0, matches: [], summary: reason,
         evaluationId: evalRow?.id ?? null, evaluatedAt: evalRow?.created_at ?? null, criteria: "inner_control_gate_v1",
-        entityTrustScore,
+        entityTrustScore, changes: [], nextStep: "discard", shadowMatches: [],
       };
     }
 
@@ -191,27 +203,26 @@ export async function evaluateExternalText(
       content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: outputText,
       action_type: TEXT_REVIEW_ACTION_TYPE, action_provider: sourceModel, decision_id: decisionId,
       verdict, trust_score: trustScore, matches: [], summary,
+      next_step: verdict === "allow" ? "use_output" : verdict === "block" ? "discard" : "await_approval",
+      approval_id: outcome.approvalId, external_id: externalId,
     });
     return {
       verdict, output: outputText, trustScore, matches: [], summary,
       evaluationId: evalRow?.id ?? null, evaluatedAt: evalRow?.created_at ?? null,
       approvalId: outcome.approvalId, criteria: "inner_control_gate_v1",
-      entityTrustScore,
+      entityTrustScore, changes: [],
+      nextStep: verdict === "allow" ? "use_output" : verdict === "block" ? "discard" : "await_approval",
+      shadowMatches: [],
     };
   }
 
   const rules = await loadSafetyRules(admin, userId, agentId, apiKeyId);
-  const scan = scanWithRules(rules, content, "");
-  const verdict = decideVerdict(scan.matches);
-  const trustScore = computeTrustScore(scan.matches);
-  const outputText = verdict === "allow"
-    ? content
-    : verdict === "modify"
-      ? redactContent(content, scan.matches.map((m) => ({ pattern: m.pattern, category: m.category })))
-      : null;
-  const summary = scan.summary ?? "No safety-criteria issues found in this external output.";
+  const decision = decideExternalText(rules, content);
+  let { verdict, output: outputText, summary, changes, nextStep } = decision;
+  const { trustScore, matches, shadowMatches } = decision;
 
   let textDecisionId: string | null = null;
+  let approvalId: string | null = null;
   if (verdict !== "allow") {
     textDecisionId = await logTextGateDecision(admin, {
       userId, agentId, apiKeyId, isTest, sourceModel, content,
@@ -226,15 +237,47 @@ export async function evaluateExternalText(
     }
   }
 
+  // An escalate from the safety scanner used to return nothing for anyone to
+  // act on: no approval row existed (only the hard-rule path made one). Make
+  // a real one, resolved by the key's own on_uncertain policy when it has one.
+  if (verdict === "escalate") {
+    const outcome = await createPendingApproval(admin, {
+      userId, decisionId: textDecisionId, agentId, actionType: TEXT_REVIEW_ACTION_TYPE, provider: sourceModel,
+      description: content, reason: summary, riskTier: matches.some((m) => m.severity === "block") ? "high" : "medium",
+      origin, apiKeyId,
+    });
+    approvalId = outcome.approvalId;
+    if (outcome.autoResolved) {
+      if (outcome.resolution === "approved") {
+        // Approved by policy: hand back the text with anything removable
+        // removed -- an automatic approval never releases a secret or PII.
+        const redactable = matches.filter((m) => m.severity === "block");
+        const cleaned = redactWithChanges(content, redactable);
+        changes = cleaned.changes;
+        outputText = cleaned.text;
+        verdict = changes.length ? "modify" : "allow";
+        nextStep = "use_output";
+        summary = `Resolved automatically to approved by this API key's configured policy — no human reviewed this.${changes.length ? ` Removed ${describeChanges(changes)}.` : ""}`;
+      } else {
+        verdict = "block";
+        outputText = null;
+        nextStep = "discard";
+        summary = "Resolved automatically to rejected by this API key's configured policy — no human reviewed this.";
+      }
+    }
+  }
+
   const evalRow = await recordEvaluation(admin, {
     user_id: userId, api_key_id: apiKeyId, agent_id: agentId, source_model: sourceModel,
     content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: outputText,
-    decision_id: textDecisionId, verdict, trust_score: trustScore, matches: scan.matches, summary,
+    decision_id: textDecisionId, verdict, trust_score: trustScore, matches, summary,
+    changes, next_step: nextStep, shadow_matches: shadowMatches, approval_id: approvalId, external_id: externalId,
   });
 
   return {
-    verdict, output: outputText, trustScore, matches: scan.matches, summary,
+    verdict, output: outputText, trustScore, matches, summary,
     evaluationId: evalRow?.id ?? null, evaluatedAt: evalRow?.created_at ?? null,
+    approvalId, changes, nextStep, shadowMatches,
     criteria: "inner_control_safety_rules_v1",
     entityTrustScore,
   };

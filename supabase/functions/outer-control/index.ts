@@ -74,6 +74,7 @@ import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writ
 // http_post tool can run the SAME check on whatever an external endpoint
 // hands back, before it re-enters the agent's own reasoning loop.
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
+import { extractExternalText, parseExternalId } from "../_shared/outer-control-intake.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -91,7 +92,6 @@ const json = (body: unknown, status = 200) =>
 // reachable surface and should start conservative.
 const PRE_AUTH_RATE_LIMIT_PER_MINUTE = 60;
 const RATE_LIMIT_PER_MINUTE = 60;
-const MAX_CONTENT_LENGTH = 20_000;
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -350,7 +350,16 @@ Deno.serve(async (req) => {
       }, 429);
     }
 
-    const body = await req.json().catch(() => ({}));
+    // A body that is not valid JSON used to read as {} and surface as a
+    // misleading "source_model_required".
+    let body: Record<string, unknown>;
+    try {
+      const parsed = await req.json();
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+      body = parsed as Record<string, unknown>;
+    } catch {
+      return json({ error: "invalid_json", message: "The request body must be a JSON object." }, 400);
+    }
     const sourceModel = String(body?.source_model || "").trim().slice(0, 80);
     const agentId = typeof body?.agent_id === "string" ? body.agent_id : null;
     const contentKind = body?.content_kind === "action" ? "action" : "text";
@@ -363,12 +372,41 @@ Deno.serve(async (req) => {
       return await handleActionEvaluation(admin, auth, sourceModel, agentId, body);
     }
 
-    const content = typeof body?.content === "string" ? body.content : "";
-    if (!content.trim()) {
-      return json({ error: "content_required", message: "content (the external AI's raw output to evaluate) is required." }, 400);
-    }
-    if (content.length > MAX_CONTENT_LENGTH) {
-      return json({ error: "content_too_long", message: `content must be ${MAX_CONTENT_LENGTH} characters or fewer.` }, 400);
+    const intake = extractExternalText(body.content);
+    if (!intake.ok) return json({ error: intake.code, message: intake.message }, 400);
+    const content = intake.text;
+
+    const ext = parseExternalId(body.external_id);
+    if (!ext.ok) return json({ error: "invalid_external_id", message: ext.message }, 400);
+
+    // A retried call (same external_id on the same key) returns the verdict
+    // already recorded instead of judging and logging the same text twice.
+    if (ext.id && auth.keyId) {
+      const { data: prior } = await admin
+        .from("outer_control_evaluations")
+        .select("id, source_model, verdict, trust_score, output_text, matches, summary, created_at, changes, next_step, shadow_matches, approval_id")
+        .eq("user_id", auth.userId)
+        .eq("api_key_id", auth.keyId)
+        .eq("external_id", ext.id)
+        .maybeSingle();
+      if (prior) {
+        return json({
+          ok: true,
+          id: prior.id,
+          replayed: true,
+          verdict: prior.verdict,
+          trust_score: prior.trust_score,
+          output: prior.output_text,
+          matches: prior.matches ?? [],
+          changes: prior.changes ?? [],
+          next_step: prior.next_step,
+          shadow_matches: prior.shadow_matches ?? [],
+          summary: prior.summary,
+          approval_id: prior.approval_id ?? undefined,
+          suggested_correction: null,
+          provenance: { source_model: prior.source_model, evaluated_at: prior.created_at, criteria: "stored_evaluation" },
+        });
+      }
     }
 
     // ---- Full control gate, text path (task #44; extracted to a shared
@@ -377,7 +415,7 @@ Deno.serve(async (req) => {
     // kill switches, then hard rules, then the safety-rules scan.
     const result = await evaluateExternalText(admin, {
       userId: auth.userId, agentId, apiKeyId: auth.keyId, isTest: auth.isTest,
-      sourceModel, content, origin: "external-api",
+      sourceModel, content, origin: "external-api", externalId: ext.id,
     });
     if (!result.evaluationId) {
       return json({ error: "internal_error", message: "Could not record this evaluation." }, 500);
@@ -385,17 +423,22 @@ Deno.serve(async (req) => {
     return json({
       ok: true,
       id: result.evaluationId,
+      replayed: false,
+      input_format: intake.format,
       verdict: result.verdict,
       trust_score: result.trustScore,
       // GAP 4: this entity's own aggregate, measured-history trust score --
       // see outer-control-text-review.ts's own TextReviewResult doc comment.
       entity_trust_score: result.entityTrustScore,
-      // For text, the "corrected result" the spec asks for is already this
-      // `output` field (redacted content on a "modify" verdict) -- there's
-      // no separate structured params object to suggest a fix for, unlike
-      // the action path's suggested_correction below.
+      // For text, the "corrected result" is this `output` field: the cleaned
+      // text on a "modify" verdict, the original on "allow", null otherwise.
       output: result.output,
       matches: result.matches,
+      // What a Modify actually removed, per rule, and what the caller should
+      // do with this verdict: use_output | await_approval | discard.
+      changes: result.changes,
+      next_step: result.nextStep,
+      shadow_matches: result.shadowMatches,
       summary: result.summary,
       approval_id: result.approvalId ?? undefined,
       suggested_correction: null,

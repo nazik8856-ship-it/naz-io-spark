@@ -26,8 +26,11 @@ export type OuterControlVerdict = "allow" | "modify" | "block" | "escalate";
 // rest of the response safe to act on, so those stay a hard block.
 const REDACTABLE_CATEGORIES = new Set(["secrets", "pii"]);
 
-export function isRedactableMatch(m: { severity: SafetySeverity; category: string }): boolean {
-  return m.severity === "block" && REDACTABLE_CATEGORIES.has(m.category);
+export function isRedactableMatch(m: { severity: SafetySeverity; category: string; redact?: boolean }): boolean {
+  // `redact` is a custom rule's own explicit "remove the matched text instead
+  // of blocking the whole response" choice; without it only the built-in
+  // secrets/pii categories can be cut out.
+  return m.severity === "block" && (m.redact === true || REDACTABLE_CATEGORIES.has(m.category));
 }
 
 /**
@@ -43,21 +46,25 @@ export function computeTrustScore(matches: { severity: SafetySeverity }[]): numb
 /**
  * Pure -- the outer-control verdict for a set of matches.
  * - No matches -> allow.
- * - Any block-severity match wins over any require_approval match, same
- *   precedence scanWithRules already applies when computing its own
- *   overall severity.
- * - Among block-severity matches: only when EVERY one of them is
- *   redactable does this become "modify" -- a single non-redactable block
- *   match (destructive wording alongside a leaked API key, say) forces a
- *   hard block, since redacting the key alone wouldn't make the rest of
- *   that response safe to act on.
- * - Only require_approval-severity matches remain -> escalate.
+ * - Any non-redactable block-severity match -> block (redacting a leaked key
+ *   alone wouldn't make a response that also contains destructive wording
+ *   safe to act on).
+ * - Only redactable block-severity matches -> modify, UNLESS a
+ *   require_approval-severity match is also present: that part can't be cut
+ *   out, so the whole response needs a human -> escalate. (Before this, the
+ *   approval-level match was silently dropped and the response went out as
+ *   "modify".)
+ * - Only require_approval-severity matches -> escalate.
  */
-export function decideVerdict(matches: { severity: SafetySeverity; category: string }[]): OuterControlVerdict {
+export function decideVerdict(
+  matches: { severity: SafetySeverity; category: string; redact?: boolean }[],
+): OuterControlVerdict {
   if (!matches.length) return "allow";
   const blockMatches = matches.filter((m) => m.severity === "block");
+  const needsApproval = matches.some((m) => m.severity === "require_approval");
   if (blockMatches.length) {
-    return blockMatches.every(isRedactableMatch) ? "modify" : "block";
+    if (!blockMatches.every(isRedactableMatch)) return "block";
+    return needsApproval ? "escalate" : "modify";
   }
   return "escalate";
 }
@@ -104,16 +111,22 @@ function isUnsafeRedactionPattern(pattern: string): boolean {
   return false;
 }
 
+export type RedactionRule = { rule_id?: string; name?: string; pattern: string; category: string; redact?: boolean };
+export type RedactionChange = { rule_id: string | null; name: string; category: string; action: "redacted"; count: number };
+
 /**
  * Replaces every span matching a redactable rule with a category-labeled
  * placeholder, globally across the content -- unlike scanWithRules' own
  * per-rule "i"-only regex (built once to find the FIRST hit for reporting),
- * this needs its own "gi" regex per rule to remove every occurrence.
+ * this needs its own "gi" regex per rule to remove every occurrence. Also
+ * reports what it actually did (per rule: how many spans), so the caller can
+ * tell the user exactly what changed instead of leaving them to diff texts.
  */
-export function redactContent(content: string, rules: { pattern: string; category: string }[]): string {
+export function redactWithChanges(content: string, rules: RedactionRule[]): { text: string; changes: RedactionChange[] } {
   let result = content;
+  const changes: RedactionChange[] = [];
   for (const rule of rules) {
-    if (!REDACTABLE_CATEGORIES.has(rule.category)) continue;
+    if (!(rule.redact === true || REDACTABLE_CATEGORIES.has(rule.category))) continue;
     if (isUnsafeRedactionPattern(rule.pattern)) continue;
     let re: RegExp;
     try {
@@ -121,9 +134,18 @@ export function redactContent(content: string, rules: { pattern: string; categor
     } catch {
       continue;
     }
-    result = result.replace(re, `[REDACTED:${rule.category}]`);
+    let count = 0;
+    result = result.replace(re, () => {
+      count++;
+      return `[REDACTED:${rule.category}]`;
+    });
+    if (count > 0) changes.push({ rule_id: rule.rule_id ?? null, name: rule.name ?? rule.category, category: rule.category, action: "redacted", count });
   }
-  return result;
+  return { text: result, changes };
+}
+
+export function redactContent(content: string, rules: RedactionRule[]): string {
+  return redactWithChanges(content, rules).text;
 }
 
 export type { SafetyMatch };

@@ -88,7 +88,8 @@ const EXAMPLE_OUTER_CONTROL_GPT_ACTION_SCHEMA = `{
                 "required": ["source_model", "content"],
                 "properties": {
                   "source_model": { "type": "string", "description": "Which AI produced this, e.g. \\"chatgpt\\"." },
-                  "content": { "type": "string", "description": "The raw response text to check, up to 20,000 characters." }
+                  "content": { "type": "string", "description": "The raw response text to check, up to 50,000 characters." },
+                  "external_id": { "type": "string", "description": "Optional id for this response. A retried call with the same id returns the stored verdict instead of judging it twice." }
                 }
               }
             }
@@ -111,6 +112,9 @@ const EXAMPLE_OUTER_CONTROL_RESPONSE = `{
   "verdict": "escalate",
   "trust_score": 80,
   "output": null,
+  "changes": [],
+  "next_step": "await_approval",
+  "approval_id": "3f1c...",
   "matches": [
     { "rule_id": "builtin:refund_no_id", "category": "financial", "severity": "require_approval", "matched_on": "value", "sample": "refund" }
   ],
@@ -449,7 +453,15 @@ export default function ControlApiDocs() {
           <p className="mt-3">Request body:</p>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-zinc-400">
             <li><span className="font-mono text-cyan-300">source_model</span> (required) — which external AI/tool produced this, e.g. "chatgpt".</li>
-            <li><span className="font-mono text-cyan-300">content</span> (required) — the external AI's raw text output, up to 20,000 characters.</li>
+            <li>
+              <span className="font-mono text-cyan-300">content</span> (required) — the external AI's output, up to
+              50,000 characters. Send the text as a string, or paste the provider's response object as-is: OpenAI
+              (<span className="font-mono">choices</span>, <span className="font-mono">output_text</span>,{" "}
+              <span className="font-mono">output</span>), Anthropic (<span className="font-mono">content</span>{" "}
+              blocks) and Gemini (<span className="font-mono">candidates</span>) are read for you. Any other object
+              is refused with <span className="font-mono">unsupported_shape</span>.
+            </li>
+            <li><span className="font-mono text-cyan-300">external_id</span> (optional) — your own id for this response. Retrying with the same id returns the stored verdict instead of logging a duplicate.</li>
             <li><span className="font-mono text-cyan-300">agent_id</span> (optional) — scopes the check to one agent's own custom safety rules, on top of your account-wide ones.</li>
           </ul>
           <p className="mt-3">Example:</p>
@@ -464,7 +476,12 @@ export default function ControlApiDocs() {
             still-usable version of the content (secrets/PII cut out) — use that instead of the original. On{" "}
             <span className="font-mono">block</span> or <span className="font-mono">escalate</span>,{" "}
             <span className="font-mono">output</span> is <span className="font-mono">null</span> — nothing is safe
-            to act on yet. Every call is logged to your account's Outer Control dashboard with a trust score and
+            to act on yet. <span className="font-mono">changes</span> lists exactly what a modify removed (rule and
+            count), and <span className="font-mono">next_step</span> says what to do:{" "}
+            <span className="font-mono">use_output</span>, <span className="font-mono">await_approval</span> (an{" "}
+            <span className="font-mono">approval_id</span> is returned) or <span className="font-mono">discard</span>.
+            A modify is only returned after the cleaned text was re-checked against the same rules; if the matching
+            text can't be removed safely the verdict is <span className="font-mono">block</span>. Every call is logged to your account's Outer Control dashboard with a trust score and
             full provenance, whether it came from the API or from NazAI's own internal use of a connected tool.
           </p>
         </Section>
