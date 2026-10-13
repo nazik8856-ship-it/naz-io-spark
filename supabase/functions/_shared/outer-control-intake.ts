@@ -23,7 +23,7 @@ export type IntakeFormat = "text" | "blocks" | "openai_chat" | "openai_responses
 
 export type IntakeResult =
   | { ok: true; text: string; format: IntakeFormat }
-  | { ok: false; code: "content_required" | "unsupported_shape" | "content_too_long"; message: string };
+  | { ok: false; code: "content_required" | "unsupported_shape" | "content_too_long" | "tool_calls_present"; message: string };
 
 type Json = Record<string, unknown>;
 const isObj = (v: unknown): v is Json => !!v && typeof v === "object" && !Array.isArray(v);
@@ -43,9 +43,43 @@ function join(parts: (string | null)[]): string {
   return parts.filter((p): p is string => typeof p === "string" && p.length > 0).join("\n\n");
 }
 
+/** True when the response carries tool/function calls. Their arguments are not text and would go unjudged. */
+function hasToolCalls(raw: unknown): boolean {
+  if (Array.isArray(raw)) return raw.some((b) => isObj(b) && (b.type === "tool_use" || b.type === "function_call" || b.type === "tool_call"));
+  if (!isObj(raw)) return false;
+  const nonEmpty = (v: unknown) => (Array.isArray(v) ? v.length > 0 : !!v);
+  if (Array.isArray(raw.choices)) {
+    return raw.choices.some((c) => isObj(c) && isObj(c.message) && (nonEmpty(c.message.tool_calls) || nonEmpty(c.message.function_call)));
+  }
+  if (Array.isArray(raw.output)) return raw.output.some((o) => isObj(o) && (o.type === "function_call" || o.type === "tool_call"));
+  if (Array.isArray(raw.candidates)) {
+    return raw.candidates.some((c) => isObj(c) && isObj(c.content) && Array.isArray(c.content.parts) && c.content.parts.some((p) => isObj(p) && !!p.functionCall));
+  }
+  if (Array.isArray(raw.content)) return raw.content.some((b) => isObj(b) && b.type === "tool_use");
+  return false;
+}
+
 export function extractExternalText(raw: unknown): IntakeResult {
   let text: string | null = null;
   let format: IntakeFormat = "text";
+
+  // A raw object body must not smuggle in an arbitrarily large payload past the text cap.
+  if (typeof raw !== "string") {
+    let size = 0;
+    try { size = JSON.stringify(raw)?.length ?? 0; } catch { size = Infinity; }
+    if (size > MAX_CONTENT_CHARS * 4) {
+      return { ok: false, code: "content_too_long", message: `The response object is too large to judge (limit ${MAX_CONTENT_CHARS} characters of text).` };
+    }
+  }
+  if (hasToolCalls(raw)) {
+    return {
+      ok: false,
+      code: "tool_calls_present",
+      message:
+        "This response contains tool/function calls. Outer Control judges text here, and a tool call's arguments would go unchecked. " +
+        "Send each proposed action separately with content_kind \"action\" (action_type, provider, description, params), or send only the response's text as a string.",
+    };
+  }
 
   if (typeof raw === "string") {
     text = raw;

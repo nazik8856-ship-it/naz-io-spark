@@ -137,7 +137,7 @@ Deno.serve(async (req) => {
   // what-if check).
   const { data: customSafetyRaw } = await admin
     .from("safety_rules")
-    .select("id, name, category, pattern, severity, enabled, agent_id, shadow_mode")
+    .select("id, name, category, pattern, severity, enabled, agent_id, shadow_mode, redact")
     .eq("user_id", accountId)
     .eq("enabled", true);
   const customSafetyAllAgents = ((customSafetyRaw ?? []) as Record<string, unknown>[]).map((r) => ({
@@ -150,6 +150,7 @@ Deno.serve(async (req) => {
     builtin: false,
     agent_id: (r.agent_id as string | null | undefined) ?? null,
     shadow_mode: Boolean(r.shadow_mode),
+    redact: r.severity === "block" && r.redact === true,
   })).filter((r) => r.pattern);
   const customSafety = selectRulesForAgent(customSafetyAllAgents, agentId);
   // Same live/shadow split as hard rules above: a shadow-mode custom

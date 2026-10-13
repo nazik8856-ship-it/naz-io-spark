@@ -75,6 +75,7 @@ import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writ
 // hands back, before it re-enters the agent's own reasoning loop.
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
 import { extractExternalText, parseExternalId } from "../_shared/outer-control-intake.ts";
+import { sha256Hex } from "../_shared/api-key-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -379,35 +380,55 @@ Deno.serve(async (req) => {
     const ext = parseExternalId(body.external_id);
     if (!ext.ok) return json({ error: "invalid_external_id", message: ext.message }, 400);
 
-    // A retried call (same external_id on the same key) returns the verdict
-    // already recorded instead of judging and logging the same text twice.
-    if (ext.id && auth.keyId) {
+    const contentHash = await sha256Hex(content);
+
+    // A retried call (same external_id on the same key AND the same text) returns
+    // the verdict already recorded instead of judging and logging the same text
+    // twice. The same id with DIFFERENT text is refused, never answered with the
+    // earlier text's verdict.
+    const replayFor = async (): Promise<Response | null> => {
+      if (!ext.id || !auth.keyId) return null;
       const { data: prior } = await admin
         .from("outer_control_evaluations")
-        .select("id, source_model, verdict, trust_score, output_text, matches, summary, created_at, changes, next_step, shadow_matches, approval_id")
+        .select("id, source_model, verdict, trust_score, output_text, matches, summary, created_at, changes, next_step, shadow_matches, approval_id, content_hash")
         .eq("user_id", auth.userId)
         .eq("api_key_id", auth.keyId)
         .eq("external_id", ext.id)
         .maybeSingle();
-      if (prior) {
+      if (!prior) return null;
+      if (prior.content_hash && prior.content_hash !== contentHash) {
         return json({
-          ok: true,
+          error: "external_id_reused",
+          message: "This external_id was already used for different text. Use a new external_id for a new response.",
           id: prior.id,
-          replayed: true,
-          verdict: prior.verdict,
-          trust_score: prior.trust_score,
-          output: prior.output_text,
-          matches: prior.matches ?? [],
-          changes: prior.changes ?? [],
-          next_step: prior.next_step,
-          shadow_matches: prior.shadow_matches ?? [],
-          summary: prior.summary,
-          approval_id: prior.approval_id ?? undefined,
-          suggested_correction: null,
-          provenance: { source_model: prior.source_model, evaluated_at: prior.created_at, criteria: "stored_evaluation" },
-        });
+        }, 409);
       }
-    }
+      // A replayed escalate must show what became of the approval since.
+      let approvalStatus: string | undefined;
+      if (prior.approval_id) {
+        const { data: ap } = await admin.from("pending_approvals").select("status").eq("id", prior.approval_id).maybeSingle();
+        approvalStatus = (ap as { status?: string } | null)?.status;
+      }
+      return json({
+        ok: true,
+        id: prior.id,
+        replayed: true,
+        verdict: prior.verdict,
+        trust_score: prior.trust_score,
+        output: prior.output_text,
+        matches: prior.matches ?? [],
+        changes: prior.changes ?? [],
+        next_step: prior.next_step,
+        shadow_matches: prior.shadow_matches ?? [],
+        summary: prior.summary,
+        approval_id: prior.approval_id ?? undefined,
+        approval_status: approvalStatus,
+        suggested_correction: null,
+        provenance: { source_model: prior.source_model, evaluated_at: prior.created_at, criteria: "stored_evaluation" },
+      });
+    };
+    const replayed = await replayFor();
+    if (replayed) return replayed;
 
     // ---- Full control gate, text path (task #44; extracted to a shared
     // module in blueprint task #3 so agent-runtime's http_post tool can run
@@ -415,9 +436,13 @@ Deno.serve(async (req) => {
     // kill switches, then hard rules, then the safety-rules scan.
     const result = await evaluateExternalText(admin, {
       userId: auth.userId, agentId, apiKeyId: auth.keyId, isTest: auth.isTest,
-      sourceModel, content, origin: "external-api", externalId: ext.id,
+      sourceModel, content, origin: "external-api", externalId: ext.id, contentHash,
     });
     if (!result.evaluationId) {
+      // Two concurrent calls with the same external_id: the unique index let the
+      // other one record first. Answer with that stored verdict, not a 500.
+      const raced = await replayFor();
+      if (raced) return raced;
       return json({ error: "internal_error", message: "Could not record this evaluation." }, 500);
     }
     return json({

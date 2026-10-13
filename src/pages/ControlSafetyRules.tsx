@@ -10,6 +10,7 @@ import { hasPermission } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 import { findSafetyRuleRedundancies } from "@/lib/safety-rule-redundancy";
+import { findPatternProblem } from "@/lib/safety-pattern";
 
 type Severity = "block" | "require_approval";
 type Rule = {
@@ -123,8 +124,9 @@ export default function ControlSafetyRules() {
 
   const add = async () => {
     if (!user || !canWrite || !name.trim() || !pattern.trim()) return;
-    try { new RegExp(pattern); } catch {
-      toast({ title: "That pattern isn't valid", description: "Check the expression and try again.", variant: "destructive" });
+    const problem = findPatternProblem(pattern);
+    if (problem) {
+      toast({ title: "That pattern can't be saved", description: problem, variant: "destructive" });
       return;
     }
     setBusy(true);

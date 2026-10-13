@@ -46,6 +46,26 @@ export function describeChanges(changes: RedactionChange[]): string {
   return changes.map((c) => `${plural(c.count, "span", "spans")} matching "${c.name}"`).join(", ");
 }
 
+/**
+ * Removes every redactable block-severity span and proves the result: the cleaned
+ * text must no longer match ANY live block-severity rule. Used by the Modify
+ * path and by an escalate that a key's policy auto-approves (which may still
+ * contain approval-level wording a person/policy has accepted, but never a
+ * secret or PII). `ok:false` means nothing could be released safely.
+ */
+export function verifyRedaction(
+  liveRules: SafetyRule[],
+  content: string,
+  matches: SafetyMatch[],
+): { ok: true; text: string; changes: RedactionChange[] } | { ok: false } {
+  const blockMatches = matches.filter((m) => m.severity === "block");
+  const { text, changes } = redactWithChanges(content, blockMatches);
+  if (blockMatches.length > 0 && changes.length === 0) return { ok: false };
+  const recheck = scanWithRules(liveRules.filter((r) => r.severity === "block"), text, "");
+  if (recheck.matched) return { ok: false };
+  return { ok: true, text, changes };
+}
+
 export function decideExternalText(rules: SafetyRule[], content: string): TextDecision {
   const live = rules.filter((r) => !r.shadow_mode);
   const shadow = rules.filter((r) => r.shadow_mode);
@@ -71,16 +91,20 @@ export function decideExternalText(rules: SafetyRule[], content: string): TextDe
   }
 
   if (initial === "escalate") {
+    const approvalNames = [...new Set(scan.matches.filter((m) => m.severity === "require_approval").map((m) => m.name))].join("; ");
+    const removable = [...new Set(scan.matches.filter((m) => m.severity === "block").map((m) => m.name))].join("; ");
     return {
       ...base, verdict: "escalate", output: null, changes: [], nextStep: "await_approval", redactionFailed: false,
-      summary: scan.summary ?? "Needs your approval.",
+      // A mixed match (removable secret/PII + approval-level wording) must not read "Blocked": nothing is blocked, it is waiting for a person.
+      summary: removable
+        ? `Needs your approval — the safety scanner flagged: ${approvalNames}. The response also contains text that would be removed (${removable}). Nothing is returned until it is approved.`
+        : (scan.summary ?? "Needs your approval."),
     };
   }
 
   // initial === "modify": only ever returned once the cleaned text is verified.
-  const { text, changes } = redactWithChanges(content, scan.matches);
-  const recheck = scanWithRules(live, text, "");
-  if (recheck.matched || changes.length === 0) {
+  const verified = verifyRedaction(live, content, scan.matches);
+  if (!verified.ok) {
     const names = [...new Set(scan.matches.map((m) => m.name))].join("; ");
     return {
       ...base, verdict: "block", output: null, changes: [], nextStep: "discard", redactionFailed: true,
@@ -90,9 +114,9 @@ export function decideExternalText(rules: SafetyRule[], content: string): TextDe
     };
   }
   return {
-    ...base, verdict: "modify", output: text, changes, nextStep: "use_output", redactionFailed: false,
+    ...base, verdict: "modify", output: verified.text, changes: verified.changes, nextStep: "use_output", redactionFailed: false,
     summary:
-      `Modified: removed ${describeChanges(changes)}. Everything else is unchanged. ` +
+      `Modified: removed ${describeChanges(verified.changes)}. Everything else is unchanged. ` +
       `The cleaned text was re-checked against the same rules and is clean.`,
   };
 }

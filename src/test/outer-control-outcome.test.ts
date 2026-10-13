@@ -25,3 +25,9 @@ describe("describeOutcome", () => {
     expect(describeOutcome({ ...base, content_kind: "action", verdict: "block" })).toMatch(/not carried out/);
   });
 });
+
+describe("describeOutcome (action modify)", () => {
+  it("does not claim text was returned for an action", () => {
+    expect(describeOutcome({ ...base, content_kind: "action", verdict: "modify" })).toMatch(/proposed action/);
+  });
+});

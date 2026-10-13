@@ -1,5 +1,5 @@
 // Run with: deno test --allow-env supabase/functions/_shared/outer-control-decision_test.ts
-import { decideExternalText } from "./outer-control-decision.ts";
+import { decideExternalText, verifyRedaction } from "./outer-control-decision.ts";
 import { BUILTIN_SAFETY_RULES, type SafetyRule } from "./safety-scanner.ts";
 
 function assertEquals<T>(actual: T, expected: T, msg?: string): void {
@@ -146,4 +146,25 @@ Deno.test("a live rule still fires when a shadow rule also exists", () => {
 Deno.test("trust score reflects live matches only", () => {
   assertEquals(decideExternalText(BUILTIN_SAFETY_RULES, "hello").trustScore, 100);
   assertEquals(decideExternalText(BUILTIN_SAFETY_RULES, `x ${KEY}`).trustScore, 60);
+});
+
+Deno.test("escalate with a removable secret does not read 'Blocked' and names both parts", () => {
+  const d = decideExternalText(BUILTIN_SAFETY_RULES, `I will refund them. The key is ${KEY}.`);
+  assertEquals(d.verdict, "escalate");
+  assert(!/^Blocked/.test(d.summary), d.summary);
+  assert(/Needs your approval/.test(d.summary) && /would be removed/.test(d.summary), d.summary);
+});
+
+Deno.test("verifyRedaction: cleans secrets but tolerates approval-level wording that remains", () => {
+  const d = decideExternalText(BUILTIN_SAFETY_RULES, `refund please. key ${KEY}`);
+  const v = verifyRedaction(BUILTIN_SAFETY_RULES, `refund please. key ${KEY}`, d.matches);
+  assert(v.ok && !v.text.includes(KEY) && v.text.includes("refund"), "secret removed, refund wording kept");
+});
+
+Deno.test("verifyRedaction: fails when a block span cannot be removed", () => {
+  const bad = custom({ id: "bad", name: "Bad", category: "pii", severity: "block", pattern: "(\\d+)+$" });
+  const rules = [...BUILTIN_SAFETY_RULES, bad];
+  const text = `key ${KEY} ref 123`;
+  const d = decideExternalText(rules, text);
+  assertEquals(verifyRedaction(rules, text, d.matches).ok, false);
 });

@@ -15,6 +15,7 @@ export function describeOutcome(r: OutcomeInput): string {
         ? (r.executed ? "Allowed — the proposed action was carried out." : "Allowed — nothing in the proposed action broke a rule.")
         : "Allowed — the output was returned unchanged.";
     case "modify":
+      if (r.content_kind === "action") return "Modified — a corrected version of the proposed action was returned.";
       return n > 0
         ? `Modified — ${n} ${n === 1 ? "piece" : "pieces"} of the output removed; the cleaned text was returned.`
         : "Modified — a cleaned version was returned.";

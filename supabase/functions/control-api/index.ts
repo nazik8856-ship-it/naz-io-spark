@@ -595,7 +595,7 @@ Deno.serve(async (req) => {
         .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id, rationale")
         .eq("user_id", userId).eq("enabled", true).order("created_at", { ascending: true }),
       admin.from("safety_rules")
-        .select("id, name, category, pattern, severity, enabled, agent_id, api_key_id, shadow_mode, rationale")
+        .select("id, name, category, pattern, severity, enabled, agent_id, api_key_id, shadow_mode, rationale, redact")
         .eq("user_id", userId).eq("enabled", true).order("created_at", { ascending: true }),
     ]);
     if (hardErr) return json({ error: hardErr.message }, 500);
@@ -607,7 +607,7 @@ Deno.serve(async (req) => {
       "api_key", auth.keyId,
     ).filter((r) => !r.shadow_mode);
     const visibleSafetyRules = selectRulesForEntity(
-      (safetyRuleRows ?? []) as (ScopedRow & { id: string; name: string; category: string; severity: string; rationale: string | null })[],
+      (safetyRuleRows ?? []) as (ScopedRow & { id: string; name: string; category: string; severity: string; rationale: string | null; redact?: boolean | null })[],
       "api_key", auth.keyId,
     ).filter((r) => !r.shadow_mode);
 
@@ -629,6 +629,8 @@ Deno.serve(async (req) => {
         })),
         ...visibleSafetyRules.map((r) => ({
           id: r.id, name: r.name, category: r.category, severity: r.severity,
+          // "remove_text": in an external AI's reply the matched text is cut out and the rest is returned (verdict modify).
+          action: r.severity === "block" && r.redact ? "remove_text" : r.severity === "block" ? "block" : "require_approval",
           rationale: r.rationale ?? null, scope: r.api_key_id ? "this_api_key" : "account_wide",
         })),
       ],

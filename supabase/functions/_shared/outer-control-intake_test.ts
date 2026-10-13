@@ -32,8 +32,8 @@ Deno.test("OpenAI Responses API: output_text and output[] both work", () => {
   assertEquals(r, { ok: true, text: "from output", format: "openai_responses" });
 });
 
-Deno.test("Anthropic Messages: text blocks are joined, tool_use blocks skipped", () => {
-  const r = extractExternalText({ id: "msg_1", type: "message", role: "assistant", content: [{ type: "text", text: "Part one." }, { type: "tool_use", id: "t", name: "x", input: { a: 1 } }, { type: "text", text: "Part two." }] });
+Deno.test("Anthropic Messages: text blocks are joined", () => {
+  const r = extractExternalText({ id: "msg_1", type: "message", role: "assistant", content: [{ type: "text", text: "Part one." }, { type: "text", text: "Part two." }] });
   assertEquals(r, { ok: true, text: "Part one.\n\nPart two.", format: "anthropic" });
 });
 
@@ -57,7 +57,7 @@ Deno.test("numbers, null and undefined are refused as unsupported", () => {
 });
 
 Deno.test("empty / whitespace-only / no-text responses -> content_required", () => {
-  for (const v of ["", "   \n", { choices: [{ message: { content: "" } }] }, { content: [{ type: "tool_use" }] }]) {
+  for (const v of ["", "   \n", { choices: [{ message: { content: "" } }] }, { content: [{ type: "image" }] }]) {
     const r = extractExternalText(v);
     assertEquals(!r.ok && r.code, "content_required");
   }
@@ -75,4 +75,30 @@ Deno.test("external_id: optional, trimmed, bounded", () => {
   assertEquals(parseExternalId("").ok, false);
   assertEquals(parseExternalId(5).ok, false);
   assertEquals(parseExternalId("x".repeat(201)).ok, false);
+});
+
+Deno.test("a response with tool/function calls is refused, never judged on its text alone", () => {
+  const cases = [
+    { choices: [{ message: { content: "Sure, deleting now", tool_calls: [{ function: { arguments: "{\"sql\":\"DROP TABLE users\"}" } }] } }] },
+    { choices: [{ message: { content: "x", function_call: { name: "f", arguments: "{}" } } }] },
+    { content: [{ type: "text", text: "ok" }, { type: "tool_use", id: "t", name: "x", input: { k: "v" } }] },
+    { output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }, { type: "function_call", name: "f", arguments: "{}" }] },
+    { candidates: [{ content: { parts: [{ text: "ok" }, { functionCall: { name: "f", args: {} } }] } }] },
+    [{ type: "text", text: "ok" }, { type: "tool_use" }],
+  ];
+  for (const c of cases) {
+    const r = extractExternalText(c);
+    assertEquals(!r.ok && r.code, "tool_calls_present");
+  }
+});
+
+Deno.test("empty tool_calls arrays do not trigger the refusal", () => {
+  const r = extractExternalText({ choices: [{ message: { content: "hello", tool_calls: [] } }] });
+  assertEquals(r.ok && r.text, "hello");
+});
+
+Deno.test("an oversized raw object is refused before it is walked", () => {
+  const big = { content: [{ type: "text", text: "a".repeat(MAX_CONTENT_CHARS * 4 + 10) }] };
+  const r = extractExternalText(big);
+  assertEquals(!r.ok && r.code, "content_too_long");
 });

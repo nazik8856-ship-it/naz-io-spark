@@ -18,8 +18,8 @@
 // documented).
 import { checkKillSwitches, createPendingApproval, matchHardRule } from "./control-gate.ts";
 import { loadSafetyRules, type SafetyMatch } from "./safety-scanner.ts";
-import { redactWithChanges, type RedactionChange } from "./outer-control-scoring.ts";
-import { decideExternalText, describeChanges, type NextStep } from "./outer-control-decision.ts";
+import { isRedactableMatch, redactWithChanges, type RedactionChange } from "./outer-control-scoring.ts";
+import { decideExternalText, describeChanges, verifyRedaction, type NextStep } from "./outer-control-decision.ts";
 import { computeTrustScore as computeEntityTrustScore, gatherTrustScoreInput, type TrustScoreReport } from "./trust-score.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { embedDecisionIfExternal } from "./decision-embeddings.ts";
@@ -91,6 +91,19 @@ async function logTextGateDecision(
 }
 
 /**
+ * The text that may be written to approval rows, decision logs and sent to the
+ * embedding provider: the original, except that secrets/PII (anything Modify
+ * would remove) are masked. If such a span can't be masked, the text is
+ * withheld entirely rather than stored in the clear.
+ */
+export function textSafeToStore(content: string, matches: SafetyMatch[]): string {
+  const sensitive = matches.filter((m) => isRedactableMatch(m));
+  if (!sensitive.length) return content;
+  const { text, changes } = redactWithChanges(content, sensitive);
+  return changes.length ? text : "[content withheld: it contains sensitive text that could not be masked]";
+}
+
+/**
  * Runs a piece of external-AI text through the full text-path control gate:
  * kill switches, then hard rules, then the safety-rules pattern scan -- the
  * exact same precedence order and DB side effects (outer_control_evaluations
@@ -115,10 +128,13 @@ export async function evaluateExternalText(
     origin: "agent-runtime" | "external-api";
     /** Caller-supplied id so a retried call can be recognised (stored on the evaluation row). */
     externalId?: string | null;
+    /** sha256 of the judged text, stored so a replayed external_id can be checked against the same content. */
+    contentHash?: string | null;
   },
 ): Promise<TextReviewResult> {
   const { userId, agentId, apiKeyId, isTest, sourceModel, content, origin } = params;
   const externalId = params.externalId ?? null;
+  const contentHash = params.contentHash ?? null;
 
   // GAP 4: computed once up front and attached to every return below --
   // an agent, when present, is always the governing entity; otherwise it's
@@ -142,7 +158,7 @@ export async function evaluateExternalText(
       content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: null,
       action_type: TEXT_REVIEW_ACTION_TYPE, action_provider: sourceModel, decision_id: decisionId,
       verdict: "block", trust_score: 0, matches: [], summary: killCheck.reason,
-      next_step: "discard", external_id: externalId,
+      next_step: "discard", external_id: externalId, content_hash: contentHash,
     });
     return {
       verdict: "block", output: null, trustScore: 0, matches: [], summary: killCheck.reason ?? "Kill switch active.",
@@ -176,7 +192,7 @@ export async function evaluateExternalText(
         content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: null,
         action_type: TEXT_REVIEW_ACTION_TYPE, action_provider: sourceModel, decision_id: decisionId,
         verdict: "block", trust_score: 0, matches: [], summary: reason,
-        next_step: "discard", external_id: externalId,
+        next_step: "discard", external_id: externalId, content_hash: contentHash,
       });
       return {
         verdict: "block", output: null, trustScore: 0, matches: [], summary: reason,
@@ -204,7 +220,7 @@ export async function evaluateExternalText(
       action_type: TEXT_REVIEW_ACTION_TYPE, action_provider: sourceModel, decision_id: decisionId,
       verdict, trust_score: trustScore, matches: [], summary,
       next_step: verdict === "allow" ? "use_output" : verdict === "block" ? "discard" : "await_approval",
-      approval_id: outcome.approvalId, external_id: externalId,
+      approval_id: outcome.approvalId, external_id: externalId, content_hash: contentHash,
     });
     return {
       verdict, output: outputText, trustScore, matches: [], summary,
@@ -221,18 +237,20 @@ export async function evaluateExternalText(
   let { verdict, output: outputText, summary, changes, nextStep } = decision;
   const { trustScore, matches, shadowMatches } = decision;
 
+  // Secrets/PII never go into the decision log, an approval row or the embedding provider in the clear.
+  const storable = textSafeToStore(content, matches);
   let textDecisionId: string | null = null;
   let approvalId: string | null = null;
   if (verdict !== "allow") {
     textDecisionId = await logTextGateDecision(admin, {
-      userId, agentId, apiKeyId, isTest, sourceModel, content,
+      userId, agentId, apiKeyId, isTest, sourceModel, content: storable,
       decision: `${verdict.toUpperCase()} text_review (${sourceModel})`, reasoning: summary,
       source: "safety_scanner", escalated: verdict === "escalate",
     });
     if (textDecisionId) {
       await embedDecisionIfExternal(admin, {
         decisionId: textDecisionId, apiKeyId, userId,
-        actionType: TEXT_REVIEW_ACTION_TYPE, provider: sourceModel, description: content, params: null,
+        actionType: TEXT_REVIEW_ACTION_TYPE, provider: sourceModel, description: storable, params: null,
       });
     }
   }
@@ -243,7 +261,7 @@ export async function evaluateExternalText(
   if (verdict === "escalate") {
     const outcome = await createPendingApproval(admin, {
       userId, decisionId: textDecisionId, agentId, actionType: TEXT_REVIEW_ACTION_TYPE, provider: sourceModel,
-      description: content, reason: summary, riskTier: matches.some((m) => m.severity === "block") ? "high" : "medium",
+      description: storable, reason: summary, riskTier: matches.some((m) => m.severity === "block") ? "high" : "medium",
       origin, apiKeyId,
     });
     approvalId = outcome.approvalId;
@@ -258,15 +276,22 @@ export async function evaluateExternalText(
         } catch { /* the reason is enrichment only */ }
       }
       if (outcome.resolution === "approved") {
-        // Approved by policy: hand back the text with anything removable
-        // removed -- an automatic approval never releases a secret or PII.
-        const redactable = matches.filter((m) => m.severity === "block");
-        const cleaned = redactWithChanges(content, redactable);
-        changes = cleaned.changes;
-        outputText = cleaned.text;
-        verdict = changes.length ? "modify" : "allow";
-        nextStep = "use_output";
-        summary = `${why || "Resolved automatically to approved by this API key's configured policy — no human reviewed this."}${changes.length ? ` Removed ${describeChanges(changes)}.` : ""}`;
+        // Approved by policy: hand back the text with every secret/PII span removed
+        // AND proven gone -- an automatic approval never releases them. If that
+        // can't be proven, nothing is released.
+        const released = verifyRedaction(rules.filter((r) => !r.shadow_mode), content, matches);
+        if (released.ok) {
+          changes = released.changes;
+          outputText = released.text;
+          verdict = changes.length ? "modify" : "allow";
+          nextStep = "use_output";
+          summary = `${why || "Resolved automatically to approved by this API key's configured policy — no human reviewed this."}${changes.length ? ` Removed ${describeChanges(changes)}.` : ""}`;
+        } else {
+          verdict = "block";
+          outputText = null;
+          nextStep = "discard";
+          summary = "Approved by this API key's policy, but the sensitive text in this response could not be removed safely, so nothing was released.";
+        }
       } else {
         verdict = "block";
         outputText = null;
@@ -280,7 +305,7 @@ export async function evaluateExternalText(
     user_id: userId, api_key_id: apiKeyId, agent_id: agentId, source_model: sourceModel,
     content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: outputText,
     decision_id: textDecisionId, verdict, trust_score: trustScore, matches, summary,
-    changes, next_step: nextStep, shadow_matches: shadowMatches, approval_id: approvalId, external_id: externalId,
+    changes, next_step: nextStep, shadow_matches: shadowMatches, approval_id: approvalId, external_id: externalId, content_hash: contentHash,
   });
 
   return {

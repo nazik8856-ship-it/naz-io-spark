@@ -611,17 +611,16 @@ export default function OuterControlSystem() {
                 {rows.slice(0, 12).map((r) => {
                   const style = VERDICT_STYLE[r.verdict];
                   const expanded = expandedId === r.id;
-                  const hasDetail = true; // every row at least explains what happened to the output
                   return (
                     <div key={r.id} className={`rounded-xl border ${style.border} ${style.bg} px-3 py-2.5`}>
                       <button
                         type="button"
-                        onClick={() => hasDetail && setExpandedId(expanded ? null : r.id)}
-                        className={`w-full text-left ${hasDetail ? "cursor-pointer" : "cursor-default"}`}
+                        onClick={() => setExpandedId(expanded ? null : r.id)}
+                        className="w-full cursor-pointer text-left"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="flex items-center gap-1 text-xs font-medium text-zinc-200 truncate">
-                            {hasDetail && (expanded ? <ChevronDown className="h-3 w-3 shrink-0 text-zinc-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-zinc-500" />)}
+                            {expanded ? <ChevronDown className="h-3 w-3 shrink-0 text-zinc-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-zinc-500" />}
                             {r.source_model}
                             {r.content_kind === "action" && r.action_type && (
                               <span className="ml-1.5 text-zinc-500">· {r.action_type}</span>
