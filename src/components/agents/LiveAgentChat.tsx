@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowUp, ChevronDown, ChevronUp, Bot } from "lucide-react";
+import { ArrowUp, ChevronDown, ChevronUp, Bot, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,9 @@ export default function LiveAgentChat({
 }: Props) {
   const [input, setInput] = useState("");
   const [showSpec, setShowSpec] = useState(false);
+  // Sending while a request is still running used to do nothing at all: the
+  // message stayed in the box with no explanation. Say why, once, and keep it.
+  const [busyHint, setBusyHint] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -51,10 +54,32 @@ export default function LiveAgentChat({
     inputRef.current?.focus();
   }, [agentId]);
 
+  useEffect(() => {
+    if (!streaming) setBusyHint(false);
+  }, [streaming]);
+
+  // Grow with the text (up to six lines) instead of scrolling a two-line box.
+  const LINE = 22;
+  const resize = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    // A hidden/unlaid-out textarea reports scrollHeight 0: never collapse the
+    // box to 0px then -- fall back to the CSS rows/min-height instead.
+    const h = el.scrollHeight;
+    el.style.height = h > 0 ? `${Math.min(h, 6 * LINE)}px` : "";
+  };
+  useEffect(resize, [input]);
+
   const handleSend = () => {
     const text = input.trim();
-    if (!text || streaming) return;
+    if (!text) return;
+    if (streaming) {
+      setBusyHint(true);
+      return;
+    }
     setInput("");
+    setBusyHint(false);
     onSend(text);
   };
 
@@ -157,43 +182,61 @@ export default function LiveAgentChat({
           </div>
         )}
 
-        {/* Composer */}
-        <div className={cn("rounded-2xl border border-white/10 bg-white/[0.03]", compact ? "p-2" : "p-3")}>
-          {composerExtras && <div className="mb-2">{composerExtras}</div>}
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            rows={compact ? 1 : 2}
-            placeholder={`Talk to ${name}…`}
-            className="w-full bg-transparent outline-none resize-none text-sm text-zinc-100 placeholder:text-zinc-600"
-          />
-          <div className="flex items-center justify-between mt-2">
-            <button
-              onClick={() => setShowSpec((s) => !s)}
-              className="text-[11px] font-mono text-zinc-500 hover:text-zinc-300 inline-flex items-center gap-1"
-            >
-              {showSpec ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-              {showSpec ? "Hide spec" : "View full spec"}
-            </button>
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || streaming}
-              className={cn(
-                "rounded-lg bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-black disabled:opacity-40",
-                compact ? "h-7 w-7" : "h-8 w-8",
-              )}
-            >
-              <ArrowUp className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
-            </button>
+        {/* Composer: a glowing gradient frame; the message you typed is never lost. */}
+        <div
+          data-testid="chat-composer"
+          data-busy={streaming ? "true" : "false"}
+          className={cn(
+            "rounded-2xl p-[1.5px] bg-gradient-to-br from-cyan-400/70 via-violet-500/60 to-pink-500/70",
+            "shadow-[0_0_24px_-4px_rgba(34,211,238,0.35),0_0_30px_-8px_rgba(236,72,153,0.35)]",
+            streaming && "motion-safe:animate-pulse",
+          )}
+        >
+          <div className={cn("rounded-[14px] bg-[#070b18]", compact ? "p-2" : "p-3")}>
+            {composerExtras && <div className="mb-2">{composerExtras}</div>}
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => { setInput(e.target.value); if (busyHint) setBusyHint(false); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              rows={compact ? 1 : 2}
+              style={{ minHeight: (compact ? 1 : 2) * LINE }}
+              aria-label={`Message ${name}`}
+              placeholder={streaming ? "Working on it… you can type your next request" : `Talk to ${name}…`}
+              className="w-full bg-transparent outline-none resize-none text-sm leading-[22px] text-zinc-100 placeholder:text-zinc-500"
+            />
+            <div className="flex items-center justify-between mt-2">
+              <button
+                onClick={() => setShowSpec((s) => !s)}
+                className="text-[11px] font-mono text-zinc-500 hover:text-zinc-300 inline-flex items-center gap-1"
+              >
+                {showSpec ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                {showSpec ? "Hide spec" : "View full spec"}
+              </button>
+              <button
+                onClick={handleSend}
+                disabled={!input.trim()}
+                aria-label={streaming ? "Wait for the current request to finish" : "Send message"}
+                className={cn(
+                  "rounded-full bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center text-black shadow-[0_0_14px_rgba(251,146,60,0.55)] transition disabled:opacity-35 disabled:shadow-none",
+                  compact ? "h-7 w-7" : "h-9 w-9",
+                )}
+              >
+                {streaming ? <Loader2 className={cn("animate-spin", compact ? "h-3.5 w-3.5" : "h-4 w-4")} /> : <ArrowUp className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+              </button>
+            </div>
           </div>
         </div>
+        {busyHint && (
+          <p role="status" className="mt-2 text-[11px] text-amber-300/90">
+            Still working on your last request — your message is kept; send it when this finishes.
+          </p>
+        )}
 
         {showSpec && (
           <div className="mt-3 rounded-xl border border-white/10 bg-black/50 p-4 max-h-64 overflow-y-auto text-xs text-zinc-300 prose prose-invert prose-sm max-w-none prose-headings:text-white">

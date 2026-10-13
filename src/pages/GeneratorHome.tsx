@@ -13,6 +13,8 @@ import StructureSelector from "@/components/generator/StructureSelector";
 import OutlineEditor from "@/components/generator/OutlineEditor";
 import QualityStrip from "@/components/generator/QualityStrip";
 import StageStepper from "@/components/generator/StageStepper";
+import AssemblyVisual from "@/components/generator/AssemblyVisual";
+import { advancePhase, assemblyPhase, toAssemblyPages, type AssemblyPhase } from "@/lib/assembly";
 import { Switch } from "@/components/ui/switch";
 import {
   DEFAULT_STRUCTURE, INITIAL_CHECKS, isAutoFixNote, normalizeChecks, structureLabel,
@@ -111,6 +113,10 @@ export default function GeneratorHome() {
   const [outlineNote, setOutlineNote] = useState<string | null>(null);
   const [briefForBuild, setBriefForBuild] = useState<string>("");
   const [liveChecks, setLiveChecks] = useState<QualityCheck[]>(INITIAL_CHECKS);
+  // Drives the assembly visual from the REAL generation_progress stage; it only
+  // ever moves forward, and "done" is set only once the saved site exists.
+  const [assemblyStage, setAssemblyStage] = useState<AssemblyPhase>(0);
+  const [assemblyDone, setAssemblyDone] = useState(false);
 
   const WEBSITES_PAGE_SIZE = 9;
   const AGENTS_PAGE_SIZE = 6;
@@ -376,6 +382,7 @@ export default function GeneratorHome() {
       if (cancelled || !data?.stage) return;
       const rawChecks = (data as unknown as { checks?: unknown }).checks;
       if (rawChecks) setLiveChecks(normalizeChecks(rawChecks));
+      setAssemblyStage((prev) => advancePhase(prev, assemblyPhase(data.stage as string)));
       const label = STAGE_LABELS[data.stage as string] || "Compiling…";
       const updatedAt = typeof data.updated_at === "string" ? Date.parse(data.updated_at) : NaN;
       const stale = Number.isFinite(updatedAt) && Date.now() - updatedAt > STAGE_STALE_MS;
@@ -521,6 +528,8 @@ export default function GeneratorHome() {
     if (!outline || compiling) return;
     setCompiling(true);
     setLiveChecks(INITIAL_CHECKS);
+    setAssemblyStage(0);
+    setAssemblyDone(false);
     const reqId = crypto.randomUUID();
     setGenerationRequestId(reqId);
     try {
@@ -582,8 +591,11 @@ export default function GeneratorHome() {
           // still opens the same generated website.
         }
       }
-      // Let the final check states be seen for a moment before moving on.
-      await new Promise((r) => setTimeout(r, 1200));
+      // The saved site exists: let the pages visibly merge into the output
+      // frame (and the final check states be seen) before moving on.
+      setAssemblyDone(true);
+      const reduceMotion = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+      await new Promise((r) => setTimeout(r, reduceMotion ? 1200 : 2600));
       navigate(`/generated/website/${body.website_id}`);
     } catch (e) {
       const timedOut = e instanceof DOMException && e.name === "AbortError";
@@ -679,17 +691,28 @@ export default function GeneratorHome() {
         {activeType === "website" && phase === "outline" && outline ? (
           <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl p-5" data-testid="outline-step">
             <StageStepper current={compiling ? "content" : "structure"} />
-            <h2 className="mt-4 text-lg font-semibold">Review the structure</h2>
+            <h2 className="mt-4 text-lg font-semibold">{compiling ? "Building your site" : "Review the structure"}</h2>
             <p className="mt-1 text-sm text-zinc-400">
-              {structureLabel(structure)} · adjust pages and sections, then continue. Nothing is written until you do, and this step costs no credit.
+              {compiling
+                ? `${structureLabel(structure)} · each page is written, checked, and merged into your finished site.`
+                : `${structureLabel(structure)} · adjust pages and sections, then continue. Nothing is written until you do, and this step costs no credit.`}
             </p>
             {outlineNote && <p className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">{outlineNote}</p>}
-            <div className="mt-4">
-              <OutlineEditor outline={outline} onChange={setOutline} disabled={compiling} />
-            </div>
-            {compiling && (
+            {compiling ? (
+              <div className="mt-4" data-testid="assembly-step">
+                <AssemblyVisual
+                  pages={toAssemblyPages(outline.pages)}
+                  phase={assemblyDone ? 4 : assemblyStage}
+                  checks={liveChecks}
+                  statusText={compileStage && /longer than usual/.test(compileStage) ? compileStage : undefined}
+                />
+                <div className="mt-4">
+                  <QualityStrip checks={liveChecks} />
+                </div>
+              </div>
+            ) : (
               <div className="mt-4">
-                <QualityStrip checks={liveChecks} />
+                <OutlineEditor outline={outline} onChange={setOutline} disabled={compiling} />
               </div>
             )}
             <div className="flex items-center justify-between pt-5">
