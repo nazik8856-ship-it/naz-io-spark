@@ -238,7 +238,7 @@ function HexNetwork({ cells }: { cells: Cell[] }) {
   }
 
   const showTooltip = (cell: Cell, e: React.MouseEvent) => {
-    const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect();
+    const rect = (e.currentTarget as unknown as SVGElement).ownerSVGElement?.getBoundingClientRect();
     if (!rect) return;
     setTooltip({ cell, x: e.clientX - rect.left, y: e.clientY - rect.top });
   };
@@ -495,13 +495,18 @@ export default function RuleCoverageHealthCard({
 }) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Rule Coverage &amp; System Health</div>
-        <div className="flex items-center gap-3 text-[11px]">
+      <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Rule Coverage &amp; System Health</div>
+
+      {/* Mockup fidelity (task #67): the coverage / health readouts float as glass callouts over the graph itself, not as a static card header. */}
+      <div className="relative mt-4">
+        <button onClick={onCoverageClick} className="block w-full text-left" aria-label="Open rule coverage">
+          <HexNetwork cells={coverageCells} />
+        </button>
+        <div className="absolute right-2 top-2 flex flex-col items-end gap-1.5 text-[11px]" data-testid="coverage-overlay">
           <button
             onClick={onCoverageClick}
             title="How much of what your AI can do is actually governed by a live rule"
-            className="flex items-center gap-1.5 text-zinc-400 hover:text-white"
+            className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0a0f1e]/70 px-2.5 py-1 text-zinc-300 shadow-lg shadow-cyan-500/5 backdrop-blur-sm hover:text-white"
           >
             <span className="h-2 w-2 rounded-full" style={{ background: STATUS_PALETTE.covered.base }} />
             Coverage {coveragePct === null ? "—" : `${coveragePct}%`}
@@ -509,17 +514,13 @@ export default function RuleCoverageHealthCard({
           <button
             onClick={onHealthClick}
             title="How reliably the Control System itself is running"
-            className="flex items-center gap-1.5 text-zinc-400 hover:text-white"
+            className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0a0f1e]/70 px-2.5 py-1 text-zinc-300 shadow-lg shadow-amber-500/5 backdrop-blur-sm hover:text-white"
           >
             <Activity className="h-3 w-3 text-amber-300" />
             Health {healthPct === null ? "—" : `${healthPct}%`}
           </button>
         </div>
       </div>
-
-      <button onClick={onCoverageClick} className="mt-4 block w-full text-left">
-        <HexNetwork cells={coverageCells} />
-      </button>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-zinc-500">
         <span className="flex items-center gap-1.5 whitespace-nowrap">

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, X, Sparkles, Gauge, ChevronDown, ChevronRight, MessageCircle, FlaskConical } from "lucide-react";
+import { ArrowLeft, X, Gauge, ChevronDown, ChevronRight, MessageCircle, FlaskConical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canApprove } from "@/lib/account-switcher";
@@ -33,7 +33,6 @@ import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type Turn = { role: "user" | "assistant"; content: string; node?: ReactNode };
 
-const TEMPLATES_NUDGE_DISMISSED_KEY = "nazai_templates_nudge_dismissed";
 const SPEND_NUDGE_DISMISSED_KEY = "nazai_spend_nudge_dismissed";
 const SETTINGS_OPEN_KEY = "nazai_control_settings_open";
 
@@ -52,7 +51,6 @@ export default function ControlSystem() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [dryRun, setDryRun] = useState(false);
-  const [showTemplatesNudge, setShowTemplatesNudge] = useState(false);
   const [spendNudgeDismissed, setSpendNudgeDismissed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // On phone, the dashboard is the main view and the Agent Status chat lives
@@ -64,35 +62,6 @@ export default function ControlSystem() {
   const dashboard = useControlDashboardData(accountId);
   const approvalsFeed = usePendingApprovalsFeed(accountId);
   const canSignOff = canApprove(role);
-
-  useEffect(() => {
-    if (!accountId) return;
-    let cancelled = false;
-    try {
-      if (localStorage.getItem(TEMPLATES_NUDGE_DISMISSED_KEY) === accountId) return;
-    } catch { /* localStorage unavailable -- fall through and check anyway */ }
-    (async () => {
-      // A brand-new account gets zero seeded hard_rules/safety_rules --
-      // handle_new_user() only inserts a profiles row, nothing nudges a
-      // fresh account toward ControlPolicyTemplates.tsx otherwise.
-      const [hardRules, safetyRules] = await Promise.all([
-        anyDb.from("hard_rules").select("id", { count: "exact", head: true }).eq("user_id", accountId),
-        anyDb.from("safety_rules").select("id", { count: "exact", head: true }).eq("user_id", accountId),
-      ]);
-      if (cancelled) return;
-      if ((hardRules.count ?? 0) === 0 && (safetyRules.count ?? 0) === 0) {
-        setShowTemplatesNudge(true);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [accountId]);
-
-  const dismissTemplatesNudge = () => {
-    setShowTemplatesNudge(false);
-    try {
-      localStorage.setItem(TEMPLATES_NUDGE_DISMISSED_KEY, accountId);
-    } catch { /* best effort -- worst case it reappears next visit */ }
-  };
 
   useEffect(() => {
     if (!accountId) return;
@@ -259,28 +228,6 @@ export default function ControlSystem() {
         </nav>
       </header>
 
-      {showTemplatesNudge && (
-        <div className="flex flex-wrap items-center gap-3 border-b border-cyan-500/20 bg-cyan-500/[0.06] px-4 py-2.5 sm:px-6">
-          <Sparkles className="h-4 w-4 shrink-0 text-cyan-300" />
-          <p className="min-w-[200px] flex-1 text-xs text-cyan-100">
-            No hard rules or safety rules set up yet — start from a policy template so your AI has real guardrails from day one.
-          </p>
-          <button
-            onClick={() => navigate("/control-system/templates")}
-            className="shrink-0 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
-          >
-            Browse templates
-          </button>
-          <button
-            onClick={dismissTemplatesNudge}
-            aria-label="Dismiss"
-            className="shrink-0 text-cyan-300/60 hover:text-cyan-200"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-
       {showSpendNudge && (
         <div className="flex flex-wrap items-center gap-3 border-b border-amber-500/20 bg-amber-500/[0.06] px-4 py-2.5 sm:px-6">
           <Gauge className="h-4 w-4 shrink-0 text-amber-300" />
@@ -307,7 +254,13 @@ export default function ControlSystem() {
         {/* Left: dashboard -- the main view on phone */}
         <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
           <div className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
-            <SetupProgressBar pct={dashboard.setup.pct} checks={setupChecks} />
+            <SetupProgressBar
+              pct={dashboard.setup.pct}
+              checks={setupChecks}
+              cta={!dashboard.setup.hardRules && !dashboard.setup.safetyRules
+                ? { label: "Start from a policy template", onClick: () => navigate("/control-system/templates") }
+                : null}
+            />
 
             <RuleCoverageHealthCard
               coveragePct={dashboard.coveragePct}
