@@ -14,6 +14,14 @@
 import { GUARD_PREFIX } from "./generation-quality.ts";
 
 export const IMAGE_NOTE_PREFIX = `${GUARD_PREFIX}Image — `;
+/**
+ * Images the vision check could not judge (service error / timeout). They are
+ * kept -- failing closed would delete good pictures over a flaky check -- but
+ * "passed" would be a lie, so the owner is asked to look. Deliberately NOT a
+ * "Relevance Guard: " note: that prefix means "fixed automatically", and this
+ * one needs a human, so it must surface in the Control Report instead.
+ */
+export const UNVERIFIED_NOTE_PREFIX = "Quality check: Image — ";
 
 // Words that describe photography rather than a business; ignored when judging
 // whether a prompt is "about" the business.
@@ -102,11 +110,13 @@ export type GuardTally = {
   promptsRewritten: number;
   replaced: number;
   dropped: number;
+  /** Images kept without a relevance verdict because the vision check did not answer. */
+  unverified: number;
   /** A few concrete examples ("hero: showed a beach") so the note is specific. */
   examples: string[];
 };
 
-export const emptyTally = (): GuardTally => ({ promptsRewritten: 0, replaced: 0, dropped: 0, examples: [] });
+export const emptyTally = (): GuardTally => ({ promptsRewritten: 0, replaced: 0, dropped: 0, unverified: 0, examples: [] });
 
 const KIND_LABEL: Record<string, string> = { hero: "hero", about: "about", "feature-split": "feature", "gallery-item": "gallery", "services-item": "service" };
 export const kindLabel = (kind: string) => KIND_LABEL[kind] ?? kind;
@@ -123,10 +133,13 @@ export function describeGuardTally(t: GuardTally, siteName: string): string[] {
   if (t.dropped) {
     notes.push(`${IMAGE_NOTE_PREFIX}${t.dropped} image${t.dropped === 1 ? "" : "s"} still didn't match ${siteName} after a retry, so the decorative illustration is kept there${!t.replaced && eg ? ` (${eg})` : ""}.`);
   }
+  if (t.unverified) {
+    notes.push(`${UNVERIFIED_NOTE_PREFIX}${t.unverified} image${t.unverified === 1 ? "" : "s"} could not be checked automatically for relevance to ${siteName} (the check service did not respond), so ${t.unverified === 1 ? "it was" : "they were"} kept as generated. Please look at ${t.unverified === 1 ? "it" : "them"} before publishing.`);
+  }
   return notes;
 }
 
 /** Image-guard notes from a previous run are replaced, not accumulated. */
 export function withoutImageGuardNotes(notes: unknown[]): unknown[] {
-  return notes.filter((n) => !(typeof n === "string" && n.startsWith(IMAGE_NOTE_PREFIX)));
+  return notes.filter((n) => !(typeof n === "string" && (n.startsWith(IMAGE_NOTE_PREFIX) || n.startsWith(UNVERIFIED_NOTE_PREFIX))));
 }

@@ -8,6 +8,7 @@
 // are never touched. A site whose images all fail keeps the existing
 // illustration fallback AND gets a visible generation note -- never silent.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { OUT_OF_CREDITS, openIncidentOnce, OUTAGE_SUMMARY, PROVIDER_OUTAGE_KIND } from "../_shared/provider-health.ts";
 import { pickAiGateway, aiGatewayHeaders, type GatewayConfig } from "../_shared/ai-gateway.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import {
@@ -35,8 +36,6 @@ const PER_IMAGE_TIMEOUT_MS = 70_000;
 const STALE_RUN_MS = 5 * 60_000;
 const RETRY_BACKOFF_MS = [2_000, 6_000, 15_000];
 const FAILURE_NOTE_PREFIX = "Custom images could not be generated";
-// An empty provider account is not a transient error: retrying immediately is pointless.
-const OUT_OF_CREDITS = /no credits|insufficient[_ ]quota|exceeded your current quota|billing/i;
 const LOVABLE_IMAGE_MODELS = ["google/gemini-2.5-flash-image", "google/gemini-3-pro-image-preview"];
 const OPENAI_IMAGES_URL = "https://api.openai.com/v1/images/generations";
 
@@ -201,6 +200,8 @@ async function run(admin: AnyAdmin, gw: GatewayConfig, opts: { verify: boolean; 
           let verdict: VerifyResult = { match: null, reason: "" };
           if (opts.verify) verdict = await verifyImage(gw, verifyUrlFor(path), slot.subject, ctx);
           console.log(`[generate-site-images] guard ${slot.kind} attempt ${attempt + 1} -> ${verdict.match === null ? "unchecked" : verdict.match ? "match" : "MISMATCH: " + verdict.reason}`);
+          // Asked to verify but got no verdict: keep the image, tell the owner.
+          if (opts.verify && verdict.match === null) tally.unverified++;
 
           if (verdict.match === false) {
             await admin.storage.from(BUCKET).remove([path]).catch(() => undefined);
@@ -232,6 +233,7 @@ async function run(admin: AnyAdmin, gw: GatewayConfig, opts: { verify: boolean; 
     let nextNotes: unknown[] = withoutImageGuardNotes(notes);
     if (slots.length > 0 && succeeded === 0) {
       // A credits outage repeats on every retry: keep a single note instead of one per attempt.
+      if (OUT_OF_CREDITS.test(lastFailure)) await openIncidentOnce(admin, PROVIDER_OUTAGE_KIND, OUTAGE_SUMMARY, { source: "generate-site-images", website_id: site.id });
       const base = OUT_OF_CREDITS.test(lastFailure) ? nextNotes.filter((n) => !(typeof n === "string" && n.startsWith(FAILURE_NOTE_PREFIX))) : nextNotes;
       nextNotes = [...base, `${FAILURE_NOTE_PREFIX} this time (${lastFailure || "no image returned"}), so decorative illustrations are shown instead.`];
     } else if (succeeded > 0) {

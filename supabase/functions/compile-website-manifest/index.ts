@@ -18,8 +18,11 @@ import {
   defaultOutline, findOutlineTemplateIssues, getTemplate, isStructureId, OUTLINE_ADDABLE_TYPES, outlinePromptBlock,
   sanitizeOutline, structurePromptBlock, type Outline, type StructureId,
 } from "../_shared/generation-templates.ts";
+import { gateEdit, introducedIssues, newImageSlotCount } from "../_shared/generation-edit-gate.ts";
+import { startersFromOutline } from "../_shared/generation-fallback.ts";
+import { GENERATION_UNAVAILABLE_MESSAGE, isProviderOutOfCredits, openIncidentOnce, OUTAGE_SUMMARY, PROVIDER_OUTAGE_KIND } from "../_shared/provider-health.ts";
 import {
-  findVisualIssues, GUARD_PREFIX, initialChecks, repairVisual, setCheck, statusFromCounts, STRICT_PROMPT_BLOCK, VISUAL_FIX_PREFIX,
+  findStrictIssues, findVisualIssues, GUARD_PREFIX, initialChecks, repairVisual, setCheck, statusFromCounts, STRICT_PROMPT_BLOCK, VISUAL_FIX_PREFIX,
   type QualityCheck,
 } from "../_shared/generation-quality.ts";
 
@@ -282,7 +285,11 @@ function titleFromPrompt(prompt: string) {
 // temporarily rate-limited or out of workspace credits. It is intentionally a
 // real multi-page manifest (not a loading placeholder), so the saved website
 // can always open in WebsitePreview and can be refined later through chat.
-function fallbackManifest(prompt: string): Manifest {
+//
+// With `outline` (the user's approved outline, or the chosen structure's default
+// outline) the PAGES follow that outline instead of the fixed three-page shape,
+// so a "Pricing-focused" pick still gets its pricing page when the AI is down.
+function fallbackManifest(prompt: string, outline?: Outline | null): Manifest {
   const name = titleFromPrompt(prompt);
   const lower = prompt.toLowerCase();
   const isFood = /food|bak|pastr|eclair|éclair|cake|cafe|coffee|restaurant|shop|candy|chocolate/.test(lower);
@@ -294,7 +301,7 @@ function fallbackManifest(prompt: string): Manifest {
       : { bg: "#0A1118", surface: "#121E29", text: "#F4F8FB", accent: "#38D6C7", accentSecondary: "#FFCC66", muted: "#A9BBC7", border: "#2A4352" };
   const offering = isFood ? "small-batch favorites" : isCreative ? "distinctive work" : "thoughtful solutions";
 
-  return {
+  const starter: Manifest = {
     name,
     tagline: `${name} — made memorable through craft, clarity, and character.`,
     theme: {
@@ -341,6 +348,8 @@ function fallbackManifest(prompt: string): Manifest {
       },
     ],
   };
+  if (outline) starter.pages = startersFromOutline(outline, { name, offering }) as unknown as Page[];
+  return starter;
 }
 
 // A footer link to a Privacy Policy / Terms page is table-stakes on a real
@@ -1146,8 +1155,11 @@ serve(async (req) => {
           temperature: isRepeatedRequest ? 0.2 : 0.4,
           response_format: { type: "json_object" },
         }, gw);
-        if (resp.status === 429) throw new Error("gateway rate limited");
-        if (resp.status === 402) throw new Error("gateway credits unavailable");
+        if (resp.status === 429 || resp.status === 402) {
+          // Our provider account being out of credit is an outage on our side, not a rate limit the user can wait out.
+          if (isProviderOutOfCredits(resp.status, await resp.clone().text().catch(() => ""))) throw new Error("gateway credits unavailable");
+          throw new Error("gateway rate limited");
+        }
         if (!resp.ok) throw new Error(`gateway ${resp.status}`);
         const data = await resp.json();
         const raw = data?.choices?.[0]?.message?.content ?? "{}";
@@ -1156,7 +1168,8 @@ serve(async (req) => {
         console.error("refine AI failure", err);
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("credits unavailable")) {
-          return json({ error: "AI credits exhausted for this workspace. Add credits in Settings → Plans & credits to keep refining." }, 402);
+          await openIncidentOnce(admin, PROVIDER_OUTAGE_KIND, OUTAGE_SUMMARY, { source: "compile-website-manifest:refine" });
+          return json({ error: GENERATION_UNAVAILABLE_MESSAGE, code: "generation_unavailable" }, 503);
         }
         if (msg.includes("rate limited")) {
           return json({ error: "AI is rate-limited right now. Try again in a moment." }, 429);
@@ -1275,6 +1288,43 @@ serve(async (req) => {
         }
       }
 
+      // GEN+ 1: an edit gets the same quality guarantees as a first build,
+      // limited to what can never fight the user's own request: mechanical
+      // visual repair, removal of testimonials/statistics THIS edit invented,
+      // and -- only on a Strict Mode site -- one bounded revision of wording/
+      // link problems the edit introduced. Structure problems the edit
+      // introduced are reported, never forced back to the template.
+      const editBrief = String(existing.prompt || prompt);
+      const siteStructure: StructureId | null = isStructureId(existing.structure_template) ? existing.structure_template : null;
+      const gate = gateEdit({ before: normalizedCurrent, after: nextManifest, brief: editBrief, prompt, strict: existing.strict_mode === true, template: siteStructure });
+      let finalManifest: Manifest = gate.manifest;
+      const editNotes: string[] = [...gate.notes];
+      let strictLeft = gate.strictIssues;
+      if (strictLeft.length) {
+        await reportProgress(admin, requestId, user.id, "refining");
+        const revised = await reviseManifestWithIssues(
+          gw,
+          `${STRICT_PROMPT_BLOCK}\n\nThe user's latest request is authoritative: keep every change it asked for and fix only the listed issues.\nUSER REQUEST: ${prompt.slice(0, 600)}`,
+          strictLeft, finalManifest, editBrief,
+        );
+        if (revised?.name && revised.pages?.length) {
+          const revisedGated = applySafetyGate(repairVisual(revised).manifest, gateSafetyRules);
+          if (!revisedGated.blocked) {
+            const candidate: Manifest = { ...revisedGated.manifest, pages: enforceImageRelevance(revisedGated.manifest.pages, refineVerifiedUrls).pages };
+            const left = introducedIssues(findStrictIssues(normalizedCurrent, editBrief), findStrictIssues(candidate, `${editBrief}\n${prompt}`));
+            if (left.length < strictLeft.length) {
+              editNotes.push(`${GUARD_PREFIX}Strict Mode: fixed ${strictLeft.length - left.length} of ${strictLeft.length} wording/link issue(s) this edit introduced.`);
+              finalManifest = candidate;
+              strictLeft = left;
+            }
+          }
+        }
+      }
+      if (strictLeft.length) editNotes.push(`Quality check: ${strictLeft.join(" ")}`);
+      if (gate.structureIssues.length) editNotes.push(`Quality check: this edit left the site with: ${gate.structureIssues.join(" ")}`);
+      const finalNotes = [...generationNotes, ...editNotes];
+      const newImageSlots = newImageSlotCount(normalizedCurrent.pages, finalManifest.pages, { siteName: finalManifest.name, layout: finalManifest.theme?.layout });
+
       await reportProgress(admin, requestId, user.id, "saving");
       // Snapshot the pre-edit state so this refinement can be undone. Fires
       // before the write below, and never blocks the save if it fails.
@@ -1283,7 +1333,7 @@ serve(async (req) => {
         `Edit: ${refined.intent || "mixed"}`, existing, existingPages || [],
       );
 
-      const pageRows = nextManifest.pages.map((p, i) => ({
+      const pageRows = finalManifest.pages.map((p, i) => ({
         website_id: previousWebsiteId,
         slug: p.slug, title: p.title,
         seo_description: p.seo_description ?? null,
@@ -1297,7 +1347,7 @@ serve(async (req) => {
         .select("id, slug, title, order_index");
       if (pagesErr) return json({ error: pagesErr.message }, 500);
 
-      const nextSlugs = new Set(nextManifest.pages.map((p) => p.slug));
+      const nextSlugs = new Set(finalManifest.pages.map((p) => p.slug));
       const stalePageIds = (existingPages || []).filter((p: any) => !nextSlugs.has(p.slug)).map((p: any) => p.id);
       if (stalePageIds.length) {
         const { error: cleanupErr } = await supabase.from("website_pages").delete().in("id", stalePageIds);
@@ -1307,26 +1357,34 @@ serve(async (req) => {
       const { error: uErr } = await supabase
         .from("websites")
         .update({
-          name: nextManifest.name,
-          title: nextManifest.name,
-          tagline: nextManifest.tagline,
-          theme: nextManifest.theme,
-          generation_notes: generationNotes,
+          name: finalManifest.name,
+          title: finalManifest.name,
+          tagline: finalManifest.tagline,
+          theme: finalManifest.theme,
+          generation_notes: finalNotes,
           trust_score: refinedGated.trustScore,
         })
         .eq("id", previousWebsiteId)
         .eq("user_id", user.id);
       if (uErr) return json({ error: uErr.message }, 500);
 
+      if (newImageSlots > 0) await kickOffImageGeneration(String(previousWebsiteId), authHeader);
+      const extras = [
+        gate.visualFixes ? "fixed contrast/consistency issues" : "",
+        gate.claimsRemoved ? `removed ${gate.claimsRemoved} invented testimonial/statistic item(s)` : "",
+        newImageSlots ? `generating ${newImageSlots} new image${newImageSlots === 1 ? "" : "s"}` : "",
+      ].filter(Boolean);
       return json({
-        manifest: nextManifest,
-        generation_notes: generationNotes,
+        manifest: finalManifest,
+        generation_notes: finalNotes,
         trust_score: refinedGated.trustScore,
         website_id: previousWebsiteId,
-        pages: nextManifest.pages,
+        pages: finalManifest.pages,
         intent: refined.intent || "mixed",
         identified_edits: identifiedEdits,
-        summary: refined.summary || "Applied your changes.",
+        summary: `${refined.summary || "Applied your changes."}${extras.length ? ` Also: ${extras.join("; ")}.` : ""}`,
+        images_generating: newImageSlots > 0,
+        quality_notes: editNotes,
         refined: true,
       });
     }
@@ -1393,8 +1451,13 @@ serve(async (req) => {
         // to the user that they got a template instead of a real one.
         response_format: { type: "json_object" },
       }, gw);
-      if (resp.status === 429) return json({ error: "Rate limited. Please retry in a moment." }, 429);
-      if (resp.status === 402) return json({ error: "AI credits exhausted for this workspace." }, 402);
+      if (resp.status === 429 || resp.status === 402) {
+        if (isProviderOutOfCredits(resp.status, await resp.clone().text().catch(() => ""))) {
+          await openIncidentOnce(admin, PROVIDER_OUTAGE_KIND, OUTAGE_SUMMARY, { source: "compile-website-manifest:generate" });
+          return json({ error: GENERATION_UNAVAILABLE_MESSAGE, code: "generation_unavailable" }, 503);
+        }
+        return json({ error: "Rate limited. Please retry in a moment." }, 429);
+      }
       if (!resp.ok) throw new Error(`gateway ${resp.status}`);
       const data = await resp.json();
       const raw = data?.choices?.[0]?.message?.content ?? "{}";
@@ -1413,7 +1476,7 @@ serve(async (req) => {
           : /^gateway \d/.test(errMsg)
             ? "The AI gateway was unreachable."
             : "The AI's response wasn't valid JSON this time -- can happen on an unusually short or ambiguous brief.";
-      manifest = fallbackManifest(compilePrompt);
+      manifest = fallbackManifest(compilePrompt, approvedOutline ?? (structure ? defaultOutline(structure) : null));
       usedFallback = true;
     }
     }
