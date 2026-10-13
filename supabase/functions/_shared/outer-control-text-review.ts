@@ -248,6 +248,15 @@ export async function evaluateExternalText(
     });
     approvalId = outcome.approvalId;
     if (outcome.autoResolved) {
+      // Say WHY it resolved: the approval row carries the real reason (the key's
+      // policy, or real precedent / quiet hours that overrode it), not just "policy".
+      let why = "";
+      if (outcome.approvalId) {
+        try {
+          const { data } = await admin.from("pending_approvals").select("comment").eq("id", outcome.approvalId).maybeSingle();
+          why = ((data as { comment?: string | null } | null)?.comment ?? "").trim();
+        } catch { /* the reason is enrichment only */ }
+      }
       if (outcome.resolution === "approved") {
         // Approved by policy: hand back the text with anything removable
         // removed -- an automatic approval never releases a secret or PII.
@@ -257,12 +266,12 @@ export async function evaluateExternalText(
         outputText = cleaned.text;
         verdict = changes.length ? "modify" : "allow";
         nextStep = "use_output";
-        summary = `Resolved automatically to approved by this API key's configured policy — no human reviewed this.${changes.length ? ` Removed ${describeChanges(changes)}.` : ""}`;
+        summary = `${why || "Resolved automatically to approved by this API key's configured policy — no human reviewed this."}${changes.length ? ` Removed ${describeChanges(changes)}.` : ""}`;
       } else {
         verdict = "block";
         outputText = null;
         nextStep = "discard";
-        summary = "Resolved automatically to rejected by this API key's configured policy — no human reviewed this.";
+        summary = why || "Resolved automatically to rejected by this API key's configured policy — no human reviewed this.";
       }
     }
   }
