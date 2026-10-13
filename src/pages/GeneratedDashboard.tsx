@@ -39,6 +39,9 @@ import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockp
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import WebsiteControlReport from "@/components/websites/WebsiteControlReport";
 import SiteImprovementBar from "@/components/generator/SiteImprovementBar";
+import PreviewAssemblyOverlay from "@/components/generator/PreviewAssemblyOverlay";
+import { toAssemblyPages, type AssemblyPhase } from "@/lib/assembly";
+import { useGenerationProgress } from "@/hooks/useGenerationProgress";
 import { isAutoFixNote } from "@/lib/site-structures";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
 import { cn } from "@/lib/utils";
@@ -141,6 +144,15 @@ export default function GeneratedDashboard() {
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
   const [chatTone, setChatTone] = useState<string | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
+  // The assembly overlay is driven by the real edit request (its progress row)
+  // and by whether the preview iframe has actually loaded.
+  const [editRequestId, setEditRequestId] = useState<string | null>(null);
+  const [previewLoaded, setPreviewLoaded] = useState(false);
+  useEffect(() => { setPreviewLoaded(false); }, [previewKey, id]);
+  const { stage: editStage, checks: editChecks } = useGenerationProgress(editRequestId, chatBusy);
+  // The steps the edit reached before/after the model call; the stage in
+  // between comes from the real progress row above.
+  const editStepsPhase: AssemblyPhase = websiteLog.steps.some((st) => ["apply", "persist", "preview"].includes(st.id) && st.status !== "pending") ? 3 : 0;
   const pageMenuRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
@@ -265,6 +277,8 @@ export default function GeneratedDashboard() {
     if (!id) return;
     setTurns((t) => [...t, { role: "user", content: text, time: "just now" }]);
     setChatBusy(true);
+    const editReqId = crypto.randomUUID();
+    setEditRequestId(editReqId);
     websiteLog.start([
       { id: "analyze", label: "Reading your request…" },
       { id: "auth", label: "Validating session…" },
@@ -291,6 +305,7 @@ export default function GeneratedDashboard() {
           previousWebsiteId: id,
           refine: true,
           save: true,
+          requestId: editReqId,
           recentTurns: [...turns, { role: "user", content: text }]
             .slice(-6)
             .map(({ role, content }) => ({ role, content })),
@@ -1119,9 +1134,19 @@ export default function GeneratedDashboard() {
                       key={previewKey}
                       src={previewSrc}
                       title="Website preview"
+                      onLoad={() => setPreviewLoaded(true)}
                       className="absolute inset-0 w-full h-full bg-white border-0 block"
                     />
                   </div>
+                  <PreviewAssemblyOverlay
+                    busy={chatBusy}
+                    stage={editStage}
+                    checks={editChecks}
+                    stepsPhase={editStepsPhase}
+                    previewLoaded={previewLoaded}
+                    pages={toAssemblyPages(pages)}
+                    siteName={website?.name || undefined}
+                  />
                 </div>
               )}
 

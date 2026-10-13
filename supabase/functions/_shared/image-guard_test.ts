@@ -1,7 +1,7 @@
 // Run with: deno test supabase/functions/_shared/image-guard_test.ts
 import {
   buildVerifyPrompt, businessSubject, describeGuardTally, emptyTally, IMAGE_NOTE_PREFIX, parseVerifyResponse,
-  reinforcePrompt, subjectMatchesBusiness, withoutImageGuardNotes,
+  reinforcePrompt, subjectMatchesBusiness, UNVERIFIED_NOTE_PREFIX, withoutImageGuardNotes,
 } from "./image-guard.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
@@ -75,7 +75,7 @@ Deno.test("reinforcePrompt feeds back why the first attempt failed", () => {
 
 Deno.test("notes are specific, singular/plural correct, and silent when nothing happened", () => {
   assertEquals(describeGuardTally(emptyTally(), "Ember"), []);
-  const t = { promptsRewritten: 1, replaced: 2, dropped: 1, examples: ["hero: showed a beach", "gallery: showed a desert"] };
+  const t = { promptsRewritten: 1, replaced: 2, dropped: 1, unverified: 0, examples: ["hero: showed a beach", "gallery: showed a desert"] };
   const notes = describeGuardTally(t, "Vienna Brew Café");
   assertEquals(notes.length, 3);
   assert(notes.every((n) => n.startsWith(IMAGE_NOTE_PREFIX)));
@@ -85,11 +85,25 @@ Deno.test("notes are specific, singular/plural correct, and silent when nothing 
 });
 
 Deno.test("the dropped line carries the example when nothing was replaced", () => {
-  const notes = describeGuardTally({ promptsRewritten: 0, replaced: 0, dropped: 1, examples: ["hero: showed a beach"] }, "Ember");
+  const notes = describeGuardTally({ promptsRewritten: 0, replaced: 0, dropped: 1, unverified: 0, examples: ["hero: showed a beach"] }, "Ember");
   assert(notes[0].includes("hero: showed a beach") && notes[0].includes("decorative illustration is kept"));
 });
 
 Deno.test("withoutImageGuardNotes removes only earlier image-guard notes", () => {
   const out = withoutImageGuardNotes(["Content flagged", `${IMAGE_NOTE_PREFIX}Replaced 1`, "Relevance Guard: Removed 1 testimonial", 42]);
   assertEquals(out, ["Content flagged", "Relevance Guard: Removed 1 testimonial", 42]);
+});
+
+Deno.test("images the check could not judge produce an honest 'please look' note that is NOT an auto-fix note", () => {
+  const one = describeGuardTally({ ...emptyTally(), unverified: 1 }, "Ember");
+  assertEquals(one.length, 1);
+  assert(one[0].startsWith(UNVERIFIED_NOTE_PREFIX) && !one[0].startsWith("Relevance Guard:"), "must surface as needing a human, not as 'fixed automatically'");
+  assert(one[0].includes("1 image could not be checked") && one[0].includes("it was kept as generated") && one[0].includes("look at it before publishing"));
+  const two = describeGuardTally({ ...emptyTally(), unverified: 3 }, "Ember")[0];
+  assert(two.includes("3 images could not be checked") && two.includes("they were kept") && two.includes("look at them"));
+});
+
+Deno.test("a re-run clears the previous 'could not be checked' note along with the other image notes", () => {
+  const out = withoutImageGuardNotes(["keep me", `${UNVERIFIED_NOTE_PREFIX}1 image could not be checked`, `${IMAGE_NOTE_PREFIX}Replaced 1`, "Quality check: Add more pages"]);
+  assertEquals(out, ["keep me", "Quality check: Add more pages"]);
 });
