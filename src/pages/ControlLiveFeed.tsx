@@ -182,7 +182,7 @@ export default function ControlLiveFeed() {
         (payload) => {
           if (pausedRef.current) return;
           const row = payload.new as DecisionRow;
-          setRows((prev) => [{ kind: "inner", id: row.id, created_at: row.created_at, row }, ...prev].sort(byNewest).slice(0, MAX_ROWS));
+          setRows((prev) => [{ kind: "inner" as const, id: row.id, created_at: row.created_at, row }, ...prev].sort(byNewest).slice(0, MAX_ROWS));
         },
       )
       .subscribe((status) => setInnerConnected(status === "SUBSCRIBED"));
@@ -194,7 +194,7 @@ export default function ControlLiveFeed() {
         (payload) => {
           if (pausedRef.current) return;
           const row = payload.new as OuterEvalRow;
-          setRows((prev) => [{ kind: "outer", id: row.id, created_at: row.created_at, row }, ...prev].sort(byNewest).slice(0, MAX_ROWS));
+          setRows((prev) => [{ kind: "outer" as const, id: row.id, created_at: row.created_at, row }, ...prev].sort(byNewest).slice(0, MAX_ROWS));
         },
       )
       .subscribe((status) => setOuterConnected(status === "SUBSCRIBED"));
