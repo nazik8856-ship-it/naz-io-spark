@@ -10,6 +10,7 @@ import { hasPermission } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 import { findSafetyRuleRedundancies } from "@/lib/safety-rule-redundancy";
+import { findPatternProblem } from "@/lib/safety-pattern";
 
 type Severity = "block" | "require_approval";
 type Rule = {
@@ -20,11 +21,22 @@ type Rule = {
   severity: Severity;
   enabled: boolean;
   agent_id: string | null;
+  api_key_id: string | null;
+  redact: boolean;
   shadow_mode: boolean;
   created_at: string;
 };
 
 type AgentOption = { id: string; name: string };
+type KeyOption = { id: string; name: string };
+// What a live match does. "redact" is Outer Control only: the matched text is
+// cut out of an external AI's reply and the rest is returned (verdict Modify).
+type RuleAction = "approval" | "block" | "redact";
+const ACTION_FIELDS: Record<RuleAction, { severity: Severity; redact: boolean }> = {
+  approval: { severity: "require_approval", redact: false },
+  block: { severity: "block", redact: false },
+  redact: { severity: "block", redact: true },
+};
 
 type ShadowReport = { hits: number; decisions: number };
 
@@ -54,25 +66,32 @@ export default function ControlSafetyRules() {
   const [reports, setReports] = useState<Record<string, ShadowReport>>({});
   const [name, setName] = useState("");
   const [pattern, setPattern] = useState("");
-  const [severity, setSeverity] = useState<Severity>("require_approval");
+  const [action, setAction] = useState<RuleAction>("approval");
   const [shadow, setShadow] = useState(true);
-  const [appliesToAgentId, setAppliesToAgentId] = useState("");
+  // "" = account-wide, "agent:<id>" or "key:<id>" (an Outer Control API key).
+  const [scope, setScope] = useState("");
+  const [keys, setKeys] = useState<KeyOption[]>([]);
   const [busy, setBusy] = useState(false);
   const [dualControl, setDualControl] = useState(false);
-  const agentName = (id: string | null) => (id ? agents.find((a) => a.id === id)?.name ?? "Unknown agent" : "All agents");
+  const scopeLabel = (r: Rule) =>
+    r.agent_id ? agents.find((a) => a.id === r.agent_id)?.name ?? "Unknown agent"
+      : r.api_key_id ? `API key: ${keys.find((k) => k.id === r.api_key_id)?.name ?? "unknown key"}`
+        : "All agents and API keys";
   const redundancies = findSafetyRuleRedundancies(rules);
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const [{ data }, { data: agentRows }, { data: profile }] = await Promise.all([
+    const [{ data }, { data: agentRows }, { data: profile }, { data: keyRows }] = await Promise.all([
       anyDb
         .from("safety_rules")
-        .select("id, name, category, pattern, severity, enabled, agent_id, shadow_mode, created_at")
+        .select("id, name, category, pattern, severity, enabled, agent_id, api_key_id, redact, shadow_mode, created_at")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false }),
       anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
       anyDb.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
+      anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null).order("name"),
     ]);
+    setKeys((keyRows ?? []) as KeyOption[]);
     const list = (data ?? []) as unknown as Rule[];
     setRules(list);
     setAgents((agentRows ?? []) as AgentOption[]);
@@ -105,14 +124,17 @@ export default function ControlSafetyRules() {
 
   const add = async () => {
     if (!user || !canWrite || !name.trim() || !pattern.trim()) return;
-    try { new RegExp(pattern); } catch {
-      toast({ title: "That pattern isn't valid", description: "Check the expression and try again.", variant: "destructive" });
+    const problem = findPatternProblem(pattern);
+    if (problem) {
+      toast({ title: "That pattern can't be saved", description: problem, variant: "destructive" });
       return;
     }
     setBusy(true);
     const { error } = await anyDb.from("safety_rules").insert({
-      user_id: accountId, name: name.trim(), pattern: pattern.trim(), severity, category: "custom",
-      agent_id: appliesToAgentId || null,
+      user_id: accountId, name: name.trim(), pattern: pattern.trim(),
+      ...ACTION_FIELDS[action], category: "custom",
+      agent_id: scope.startsWith("agent:") ? scope.slice(6) : null,
+      api_key_id: scope.startsWith("key:") ? scope.slice(4) : null,
       shadow_mode: shadow,
     });
     setBusy(false);
@@ -240,11 +262,13 @@ export default function ControlSafetyRules() {
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <select
-              value={severity} onChange={(e) => setSeverity(e.target.value as Severity)}
+              value={action} onChange={(e) => setAction(e.target.value as RuleAction)}
+              aria-label="What a match does"
               className="rounded border border-white/10 bg-black/40 px-3 py-2 text-xs outline-none"
             >
-              <option value="require_approval">Send to approval queue</option>
+              <option value="approval">Send to approval queue</option>
               <option value="block">Block outright</option>
+              <option value="redact">Remove the matched text (external AI replies)</option>
             </select>
             <select
               value={shadow ? "shadow" : "live"}
@@ -255,16 +279,19 @@ export default function ControlSafetyRules() {
               <option value="shadow">Shadow (observe only)</option>
               <option value="live">Live (enforce now)</option>
             </select>
-            {agents.length > 0 && (
+            {(agents.length > 0 || keys.length > 0) && (
               <select
-                value={appliesToAgentId}
-                onChange={(e) => setAppliesToAgentId(e.target.value)}
-                aria-label="Applies to which agent"
+                value={scope}
+                onChange={(e) => setScope(e.target.value)}
+                aria-label="Applies to"
                 className="rounded border border-white/10 bg-black/40 px-3 py-2 text-xs outline-none"
               >
-                <option value="">All agents (account-wide)</option>
+                <option value="">Everything (account-wide)</option>
                 {agents.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
+                  <option key={a.id} value={`agent:${a.id}`}>Agent: {a.name}</option>
+                ))}
+                {keys.map((k) => (
+                  <option key={k.id} value={`key:${k.id}`}>API key: {k.name}</option>
                 ))}
               </select>
             )}
@@ -310,14 +337,14 @@ export default function ControlSafetyRules() {
                     </span>
                   </div>
                   <p className="truncate font-mono text-[11px] text-zinc-500">{r.pattern}</p>
-                  <p className={`font-mono text-[10px] ${r.agent_id ? "text-cyan-400" : "text-zinc-600"}`}>{agentName(r.agent_id)}</p>
+                  <p className={`font-mono text-[10px] ${r.agent_id || r.api_key_id ? "text-cyan-400" : "text-zinc-600"}`}>{scopeLabel(r)}</p>
                 </div>
                 <span className={`rounded border px-2 py-0.5 text-[10px] font-mono uppercase ${
                   r.severity === "block"
                     ? "border-rose-500/40 bg-rose-500/10 text-rose-300"
                     : "border-amber-500/40 bg-amber-500/10 text-amber-300"
                 }`}>
-                  {r.severity === "block" ? "block" : "approval"}
+                  {r.redact ? "remove text" : r.severity === "block" ? "block" : "approval"}
                 </span>
                 {canWrite && (
                   <>

@@ -38,6 +38,11 @@ export type SafetyRule = {
   api_key_id?: string | null;
   /** Matched and recorded, but never affects the scan's actual verdict — same meaning as hard_rules.shadow_mode. */
   shadow_mode?: boolean;
+  /**
+   * Outer Control: for a block-severity custom rule, "cut the matched text out
+   * of the response" (verdict modify) instead of blocking it outright.
+   */
+  redact?: boolean;
   // "Policy autonomy" plan, item 1: why this rule exists, not just what
   // it matches -- shown in the decision reasoning when it actually
   // fires. Optional: an existing rule with no rationale set yet simply
@@ -54,6 +59,8 @@ export type SafetyMatch = {
   matched_on: string;
   sample: string;
   rationale?: string | null;
+  /** Copied from the rule: this match can be removed from free text rather than forcing a block. */
+  redact?: boolean;
 };
 
 export type SafetyScan = {
@@ -181,7 +188,7 @@ export async function loadSafetyRules(
   try {
     const { data } = await admin
       .from("safety_rules")
-      .select("id, name, category, pattern, severity, enabled, agent_id, api_key_id, shadow_mode, rationale")
+      .select("id, name, category, pattern, severity, enabled, agent_id, api_key_id, shadow_mode, rationale, redact")
       .eq("user_id", userId)
       .eq("enabled", true);
     custom = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
@@ -196,6 +203,7 @@ export async function loadSafetyRules(
       api_key_id: (r.api_key_id as string | null | undefined) ?? null,
       shadow_mode: Boolean(r.shadow_mode),
       rationale: (r.rationale as string | null | undefined) ?? null,
+      redact: r.severity === "block" && r.redact === true,
     }));
   } catch { /* custom rules are optional */ }
   // Builtins are always account-wide (agent_id/api_key_id undefined ->
@@ -236,6 +244,7 @@ export function scanWithRules(
         ? `${sample.slice(0, 4)}…redacted`
         : sample,
       rationale: rule.rationale ?? null,
+      ...(rule.redact ? { redact: true } : {}),
     });
   }
 

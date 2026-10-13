@@ -10,6 +10,8 @@ import { selectRulesForEntity, type EntityScopedLike } from "@/lib/agent-policy"
 // sandbox can't regenerate types for.
 const anyDb = supabase as any;
 
+import { describeOutcome } from "@/lib/outer-control-outcome";
+
 type Verdict = "allow" | "modify" | "block" | "escalate";
 
 type EvaluationRow = {
@@ -34,6 +36,13 @@ type EvaluationRow = {
   action_params: Record<string, unknown> | null;
   corrected_params: Record<string, unknown> | null;
   execution_summary: string | null;
+  // Outer Control foundation: what Modify actually removed, what the caller
+  // was told to do with the verdict, and shadow-mode rules that would have
+  // matched. All null/empty on rows written before these columns existed.
+  changes: { rule_id: string | null; name: string; category: string; action: string; count: number }[] | null;
+  next_step: "use_output" | "await_approval" | "discard" | null;
+  shadow_matches: { rule_id: string; name: string; severity: string }[] | null;
+  approval_id: string | null;
 };
 
 // Status colors, reserved for verdict meaning only (never reused as a
@@ -326,7 +335,7 @@ export default function OuterControlSystem() {
           .contains("scopes", ["control:verdict"]),
         anyDb
           .from("outer_control_evaluations")
-          .select("id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed, matches, input_excerpt, output_text, action_params, corrected_params, execution_summary")
+          .select("id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed, matches, input_excerpt, output_text, action_params, corrected_params, execution_summary, changes, next_step, shadow_matches, approval_id")
           .eq("user_id", accountId)
           .order("created_at", { ascending: false })
           .limit(50),
@@ -602,17 +611,16 @@ export default function OuterControlSystem() {
                 {rows.slice(0, 12).map((r) => {
                   const style = VERDICT_STYLE[r.verdict];
                   const expanded = expandedId === r.id;
-                  const hasDetail = !!(r.matches?.length || r.action_params || r.corrected_params || r.input_excerpt || r.output_text || r.execution_summary);
                   return (
                     <div key={r.id} className={`rounded-xl border ${style.border} ${style.bg} px-3 py-2.5`}>
                       <button
                         type="button"
-                        onClick={() => hasDetail && setExpandedId(expanded ? null : r.id)}
-                        className={`w-full text-left ${hasDetail ? "cursor-pointer" : "cursor-default"}`}
+                        onClick={() => setExpandedId(expanded ? null : r.id)}
+                        className="w-full cursor-pointer text-left"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="flex items-center gap-1 text-xs font-medium text-zinc-200 truncate">
-                            {hasDetail && (expanded ? <ChevronDown className="h-3 w-3 shrink-0 text-zinc-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-zinc-500" />)}
+                            {expanded ? <ChevronDown className="h-3 w-3 shrink-0 text-zinc-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-zinc-500" />}
                             {r.source_model}
                             {r.content_kind === "action" && r.action_type && (
                               <span className="ml-1.5 text-zinc-500">· {r.action_type}</span>
@@ -638,7 +646,46 @@ export default function OuterControlSystem() {
                       </button>
                       {expanded && (
                         <div className="mt-2 space-y-2 rounded border border-white/10 bg-black/20 p-2.5 text-[11px]">
-                          {r.summary && <p className="text-zinc-300">{r.summary}</p>}
+                          <div>
+                            <div className="text-zinc-500 font-mono uppercase text-[10px]">What happened</div>
+                            <p className="mt-0.5 text-zinc-100" data-testid="outcome-line">{describeOutcome(r)}</p>
+                            {r.verdict === "escalate" && r.approval_id && (
+                              <button
+                                type="button"
+                                onClick={() => navigate("/control-system/approvals")}
+                                className="mt-1 text-cyan-300 underline-offset-2 hover:underline"
+                              >
+                                Open the approval queue
+                              </button>
+                            )}
+                          </div>
+                          {r.summary && (
+                            <div>
+                              <div className="text-zinc-500 font-mono uppercase text-[10px]">Why</div>
+                              <p className="mt-0.5 text-zinc-300">{r.summary}</p>
+                            </div>
+                          )}
+                          {!!r.changes?.length && (
+                            <div>
+                              <div className="text-zinc-500 font-mono uppercase text-[10px]">Changed</div>
+                              <ul className="mt-1 space-y-0.5">
+                                {r.changes.map((c, i) => (
+                                  <li key={i} className="text-zinc-300">
+                                    Removed {c.count} {c.count === 1 ? "span" : "spans"} · <span className="text-zinc-200">{c.name}</span>
+                                    <span className="text-zinc-500"> · {c.category}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {!!r.shadow_matches?.length && (
+                            <div>
+                              <div className="text-zinc-500 font-mono uppercase text-[10px]">Shadow rules (observed only)</div>
+                              <p className="mt-0.5 text-zinc-400">
+                                {r.shadow_matches.map((m) => m.name).join(", ")} would have matched. They did not change this result.
+                              </p>
+                            </div>
+                          )}
                           {!!r.matches?.length && (
                             <div>
                               <div className="text-zinc-500 font-mono uppercase text-[10px]">Matched rule(s)</div>
