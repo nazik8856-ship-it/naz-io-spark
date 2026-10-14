@@ -171,11 +171,17 @@ async function notifyQuestion(admin: AnyAdmin, userId: string, toolName: string,
   } catch { /* the dashboard card still shows it */ }
 }
 
+/** A short piece of the objective that is safe to put in an alert (anything the rules would remove is masked). */
+async function alertSnippet(admin: AnyAdmin, s: SessionRow): Promise<string> {
+  try { return maskForSend(await loadSafetyRules(admin, s.user_id, null, s.api_key_id), s.objective).slice(0, 80); }
+  catch { return "(objective hidden)"; }
+}
+
 async function notifyFailure(admin: AnyAdmin, s: SessionRow, reason: string) {
   try {
     await sendCriticalAlert(admin, s.user_id, {
       event: "outer_control_session_failed",
-      summary: `An Outer Control session failed: "${s.objective.slice(0, 80)}". ${reason.slice(0, 200)}`,
+      summary: `An Outer Control session failed: "${await alertSnippet(admin, s)}". ${reason.slice(0, 200)}`,
     });
   } catch { /* the dashboard card still shows it */ }
 }
@@ -196,7 +202,7 @@ async function pauseForHandoff(
   try {
     await sendCriticalAlert(admin, s.user_id, {
       event: "agent_clarification_needed",
-      summary: `Outer Control needs a decision on "${s.objective.slice(0, 80)}": ${handoff.title}. Recommended: ${handoff.options.find((o) => o.id === handoff.recommended)?.label}.`,
+      summary: `Outer Control needs a decision on "${await alertSnippet(admin, s)}": ${handoff.title}. Recommended: ${handoff.options.find((o) => o.id === handoff.recommended)?.label}.`,
     });
   } catch { /* the dashboard card still shows it */ }
 }
@@ -320,7 +326,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         format: tool.request_format, model: tool.model, objective: maskForSend(safetyRules, s.objective),
         context: maskForSend(safetyRules, s.context), rules: plan.rules, history: s.history ?? [],
         correction: s.correction, answer: s.next_input ? maskForSend(safetyRules, s.next_input) : null, sessionId: s.id, step: stepNo,
-        memory: renderMemory(memory), avoid: plan.avoid, omittedRules: plan.omitted,
+        memory: renderMemory(memory).map((l) => maskForSend(safetyRules, l)), avoid: plan.avoid, omittedRules: plan.omitted,
       });
 
       // 6. Call the tool.
@@ -407,7 +413,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         }
         if (action.kind === "switch_tool" && s.fallback_tool_id) {
           await patch(admin, s.id, {
-            tool_id: s.fallback_tool_id, fallback_used: true, failures_used: 0, retries_used: 0,
+            tool_id: s.fallback_tool_id, fallback_used: true, failures_used: 0, retries_used: 0, gate_cleared_step: s.step_count,
             attempt_base: s.attempt_base + s.retries_used + s.failures_used + 1, correction: null, resume_at: null,
           }, deps);
           await recordMemory(admin, s, { stepNo, kind: "recovery", summary: `Step ${stepNo}: switched to the fallback tool after "${tool.name}" kept failing.` });
@@ -483,38 +489,54 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
   }
 }
 
-/** Looks at a paused session and resumes or ends it if what it was waiting for has happened. */
+/**
+ * Looks at a paused session and resumes or ends it if what it was waiting for has happened.
+ * Safe to call from several places at once (the dashboard, the sweep): the transition out of
+ * the pause is conditional, so only one caller applies it.
+ */
 export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: SessionDeps = defaultSessionDeps()): Promise<{ status: string; resumed: boolean }> {
   const { data: row } = await admin.from("outer_control_sessions").select("*").eq("id", sessionId).maybeSingle();
   const s = row as SessionRow | null;
   if (!s || s.status !== "awaiting_human") return { status: s?.status ?? "missing", resumed: false };
 
+  const claim = async (fields: Record<string, unknown>): Promise<boolean> => {
+    const { data } = await admin.from("outer_control_sessions").update({ ...fields, updated_at: iso(deps.now()) })
+      .eq("id", s.id).eq("status", "awaiting_human").eq("pending_kind", s.pending_kind).select("id").maybeSingle();
+    return !!data;
+  };
+  const ended = (status: string, stop_reason: string) => ({
+    status, stop_reason, finished_at: iso(deps.now()), lease_until: null, pending_kind: null, pending_approval_id: null, handoff: null, pending_answer: null,
+  });
+  const notResumed = { status: s.status, resumed: false };
+
   if (s.pending_kind === "handoff") {
     const choice = decodeChoice(s.pending_answer);
-    if (!choice) return { status: s.status, resumed: false };
+    if (!choice) return notResumed;
     const stepNo = s.pending_step_no ?? s.step_count + 1;
     if (choice.option === "stop") {
+      if (!(await claim(ended("stopped", "A person stopped the session after a hand-off.")))) return notResumed;
       await recordMemory(admin, s, { stepNo, kind: "human", summary: `Step ${stepNo}: a person chose to stop the session.` });
-      await finish(admin, s, "stopped", "A person stopped the session after a hand-off.", deps, { handoff: null, pending_answer: null });
       return { status: "stopped", resumed: true };
     }
-    await recordMemory(admin, s, {
-      stepNo, kind: "human",
-      summary: `Step ${stepNo}: a person chose to retry${choice.note ? ` and said: "${choice.note.slice(0, 300)}"` : ""}.`,
-    });
-    await patch(admin, s.id, {
+    const note = choice.note ? maskForSend(await loadSafetyRules(admin, s.user_id, null, s.api_key_id), choice.note).slice(0, MAX_ANSWER_CHARS) : null;
+    if (!(await claim({
       status: "running", pending_kind: null, handoff: null, pending_answer: null, pending_step_no: null, lease_until: null, resume_at: null,
       attempt_base: s.attempt_base + s.retries_used + s.failures_used + 1, retries_used: 0, failures_used: 0,
       next_input: choice.note ? choice.note.slice(0, MAX_ANSWER_CHARS) : s.next_input, ...waited(s, deps),
-    }, deps);
+    }))) return notResumed;
+    await recordMemory(admin, s, { stepNo, kind: "human", summary: `Step ${stepNo}: a person chose to retry${note ? ` and said: "${note.slice(0, 300)}"` : ""}.` });
     return { status: "running", resumed: true };
   }
 
   if (s.pending_kind === "question") {
     const answer = (s.pending_answer ?? "").trim();
-    if (!answer) return { status: s.status, resumed: false };
-    await recordMemory(admin, s, { stepNo: s.pending_step_no ?? s.step_count, kind: "human", summary: `Step ${s.pending_step_no ?? s.step_count}: a person answered the tool's question.` });
-    await patch(admin, s.id, { status: "running", pending_kind: null, pending_question: null, pending_answer: null, next_input: answer.slice(0, MAX_ANSWER_CHARS), lease_until: null, ...waited(s, deps) }, deps);
+    if (!answer) return notResumed;
+    if (!(await claim({
+      status: "running", pending_kind: null, pending_question: null, pending_answer: null, next_input: answer.slice(0, MAX_ANSWER_CHARS),
+      lease_until: null, ...waited(s, deps),
+    }))) return notResumed;
+    const qStep = s.pending_step_no ?? s.step_count;
+    await recordMemory(admin, s, { stepNo: qStep, kind: "human", summary: `Step ${qStep}: a person answered the tool's question.` });
     return { status: "running", resumed: true };
   }
 
@@ -525,24 +547,28 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
   } else {
     approvalStatus = "rejected"; // an approval that was never created cannot be waited for
   }
-  if (PENDING_STATUSES.has(approvalStatus)) return { status: s.status, resumed: false };
+  if (PENDING_STATUSES.has(approvalStatus)) return notResumed;
   const approved = APPROVED_STATUSES.has(approvalStatus);
 
-  const approvalStep = s.pending_step_no ?? s.step_count + 1;
-  await recordMemory(admin, s, { stepNo: approvalStep, kind: "human", summary: `Step ${approvalStep}: a person ${approved ? "approved" : "declined"} ${s.pending_kind === "first_contact" ? "first contact with the tool" : s.pending_kind === "contact_gate" ? "contacting the tool" : "the reply"}.` });
+  const stepNo = s.pending_step_no ?? s.step_count + 1;
+  const what = s.pending_kind === "first_contact" ? "first contact with the tool" : s.pending_kind === "contact_gate" ? "contacting the tool" : "the reply";
+  const remember = () => recordMemory(admin, s, { stepNo, kind: "human", summary: `Step ${stepNo}: a person ${approved ? "approved" : "declined"} ${what}.` });
+
   if (!approved) {
-    await finish(admin, s, "rejected", "A person declined the request.", deps);
+    if (!(await claim(ended("rejected", "A person declined the request.")))) return notResumed;
+    await remember();
     return { status: "rejected", resumed: true };
   }
 
-  const stepNo = s.pending_step_no ?? s.step_count + 1;
   if (s.pending_kind === "first_contact") {
+    if (!(await claim({ status: "running", pending_kind: null, pending_approval_id: null, lease_until: null, ...waited(s, deps) }))) return notResumed;
     await admin.from("external_tools").update({ approved_at: iso(deps.now()), updated_at: iso(deps.now()) }).eq("id", s.tool_id);
-    await patch(admin, s.id, { status: "running", pending_kind: null, pending_approval_id: null, lease_until: null, ...waited(s, deps) }, deps);
+    await remember();
     return { status: "running", resumed: true };
   }
   if (s.pending_kind === "contact_gate") {
-    await patch(admin, s.id, { status: "running", pending_kind: null, pending_approval_id: null, gate_cleared_step: stepNo, lease_until: null, ...waited(s, deps) }, deps);
+    if (!(await claim({ status: "running", pending_kind: null, pending_approval_id: null, gate_cleared_step: stepNo, lease_until: null, ...waited(s, deps) }))) return notResumed;
+    await remember();
     return { status: "running", resumed: true };
   }
 
@@ -554,12 +580,14 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
   const rules = (await loadSafetyRules(admin, s.user_id, null, s.api_key_id)).filter((r) => !r.shadow_mode && r.severity === "block");
   const stillSensitive = !text || text.startsWith(WITHHELD) || scanWithRules(rules, text, "").matched;
   if (stillSensitive) {
-    await finish(admin, s, "rejected", "Approved, but the reply could not be released safely.", deps);
+    if (!(await claim(ended("rejected", "Approved, but the reply could not be released safely.")))) return notResumed;
+    await remember();
     return { status: "rejected", resumed: true };
   }
   const { data: toolRow } = await admin.from("external_tools").select("*").eq("id", s.tool_id).maybeSingle();
   const w = waited(s, deps);
-  await patch(admin, s.id, { pending_kind: null, pending_approval_id: null, pending_step_no: null, ...w }, deps);
+  if (!(await claim({ pending_kind: null, pending_approval_id: null, pending_step_no: null, ...w }))) return notResumed;
+  await remember();
   await acceptReply(admin, { ...s, status: "running", ...w }, toolRow as ToolRow, stepNo, { text, toolStatus: stepData?.tool_status ?? null }, deps);
   const { data: after } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
   return { status: (after as { status?: string } | null)?.status ?? "running", resumed: true };

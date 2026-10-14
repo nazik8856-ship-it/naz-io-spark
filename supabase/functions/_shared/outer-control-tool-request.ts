@@ -66,7 +66,11 @@ export function buildInstruction(i: ToolRequestInput): string {
     parts.push(`Accepted so far:\n${i.history.map((h) => `Step ${h.step}: ${h.text}`).join("\n")}`);
   }
   if (i.answer && i.answer.trim()) parts.push(`A person answered your last question: ${i.answer.trim()}`);
-  if (i.correction && i.correction.trim()) parts.push(`Your previous reply was rejected. ${i.correction.trim()} Reply again without it.`);
+  if (i.correction && i.correction.trim()) {
+    const c = i.correction.trim();
+    // A correction that already starts "Your previous reply ..." is a full sentence (empty or cut-off replies).
+    parts.push(/^Your previous reply/.test(c) ? c : `Your previous reply was rejected. ${c} Reply again without it.`);
+  }
   parts.push(`This is step ${i.step}. ${RESPONSE_CONTRACT}`);
   return parts.join("\n\n");
 }
