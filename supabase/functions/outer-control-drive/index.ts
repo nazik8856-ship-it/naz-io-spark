@@ -16,7 +16,7 @@ import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { checkKillSwitches } from "../_shared/control-gate.ts";
 import { buildToolRequest, parseToolReply, type ToolFormat } from "../_shared/outer-control-tool-request.ts";
 import { extractExternalText } from "../_shared/outer-control-intake.ts";
-import { advanceSession, readGenericPayload, resumeSession } from "../_shared/outer-control-session.ts";
+import { advanceSession, contactRuleStopping, readGenericPayload, resumeSession } from "../_shared/outer-control-session.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -101,6 +101,8 @@ Deno.serve(async (req) => {
         await admin.from("external_tools").update({ last_checked_at: new Date().toISOString(), last_ok_at: ok ? new Date().toISOString() : tool.last_ok_at, last_error: error }).eq("id", tool.id);
         return json({ ok, error });
       };
+      const stopped = await contactRuleStopping(admin, accountId, tool.name);
+      if (stopped) return record(false, stopped);
       const check = await validateOutboundUrl(tool.endpoint_url);
       if (!check.ok) return record(false, `The address is not allowed: ${check.reason}.`);
       let token = "";
