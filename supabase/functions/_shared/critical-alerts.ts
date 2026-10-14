@@ -136,7 +136,10 @@ export type CriticalAlertEvent =
   // agent_clarification_needed -- a draft waiting for review isn't
   // evidence anything broke.
   | "kb_entry_auto_drafted"
-  | "hard_rule_auto_drafted";
+  | "hard_rule_auto_drafted"
+  // Outer Control (active): a session ended as "failed" (the tool kept erroring, was removed,
+  // or its address stopped being allowed). Routine, not an incident: the person simply needs to know.
+  | "outer_control_session_failed";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -175,6 +178,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   website_lead_notification_suppressed: "📪 A website lead notification couldn't reach your email -- it's suppressed",
   kb_entry_auto_drafted: "📚 A new knowledge-base entry was auto-drafted for review",
   hard_rule_auto_drafted: "🕶️ A new shadow rule was auto-drafted for review",
+  outer_control_session_failed: "🔌 An Outer Control session with an external tool failed",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

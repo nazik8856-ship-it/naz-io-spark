@@ -82,8 +82,9 @@ export function readGenericPayload(payload: unknown): string | null {
   return null;
 }
 
+/** Writes only while the session is still open, so a cancelled or finished session is never revived by a late write. */
 async function patch(admin: AnyAdmin, id: string, fields: Record<string, unknown>, deps: SessionDeps) {
-  await admin.from("outer_control_sessions").update({ ...fields, updated_at: iso(deps.now()) }).eq("id", id);
+  await admin.from("outer_control_sessions").update({ ...fields, updated_at: iso(deps.now()) }).eq("id", id).in("status", ["running", "awaiting_human"]);
 }
 
 /** Time the session has actually been working: wall clock minus the time spent waiting for a person. */
@@ -99,6 +100,7 @@ function waited(s: SessionRow, deps: SessionDeps): { waited_ms: number } {
 
 async function finish(admin: AnyAdmin, s: SessionRow, status: string, stop_reason: string, deps: SessionDeps, extra: Record<string, unknown> = {}) {
   await patch(admin, s.id, { status, stop_reason, finished_at: iso(deps.now()), lease_until: null, pending_kind: null, pending_approval_id: null, ...extra }, deps);
+  if (status === "failed") await notifyFailure(admin, s, stop_reason);
 }
 
 /** Rule names and what a match does, in the same terms GET /control-api/v1/criteria uses. */
@@ -138,6 +140,15 @@ async function notifyQuestion(admin: AnyAdmin, userId: string, toolName: string,
     await sendCriticalAlert(admin, userId, {
       event: "agent_clarification_needed",
       summary: `Outer Control paused a session with "${toolName}": it needs your answer to continue. Question: ${question.slice(0, 300)}`,
+    });
+  } catch { /* the dashboard card still shows it */ }
+}
+
+async function notifyFailure(admin: AnyAdmin, s: SessionRow, reason: string) {
+  try {
+    await sendCriticalAlert(admin, s.user_id, {
+      event: "outer_control_session_failed",
+      summary: `An Outer Control session failed: "${s.objective.slice(0, 80)}". ${reason.slice(0, 200)}`,
     });
   } catch { /* the dashboard card still shows it */ }
 }
@@ -200,7 +211,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         const outcome = await createPendingApproval(admin, {
           userId: s.user_id, decisionId: null, agentId: null, actionType: "outer_control_first_contact", provider: tool.name,
           description: `First contact with the external tool "${tool.name}" (${host}). Approving lets Outer Control contact it from now on.`,
-          reason: "Outer Control has never contacted this destination before.", riskTier: "high", origin: "external-api", apiKeyId: s.api_key_id,
+          reason: "Outer Control has never contacted this destination before.", riskTier: "high", requiredApprovals: 1, origin: "external-api", apiKeyId: s.api_key_id,
         });
         if (outcome.autoResolved && outcome.resolution === "approved") {
           await admin.from("external_tools").update({ approved_at: iso(deps.now()), updated_at: iso(deps.now()) }).eq("id", tool.id);
@@ -367,7 +378,7 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
   if (s.pending_kind === "question") {
     const answer = (s.pending_answer ?? "").trim();
     if (!answer) return { status: s.status, resumed: false };
-    await patch(admin, s.id, { status: "running", pending_kind: null, pending_question: null, next_input: answer.slice(0, MAX_ANSWER_CHARS), lease_until: null, ...waited(s, deps) }, deps);
+    await patch(admin, s.id, { status: "running", pending_kind: null, pending_question: null, pending_answer: null, next_input: answer.slice(0, MAX_ANSWER_CHARS), lease_until: null, ...waited(s, deps) }, deps);
     return { status: "running", resumed: true };
   }
 
