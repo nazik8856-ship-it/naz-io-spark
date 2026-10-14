@@ -31,7 +31,7 @@ export type SessionRow = {
   pending_kind: "first_contact" | "contact_gate" | "reply_approval" | "question" | null;
   pending_approval_id: string | null; pending_step_no: number | null;
   pending_question: string | null; pending_answer: string | null;
-  gate_cleared_step: number; lease_until: string | null; started_at: string;
+  gate_cleared_step: number; lease_until: string | null; started_at: string; updated_at: string; waited_ms: number;
 };
 
 export type ToolRow = {
@@ -86,6 +86,17 @@ async function patch(admin: AnyAdmin, id: string, fields: Record<string, unknown
   await admin.from("outer_control_sessions").update({ ...fields, updated_at: iso(deps.now()) }).eq("id", id);
 }
 
+/** Time the session has actually been working: wall clock minus the time spent waiting for a person. */
+function activeMs(s: SessionRow, deps: SessionDeps): number {
+  return Math.max(0, deps.now() - Date.parse(s.started_at) - (s.waited_ms ?? 0));
+}
+
+/** The extra column values to write when a paused session resumes: the wait is not counted. */
+function waited(s: SessionRow, deps: SessionDeps): { waited_ms: number } {
+  const since = Date.parse(s.updated_at);
+  return { waited_ms: (s.waited_ms ?? 0) + (Number.isFinite(since) ? Math.max(0, deps.now() - since) : 0) };
+}
+
 async function finish(admin: AnyAdmin, s: SessionRow, status: string, stop_reason: string, deps: SessionDeps, extra: Record<string, unknown> = {}) {
   await patch(admin, s.id, { status, stop_reason, finished_at: iso(deps.now()), lease_until: null, pending_kind: null, pending_approval_id: null, ...extra }, deps);
 }
@@ -137,7 +148,7 @@ type Accept = { text: string; toolStatus: "done" | "continue" | "need_info" | nu
 async function acceptReply(admin: AnyAdmin, s: SessionRow, tool: ToolRow, stepNo: number, a: Accept, deps: SessionDeps): Promise<void> {
   const action = decideNextAction({
     verdict: "allow", toolStatus: a.toolStatus, stepNo, maxSteps: s.max_steps, retriesUsed: 0, maxRetries: s.max_retries,
-    failuresUsed: 0, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: deps.now() - Date.parse(s.started_at), maxMs: SESSION_TIME_LIMIT_MS,
+    failuresUsed: 0, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: activeMs(s, deps), maxMs: SESSION_TIME_LIMIT_MS,
   });
   const history = [...(s.history ?? []), ...(a.toolStatus === "need_info" ? [] : [{ step: stepNo, text: a.text }])];
   const advance = { step_count: stepNo, retries_used: 0, failures_used: 0, correction: null, next_input: null, history };
@@ -287,7 +298,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       if (failure || !reply) {
         const action = decideNextAction({
           verdict: null, toolStatus: null, stepNo, maxSteps: s.max_steps, retriesUsed: s.retries_used, maxRetries: s.max_retries,
-          failuresUsed: s.failures_used, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: deps.now() - Date.parse(s.started_at), maxMs: SESSION_TIME_LIMIT_MS,
+          failuresUsed: s.failures_used, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: activeMs(s, deps), maxMs: SESSION_TIME_LIMIT_MS,
         });
         await admin.from("outer_control_session_steps").insert({ ...stepBase, error: failure, next_action: action.kind, note: action.reason });
         steps++;
@@ -310,7 +321,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       const names = [...new Set(matches.map((m) => m.name))].join("; ");
       const action = decideNextAction({
         verdict: result.verdict, toolStatus: reply.status, stepNo, maxSteps: s.max_steps, retriesUsed: s.retries_used, maxRetries: s.max_retries,
-        failuresUsed: s.failures_used, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: deps.now() - Date.parse(s.started_at), maxMs: SESSION_TIME_LIMIT_MS,
+        failuresUsed: s.failures_used, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: activeMs(s, deps), maxMs: SESSION_TIME_LIMIT_MS,
       });
       // What is stored is the masked/cleaned form, never the raw reply.
       const stored = result.output ?? textSafeToStore(content, matches);
@@ -356,7 +367,7 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
   if (s.pending_kind === "question") {
     const answer = (s.pending_answer ?? "").trim();
     if (!answer) return { status: s.status, resumed: false };
-    await patch(admin, s.id, { status: "running", pending_kind: null, pending_question: null, next_input: answer.slice(0, MAX_ANSWER_CHARS), lease_until: null }, deps);
+    await patch(admin, s.id, { status: "running", pending_kind: null, pending_question: null, next_input: answer.slice(0, MAX_ANSWER_CHARS), lease_until: null, ...waited(s, deps) }, deps);
     return { status: "running", resumed: true };
   }
 
@@ -378,11 +389,11 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
   const stepNo = s.pending_step_no ?? s.step_count + 1;
   if (s.pending_kind === "first_contact") {
     await admin.from("external_tools").update({ approved_at: iso(deps.now()), updated_at: iso(deps.now()) }).eq("id", s.tool_id);
-    await patch(admin, s.id, { status: "running", pending_kind: null, pending_approval_id: null, lease_until: null }, deps);
+    await patch(admin, s.id, { status: "running", pending_kind: null, pending_approval_id: null, lease_until: null, ...waited(s, deps) }, deps);
     return { status: "running", resumed: true };
   }
   if (s.pending_kind === "contact_gate") {
-    await patch(admin, s.id, { status: "running", pending_kind: null, pending_approval_id: null, gate_cleared_step: stepNo, lease_until: null }, deps);
+    await patch(admin, s.id, { status: "running", pending_kind: null, pending_approval_id: null, gate_cleared_step: stepNo, lease_until: null, ...waited(s, deps) }, deps);
     return { status: "running", resumed: true };
   }
 
@@ -398,8 +409,9 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
     return { status: "rejected", resumed: true };
   }
   const { data: toolRow } = await admin.from("external_tools").select("*").eq("id", s.tool_id).maybeSingle();
-  await patch(admin, s.id, { pending_kind: null, pending_approval_id: null, pending_step_no: null }, deps);
-  await acceptReply(admin, { ...s, status: "running" }, toolRow as ToolRow, stepNo, { text, toolStatus: stepData?.tool_status ?? null }, deps);
+  const w = waited(s, deps);
+  await patch(admin, s.id, { pending_kind: null, pending_approval_id: null, pending_step_no: null, ...w }, deps);
+  await acceptReply(admin, { ...s, status: "running", ...w }, toolRow as ToolRow, stepNo, { text, toolStatus: stepData?.tool_status ?? null }, deps);
   const { data: after } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
   return { status: (after as { status?: string } | null)?.status ?? "running", resumed: true };
 }
