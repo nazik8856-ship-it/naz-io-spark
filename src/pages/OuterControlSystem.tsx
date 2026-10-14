@@ -11,6 +11,7 @@ import { selectRulesForEntity, type EntityScopedLike } from "@/lib/agent-policy"
 const anyDb = supabase as any;
 
 import { describeOutcome } from "@/lib/outer-control-outcome";
+import ActiveSessionsCard from "@/components/control/outer/ActiveSessionsCard";
 
 type Verdict = "allow" | "modify" | "block" | "escalate";
 
@@ -753,6 +754,8 @@ export default function OuterControlSystem() {
               </button>
             </div>
           </div>
+
+          <ActiveSessionsCard accountId={accountId} />
         </div>
       )}
     </div>
