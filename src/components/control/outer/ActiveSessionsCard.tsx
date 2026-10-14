@@ -5,8 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plug, Play, ChevronDown, ChevronRight, Send, X } from "lucide-react";
 import { toast } from "sonner";
-import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
-import { describeStep, describeWaiting, isOpen, STATUS_LABEL, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
+import { supabase } from "@/integrations/supabase/client";
+import { callDrive } from "@/lib/outer-control-drive";
+import { describeStep, describeWaiting, isOpen, STATUS_LABEL, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
 
 // The tables are new and not in the generated Supabase types.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -16,11 +17,15 @@ type Tool = { id: string; name: string; endpoint_url: string; request_format: st
 type Session = {
   id: string; tool_id: string; objective: string; status: SessionStatus; step_count: number; max_steps: number;
   final_output: string | null; stop_reason: string | null; pending_kind: PendingKind | null; pending_question: string | null; started_at: string;
+  handoff: HandoffView | null; workflow_id: string | null; leg_no: number | null;
 };
+type MemoryRow = { id: string; kind: string; summary: string };
 type Step = StepLike & { id: string; reply_text: string | null };
 type KeyOpt = { id: string; name: string };
 
 const STATUS_STYLE: Record<SessionStatus, string> = {
+  queued: "border-white/20 text-zinc-400",
+  skipped: "border-white/20 text-zinc-500",
   running: "border-cyan-500/40 text-cyan-300",
   awaiting_human: "border-amber-500/50 text-amber-300",
   completed: "border-emerald-500/40 text-emerald-300",
@@ -29,22 +34,6 @@ const STATUS_STYLE: Record<SessionStatus, string> = {
   cancelled: "border-white/20 text-zinc-400",
   stopped: "border-white/20 text-zinc-300",
 };
-
-async function callDrive(action: string, payload: Record<string, unknown>): Promise<{ ok: boolean; data: any; message: string }> { // eslint-disable-line @typescript-eslint/no-explicit-any
-  const { data: sess } = await supabase.auth.getSession();
-  const token = sess.session?.access_token ?? SUPABASE_ANON;
-  try {
-    const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/outer-control-drive`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON },
-      body: JSON.stringify({ action, ...payload }),
-    });
-    const data = await resp.json().catch(() => ({}));
-    return { ok: resp.ok && data?.ok !== false, data, message: data?.message || data?.error || "" };
-  } catch {
-    return { ok: false, data: null, message: "Could not reach Outer Control. Try again." };
-  }
-}
 
 const hostOf = (u: string) => { try { return new URL(u).hostname; } catch { return u; } };
 const inputCls = "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500/50";
@@ -55,6 +44,9 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [keys, setKeys] = useState<KeyOpt[]>([]);
   const [steps, setSteps] = useState<Record<string, Step[]>>({});
+  const [memory, setMemory] = useState<Record<string, MemoryRow[]>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [writing, setWriting] = useState<Record<string, string | null>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showConnect, setShowConnect] = useState(false);
   const [startFor, setStartFor] = useState<string | null>(null);
@@ -67,7 +59,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     if (!accountId) return;
     const [t, s, k] = await Promise.all([
       anyDb.from("external_tools").select("id, name, endpoint_url, request_format, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).order("created_at", { ascending: false }),
-      anyDb.from("outer_control_sessions").select("id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at").eq("user_id", accountId).order("started_at", { ascending: false }).limit(10),
+      anyDb.from("outer_control_sessions").select("id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no").eq("user_id", accountId).order("started_at", { ascending: false }).limit(10),
       anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
     ]);
     setTools((t.data ?? []) as Tool[]);
@@ -79,6 +71,8 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     const { data } = await anyDb.from("outer_control_session_steps")
       .select("id, step_no, attempt, verdict, next_action, error, note, reply_text").eq("session_id", sessionId).order("step_no").order("attempt");
     setSteps((p) => ({ ...p, [sessionId]: (data ?? []) as Step[] }));
+    const { data: mem } = await anyDb.from("outer_control_memory").select("id, kind, summary").eq("session_id", sessionId).order("created_at");
+    setMemory((p) => ({ ...p, [sessionId]: (mem ?? []) as MemoryRow[] }));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -191,14 +185,14 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
           <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-500">Recent sessions</div>
           {sessions.map((s) => {
             const open = expanded === s.id;
-            const waiting = s.status === "awaiting_human" ? describeWaiting(s.pending_kind, s.pending_question) : null;
+            const waiting = s.status === "awaiting_human" && s.pending_kind !== "handoff" ? describeWaiting(s.pending_kind, s.pending_question) : null;
             return (
               <div key={s.id} className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5" data-testid="session-row">
                 <button type="button" onClick={() => setExpanded(open ? null : s.id)} className="flex w-full items-center justify-between gap-2 text-left">
                   <span className="flex min-w-0 items-center gap-1.5 text-sm text-zinc-200">
                     {open ? <ChevronDown className="h-3 w-3 shrink-0 text-zinc-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-zinc-500" />}
                     <span className="truncate">{s.objective}</span>
-                    <span className="shrink-0 text-xs text-zinc-500">· {toolName(s.tool_id)}</span>
+                    <span className="shrink-0 text-xs text-zinc-500">· {toolName(s.tool_id)}{s.workflow_id && s.leg_no ? ` · workflow step ${s.leg_no}` : ""}</span>
                   </span>
                   <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${STATUS_STYLE[s.status]}`}>{STATUS_LABEL[s.status]}</span>
                 </button>
@@ -217,12 +211,56 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                     )}
                   </div>
                 )}
+                {s.status === "awaiting_human" && s.pending_kind === "handoff" && s.handoff && (
+                  <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/[0.07] px-3 py-2.5 text-xs text-amber-50" data-testid="handoff-panel">
+                    <p className="font-medium">{s.handoff.title}</p>
+                    <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-amber-100/90">
+                      {s.handoff.summary.map((line, i) => <li key={i}>{line}</li>)}
+                    </ul>
+                    <textarea className={`${inputCls} mt-2`} rows={2} aria-label="Note to the tool" placeholder="Optional note for the tool (added to the next request)" value={notes[s.id] ?? ""} onChange={(e) => setNotes({ ...notes, [s.id]: e.target.value })} />
+                    {writing[s.id] != null && (
+                      <div className="mt-2">
+                        <textarea className={inputCls} rows={5} aria-label="Your reply" placeholder="Write the reply for this step" value={writing[s.id] ?? ""} onChange={(e) => setWriting({ ...writing, [s.id]: e.target.value })} />
+                        <p className="mt-1 text-[11px] text-amber-100/70">It is checked against the same rules. If it breaks one you will be told and can fix it; if a rule needs approval it waits for it.</p>
+                        <div className="mt-1.5 flex gap-2">
+                          <button disabled={!(writing[s.id] ?? "").trim() || busy === `decide-${s.id}`}
+                            onClick={async () => { const r = await act(`decide-${s.id}`, "decide", { session_id: s.id, option: "edit", text: writing[s.id] });
+                              if (r.ok) {
+                                toast.success(r.data?.status === "awaiting_human" ? "Your reply is waiting for approval before it is used." : "Your reply was used.");
+                                setWriting({ ...writing, [s.id]: null });
+                              } }}
+                            className="rounded border border-cyan-500/50 bg-cyan-500/15 px-3 py-1.5 text-[11px] font-mono uppercase text-cyan-100 disabled:opacity-40">Use this reply</button>
+                          <button onClick={() => setWriting({ ...writing, [s.id]: null })} className="rounded border border-white/20 px-3 py-1.5 text-[11px] font-mono uppercase text-zinc-200 hover:bg-white/10">Back</button>
+                        </div>
+                      </div>
+                    )}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {s.handoff.options.map((o) => (
+                        <button key={o.id} title={o.description} disabled={busy === `decide-${s.id}` || (o.id === "edit" && writing[s.id] != null)}
+                          onClick={() => o.id === "edit"
+                            ? setWriting({ ...writing, [s.id]: s.handoff?.draft ?? "" })
+                            : act(`decide-${s.id}`, "decide", { session_id: s.id, option: o.id, note: o.id === "retry" ? notes[s.id] || undefined : undefined }, o.id === "stop" ? "Session stopped." : "Asking the tool again.")}
+                          className={`rounded border px-3 py-1.5 text-[11px] font-mono uppercase disabled:opacity-40 ${o.id === s.handoff!.recommended ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-100" : "border-white/20 text-zinc-200 hover:bg-white/10"}`}>
+                          {o.label}{o.id === s.handoff!.recommended ? " · recommended" : ""}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {open && (
                   <div className="mt-2 space-y-2 rounded border border-white/10 bg-black/20 p-2.5 text-[11px]">
                     <ul className="space-y-0.5">
                       {(steps[s.id] ?? []).map((st) => <li key={st.id} className="text-zinc-300">{describeStep(st)}</li>)}
                       {(steps[s.id] ?? []).length === 0 && <li className="text-zinc-500">Nothing has been exchanged yet.</li>}
                     </ul>
+                    {(memory[s.id] ?? []).length > 0 && (
+                      <div>
+                        <div className="font-mono text-[10px] uppercase text-zinc-500">Decisions remembered for later steps</div>
+                        <ul className="mt-0.5 space-y-0.5 text-zinc-300">
+                          {(memory[s.id] ?? []).map((m) => <li key={m.id}>{m.summary}</li>)}
+                        </ul>
+                      </div>
+                    )}
                     {s.final_output && (
                       <div>
                         <div className="font-mono text-[10px] uppercase text-zinc-500">Result</div>

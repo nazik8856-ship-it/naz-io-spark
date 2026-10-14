@@ -12,6 +12,7 @@ const anyDb = supabase as any;
 
 import { describeOutcome } from "@/lib/outer-control-outcome";
 import ActiveSessionsCard from "@/components/control/outer/ActiveSessionsCard";
+import WorkflowsCard from "@/components/control/outer/WorkflowsCard";
 
 type Verdict = "allow" | "modify" | "block" | "escalate";
 
@@ -755,6 +756,7 @@ export default function OuterControlSystem() {
             </div>
           </div>
 
+          <WorkflowsCard accountId={accountId} />
           <ActiveSessionsCard accountId={accountId} />
         </div>
       )}

@@ -1,0 +1,64 @@
+// Outer Control (active): what has been decided, changed and applied so far in a run.
+// Stored per step, read back before every request so later steps stay consistent with
+// earlier ones, and shared by every leg of a workflow. Pure rendering is separate from
+// the two small database helpers so it can be tested alone.
+
+export type MemoryKind = "rule" | "modification" | "rejection" | "recovery" | "human" | "plan";
+export type MemoryEntry = { step_no: number; kind: MemoryKind; rule_names: string[]; summary: string };
+
+/** How many of the most recent entries a request carries. */
+export const MEMORY_LIMIT = 20;
+const LINE_MAX = 300;
+
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/** One line per entry, oldest first, identical lines collapsed. */
+export function renderMemory(entries: MemoryEntry[], limit = MEMORY_LIMIT): string[] {
+  const lines: string[] = [];
+  for (const e of entries.slice(-limit)) {
+    const line = clip(e.summary.replace(/\s+/g, " ").trim(), LINE_MAX);
+    if (line && lines[lines.length - 1] !== line) lines.push(line);
+  }
+  return lines;
+}
+
+/** Rule names that replies in this run have already triggered (rejected, cleaned or escalated). */
+export function ruleNamesSeen(entries: MemoryEntry[]): string[] {
+  const out: string[] = [];
+  for (const e of entries) {
+    if (e.kind !== "rule" && e.kind !== "modification" && e.kind !== "rejection") continue;
+    for (const n of e.rule_names) if (!out.includes(n)) out.push(n);
+  }
+  return out;
+}
+
+/** How many times a person already chose to retry the given step. */
+export function humanRetriesAt(entries: MemoryEntry[], stepNo: number): number {
+  return entries.filter((e) => e.kind === "human" && e.step_no === stepNo && /chose to retry/i.test(e.summary)).length;
+}
+
+// deno-lint-ignore no-explicit-any
+type AnyAdmin = any;
+type MemoryOwner = { id: string; user_id: string; workflow_id: string | null; leg_no?: number | null };
+
+/** Prefix that tells a leg's entries apart inside a workflow's shared memory. */
+export const legLabel = (s: Pick<MemoryOwner, "workflow_id" | "leg_no">) => (s.workflow_id && s.leg_no ? `Leg ${s.leg_no} · ` : "");
+
+export async function recordMemory(
+  admin: AnyAdmin, s: MemoryOwner, e: { stepNo: number; kind: MemoryKind; ruleNames?: string[]; summary: string },
+): Promise<void> {
+  try {
+    await admin.from("outer_control_memory").insert({
+      user_id: s.user_id, session_id: s.id, workflow_id: s.workflow_id, step_no: e.stepNo, kind: e.kind,
+      rule_names: (e.ruleNames ?? []).slice(0, 10), summary: clip(`${legLabel(s)}${e.summary}`, 590),
+    });
+  } catch { /* memory is a consistency aid; the run never depends on writing it */ }
+}
+
+export async function loadMemory(admin: AnyAdmin, s: Pick<MemoryOwner, "id" | "workflow_id">): Promise<MemoryEntry[]> {
+  try {
+    const q = admin.from("outer_control_memory").select("step_no, kind, rule_names, summary").order("created_at", { ascending: false }).limit(MEMORY_LIMIT * 2);
+    const { data } = await (s.workflow_id ? q.eq("workflow_id", s.workflow_id) : q.eq("session_id", s.id));
+    return ((data ?? []) as MemoryEntry[]).slice().reverse();
+  } catch { return []; }
+}

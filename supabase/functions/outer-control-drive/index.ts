@@ -4,7 +4,10 @@
 //   POST { action: "test_tool", tool_id }
 //   POST { action: "start_session", tool_id, objective, context?, api_key_id?, max_steps? }
 //   POST { action: "answer", session_id, answer }
+//   POST { action: "decide", session_id, option, note? | text? }  (answers a hand-off; text = "write the reply myself")
 //   POST { action: "cancel", session_id }
+//   POST { action: "start_workflow", objective, context?, legs[], api_key_id?, max_steps? }
+//   POST { action: "cancel_workflow", workflow_id }
 //
 // verify_jwt = true. Credentials go into the vault (create_integration_secret) and are
 // never returned. Sessions run in the background (EdgeRuntime.waitUntil); the dashboard
@@ -16,7 +19,9 @@ import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { checkKillSwitches } from "../_shared/control-gate.ts";
 import { buildToolRequest, parseToolReply, type ToolFormat } from "../_shared/outer-control-tool-request.ts";
 import { extractExternalText } from "../_shared/outer-control-intake.ts";
-import { advanceSession, contactRuleStopping, readGenericPayload, resumeSession } from "../_shared/outer-control-session.ts";
+import { applyEditedReply, contactRuleStopping, readGenericPayload } from "../_shared/outer-control-session.ts";
+import { cancelWorkflow, continueSession, driveSession, progressWorkflow, resumeAndDrive, startWorkflow } from "../_shared/outer-control-workflow.ts";
+import { encodeChoice, findOption, type Handoff } from "../_shared/outer-control-handoff.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -148,38 +153,77 @@ Deno.serve(async (req) => {
         apiKeyId = key.id;
       }
       const maxSteps = Math.max(1, Math.min(20, Number.isFinite(Number(body.max_steps)) ? Math.trunc(Number(body.max_steps)) : 5));
+      let fallbackId: string | null = null;
+      if (body.fallback_tool_id) {
+        const { data: fb } = await admin.from("external_tools").select("id, enabled").eq("id", String(body.fallback_tool_id)).eq("user_id", accountId).maybeSingle();
+        if (!fb || !fb.enabled || fb.id === tool.id) return json({ error: "invalid_fallback", message: "The fallback tool must be a different, enabled tool." }, 400);
+        fallbackId = fb.id;
+      }
       const { data: session, error } = await admin.from("outer_control_sessions").insert({
         user_id: accountId, tool_id: tool.id, api_key_id: apiKeyId, objective, context, max_steps: maxSteps,
+        fallback_tool_id: fallbackId, on_failure: body.on_failure === "reject" ? "reject" : "handoff",
       }).select("id").maybeSingle();
       if (error || !session) return json({ error: "internal_error", message: "Could not start the session." }, 500);
-      inBackground(advanceSession(admin, session.id));
+      inBackground(driveSession(admin, session.id));
       return json({ ok: true, session_id: session.id, status: "running" });
     }
 
     // ---- answer / cancel -------------------------------------------------------------
     if (action === "answer" || action === "cancel") {
-      const { data: session } = await admin.from("outer_control_sessions").select("id, status, pending_kind").eq("id", String(body.session_id ?? "")).eq("user_id", accountId).maybeSingle();
+      const { data: session } = await admin.from("outer_control_sessions").select("id, status, pending_kind, workflow_id").eq("id", String(body.session_id ?? "")).eq("user_id", accountId).maybeSingle();
       if (!session) return json({ error: "not_found", message: "Session not found." }, 404);
       if (action === "cancel") {
         if (session.status !== "running" && session.status !== "awaiting_human") return json({ ok: true, already: session.status });
         await admin.from("outer_control_sessions").update({
           status: "cancelled", stop_reason: "Cancelled by the owner.", finished_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-          pending_kind: null, pending_approval_id: null, lease_until: null,
+          pending_kind: null, pending_approval_id: null, lease_until: null, handoff: null,
         }).eq("id", session.id);
+        if (session.workflow_id) inBackground(progressWorkflow(admin, session.workflow_id).then((ids) => Promise.all(ids.map((id) => driveSession(admin, id)))));
         return json({ ok: true, status: "cancelled" });
       }
       const answer = String(body.answer ?? "").trim();
       if (!answer || answer.length > 2000) return json({ error: "invalid_answer", message: "Type an answer (2000 characters or fewer)." }, 400);
       if (session.status !== "awaiting_human" || session.pending_kind !== "question") return json({ error: "not_waiting", message: "This session is not waiting for an answer." }, 409);
       await admin.from("outer_control_sessions").update({ pending_answer: answer, updated_at: new Date().toISOString() }).eq("id", session.id);
-      inBackground((async () => {
-        const r = await resumeSession(admin, session.id);
-        if (r.status === "running") await advanceSession(admin, session.id);
-      })());
+      inBackground(resumeAndDrive(admin, session.id));
       return json({ ok: true, status: "running" });
     }
 
-    return json({ error: "unknown_action", message: "action must be create_tool, test_tool, start_session, answer or cancel." }, 400);
+    // ---- decide (a hand-off) --------------------------------------------------------
+    if (action === "decide") {
+      const { data: session } = await admin.from("outer_control_sessions").select("id, status, pending_kind, handoff").eq("id", String(body.session_id ?? "")).eq("user_id", accountId).maybeSingle();
+      if (!session) return json({ error: "not_found", message: "Session not found." }, 404);
+      if (session.status !== "awaiting_human" || session.pending_kind !== "handoff") return json({ error: "not_waiting", message: "This session is not waiting for a decision." }, 409);
+      const option = findOption(session.handoff as Handoff | null, body.option);
+      if (!option) return json({ error: "invalid_option", message: "That is not one of the options offered." }, 400);
+      if (option.id === "edit") {
+        const edited = await applyEditedReply(admin, session.id, typeof body.text === "string" ? body.text : "");
+        if (!edited.ok) return json({ error: "edit_refused", message: edited.message }, 422);
+        inBackground(continueSession(admin, session.id));
+        return json({ ok: true, status: edited.status });
+      }
+      const note = typeof body.note === "string" ? body.note.trim() : "";
+      if (note.length > 1000) return json({ error: "invalid_note", message: "The note is limited to 1000 characters." }, 400);
+      await admin.from("outer_control_sessions").update({ pending_answer: encodeChoice(option.id, note || null), updated_at: new Date().toISOString() }).eq("id", session.id);
+      inBackground(resumeAndDrive(admin, session.id));
+      return json({ ok: true, status: option.id === "stop" ? "stopped" : "running" });
+    }
+
+    // ---- start_workflow / cancel_workflow --------------------------------------------
+    if (action === "start_workflow") {
+      const started = await startWorkflow(admin, accountId, body);
+      if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+      inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
+      return json({ ok: true, workflow_id: started.workflowId });
+    }
+    if (action === "cancel_workflow") {
+      const { data: wf } = await admin.from("outer_control_workflows").select("id").eq("id", String(body.workflow_id ?? "")).eq("user_id", accountId).maybeSingle();
+      if (!wf) return json({ error: "not_found", message: "Workflow not found." }, 404);
+      await cancelWorkflow(admin, wf.id, accountId);
+      return json({ ok: true, status: "cancelled" });
+    }
+
+    return json({ error: "unknown_action", message: "action must be create_tool, test_tool, start_session, answer, decide, cancel, start_workflow or cancel_workflow." }, 400);
   } catch (e) {
     return json({ error: "internal_error", message: e instanceof Error ? e.message : "Unknown error" }, 500);
   }

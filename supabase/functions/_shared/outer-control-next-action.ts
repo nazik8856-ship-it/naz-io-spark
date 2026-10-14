@@ -1,6 +1,7 @@
 // Outer Control (active): what to do after one exchange with an external tool.
 // Pure, so the whole table is unit-tested. The session driver only applies the result.
 import type { OuterControlVerdict } from "./outer-control-scoring.ts";
+import type { FailureClass } from "./outer-control-recovery.ts";
 
 export type NextActionKind =
   | "continue" // accepted; ask the tool for another round
@@ -10,6 +11,8 @@ export type NextActionKind =
   | "pause_human" // a person is needed (escalation or a question)
   | "reject" // blocked and out of retries
   | "stop" // limit reached
+  | "switch_tool" // the tool kept failing; use the leg's fallback tool
+  | "handoff" // retries ran out and a person should decide
   | "fail"; // tool kept failing
 
 export type NextAction = { kind: NextActionKind; reason: string };
@@ -28,23 +31,33 @@ export type NextActionInput = {
   maxFailures: number;
   elapsedMs: number;
   maxMs: number;
+  /** What kind of failure it was; one that asking again cannot fix ends the retries at once. */
+  failure?: FailureClass | null;
+  /** A fallback tool exists and has not been used yet. */
+  canFallback?: boolean;
+  /** When retries run out: ask a person (default for new sessions) or end the session. */
+  onExhausted?: "reject" | "handoff";
 };
 
-export const DEFAULT_MAX_FAILURES = 2;
+export const DEFAULT_MAX_FAILURES = 3;
 export const SESSION_TIME_LIMIT_MS = 10 * 60_000;
 
 export function decideNextAction(i: NextActionInput): NextAction {
   if (i.elapsedMs > i.maxMs) return { kind: "stop", reason: "The session time limit was reached." };
 
   if (i.verdict === null) {
-    return i.failuresUsed < i.maxFailures
-      ? { kind: "retry_same", reason: "The tool did not answer usably; asking again." }
-      : { kind: "fail", reason: "The tool kept failing." };
+    const retryable = i.failure ? i.failure.retry : true;
+    if (retryable && i.failuresUsed < i.maxFailures) return { kind: "retry_same", reason: i.failure?.reason ?? "The tool did not answer usably; asking again." };
+    const why = i.failure?.reason ?? "The tool kept failing.";
+    if (i.canFallback) return { kind: "switch_tool", reason: `${why} Switching to the fallback tool.` };
+    if (i.onExhausted === "handoff") return { kind: "handoff", reason: why };
+    return { kind: "fail", reason: why };
   }
 
   if (i.verdict === "block") {
-    return i.retriesUsed < i.maxRetries
-      ? { kind: "retry_with_correction", reason: "The reply broke a rule; asking again without it." }
+    if (i.retriesUsed < i.maxRetries) return { kind: "retry_with_correction", reason: "The reply broke a rule; asking again without it." };
+    return i.onExhausted === "handoff"
+      ? { kind: "handoff", reason: "The reply broke a rule and no retries are left." }
       : { kind: "reject", reason: "The reply broke a rule and no retries are left." };
   }
 

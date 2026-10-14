@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { describeStep, describeWaiting, isOpen, STATUS_LABEL } from "@/lib/outer-control-sessions";
+import { describeStep, describeWaiting, isOpen, legsPayload, STATUS_LABEL, WORKFLOW_LABEL } from "@/lib/outer-control-sessions";
 
 describe("outer-control-sessions", () => {
-  it("only running and awaiting_human sessions are open", () => {
+  it("queued, running and awaiting_human sessions are open", () => {
+    expect(isOpen("queued")).toBe(true);
     expect(isOpen("running")).toBe(true);
     expect(isOpen("awaiting_human")).toBe(true);
     for (const s of ["completed", "rejected", "failed", "cancelled", "stopped"] as const) expect(isOpen(s)).toBe(false);
@@ -10,7 +11,8 @@ describe("outer-control-sessions", () => {
 
   it("every status has a label", () => {
     expect(STATUS_LABEL.awaiting_human).toBe("Needs you");
-    expect(Object.keys(STATUS_LABEL)).toHaveLength(7);
+    expect(Object.keys(STATUS_LABEL)).toHaveLength(9);
+    expect(Object.keys(WORKFLOW_LABEL)).toHaveLength(5);
   });
 
   it("says what a person must do for each pause", () => {
@@ -30,4 +32,40 @@ describe("outer-control-sessions", () => {
     expect(describeStep({ step_no: 1, attempt: 1, verdict: "block", next_action: "mystery", error: null, note: null }))
       .toBe("Step 1 — verdict block — mystery");
   });
+
+  it("describes a hand-off and the new recovery actions", () => {
+    expect(describeWaiting("handoff", null)).toMatch(/choose how to continue/);
+    expect(describeStep({ step_no: 1, attempt: 4, verdict: null, next_action: "switch_tool", error: "The tool answered HTTP 500.", note: null }))
+      .toBe("Step 1 (try 4) — The tool answered HTTP 500. — the tool kept failing, switched to the fallback tool");
+    expect(describeStep({ step_no: 2, attempt: 2, verdict: "block", next_action: "handoff", error: null, note: null })).toMatch(/handed to a person/);
+  });
+
+  it("builds the workflow steps from the form and reports the first problem", () => {
+    const draft = (o: Partial<{ toolId: string; instruction: string; deps: number[]; fallbackId: string }>) => ({ toolId: "t1", instruction: "Do it", deps: [], fallbackId: "", ...o });
+    expect(legsPayload([]).message).toMatch(/at least one step/);
+    expect(legsPayload([draft({ toolId: "" })]).message).toBe("Step 1: choose a tool.");
+    expect(legsPayload([draft({}), draft({ instruction: "  " })]).message).toBe("Step 2: say what the tool should do.");
+    const ok = legsPayload([draft({}), draft({ toolId: "t2", instruction: " Draft ", deps: [1, 2, 7], fallbackId: "t1" })]);
+    expect(ok.legs).toEqual([
+      { tool_id: "t1", instruction: "Do it", depends_on: [] },
+      { tool_id: "t2", instruction: "Draft", depends_on: [1], fallback_tool_id: "t1" },
+    ]);
+  });
+
+  it("builds step conditions from the form and refuses an incomplete one", () => {
+    const d = (o: object) => ({ toolId: "t1", instruction: "Do it", deps: [], fallbackId: "", ...o });
+    const ok = legsPayload([d({}), d({ condKind: "contains", condLeg: 1, condValue: " exchange " }), d({ condKind: "dep_failed", condLeg: 1 })]);
+    expect(ok.legs?.[1]).toEqual({ tool_id: "t1", instruction: "Do it", depends_on: [], condition: { leg: 1, op: "contains", value: "exchange" } });
+    expect(ok.legs?.[2]).toEqual({ tool_id: "t1", instruction: "Do it", depends_on: [], condition: { leg: 1, op: "dep_failed" } });
+    expect(legsPayload([d({}), d({ condKind: "contains", condLeg: 1, condValue: "  " })]).message).toBe("Step 2: say which text the condition looks for.");
+    expect(legsPayload([d({}), d({ condKind: "not_contains", condLeg: 5, condValue: "x" })]).message).toBe("Step 2: choose which earlier step the condition looks at.");
+    expect(legsPayload([d({ condKind: "dep_failed", condLeg: 1 })]).message).toBe("Step 1: choose which earlier step the condition looks at.");
+    expect(legsPayload([d({}), d({ condKind: "always" })]).legs?.[1]).not.toHaveProperty("condition");
+  });
+
+  it("labels skipped steps", () => {
+    expect(STATUS_LABEL.skipped).toBe("Skipped");
+    expect(isOpen("skipped")).toBe(false);
+  });
 });
+

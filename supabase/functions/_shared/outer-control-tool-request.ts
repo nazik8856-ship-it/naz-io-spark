@@ -9,7 +9,7 @@
 export type ToolFormat = "openai_chat" | "anthropic_messages" | "generic_json";
 
 /** A rule as shown to the tool: its name and what a match does to the reply. */
-export type RuleLine = { name: string; action: "block" | "approval" | "remove_text" };
+export type RuleLine = { name: string; action: "block" | "approval" | "remove_text"; /** Already triggered by an earlier reply in this run. */ matchedBefore?: boolean };
 
 export type AcceptedAnswer = { step: number; text: string };
 
@@ -27,6 +27,12 @@ export type ToolRequestInput = {
   answer?: string | null;
   sessionId: string;
   step: number;
+  /** Decisions already made in this run (one line each) the tool must stay consistent with. */
+  memory?: string[];
+  /** Names of rules earlier replies in this run already triggered. */
+  avoid?: string[];
+  /** How many lower-priority rules were left out of `rules` (they are still enforced). */
+  omittedRules?: number;
 };
 
 export const RESPONSE_CONTRACT =
@@ -39,9 +45,11 @@ const ACTION_TEXT: Record<RuleLine["action"], string> = {
   remove_text: "the matching text is removed from the reply",
 };
 
-export function renderRules(rules: RuleLine[]): string {
+export function renderRules(rules: RuleLine[], omitted = 0): string {
   if (!rules.length) return "No account-specific rules apply beyond the built-in checks (secrets, card numbers, destructive wording).";
-  return rules.map((r) => `- ${r.name}: if matched, ${ACTION_TEXT[r.action]}.`).join("\n");
+  const lines = rules.map((r) => `- ${r.name}: if matched, ${ACTION_TEXT[r.action]}${r.matchedBefore ? " (an earlier reply in this run already triggered this)" : ""}.`);
+  if (omitted > 0) lines.push(`- ${omitted} further rule(s) also apply; every reply is checked against all of them.`);
+  return lines.join("\n");
 }
 
 /** The instruction text shared by every format. */
@@ -51,12 +59,18 @@ export function buildInstruction(i: ToolRequestInput): string {
     `Objective: ${i.objective}`,
   ];
   if (i.context && i.context.trim()) parts.push(`Context:\n${i.context.trim()}`);
-  parts.push(`Rules your reply is checked against:\n${renderRules(i.rules)}`);
+  parts.push(`Rules your reply is checked against:\n${renderRules(i.rules, i.omittedRules ?? 0)}`);
+  if (i.memory && i.memory.length) parts.push(`Decisions already made in this run (stay consistent with them):\n${i.memory.map((m) => `- ${m}`).join("\n")}`);
+  if (i.avoid && i.avoid.length) parts.push(`Earlier replies in this run already triggered these rules, so avoid them: ${i.avoid.join("; ")}.`);
   if (i.history.length) {
     parts.push(`Accepted so far:\n${i.history.map((h) => `Step ${h.step}: ${h.text}`).join("\n")}`);
   }
   if (i.answer && i.answer.trim()) parts.push(`A person answered your last question: ${i.answer.trim()}`);
-  if (i.correction && i.correction.trim()) parts.push(`Your previous reply was rejected. ${i.correction.trim()} Reply again without it.`);
+  if (i.correction && i.correction.trim()) {
+    const c = i.correction.trim();
+    // A correction that already starts "Your previous reply ..." is a full sentence (empty or cut-off replies).
+    parts.push(/^Your previous reply/.test(c) ? c : `Your previous reply was rejected. ${c} Reply again without it.`);
+  }
   parts.push(`This is step ${i.step}. ${RESPONSE_CONTRACT}`);
   return parts.join("\n\n");
 }
@@ -98,6 +112,8 @@ export function buildToolRequest(i: ToolRequestInput): { body: Record<string, un
       accepted: i.history,
       correction: i.correction ?? null,
       answer: i.answer ?? null,
+      memory: i.memory ?? [],
+      avoid: i.avoid ?? [],
       response_contract: RESPONSE_CONTRACT,
       instruction,
     },
