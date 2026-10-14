@@ -5,7 +5,7 @@ import type { FailureClass } from "./outer-control-recovery.ts";
 import { humanRetriesAt, renderMemory, type MemoryEntry } from "./outer-control-memory.ts";
 
 export type HandoffKind = "rule_exhausted" | "tool_failed";
-export type HandoffOptionId = "retry" | "stop";
+export type HandoffOptionId = "retry" | "stop" | "edit";
 export type HandoffOption = { id: HandoffOptionId; label: string; description: string };
 export type Handoff = {
   kind: HandoffKind;
@@ -13,6 +13,14 @@ export type Handoff = {
   summary: string[];
   options: HandoffOption[];
   recommended: HandoffOptionId;
+  /** The last rejected reply as stored (sensitive text masked), offered as a starting point for "edit". */
+  draft?: string | null;
+};
+
+const EDIT_OPTION: HandoffOption = {
+  id: "edit",
+  label: "Write the reply myself",
+  description: "You write (or fix) the reply for this step. It is checked against the same rules, then used as if the tool had sent it.",
 };
 
 export type HandoffInput = {
@@ -47,6 +55,7 @@ export function buildHandoff(i: HandoffInput): Handoff {
       ],
       options: [
         { id: "retry", label: "Ask again with my note", description: "Gives the tool one more try. Your note is added to the request." },
+        EDIT_OPTION,
         { id: "stop", label: "Stop the session", description: "Ends the session. Accepted steps are kept." },
       ],
       recommended,
@@ -68,6 +77,7 @@ export function buildHandoff(i: HandoffInput): Handoff {
     ],
     options: [
       { id: "retry", label: "Try again now", description: "Contacts the tool again with the same request." },
+      EDIT_OPTION,
       { id: "stop", label: "Stop the session", description: "Ends the session. Accepted steps are kept." },
     ],
     recommended,
@@ -80,10 +90,10 @@ export function findOption(h: Handoff | null | undefined, id: unknown): HandoffO
 }
 
 /** What a person's choice is stored as until the session resumes. */
-export function encodeChoice(optionId: HandoffOptionId, note: string | null): string {
+export function encodeChoice(optionId: "retry" | "stop", note: string | null): string {
   return JSON.stringify({ option: optionId, note: note && note.trim() ? note.trim().slice(0, 1000) : null });
 }
-export function decodeChoice(raw: string | null | undefined): { option: HandoffOptionId; note: string | null } | null {
+export function decodeChoice(raw: string | null | undefined): { option: "retry" | "stop"; note: string | null } | null {
   if (!raw) return null;
   try {
     const o = JSON.parse(raw) as { option?: unknown; note?: unknown };

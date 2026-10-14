@@ -11,7 +11,7 @@ describe("outer-control-sessions", () => {
 
   it("every status has a label", () => {
     expect(STATUS_LABEL.awaiting_human).toBe("Needs you");
-    expect(Object.keys(STATUS_LABEL)).toHaveLength(8);
+    expect(Object.keys(STATUS_LABEL)).toHaveLength(9);
     expect(Object.keys(WORKFLOW_LABEL)).toHaveLength(5);
   });
 
@@ -51,4 +51,21 @@ describe("outer-control-sessions", () => {
       { tool_id: "t2", instruction: "Draft", depends_on: [1], fallback_tool_id: "t1" },
     ]);
   });
+
+  it("builds step conditions from the form and refuses an incomplete one", () => {
+    const d = (o: object) => ({ toolId: "t1", instruction: "Do it", deps: [], fallbackId: "", ...o });
+    const ok = legsPayload([d({}), d({ condKind: "contains", condLeg: 1, condValue: " exchange " }), d({ condKind: "dep_failed", condLeg: 1 })]);
+    expect(ok.legs?.[1]).toEqual({ tool_id: "t1", instruction: "Do it", depends_on: [], condition: { leg: 1, op: "contains", value: "exchange" } });
+    expect(ok.legs?.[2]).toEqual({ tool_id: "t1", instruction: "Do it", depends_on: [], condition: { leg: 1, op: "dep_failed" } });
+    expect(legsPayload([d({}), d({ condKind: "contains", condLeg: 1, condValue: "  " })]).message).toBe("Step 2: say which text the condition looks for.");
+    expect(legsPayload([d({}), d({ condKind: "not_contains", condLeg: 5, condValue: "x" })]).message).toBe("Step 2: choose which earlier step the condition looks at.");
+    expect(legsPayload([d({ condKind: "dep_failed", condLeg: 1 })]).message).toBe("Step 1: choose which earlier step the condition looks at.");
+    expect(legsPayload([d({}), d({ condKind: "always" })]).legs?.[1]).not.toHaveProperty("condition");
+  });
+
+  it("labels skipped steps", () => {
+    expect(STATUS_LABEL.skipped).toBe("Skipped");
+    expect(isOpen("skipped")).toBe(false);
+  });
 });
+

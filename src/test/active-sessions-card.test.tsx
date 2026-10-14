@@ -24,6 +24,7 @@ vi.mock("@/integrations/supabase/client", () => {
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import ActiveSessionsCard from "@/components/control/outer/ActiveSessionsCard";
+import { toast } from "sonner";
 
 const tool = { id: "t1", name: "Support bot", endpoint_url: "https://bot.example.com/chat", request_format: "generic_json", approved_at: null, last_ok_at: null, last_error: null, last_checked_at: null };
 const session = (over: Record<string, unknown>) => ({
@@ -133,4 +134,31 @@ describe("ActiveSessionsCard", () => {
     expect(await screen.findByText(/workflow step 2/)).toBeTruthy();
     expect(screen.getByText("Waiting")).toBeTruthy();
   });
+
+  it("writing the reply myself: starts from the rejected reply, sends the text, and shows what the server says when it is refused", async () => {
+    state.tools = [tool];
+    state.sessions = [session({
+      status: "awaiting_human", pending_kind: "handoff",
+      handoff: {
+        kind: "rule_exhausted", title: "Support bot keeps breaking a rule", summary: ["Step 1: broke a rule."], recommended: "retry",
+        options: [{ id: "retry", label: "Ask again with my note", description: "" }, { id: "edit", label: "Write the reply myself", description: "" }, { id: "stop", label: "Stop the session", description: "" }],
+        draft: "I will drop table customers.",
+      },
+    })];
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({ ok: false, error: "edit_refused", message: 'That text breaks "Destructive wording". Change it and try again.' }) })));
+    renderCard();
+    fireEvent.click(await screen.findByText("Write the reply myself"));
+    const box = screen.getByLabelText("Your reply") as HTMLTextAreaElement;
+    expect(box.value).toBe("I will drop table customers.");
+    fireEvent.change(box, { target: { value: "Refunds are available within 30 days." } });
+    fireEvent.click(screen.getByText("Use this reply"));
+    await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1));
+    const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ action: "decide", session_id: "s1", option: "edit", text: "Refunds are available within 30 days." });
+    expect(toast.error).toHaveBeenCalledWith('That text breaks "Destructive wording". Change it and try again.');
+    expect(screen.getByLabelText("Your reply")).toBeTruthy(); // stays open so the person can fix the text
+    fireEvent.click(screen.getByText("Back"));
+    expect(screen.queryByLabelText("Your reply")).toBeNull();
+  });
 });
+

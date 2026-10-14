@@ -5,7 +5,7 @@ import { Workflow, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
-import { legsPayload, STATUS_LABEL, WORKFLOW_LABEL, type DraftLeg, type SessionStatus, type WorkflowStatus } from "@/lib/outer-control-sessions";
+import { legsPayload, STATUS_LABEL, WORKFLOW_LABEL, type CondKind, type DraftLeg, type SessionStatus, type WorkflowStatus } from "@/lib/outer-control-sessions";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any; // the tables are new and not in the generated types
@@ -15,11 +15,11 @@ type WorkflowRow = { id: string; objective: string; status: WorkflowStatus; summ
 type LegRow = { id: string; workflow_id: string; leg_no: number; tool_id: string; objective: string; status: SessionStatus; stop_reason: string | null; final_output: string | null; depends_on: number[] };
 
 const MAX_LEGS = 6;
-const emptyLeg = (): DraftLeg => ({ toolId: "", instruction: "", deps: [], fallbackId: "" });
+const emptyLeg = (): DraftLeg => ({ toolId: "", instruction: "", deps: [], fallbackId: "", condKind: "always", condLeg: 1, condValue: "" });
 const inputCls = "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500/50";
 const chip = (s: string) =>
   s === "completed" ? "border-emerald-500/40 text-emerald-300" : s === "failed" || s === "rejected" ? "border-rose-500/40 text-rose-300"
-    : s === "awaiting_human" ? "border-amber-500/50 text-amber-300" : s === "running" ? "border-cyan-500/40 text-cyan-300" : "border-white/20 text-zinc-400";
+    : s === "awaiting_human" ? "border-amber-500/50 text-amber-300" : s === "running" ? "border-cyan-500/40 text-cyan-300" : s === "skipped" ? "border-white/20 text-zinc-500" : "border-white/20 text-zinc-400";
 
 export default function WorkflowsCard({ accountId }: { accountId: string | null | undefined }) {
   const [tools, setTools] = useState<ToolOpt[]>([]);
@@ -109,6 +109,27 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
                 {tools.filter((t) => t.id !== d.toolId).map((t) => <option key={t.id} value={t.id}>Fallback: {t.name}</option>)}
               </select>
               <textarea className={`${inputCls} sm:col-span-2`} rows={2} aria-label={`Instruction for step ${i + 1}`} placeholder="What should this tool do?" value={d.instruction} onChange={(e) => setLeg(i, { instruction: e.target.value })} />
+              {i > 0 && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-300 sm:col-span-2">
+                  <span className="text-zinc-500">Runs:</span>
+                  <select className="rounded border border-white/10 bg-black/30 px-2 py-1" aria-label={`When step ${i + 1} runs`} value={d.condKind ?? "always"} onChange={(e) => setLeg(i, { condKind: e.target.value as CondKind })}>
+                    <option value="always">always (after the steps below)</option>
+                    <option value="contains">only if an earlier result contains…</option>
+                    <option value="not_contains">only if an earlier result does not contain…</option>
+                    <option value="dep_failed">only if an earlier step fails</option>
+                  </select>
+                  {(d.condKind ?? "always") !== "always" && (
+                    <>
+                      <select className="rounded border border-white/10 bg-black/30 px-2 py-1" aria-label={`Condition step for step ${i + 1}`} value={d.condLeg ?? 1} onChange={(e) => setLeg(i, { condLeg: Number(e.target.value) })}>
+                        {drafts.slice(0, i).map((_, k) => <option key={k} value={k + 1}>step {k + 1}</option>)}
+                      </select>
+                      {d.condKind !== "dep_failed" && (
+                        <input className="min-w-[10rem] flex-1 rounded border border-white/10 bg-black/30 px-2 py-1" aria-label={`Condition text for step ${i + 1}`} placeholder="text to look for" value={d.condValue ?? ""} onChange={(e) => setLeg(i, { condValue: e.target.value })} />
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
               {i > 0 && (
                 <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-300 sm:col-span-2">
                   <span className="text-zinc-500">Waits for:</span>

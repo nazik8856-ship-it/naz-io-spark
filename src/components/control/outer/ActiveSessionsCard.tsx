@@ -25,6 +25,7 @@ type KeyOpt = { id: string; name: string };
 
 const STATUS_STYLE: Record<SessionStatus, string> = {
   queued: "border-white/20 text-zinc-400",
+  skipped: "border-white/20 text-zinc-500",
   running: "border-cyan-500/40 text-cyan-300",
   awaiting_human: "border-amber-500/50 text-amber-300",
   completed: "border-emerald-500/40 text-emerald-300",
@@ -45,6 +46,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [steps, setSteps] = useState<Record<string, Step[]>>({});
   const [memory, setMemory] = useState<Record<string, MemoryRow[]>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [writing, setWriting] = useState<Record<string, string | null>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showConnect, setShowConnect] = useState(false);
   const [startFor, setStartFor] = useState<string | null>(null);
@@ -216,10 +218,28 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                       {s.handoff.summary.map((line, i) => <li key={i}>{line}</li>)}
                     </ul>
                     <textarea className={`${inputCls} mt-2`} rows={2} aria-label="Note to the tool" placeholder="Optional note for the tool (added to the next request)" value={notes[s.id] ?? ""} onChange={(e) => setNotes({ ...notes, [s.id]: e.target.value })} />
+                    {writing[s.id] != null && (
+                      <div className="mt-2">
+                        <textarea className={inputCls} rows={5} aria-label="Your reply" placeholder="Write the reply for this step" value={writing[s.id] ?? ""} onChange={(e) => setWriting({ ...writing, [s.id]: e.target.value })} />
+                        <p className="mt-1 text-[11px] text-amber-100/70">It is checked against the same rules. If it breaks one you will be told and can fix it; if a rule needs approval it waits for it.</p>
+                        <div className="mt-1.5 flex gap-2">
+                          <button disabled={!(writing[s.id] ?? "").trim() || busy === `decide-${s.id}`}
+                            onClick={async () => { const r = await act(`decide-${s.id}`, "decide", { session_id: s.id, option: "edit", text: writing[s.id] });
+                              if (r.ok) {
+                                toast.success(r.data?.status === "awaiting_human" ? "Your reply is waiting for approval before it is used." : "Your reply was used.");
+                                setWriting({ ...writing, [s.id]: null });
+                              } }}
+                            className="rounded border border-cyan-500/50 bg-cyan-500/15 px-3 py-1.5 text-[11px] font-mono uppercase text-cyan-100 disabled:opacity-40">Use this reply</button>
+                          <button onClick={() => setWriting({ ...writing, [s.id]: null })} className="rounded border border-white/20 px-3 py-1.5 text-[11px] font-mono uppercase text-zinc-200 hover:bg-white/10">Back</button>
+                        </div>
+                      </div>
+                    )}
                     <div className="mt-2 flex flex-wrap gap-2">
                       {s.handoff.options.map((o) => (
-                        <button key={o.id} title={o.description} disabled={busy === `decide-${s.id}`}
-                          onClick={() => act(`decide-${s.id}`, "decide", { session_id: s.id, option: o.id, note: o.id === "retry" ? notes[s.id] || undefined : undefined }, o.id === "stop" ? "Session stopped." : "Asking the tool again.")}
+                        <button key={o.id} title={o.description} disabled={busy === `decide-${s.id}` || (o.id === "edit" && writing[s.id] != null)}
+                          onClick={() => o.id === "edit"
+                            ? setWriting({ ...writing, [s.id]: s.handoff?.draft ?? "" })
+                            : act(`decide-${s.id}`, "decide", { session_id: s.id, option: o.id, note: o.id === "retry" ? notes[s.id] || undefined : undefined }, o.id === "stop" ? "Session stopped." : "Asking the tool again.")}
                           className={`rounded border px-3 py-1.5 text-[11px] font-mono uppercase disabled:opacity-40 ${o.id === s.handoff!.recommended ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-100" : "border-white/20 text-zinc-200 hover:bg-white/10"}`}>
                           {o.label}{o.id === s.handoff!.recommended ? " · recommended" : ""}
                         </button>

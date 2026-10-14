@@ -1,9 +1,10 @@
 // Outer Control (active): wording and small helpers for the sessions card.
-export type SessionStatus = "queued" | "running" | "awaiting_human" | "completed" | "rejected" | "failed" | "cancelled" | "stopped";
+export type SessionStatus = "queued" | "skipped" | "running" | "awaiting_human" | "completed" | "rejected" | "failed" | "cancelled" | "stopped";
 export type PendingKind = "first_contact" | "contact_gate" | "reply_approval" | "question" | "handoff";
 
 export const STATUS_LABEL: Record<SessionStatus, string> = {
   queued: "Waiting",
+  skipped: "Skipped",
   running: "Running",
   awaiting_human: "Needs you",
   completed: "Completed",
@@ -53,8 +54,10 @@ export type HandoffView = {
   kind: "rule_exhausted" | "tool_failed";
   title: string;
   summary: string[];
-  options: { id: "retry" | "stop"; label: string; description: string }[];
-  recommended: "retry" | "stop";
+  options: { id: "retry" | "edit" | "stop"; label: string; description: string }[];
+  recommended: "retry" | "edit" | "stop";
+  /** The last rejected reply (sensitive text masked), the starting point for writing the reply by hand. */
+  draft?: string | null;
 };
 
 export type WorkflowStatus = "running" | "awaiting_human" | "completed" | "failed" | "cancelled";
@@ -63,7 +66,8 @@ export const WORKFLOW_LABEL: Record<WorkflowStatus, string> = {
   running: "Running", awaiting_human: "Needs you", completed: "Completed", failed: "Failed", cancelled: "Cancelled",
 };
 
-export type DraftLeg = { toolId: string; instruction: string; deps: number[]; fallbackId: string };
+export type CondKind = "always" | "contains" | "not_contains" | "dep_failed";
+export type DraftLeg = { toolId: string; instruction: string; deps: number[]; fallbackId: string; condKind?: CondKind; condLeg?: number; condValue?: string };
 
 /** The legs as the API expects them (`legs`), or the first thing wrong with the form (`message`). */
 export function legsPayload(drafts: DraftLeg[]): { legs: Record<string, unknown>[] | null; message: string } {
@@ -73,10 +77,18 @@ export function legsPayload(drafts: DraftLeg[]): { legs: Record<string, unknown>
     const d = drafts[i];
     if (!d.toolId) return { legs: null, message: `Step ${i + 1}: choose a tool.` };
     if (!d.instruction.trim()) return { legs: null, message: `Step ${i + 1}: say what the tool should do.` };
-    legs.push({
+    const leg: Record<string, unknown> = {
       tool_id: d.toolId, instruction: d.instruction.trim(), depends_on: d.deps.filter((n) => n >= 1 && n <= i),
       ...(d.fallbackId ? { fallback_tool_id: d.fallbackId } : {}),
-    });
+    };
+    const kind = d.condKind ?? "always";
+    if (kind !== "always") {
+      const ref = d.condLeg ?? 0;
+      if (!(ref >= 1 && ref <= i)) return { legs: null, message: `Step ${i + 1}: choose which earlier step the condition looks at.` };
+      if (kind !== "dep_failed" && !(d.condValue ?? "").trim()) return { legs: null, message: `Step ${i + 1}: say which text the condition looks for.` };
+      leg.condition = { leg: ref, op: kind, ...(kind === "dep_failed" ? {} : { value: (d.condValue ?? "").trim() }) };
+    }
+    legs.push(leg);
   }
   return { legs, message: "" };
 }

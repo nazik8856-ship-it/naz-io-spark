@@ -81,4 +81,43 @@ describe("WorkflowsCard", () => {
     await waitFor(() => expect(calls().length).toBe(1));
     expect(JSON.parse((calls()[0][1] as RequestInit).body as string)).toEqual({ action: "cancel_workflow", workflow_id: "w1" });
   });
+
+  it("sends a conditional step: the second step runs only if the first result contains a word", async () => {
+    render(<WorkflowsCard accountId="u1" />);
+    fireEvent.click(await screen.findByText("New workflow"));
+    fireEvent.change(screen.getByLabelText("Workflow goal"), { target: { value: "Route a request" } });
+    fireEvent.change(screen.getByLabelText("Tool for step 1"), { target: { value: "t1" } });
+    fireEvent.change(screen.getByLabelText("Instruction for step 1"), { target: { value: "Classify" } });
+    fireEvent.click(screen.getByText("Add step"));
+    fireEvent.change(screen.getByLabelText("Tool for step 2"), { target: { value: "t2" } });
+    fireEvent.change(screen.getByLabelText("Instruction for step 2"), { target: { value: "Handle exchanges" } });
+    fireEvent.change(screen.getByLabelText("When step 2 runs"), { target: { value: "contains" } });
+    fireEvent.change(screen.getByLabelText("Condition text for step 2"), { target: { value: "exchange" } });
+    fireEvent.click(screen.getByText("Start workflow"));
+    await waitFor(() => expect(calls().length).toBe(1));
+    expect(JSON.parse((calls()[0][1] as RequestInit).body as string).legs[1]).toEqual({
+      tool_id: "t2", instruction: "Handle exchanges", depends_on: [], condition: { leg: 1, op: "contains", value: "exchange" },
+    });
+  });
+
+  it("an error branch needs no text, and a half-filled condition is refused", async () => {
+    render(<WorkflowsCard accountId="u1" />);
+    fireEvent.click(await screen.findByText("New workflow"));
+    fireEvent.change(screen.getByLabelText("Workflow goal"), { target: { value: "Be robust" } });
+    fireEvent.change(screen.getByLabelText("Tool for step 1"), { target: { value: "t1" } });
+    fireEvent.change(screen.getByLabelText("Instruction for step 1"), { target: { value: "Main" } });
+    fireEvent.click(screen.getByText("Add step"));
+    fireEvent.change(screen.getByLabelText("Tool for step 2"), { target: { value: "t2" } });
+    fireEvent.change(screen.getByLabelText("Instruction for step 2"), { target: { value: "Plan B" } });
+    fireEvent.change(screen.getByLabelText("When step 2 runs"), { target: { value: "contains" } });
+    fireEvent.click(screen.getByText("Start workflow"));
+    expect(toast.error).toHaveBeenCalledWith("Step 2: say which text the condition looks for.");
+    expect(calls().length).toBe(0);
+    fireEvent.change(screen.getByLabelText("When step 2 runs"), { target: { value: "dep_failed" } });
+    expect(screen.queryByLabelText("Condition text for step 2")).toBeNull();
+    fireEvent.click(screen.getByText("Start workflow"));
+    await waitFor(() => expect(calls().length).toBe(1));
+    expect(JSON.parse((calls()[0][1] as RequestInit).body as string).legs[1].condition).toEqual({ leg: 1, op: "dep_failed" });
+  });
 });
+

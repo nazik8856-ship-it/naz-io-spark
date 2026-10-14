@@ -4,7 +4,7 @@
 //   POST { action: "test_tool", tool_id }
 //   POST { action: "start_session", tool_id, objective, context?, api_key_id?, max_steps? }
 //   POST { action: "answer", session_id, answer }
-//   POST { action: "decide", session_id, option, note? }          (answers a hand-off)
+//   POST { action: "decide", session_id, option, note? | text? }  (answers a hand-off; text = "write the reply myself")
 //   POST { action: "cancel", session_id }
 //   POST { action: "start_workflow", objective, context?, legs[], api_key_id?, max_steps? }
 //   POST { action: "cancel_workflow", workflow_id }
@@ -19,8 +19,8 @@ import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { checkKillSwitches } from "../_shared/control-gate.ts";
 import { buildToolRequest, parseToolReply, type ToolFormat } from "../_shared/outer-control-tool-request.ts";
 import { extractExternalText } from "../_shared/outer-control-intake.ts";
-import { contactRuleStopping, readGenericPayload } from "../_shared/outer-control-session.ts";
-import { cancelWorkflow, driveSession, progressWorkflow, resumeAndDrive, startWorkflow } from "../_shared/outer-control-workflow.ts";
+import { applyEditedReply, contactRuleStopping, readGenericPayload } from "../_shared/outer-control-session.ts";
+import { cancelWorkflow, continueSession, driveSession, progressWorkflow, resumeAndDrive, startWorkflow } from "../_shared/outer-control-workflow.ts";
 import { encodeChoice, findOption, type Handoff } from "../_shared/outer-control-handoff.ts";
 
 const corsHeaders = {
@@ -196,6 +196,12 @@ Deno.serve(async (req) => {
       if (session.status !== "awaiting_human" || session.pending_kind !== "handoff") return json({ error: "not_waiting", message: "This session is not waiting for a decision." }, 409);
       const option = findOption(session.handoff as Handoff | null, body.option);
       if (!option) return json({ error: "invalid_option", message: "That is not one of the options offered." }, 400);
+      if (option.id === "edit") {
+        const edited = await applyEditedReply(admin, session.id, typeof body.text === "string" ? body.text : "");
+        if (!edited.ok) return json({ error: "edit_refused", message: edited.message }, 422);
+        inBackground(continueSession(admin, session.id));
+        return json({ ok: true, status: edited.status });
+      }
       const note = typeof body.note === "string" ? body.note.trim() : "";
       if (note.length > 1000) return json({ error: "invalid_note", message: "The note is limited to 1000 characters." }, 400);
       await admin.from("outer_control_sessions").update({ pending_answer: encodeChoice(option.id, note || null), updated_at: new Date().toISOString() }).eq("id", session.id);

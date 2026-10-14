@@ -66,6 +66,7 @@ export const defaultSessionDeps = (): SessionDeps => ({
 
 const LEASE_MS = 150_000;
 const MAX_ANSWER_CHARS = 2000;
+const MAX_EDIT_CHARS = 8000;
 export const APPROVED_STATUSES = new Set(["approved", "auto_approved"]);
 const PENDING_STATUSES = new Set(["pending"]);
 const WITHHELD = "[content withheld";
@@ -195,6 +196,12 @@ async function pauseForHandoff(
     kind: input.kind, stepNo, toolName: tool.name, ruleNames: input.ruleNames, failure: input.failure,
     attempts: s.attempt_base + s.retries_used + s.failures_used + 1, memory,
   });
+  if (input.kind === "rule_exhausted") {
+    // The last rejected reply (stored with sensitive text masked) is the starting point for "write the reply myself".
+    const { data: last } = await admin.from("outer_control_session_steps").select("reply_text")
+      .eq("session_id", s.id).eq("step_no", stepNo).order("attempt", { ascending: false }).limit(1).maybeSingle();
+    handoff.draft = ((last as { reply_text: string | null } | null)?.reply_text ?? null)?.slice(0, MAX_EDIT_CHARS) ?? null;
+  }
   await patch(admin, s.id, {
     status: "awaiting_human", pending_kind: "handoff", handoff, pending_answer: null, pending_approval_id: null,
     pending_step_no: stepNo, lease_until: null,
@@ -489,6 +496,73 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
   }
 }
 
+/** Moves a paused session on, but only if it is still paused for the same reason: only one caller wins. */
+async function claimPause(admin: AnyAdmin, s: SessionRow, fields: Record<string, unknown>, deps: SessionDeps): Promise<boolean> {
+  const { data } = await admin.from("outer_control_sessions").update({ ...fields, updated_at: iso(deps.now()) })
+    .eq("id", s.id).eq("status", "awaiting_human").eq("pending_kind", s.pending_kind).select("id").maybeSingle();
+  return !!data;
+}
+
+export type EditResult = { ok: true; status: string } | { ok: false; message: string };
+
+/**
+ * A person answers a hand-off by writing (or fixing) the reply themselves. The text is judged by
+ * the same rules as any tool reply: a block is refused (the hand-off stays open), a reply that needs
+ * approval waits for it, anything else is used exactly as if the tool had sent it.
+ */
+export async function applyEditedReply(admin: AnyAdmin, sessionId: string, text: string, deps: SessionDeps = defaultSessionDeps()): Promise<EditResult> {
+  const clean = (text ?? "").trim();
+  if (!clean) return { ok: false, message: "Write the reply first." };
+  if (clean.length > MAX_EDIT_CHARS) return { ok: false, message: `The reply is limited to ${MAX_EDIT_CHARS} characters.` };
+
+  const { data: row } = await admin.from("outer_control_sessions").select("*").eq("id", sessionId).maybeSingle();
+  const s = row as (SessionRow & { handoff: { options?: { id: string }[] } | null }) | null;
+  if (!s || s.status !== "awaiting_human" || s.pending_kind !== "handoff") return { ok: false, message: "This session is not waiting for a decision." };
+  if (!s.handoff?.options?.some((o) => o.id === "edit")) return { ok: false, message: "Writing the reply is not one of the options offered." };
+  const { data: toolRow } = await admin.from("external_tools").select("*").eq("id", s.tool_id).maybeSingle();
+  const tool = toolRow as ToolRow | null;
+  if (!tool) return { ok: false, message: "The tool no longer exists." };
+
+  const stepNo = s.pending_step_no ?? s.step_count + 1;
+  const attempt = s.attempt_base + s.retries_used + s.failures_used + 2; // the attempt after the one that triggered the hand-off
+  const result = await evaluateExternalText(admin, {
+    userId: s.user_id, agentId: null, apiKeyId: s.api_key_id, isTest: false, sourceModel: "person:edit",
+    content: clean, origin: "external-api", externalId: `${s.id}:${stepNo}:${attempt}`, contentHash: await sha256Hex(clean),
+  });
+  const matches = result.matches ?? [];
+  const names = [...new Set(matches.map((m) => m.name))].join("; ");
+  if (result.verdict === "block") {
+    return { ok: false, message: names ? `That text breaks "${names}". Change it and try again.` : `That text cannot be used: ${result.summary}` };
+  }
+
+  const { data: last } = await admin.from("outer_control_session_steps").select("tool_status")
+    .eq("session_id", s.id).eq("step_no", stepNo).order("attempt", { ascending: false }).limit(1).maybeSingle();
+  const toolStatus: "done" | "continue" = (last as { tool_status?: string } | null)?.tool_status === "continue" ? "continue" : "done";
+  const used = result.output ?? textSafeToStore(clean, matches);
+  const w = waited(s, deps);
+
+  const paused = result.verdict === "escalate";
+  const moved = await claimPause(admin, s, paused
+    ? { pending_kind: "reply_approval", pending_approval_id: result.approvalId ?? null, handoff: null, pending_answer: null, pending_step_no: stepNo, ...w }
+    : { pending_kind: null, pending_approval_id: null, handoff: null, pending_answer: null, pending_step_no: null, ...w }, deps);
+  if (!moved) return { ok: false, message: "This session was already decided." };
+
+  await admin.from("outer_control_session_steps").insert({
+    session_id: s.id, user_id: s.user_id, step_no: stepNo, attempt, request: null, reply_text: used, tool_status: toolStatus,
+    evaluation_id: result.evaluationId, verdict: result.verdict, next_action: paused ? "pause_human" : "continue",
+    note: `Written by a person. ${result.summary}`.slice(0, 500),
+  });
+  await recordMemory(admin, s, {
+    stepNo, kind: "human",
+    summary: `Step ${stepNo}: a person wrote the reply${result.verdict === "modify" ? " (sensitive text was removed)" : ""}${paused ? " and it needs approval" : " and it was used"}.`,
+  });
+  if (paused) return { ok: true, status: "awaiting_human" };
+
+  await acceptReply(admin, { ...s, status: "running", ...w }, tool, stepNo, { text: used, toolStatus }, deps);
+  const { data: after } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
+  return { ok: true, status: (after as { status?: string } | null)?.status ?? "running" };
+}
+
 /**
  * Looks at a paused session and resumes or ends it if what it was waiting for has happened.
  * Safe to call from several places at once (the dashboard, the sweep): the transition out of
@@ -499,11 +573,7 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
   const s = row as SessionRow | null;
   if (!s || s.status !== "awaiting_human") return { status: s?.status ?? "missing", resumed: false };
 
-  const claim = async (fields: Record<string, unknown>): Promise<boolean> => {
-    const { data } = await admin.from("outer_control_sessions").update({ ...fields, updated_at: iso(deps.now()) })
-      .eq("id", s.id).eq("status", "awaiting_human").eq("pending_kind", s.pending_kind).select("id").maybeSingle();
-    return !!data;
-  };
+  const claim = (fields: Record<string, unknown>) => claimPause(admin, s, fields, deps);
   const ended = (status: string, stop_reason: string) => ({
     status, stop_reason, finished_at: iso(deps.now()), lease_until: null, pending_kind: null, pending_approval_id: null, handoff: null, pending_answer: null,
   });

@@ -16,7 +16,7 @@ type LegRow = LegState & { id: string; depends_on: number[]; context: string | n
 
 async function loadLegs(admin: AnyAdmin, workflowId: string): Promise<LegRow[]> {
   const { data } = await admin.from("outer_control_sessions")
-    .select("id, leg_no, status, depends_on, final_output, stop_reason, context").eq("workflow_id", workflowId).order("leg_no");
+    .select("id, leg_no, status, depends_on, final_output, stop_reason, context, condition").eq("workflow_id", workflowId).order("leg_no");
   return ((data ?? []) as LegRow[]).map((l) => ({ ...l, depends_on: l.depends_on ?? [] }));
 }
 
@@ -41,9 +41,14 @@ export async function progressWorkflow(admin: AnyAdmin, workflowId: string): Pro
           .update({ status: "running", context: buildLegContext(workflow.context, deps), updated_at: iso() })
           .eq("id", leg.id).eq("status", "queued").select("id").maybeSingle();
         if (moved) { started.push(leg.id); changed = true; }
-      } else if (verdict === "skip") {
+      } else if (verdict === "cancel") {
         await admin.from("outer_control_sessions")
           .update({ status: "cancelled", stop_reason: "A step it depends on did not finish.", finished_at: iso(), updated_at: iso() })
+          .eq("id", leg.id).eq("status", "queued");
+        changed = true;
+      } else if (verdict === "skipped") {
+        await admin.from("outer_control_sessions")
+          .update({ status: "skipped", stop_reason: "Its condition was not met, so this branch was not taken.", finished_at: iso(), updated_at: iso() })
           .eq("id", leg.id).eq("status", "queued");
         changed = true;
       }
@@ -74,15 +79,19 @@ export async function driveSession(admin: AnyAdmin, sessionId: string, deps: Ses
   return result;
 }
 
+/** After a person's decision changed a session: keep driving it, or let its workflow react to it ending. */
+export async function continueSession(admin: AnyAdmin, sessionId: string, deps: SessionDeps = defaultSessionDeps()) {
+  const { data } = await admin.from("outer_control_sessions").select("status, workflow_id").eq("id", sessionId).maybeSingle();
+  const row = data as { status?: string; workflow_id?: string | null } | null;
+  if (!row) return;
+  if (row.status === "running") { await driveSession(admin, sessionId, deps); return; }
+  if (row.workflow_id) await Promise.all((await progressWorkflow(admin, row.workflow_id)).map((id) => driveSession(admin, id, deps)));
+}
+
 /** A person answered or decided: resume the session and keep going. */
 export async function resumeAndDrive(admin: AnyAdmin, sessionId: string, deps: SessionDeps = defaultSessionDeps()) {
   const r = await resumeSession(admin, sessionId, deps);
-  if (r.status === "running") await driveSession(admin, sessionId, deps);
-  else {
-    const { data } = await admin.from("outer_control_sessions").select("workflow_id").eq("id", sessionId).maybeSingle();
-    const workflowId = (data as { workflow_id?: string | null } | null)?.workflow_id;
-    if (workflowId) await Promise.all((await progressWorkflow(admin, workflowId)).map((id) => driveSession(admin, id, deps)));
-  }
+  await continueSession(admin, sessionId, deps);
   return r;
 }
 
@@ -122,10 +131,13 @@ export async function startWorkflow(
   if (error || !wf) return { ok: false, code: "internal_error", message: "Could not start the workflow." };
   const workflowId = (wf as { id: string }).id;
 
+  // A step that an error branch watches must end (not wait for a person), or the branch could never run.
+  const watched = new Set(checked.legs.filter((l) => l.condition?.op === "dep_failed").map((l) => l.condition!.leg));
   const rows = checked.legs.map((l) => ({
     user_id: userId, tool_id: l.tool_id, api_key_id: apiKeyId, workflow_id: workflowId, leg_no: l.leg_no, depends_on: l.depends_on,
     fallback_tool_id: l.fallback_tool_id, objective: l.instruction, context: l.depends_on.length ? null : context, max_steps: maxSteps,
-    status: l.depends_on.length ? "queued" : "running",
+    status: l.depends_on.length ? "queued" : "running", condition: l.condition,
+    on_failure: l.on_failure ?? (watched.has(l.leg_no) ? "reject" : "handoff"),
   }));
   const { data: made, error: legErr } = await admin.from("outer_control_sessions").insert(rows).select("id, status");
   if (legErr || !made) {

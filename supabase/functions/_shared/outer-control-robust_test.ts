@@ -110,7 +110,7 @@ Deno.test("the request carries the plan: ordered rules, what was decided, and wh
 Deno.test("buildHandoff: a rule that keeps being broken recommends one more try, then stopping", () => {
   const first = buildHandoff({ kind: "rule_exhausted", stepNo: 2, toolName: "Bot", ruleNames: ["No price quotes"], failure: null, attempts: 2, memory: [] });
   assertEquals(first.recommended, "retry");
-  assertEquals(first.options.map((o) => o.id), ["retry", "stop"]);
+  assertEquals(first.options.map((o) => o.id), ["retry", "edit", "stop"]);
   assert(first.summary.some((l) => l.includes("No price quotes")), "names the rule");
   const again = buildHandoff({ kind: "rule_exhausted", stepNo: 2, toolName: "Bot", ruleNames: ["No price quotes"], failure: null, attempts: 4,
     memory: [mem({ kind: "human", step_no: 2, summary: "A person chose to retry step 2." })] });
@@ -139,7 +139,7 @@ Deno.test("hand-off choices round-trip and unknown options are refused", () => {
 Deno.test("validateLegs: accepts a dependency chain, rejects cycles, forward references and bad input", () => {
   const ok = validateLegs([{ tool_id: T1, instruction: "Research" }, { tool_id: T2, instruction: "Draft", depends_on: [1], fallback_tool_id: T1 }]);
   assert(ok.ok, "valid");
-  if (ok.ok) assertEquals(ok.legs[1], { leg_no: 2, tool_id: T2, instruction: "Draft", depends_on: [1], fallback_tool_id: T1 });
+  if (ok.ok) assertEquals(ok.legs[1], { leg_no: 2, tool_id: T2, instruction: "Draft", depends_on: [1], fallback_tool_id: T1, condition: null, on_failure: null });
   for (const bad of [
     [], "x", Array.from({ length: 7 }, () => ({ tool_id: T1, instruction: "a" })),
     [{ tool_id: T1, instruction: "a", depends_on: [1] }],
@@ -154,9 +154,9 @@ Deno.test("legReadiness: waits for open dependencies, starts when all completed,
   assertEquals(legReadiness({ depends_on: [] }, states), "ready");
   assertEquals(legReadiness({ depends_on: [1] }, states), "ready");
   assertEquals(legReadiness({ depends_on: [1, 2] }, states), "waiting");
-  assertEquals(legReadiness({ depends_on: [1, 3] }, states), "skip");
-  assertEquals(legReadiness({ depends_on: [2, 3] }, states), "skip");
-  assertEquals(legReadiness({ depends_on: [9] }, states), "skip");
+  assertEquals(legReadiness({ depends_on: [1, 3] }, states), "cancel");
+  assertEquals(legReadiness({ depends_on: [2, 3] }, states), "cancel");
+  assertEquals(legReadiness({ depends_on: [9] }, states), "cancel");
 });
 
 Deno.test("buildLegContext passes earlier results along within the size limit", () => {
@@ -174,4 +174,70 @@ Deno.test("rollupStatus: waiting on a person, still running, completed, or faile
   const failed = rollupStatus([L(1, "completed"), L(2, "failed", "The tool answered HTTP 404."), L(3, "cancelled")]);
   assertEquals(failed.status, "failed");
   assert(failed.summary.includes("Step 2") && failed.summary.includes("HTTP 404"), failed.summary);
+});
+
+// ---- branching -----------------------------------------------------------------------
+const S = (leg_no: number, status: string, final_output: string | null = null, condition: Parameters<typeof legReadiness>[0]["condition"] = null) => ({ leg_no, status, final_output, condition });
+
+Deno.test("validateLegs: conditions look only at earlier steps, need text unless they watch for failure, and add the dependency", () => {
+  const r = validateLegs([{ tool_id: T1, instruction: "a" }, { tool_id: T2, instruction: "b", condition: { leg: 1, op: "contains", value: "  refund " } }]);
+  assert(r.ok, "valid");
+  if (r.ok) assertEquals([r.legs[1].condition, r.legs[1].depends_on], [{ leg: 1, op: "contains", value: "refund" }, [1]]);
+  const e = validateLegs([{ tool_id: T1, instruction: "a" }, { tool_id: T2, instruction: "b", condition: { leg: 1, op: "dep_failed" } }]);
+  assert(e.ok, "error branch needs no text");
+  for (const bad of [
+    { leg: 2, op: "contains", value: "x" }, { leg: 0, op: "contains", value: "x" }, { leg: 1, op: "contains" },
+    { leg: 1, op: "equals", value: "x" }, { leg: 1, op: "contains", value: "x".repeat(201) }, "contains",
+  ]) assertEquals(validateLegs([{ tool_id: T1, instruction: "a" }, { tool_id: T2, instruction: "b", condition: bad }]).ok, false, JSON.stringify(bad));
+  assertEquals(validateLegs([{ tool_id: T1, instruction: "a", on_failure: "explode" }]).ok, false);
+});
+
+Deno.test("legReadiness: contains / not_contains pick the branch from the earlier result", () => {
+  const all = [S(1, "completed", "The customer asked for a REFUND.")];
+  assertEquals(legReadiness({ depends_on: [1], condition: { leg: 1, op: "contains", value: "refund" } }, all), "ready");
+  assertEquals(legReadiness({ depends_on: [1], condition: { leg: 1, op: "contains", value: "shipping" } }, all), "skipped");
+  assertEquals(legReadiness({ depends_on: [1], condition: { leg: 1, op: "not_contains", value: "shipping" } }, all), "ready");
+  assertEquals(legReadiness({ depends_on: [1], condition: { leg: 1, op: "not_contains", value: "refund" } }, all), "skipped");
+  assertEquals(legReadiness({ depends_on: [1], condition: { leg: 1, op: "contains", value: "x" } }, [S(1, "running")]), "waiting");
+});
+
+Deno.test("legReadiness: an error branch runs only when the watched step ended badly; other broken dependencies still cancel", () => {
+  const cond = { leg: 1, op: "dep_failed" as const, value: null };
+  assertEquals(legReadiness({ depends_on: [1], condition: cond }, [S(1, "failed")]), "ready");
+  assertEquals(legReadiness({ depends_on: [1], condition: cond }, [S(1, "rejected")]), "ready");
+  assertEquals(legReadiness({ depends_on: [1], condition: cond }, [S(1, "stopped")]), "ready");
+  assertEquals(legReadiness({ depends_on: [1], condition: cond }, [S(1, "completed", "fine")]), "skipped");
+  assertEquals(legReadiness({ depends_on: [1], condition: cond }, [S(1, "cancelled")]), "cancel");
+  assertEquals(legReadiness({ depends_on: [1, 2], condition: cond }, [S(1, "failed"), S(2, "failed")]), "cancel");
+});
+
+Deno.test("legReadiness: skipped branches skip what follows them, but a join after branches runs if one branch ran", () => {
+  assertEquals(legReadiness({ depends_on: [2] }, [S(1, "completed", "a"), S(2, "skipped")]), "skipped");
+  assertEquals(legReadiness({ depends_on: [2, 3] }, [S(1, "completed", "a"), S(2, "skipped"), S(3, "completed", "b")]), "ready");
+  assertEquals(legReadiness({ depends_on: [2, 3] }, [S(1, "completed", "a"), S(2, "skipped"), S(3, "skipped")]), "skipped");
+  assertEquals(legReadiness({ depends_on: [2, 3] }, [S(2, "skipped"), S(3, "running")]), "waiting");
+});
+
+Deno.test("buildLegContext: a branch that handles a failure is told what went wrong", () => {
+  const ctx = buildLegContext(null, [{ leg_no: 1, status: "failed", final_output: null, stop_reason: "The tool answered HTTP 404." }]);
+  assert(ctx!.includes("Step 1 did not finish") && ctx!.includes("HTTP 404"), String(ctx));
+});
+
+Deno.test("rollupStatus: skipped steps do not fail a workflow; a failure handled by a branch does not either", () => {
+  const L = (leg_no: number, status: string, condition: Parameters<typeof legReadiness>[0]["condition"] = null, stop_reason: string | null = null) => ({ leg_no, status, final_output: null, stop_reason, condition });
+  const r = rollupStatus([L(1, "completed"), L(2, "skipped"), L(3, "completed")]);
+  assertEquals(r.status, "completed"); assert(r.summary.includes("1 skipped"), r.summary);
+  const handled = rollupStatus([L(1, "failed", null, "boom"), L(2, "completed", { leg: 1, op: "dep_failed", value: null })]);
+  assertEquals(handled.status, "completed"); assert(/step 1 failed and was handled by step 2/.test(handled.summary), handled.summary);
+  assertEquals(rollupStatus([L(1, "failed", null, "boom"), L(2, "skipped", { leg: 1, op: "dep_failed", value: null })]).status, "failed");
+  assertEquals(rollupStatus([L(1, "failed"), L(2, "cancelled")]).status, "failed");
+});
+
+Deno.test("buildHandoff offers writing the reply for both kinds, in the middle of the options", () => {
+  const a = buildHandoff({ kind: "rule_exhausted", stepNo: 1, toolName: "Bot", ruleNames: ["A"], failure: null, attempts: 2, memory: [] });
+  const b = buildHandoff({ kind: "tool_failed", stepNo: 1, toolName: "Bot", ruleNames: [], failure: classifyFailure({ httpStatus: 503, attempt: 3 }), attempts: 4, memory: [] });
+  assertEquals(a.options.map((o) => o.id), ["retry", "edit", "stop"]);
+  assertEquals(b.options.map((o) => o.id), ["retry", "edit", "stop"]);
+  assertEquals(findOption(a, "edit")?.id, "edit");
+  assertEquals(decodeChoice(JSON.stringify({ option: "edit" })), null, "an edit is never stored as a pending choice");
 });
