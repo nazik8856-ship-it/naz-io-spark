@@ -4,7 +4,8 @@
 // due), and end sessions that have waited for a person too long.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
-import { advanceSession, resumeSession } from "../_shared/outer-control-session.ts";
+import { resumeSession } from "../_shared/outer-control-session.ts";
+import { driveSession, progressWorkflow } from "../_shared/outer-control-workflow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,7 +27,7 @@ Deno.serve(async (req) => {
   if (await areConsequentialSweepsPaused(admin)) return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });
 
   const now = Date.now();
-  const out = { resumed: 0, advanced: 0, expired: 0, errors: 0 };
+  const out = { resumed: 0, advanced: 0, expired: 0, workflows: 0, errors: 0 };
 
   // 1. Paused sessions: resume or end them if what they waited for has happened.
   const { data: waiting } = await admin.from("outer_control_sessions")
@@ -52,8 +53,20 @@ Deno.serve(async (req) => {
     .or(`lease_until.is.null,lease_until.lt.${new Date(now).toISOString()}`)
     .order("updated_at", { ascending: true }).limit(BATCH);
   for (const s of (running ?? []) as { id: string }[]) {
-    try { await advanceSession(admin, s.id); out.advanced++; }
+    try { await driveSession(admin, s.id); out.advanced++; }
     catch (e) { out.errors++; console.error("session-sweep advance failed:", s.id, e instanceof Error ? e.message : e); }
+  }
+
+  // 3. Workflows: start legs whose dependencies finished, cancel legs that can never run,
+  //    keep each workflow's status current.
+  const { data: open } = await admin.from("outer_control_workflows")
+    .select("id").in("status", ["running", "awaiting_human"]).order("updated_at", { ascending: true }).limit(BATCH);
+  for (const w of (open ?? []) as { id: string }[]) {
+    try {
+      const started = await progressWorkflow(admin, w.id);
+      await Promise.all(started.map((id) => driveSession(admin, id)));
+      out.workflows++;
+    } catch (e) { out.errors++; console.error("session-sweep workflow failed:", w.id, e instanceof Error ? e.message : e); }
   }
   return json({ ok: true, ...out });
 });

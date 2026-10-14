@@ -18,6 +18,10 @@ import { validateOutboundUrl } from "./url-safety.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { buildToolRequest, parseToolReply, type RuleLine, type ToolFormat } from "./outer-control-tool-request.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
+import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.ts";
+import { planRequest, preflightRequest } from "./outer-control-planner.ts";
+import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
+import { buildHandoff, decodeChoice, type HandoffKind } from "./outer-control-handoff.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -28,10 +32,12 @@ export type SessionRow = {
   step_count: number; max_steps: number; max_retries: number; retries_used: number; failures_used: number;
   correction: string | null; history: { step: number; text: string }[]; next_input: string | null;
   final_output: string | null; stop_reason: string | null;
-  pending_kind: "first_contact" | "contact_gate" | "reply_approval" | "question" | null;
+  pending_kind: "first_contact" | "contact_gate" | "reply_approval" | "question" | "handoff" | null;
   pending_approval_id: string | null; pending_step_no: number | null;
   pending_question: string | null; pending_answer: string | null;
   gate_cleared_step: number; lease_until: string | null; started_at: string; updated_at: string; waited_ms: number;
+  workflow_id: string | null; leg_no: number | null; fallback_tool_id: string | null; fallback_used: boolean;
+  on_failure: "handoff" | "reject"; resume_at: string | null; attempt_base: number;
 };
 
 export type ToolRow = {
@@ -174,6 +180,27 @@ async function notifyFailure(admin: AnyAdmin, s: SessionRow, reason: string) {
   } catch { /* the dashboard card still shows it */ }
 }
 
+async function pauseForHandoff(
+  admin: AnyAdmin, s: SessionRow, tool: ToolRow, stepNo: number, deps: SessionDeps,
+  input: { kind: HandoffKind; ruleNames: string[]; failure: FailureClass | null },
+) {
+  const memory = await loadMemory(admin, s);
+  const handoff = buildHandoff({
+    kind: input.kind, stepNo, toolName: tool.name, ruleNames: input.ruleNames, failure: input.failure,
+    attempts: s.attempt_base + s.retries_used + s.failures_used + 1, memory,
+  });
+  await patch(admin, s.id, {
+    status: "awaiting_human", pending_kind: "handoff", handoff, pending_answer: null, pending_approval_id: null,
+    pending_step_no: stepNo, lease_until: null,
+  }, deps);
+  try {
+    await sendCriticalAlert(admin, s.user_id, {
+      event: "agent_clarification_needed",
+      summary: `Outer Control needs a decision on "${s.objective.slice(0, 80)}": ${handoff.title}. Recommended: ${handoff.options.find((o) => o.id === handoff.recommended)?.label}.`,
+    });
+  } catch { /* the dashboard card still shows it */ }
+}
+
 type Accept = { text: string; toolStatus: "done" | "continue" | "need_info" | null };
 
 /** A reply that is usable (allow, cleaned modify, or human-approved) moves the session forward. */
@@ -183,7 +210,7 @@ async function acceptReply(admin: AnyAdmin, s: SessionRow, tool: ToolRow, stepNo
     failuresUsed: 0, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: activeMs(s, deps), maxMs: SESSION_TIME_LIMIT_MS,
   });
   const history = [...(s.history ?? []), ...(a.toolStatus === "need_info" ? [] : [{ step: stepNo, text: a.text }])];
-  const advance = { step_count: stepNo, retries_used: 0, failures_used: 0, correction: null, next_input: null, history };
+  const advance = { step_count: stepNo, retries_used: 0, failures_used: 0, attempt_base: 0, correction: null, next_input: null, resume_at: null, handoff: null, history };
   if (action.kind === "finish") return finish(admin, s, "completed", action.reason, deps, { ...advance, final_output: a.text });
   if (action.kind === "stop") return finish(admin, s, "stopped", action.reason, deps, { ...advance, final_output: history.at(-1)?.text ?? null });
   if (action.kind === "pause_human") {
@@ -224,7 +251,9 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       if (!tool || !tool.enabled) { await finish(admin, s, "failed", "The tool was removed or disabled.", deps); return { status: "failed", steps }; }
 
       const stepNo = s.step_count + 1;
-      const attempt = s.retries_used + s.failures_used + 1;
+      const attempt = s.attempt_base + s.retries_used + s.failures_used + 1;
+      // A back-off longer than one invocation is scheduled, not slept through.
+      if (s.resume_at && Date.parse(s.resume_at) > deps.now()) return { status: "running", steps };
 
       // 1. A destination nobody has approved yet needs a person once.
       if (!tool.approved_at) {
@@ -277,10 +306,21 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       // 5. Structured request: objective, masked context, active rules.
       const safetyRules = await loadSafetyRules(admin, s.user_id, null, s.api_key_id);
       const ruleLines = await loadRuleLines(admin, s.user_id, s.api_key_id, tool.name);
+      const memory = await loadMemory(admin, s);
+      // Plan first: a request that itself breaks a rule that cannot be worked around is not sent.
+      const pre = preflightRequest(safetyRules, [s.objective, s.context, s.next_input]);
+      if (!pre.ok) {
+        const names = pre.names.join("; ");
+        await recordMemory(admin, s, { stepNo, kind: "plan", ruleNames: pre.names, summary: `Step ${stepNo}: the request itself matches "${names}", so nothing was sent.` });
+        await finish(admin, s, "rejected", `The request itself matches a blocking rule (${names}), so nothing was sent to the tool.`, deps);
+        return { status: "rejected", steps };
+      }
+      const plan = planRequest({ rules: ruleLines, memory });
       const request = buildToolRequest({
         format: tool.request_format, model: tool.model, objective: maskForSend(safetyRules, s.objective),
-        context: maskForSend(safetyRules, s.context), rules: ruleLines, history: s.history ?? [],
+        context: maskForSend(safetyRules, s.context), rules: plan.rules, history: s.history ?? [],
         correction: s.correction, answer: s.next_input ? maskForSend(safetyRules, s.next_input) : null, sessionId: s.id, step: stepNo,
+        memory: renderMemory(memory), avoid: plan.avoid, omittedRules: plan.omitted,
       });
 
       // 6. Call the tool.
@@ -295,51 +335,89 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
 
       let httpStatus: number | null = null;
       let rawText = "";
-      let failure: string | null = null;
+      let failed = false;
+      let timedOut = false;
+      let unreachable = false;
+      let retryAfterMs: number | null = null;
+      let incomplete: "empty" | "truncated" | "too_long" | null = null;
+      let unusableCode: string | null = null;
       try {
         const res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(request.body), signal: AbortSignal.timeout(deps.toolTimeoutMs) });
         httpStatus = res.status;
+        retryAfterMs = parseRetryAfter(res.headers?.get?.("retry-after"), deps.now());
         rawText = await res.text();
-        if (!res.ok) failure = `The tool answered HTTP ${res.status}.`;
+        if (!res.ok) failed = true;
       } catch (e) {
-        failure = e instanceof Error && e.name === "TimeoutError" ? "The tool did not answer in time." : "The tool could not be reached.";
+        failed = true;
+        if (e instanceof Error && e.name === "TimeoutError") timedOut = true; else unreachable = true;
       }
 
       // 7. Read the reply.
       let content = "";
       let reply = null as ReturnType<typeof parseToolReply> | null;
-      if (!failure) {
+      if (!failed) {
         let payload: unknown = rawText;
         try { payload = JSON.parse(rawText); } catch { /* plain text body */ }
         const generic = readGenericPayload(payload);
         const intake = generic !== null ? ({ ok: true, text: generic } as const) : extractExternalText(payload);
-        if (!intake.ok) failure = `The reply could not be used (${intake.code}).`;
-        else {
+        if (!intake.ok) {
+          failed = true;
+          if (intake.code === "content_required") incomplete = "empty";
+          else if (intake.code === "content_too_long") incomplete = "too_long";
+          else unusableCode = intake.code;
+        } else if (truncationOf(payload)) {
+          failed = true; incomplete = "truncated";
+        } else {
           reply = parseToolReply(intake.text);
           content = [reply.answer, reply.question].filter((p) => p && p.trim()).join("\n\n");
-          if (!content.trim()) failure = "The tool sent an empty reply.";
+          if (!content.trim()) { failed = true; incomplete = "empty"; }
         }
       }
+      const failureClass = failed
+        ? classifyFailure({ httpStatus: httpStatus !== null && httpStatus < 400 ? null : httpStatus, timedOut, unreachable, retryAfterMs, incomplete, unusableCode, attempt: s.failures_used + 1 })
+        : null;
 
       const stepBase = {
         session_id: s.id, user_id: s.user_id, step_no: stepNo, attempt,
         request: { headers: request.headers, body: request.body }, http_status: httpStatus,
       };
 
-      // 8a. No usable reply.
-      if (failure || !reply) {
+      // 8a. No usable reply: classify why, then retry, switch tool, hand off or end.
+      if (failed || !reply) {
+        const fc = failureClass ?? classifyFailure({ httpStatus, attempt: s.failures_used + 1 });
         const action = decideNextAction({
           verdict: null, toolStatus: null, stepNo, maxSteps: s.max_steps, retriesUsed: s.retries_used, maxRetries: s.max_retries,
           failuresUsed: s.failures_used, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: activeMs(s, deps), maxMs: SESSION_TIME_LIMIT_MS,
+          failure: fc, canFallback: !!s.fallback_tool_id && !s.fallback_used, onExhausted: s.on_failure,
         });
-        await admin.from("outer_control_session_steps").insert({ ...stepBase, error: failure, next_action: action.kind, note: action.reason });
+        await admin.from("outer_control_session_steps").insert({ ...stepBase, error: fc.reason, next_action: action.kind, note: action.reason });
         steps++;
+        await recordMemory(admin, s, { stepNo, kind: "recovery", summary: `Step ${stepNo}: ${fc.reason} (${action.kind.replace(/_/g, " ")}).` });
         if (action.kind === "retry_same") {
-          await patch(admin, s.id, { failures_used: s.failures_used + 1 }, deps);
-          await deps.sleep(500 * (s.failures_used + 1));
+          const patchFields: Record<string, unknown> = { failures_used: s.failures_used + 1 };
+          if (fc.correction) patchFields.correction = fc.correction;
+          if (fc.delayMs > MAX_INLINE_DELAY_MS) {
+            patchFields.resume_at = iso(deps.now() + fc.delayMs);
+            await patch(admin, s.id, patchFields, deps);
+            return { status: "running", steps };
+          }
+          await patch(admin, s.id, patchFields, deps);
+          if (fc.delayMs > 0) await deps.sleep(fc.delayMs);
           continue;
         }
-        await finish(admin, s, action.kind === "stop" ? "stopped" : "failed", failure ?? action.reason, deps);
+        if (action.kind === "switch_tool" && s.fallback_tool_id) {
+          await patch(admin, s.id, {
+            tool_id: s.fallback_tool_id, fallback_used: true, failures_used: 0, retries_used: 0,
+            attempt_base: s.attempt_base + s.retries_used + s.failures_used + 1, correction: null, resume_at: null,
+          }, deps);
+          await recordMemory(admin, s, { stepNo, kind: "recovery", summary: `Step ${stepNo}: switched to the fallback tool after "${tool.name}" kept failing.` });
+          continue;
+        }
+        if (action.kind === "handoff") {
+          await pauseForHandoff(admin, s, tool, stepNo, deps, { kind: "tool_failed", ruleNames: [], failure: fc });
+          return { status: "awaiting_human", steps };
+        }
+        await finish(admin, s, action.kind === "stop" ? "stopped" : "failed", fc.reason, deps);
         return { status: action.kind === "stop" ? "stopped" : "failed", steps };
       }
 
@@ -354,6 +432,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       const action = decideNextAction({
         verdict: result.verdict, toolStatus: reply.status, stepNo, maxSteps: s.max_steps, retriesUsed: s.retries_used, maxRetries: s.max_retries,
         failuresUsed: s.failures_used, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: activeMs(s, deps), maxMs: SESSION_TIME_LIMIT_MS,
+        onExhausted: s.on_failure,
       });
       // What is stored is the masked/cleaned form, never the raw reply.
       const stored = result.output ?? textSafeToStore(content, matches);
@@ -363,10 +442,24 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       });
       steps++;
 
+      // What was decided, changed and applied is remembered for every later request.
+      if (result.verdict === "block") {
+        await recordMemory(admin, s, { stepNo, kind: "rejection", ruleNames: [...new Set(matches.map((m) => m.name))], summary: `Step ${stepNo}: the reply broke "${names || "a rule"}" and was rejected.` });
+      } else if (result.verdict === "modify") {
+        const changes = result.changes ?? [];
+        await recordMemory(admin, s, { stepNo, kind: "modification", ruleNames: changes.map((c) => c.name), summary: `Step ${stepNo}: removed ${changes.map((c) => `${c.count}× "${c.name}"`).join(", ") || "sensitive text"} from the reply; the cleaned reply was used.` });
+      } else if (result.verdict === "escalate") {
+        await recordMemory(admin, s, { stepNo, kind: "rule", ruleNames: [...new Set(matches.map((m) => m.name))], summary: `Step ${stepNo}: the reply matched "${names || "a rule"}" and needed a person's approval.` });
+      }
+
       // 9. Apply the decision.
       if (action.kind === "retry_with_correction") {
         await patch(admin, s.id, { retries_used: s.retries_used + 1, correction: `It matched: ${names || "a rule"}.` }, deps);
         continue;
+      }
+      if (action.kind === "handoff") {
+        await pauseForHandoff(admin, s, tool, stepNo, deps, { kind: "rule_exhausted", ruleNames: [...new Set(matches.map((m) => m.name))], failure: null });
+        return { status: "awaiting_human", steps };
       }
       if (action.kind === "reject") { await finish(admin, s, "rejected", `${action.reason}${names ? ` (${names})` : ""}`, deps); return { status: "rejected", steps }; }
       if (action.kind === "stop" && result.verdict !== "allow" && result.verdict !== "modify") {
@@ -396,9 +489,31 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
   const s = row as SessionRow | null;
   if (!s || s.status !== "awaiting_human") return { status: s?.status ?? "missing", resumed: false };
 
+  if (s.pending_kind === "handoff") {
+    const choice = decodeChoice(s.pending_answer);
+    if (!choice) return { status: s.status, resumed: false };
+    const stepNo = s.pending_step_no ?? s.step_count + 1;
+    if (choice.option === "stop") {
+      await recordMemory(admin, s, { stepNo, kind: "human", summary: `Step ${stepNo}: a person chose to stop the session.` });
+      await finish(admin, s, "stopped", "A person stopped the session after a hand-off.", deps, { handoff: null, pending_answer: null });
+      return { status: "stopped", resumed: true };
+    }
+    await recordMemory(admin, s, {
+      stepNo, kind: "human",
+      summary: `Step ${stepNo}: a person chose to retry${choice.note ? ` and said: "${choice.note.slice(0, 300)}"` : ""}.`,
+    });
+    await patch(admin, s.id, {
+      status: "running", pending_kind: null, handoff: null, pending_answer: null, pending_step_no: null, lease_until: null, resume_at: null,
+      attempt_base: s.attempt_base + s.retries_used + s.failures_used + 1, retries_used: 0, failures_used: 0,
+      next_input: choice.note ? choice.note.slice(0, MAX_ANSWER_CHARS) : s.next_input, ...waited(s, deps),
+    }, deps);
+    return { status: "running", resumed: true };
+  }
+
   if (s.pending_kind === "question") {
     const answer = (s.pending_answer ?? "").trim();
     if (!answer) return { status: s.status, resumed: false };
+    await recordMemory(admin, s, { stepNo: s.pending_step_no ?? s.step_count, kind: "human", summary: `Step ${s.pending_step_no ?? s.step_count}: a person answered the tool's question.` });
     await patch(admin, s.id, { status: "running", pending_kind: null, pending_question: null, pending_answer: null, next_input: answer.slice(0, MAX_ANSWER_CHARS), lease_until: null, ...waited(s, deps) }, deps);
     return { status: "running", resumed: true };
   }
@@ -413,6 +528,8 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
   if (PENDING_STATUSES.has(approvalStatus)) return { status: s.status, resumed: false };
   const approved = APPROVED_STATUSES.has(approvalStatus);
 
+  const approvalStep = s.pending_step_no ?? s.step_count + 1;
+  await recordMemory(admin, s, { stepNo: approvalStep, kind: "human", summary: `Step ${approvalStep}: a person ${approved ? "approved" : "declined"} ${s.pending_kind === "first_contact" ? "first contact with the tool" : s.pending_kind === "contact_gate" ? "contacting the tool" : "the reply"}.` });
   if (!approved) {
     await finish(admin, s, "rejected", "A person declined the request.", deps);
     return { status: "rejected", resumed: true };

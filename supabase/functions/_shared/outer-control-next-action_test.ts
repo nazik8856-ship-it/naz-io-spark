@@ -56,3 +56,26 @@ Deno.test("the time limit wins over everything", () => {
   assertEquals(kind({ elapsedMs: 600_001, verdict: "escalate" }), "stop");
   assertEquals(kind({ elapsedMs: 600_001, verdict: null, toolStatus: null }), "stop");
 });
+
+// ---- recovery, fallback and hand-off ----------------------------------------------
+import { classifyFailure } from "./outer-control-recovery.ts";
+
+Deno.test("a failure that asking again cannot fix ends the retries at once", () => {
+  const auth = classifyFailure({ httpStatus: 401, attempt: 1 });
+  assertEquals(kind({ verdict: null, toolStatus: null, failure: auth }), "fail");
+  assertEquals(kind({ verdict: null, toolStatus: null, failure: auth, onExhausted: "handoff" }), "handoff");
+  assertEquals(kind({ verdict: null, toolStatus: null, failure: classifyFailure({ httpStatus: 503, attempt: 1 }) }), "retry_same");
+});
+
+Deno.test("exhausted failures use the fallback tool first, then ask a person, then fail", () => {
+  const exhausted = { verdict: null, toolStatus: null, failuresUsed: 2 } as Partial<NextActionInput>;
+  assertEquals(kind({ ...exhausted, canFallback: true, onExhausted: "handoff" }), "switch_tool");
+  assertEquals(kind({ ...exhausted, onExhausted: "handoff" }), "handoff");
+  assertEquals(kind({ ...exhausted, onExhausted: "reject" }), "fail");
+});
+
+Deno.test("a reply that keeps breaking a rule is handed to a person when asked to, otherwise rejected", () => {
+  assertEquals(kind({ verdict: "block", retriesUsed: 1, onExhausted: "handoff" }), "handoff");
+  assertEquals(kind({ verdict: "block", retriesUsed: 1, onExhausted: "reject" }), "reject");
+  assertEquals(kind({ verdict: "block", retriesUsed: 0, onExhausted: "handoff" }), "retry_with_correction");
+});

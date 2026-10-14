@@ -1,0 +1,93 @@
+// Outer Control (active): the clean hand-off to a person when a run cannot safely go on
+// by itself. A hand-off says what happened, what was already done, what the options are
+// and which one Outer Control recommends. Pure; the driver stores and resumes it.
+import type { FailureClass } from "./outer-control-recovery.ts";
+import { humanRetriesAt, renderMemory, type MemoryEntry } from "./outer-control-memory.ts";
+
+export type HandoffKind = "rule_exhausted" | "tool_failed";
+export type HandoffOptionId = "retry" | "stop";
+export type HandoffOption = { id: HandoffOptionId; label: string; description: string };
+export type Handoff = {
+  kind: HandoffKind;
+  title: string;
+  summary: string[];
+  options: HandoffOption[];
+  recommended: HandoffOptionId;
+};
+
+export type HandoffInput = {
+  kind: HandoffKind;
+  stepNo: number;
+  toolName: string;
+  /** Rules the last reply broke (rule_exhausted). */
+  ruleNames: string[];
+  /** Why the last exchange failed (tool_failed). */
+  failure: FailureClass | null;
+  attempts: number;
+  memory: MemoryEntry[];
+};
+
+export function buildHandoff(i: HandoffInput): Handoff {
+  const earlier = humanRetriesAt(i.memory, i.stepNo);
+  const recent = renderMemory(i.memory, 3);
+
+  if (i.kind === "rule_exhausted") {
+    const names = i.ruleNames.length ? i.ruleNames.join("; ") : "a rule";
+    const recommended: HandoffOptionId = earlier > 0 ? "stop" : "retry";
+    return {
+      kind: i.kind,
+      title: `"${i.toolName}" keeps breaking a rule on step ${i.stepNo}`,
+      summary: [
+        `Step ${i.stepNo}: the reply broke ${names}, and the tool was asked ${Math.max(1, i.attempts - 1)} time(s) to fix it.`,
+        "Nothing from the rejected replies was used.",
+        earlier > 0
+          ? "You already chose to retry this step once and it broke the rule again, so stopping is recommended."
+          : "A short note from you about what is allowed may let the tool get it right.",
+        ...recent.map((l) => `Earlier: ${l}`),
+      ],
+      options: [
+        { id: "retry", label: "Ask again with my note", description: "Gives the tool one more try. Your note is added to the request." },
+        { id: "stop", label: "Stop the session", description: "Ends the session. Accepted steps are kept." },
+      ],
+      recommended,
+    };
+  }
+
+  const f = i.failure;
+  const hopeless = !!f && (f.kind === "auth" || f.kind === "client" || f.kind === "unusable");
+  const recommended: HandoffOptionId = hopeless || earlier > 0 ? "stop" : "retry";
+  return {
+    kind: i.kind,
+    title: `Outer Control could not get a usable reply from "${i.toolName}" on step ${i.stepNo}`,
+    summary: [
+      `Step ${i.stepNo}: ${f?.reason ?? "the tool failed."} It was tried ${Math.max(1, i.attempts)} time(s).`,
+      hopeless
+        ? "Asking again will not change this until the tool or its settings are fixed."
+        : "This kind of failure often clears up by itself.",
+      ...recent.map((l) => `Earlier: ${l}`),
+    ],
+    options: [
+      { id: "retry", label: "Try again now", description: "Contacts the tool again with the same request." },
+      { id: "stop", label: "Stop the session", description: "Ends the session. Accepted steps are kept." },
+    ],
+    recommended,
+  };
+}
+
+export function findOption(h: Handoff | null | undefined, id: unknown): HandoffOption | null {
+  if (!h || typeof id !== "string") return null;
+  return h.options.find((o) => o.id === id) ?? null;
+}
+
+/** What a person's choice is stored as until the session resumes. */
+export function encodeChoice(optionId: HandoffOptionId, note: string | null): string {
+  return JSON.stringify({ option: optionId, note: note && note.trim() ? note.trim().slice(0, 1000) : null });
+}
+export function decodeChoice(raw: string | null | undefined): { option: HandoffOptionId; note: string | null } | null {
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw) as { option?: unknown; note?: unknown };
+    if (o.option !== "retry" && o.option !== "stop") return null;
+    return { option: o.option, note: typeof o.note === "string" && o.note.trim() ? o.note : null };
+  } catch { return null; }
+}

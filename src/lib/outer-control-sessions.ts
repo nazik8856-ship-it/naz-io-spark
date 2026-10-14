@@ -1,8 +1,9 @@
 // Outer Control (active): wording and small helpers for the sessions card.
-export type SessionStatus = "running" | "awaiting_human" | "completed" | "rejected" | "failed" | "cancelled" | "stopped";
-export type PendingKind = "first_contact" | "contact_gate" | "reply_approval" | "question";
+export type SessionStatus = "queued" | "running" | "awaiting_human" | "completed" | "rejected" | "failed" | "cancelled" | "stopped";
+export type PendingKind = "first_contact" | "contact_gate" | "reply_approval" | "question" | "handoff";
 
 export const STATUS_LABEL: Record<SessionStatus, string> = {
+  queued: "Waiting",
   running: "Running",
   awaiting_human: "Needs you",
   completed: "Completed",
@@ -12,7 +13,7 @@ export const STATUS_LABEL: Record<SessionStatus, string> = {
   stopped: "Stopped",
 };
 
-export const isOpen = (s: SessionStatus) => s === "running" || s === "awaiting_human";
+export const isOpen = (s: SessionStatus) => s === "queued" || s === "running" || s === "awaiting_human";
 
 /** What the person must do, in one sentence. Null when nothing is needed. */
 export function describeWaiting(kind: PendingKind | null, question: string | null): string | null {
@@ -20,6 +21,7 @@ export function describeWaiting(kind: PendingKind | null, question: string | nul
     case "first_contact": return "First contact with this tool needs your approval in the approval queue.";
     case "contact_gate": return "A rule requires your approval before Outer Control contacts this tool.";
     case "reply_approval": return "The tool's reply needs your approval in the approval queue.";
+    case "handoff": return "Outer Control could not go on safely by itself. Review the summary and choose how to continue.";
     case "question": return question ? `The tool asks: ${question}` : "The tool needs information from you.";
     default: return null;
   }
@@ -35,6 +37,8 @@ const NEXT_ACTION_LABEL: Record<string, string> = {
   pause_human: "waiting for a person",
   reject: "rejected, no retries left",
   stop: "stopped at a limit",
+  switch_tool: "the tool kept failing, switched to the fallback tool",
+  handoff: "handed to a person with a recommendation",
   fail: "the tool kept failing",
 };
 
@@ -43,4 +47,36 @@ export function describeStep(s: StepLike): string {
   const what = s.error ? s.error : s.verdict ? `verdict ${s.verdict}` : "no verdict";
   const next = s.next_action ? NEXT_ACTION_LABEL[s.next_action] ?? s.next_action : null;
   return `Step ${s.step_no}${s.attempt > 1 ? ` (try ${s.attempt})` : ""} — ${what}${next ? ` — ${next}` : ""}`;
+}
+
+export type HandoffView = {
+  kind: "rule_exhausted" | "tool_failed";
+  title: string;
+  summary: string[];
+  options: { id: "retry" | "stop"; label: string; description: string }[];
+  recommended: "retry" | "stop";
+};
+
+export type WorkflowStatus = "running" | "awaiting_human" | "completed" | "failed" | "cancelled";
+
+export const WORKFLOW_LABEL: Record<WorkflowStatus, string> = {
+  running: "Running", awaiting_human: "Needs you", completed: "Completed", failed: "Failed", cancelled: "Cancelled",
+};
+
+export type DraftLeg = { toolId: string; instruction: string; deps: number[]; fallbackId: string };
+
+/** The legs as the API expects them (`legs`), or the first thing wrong with the form (`message`). */
+export function legsPayload(drafts: DraftLeg[]): { legs: Record<string, unknown>[] | null; message: string } {
+  if (!drafts.length) return { legs: null, message: "Add at least one step." };
+  const legs: Record<string, unknown>[] = [];
+  for (let i = 0; i < drafts.length; i++) {
+    const d = drafts[i];
+    if (!d.toolId) return { legs: null, message: `Step ${i + 1}: choose a tool.` };
+    if (!d.instruction.trim()) return { legs: null, message: `Step ${i + 1}: say what the tool should do.` };
+    legs.push({
+      tool_id: d.toolId, instruction: d.instruction.trim(), depends_on: d.deps.filter((n) => n >= 1 && n <= i),
+      ...(d.fallbackId ? { fallback_tool_id: d.fallbackId } : {}),
+    });
+  }
+  return { legs, message: "" };
 }
