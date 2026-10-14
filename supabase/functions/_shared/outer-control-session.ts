@@ -128,6 +128,27 @@ export async function loadRuleLines(admin: AnyAdmin, userId: string, apiKeyId: s
   return lines;
 }
 
+/**
+ * Whether an account rule stands between Outer Control and this tool, without creating any
+ * approval or decision record. Used by the connection test, which sends a ping outside a session.
+ * Returns a sentence for the person, or null when nothing stops the contact.
+ */
+export async function contactRuleStopping(admin: AnyAdmin, userId: string, toolName: string): Promise<string | null> {
+  const { data } = await admin.from("hard_rules")
+    .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id")
+    .eq("user_id", userId).eq("enabled", true);
+  const scoped = selectRulesForEntity((data ?? []) as Record<string, unknown>[] as never[], null, null) as unknown as
+    { rule_text: string; effect: string; action_type_pattern: string; provider: string | null; shadow_mode?: boolean }[];
+  for (const r of scoped) {
+    if (r.shadow_mode) continue;
+    if (!ruleMatchesAction({ action_type_pattern: r.action_type_pattern, provider: r.provider }, "outer_control_contact", toolName)) continue;
+    return r.effect === "always_block"
+      ? `The rule "${String(r.rule_text).slice(0, 120)}" blocks contacting this tool.`
+      : `The rule "${String(r.rule_text).slice(0, 120)}" requires approval for every contact, so no test message was sent. Start a session instead.`;
+  }
+  return null;
+}
+
 /** Masks anything the rules would remove before text leaves the platform. */
 export function maskForSend(rules: SafetyRule[], text: string | null | undefined): string {
   if (!text) return "";
