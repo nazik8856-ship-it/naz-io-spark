@@ -1,0 +1,59 @@
+// Outer Control (active): keeps sessions moving without anyone watching.
+// Every minute (pg_cron, service role): resume sessions whose approval has been
+// resolved, advance sessions that are mid-run (a driver was cut off or a retry is
+// due), and end sessions that have waited for a person too long.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
+import { advanceSession, resumeSession } from "../_shared/outer-control-session.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+const json = (b: unknown, status = 200) =>
+  new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+const BATCH = 10;
+const WAIT_LIMIT_MS = 7 * 24 * 60 * 60 * 1000; // a person has a week to answer
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") return json({ error: "POST only" }, 405);
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  if ((req.headers.get("Authorization") ?? "") !== `Bearer ${serviceKey}`) return json({ error: "unauthorized" }, 401);
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
+
+  if (await areConsequentialSweepsPaused(admin)) return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });
+
+  const now = Date.now();
+  const out = { resumed: 0, advanced: 0, expired: 0, errors: 0 };
+
+  // 1. Paused sessions: resume or end them if what they waited for has happened.
+  const { data: waiting } = await admin.from("outer_control_sessions")
+    .select("id, updated_at").eq("status", "awaiting_human").order("updated_at", { ascending: true }).limit(BATCH * 3);
+  for (const s of (waiting ?? []) as { id: string; updated_at: string }[]) {
+    try {
+      if (now - Date.parse(s.updated_at) > WAIT_LIMIT_MS) {
+        await admin.from("outer_control_sessions").update({
+          status: "stopped", stop_reason: "Nobody answered within 7 days.", finished_at: new Date(now).toISOString(),
+          updated_at: new Date(now).toISOString(), pending_kind: null, pending_approval_id: null,
+        }).eq("id", s.id).eq("status", "awaiting_human");
+        out.expired++;
+        continue;
+      }
+      const r = await resumeSession(admin, s.id);
+      if (r.resumed) out.resumed++;
+    } catch (e) { out.errors++; console.error("session-sweep resume failed:", s.id, e instanceof Error ? e.message : e); }
+  }
+
+  // 2. Running sessions nobody is driving (lease expired or never taken).
+  const { data: running } = await admin.from("outer_control_sessions")
+    .select("id").eq("status", "running")
+    .or(`lease_until.is.null,lease_until.lt.${new Date(now).toISOString()}`)
+    .order("updated_at", { ascending: true }).limit(BATCH);
+  for (const s of (running ?? []) as { id: string }[]) {
+    try { await advanceSession(admin, s.id); out.advanced++; }
+    catch (e) { out.errors++; console.error("session-sweep advance failed:", s.id, e instanceof Error ? e.message : e); }
+  }
+  return json({ ok: true, ...out });
+});
