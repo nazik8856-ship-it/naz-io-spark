@@ -7,7 +7,7 @@ import { Plug, Play, ChevronDown, ChevronRight, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
-import { describeStep, describeWaiting, isOpen, STATUS_LABEL, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
+import { describeDecision, describeStep, describeWaiting, isOpen, STATUS_LABEL, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
 
 // The tables are new and not in the generated Supabase types.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -20,7 +20,7 @@ type Session = {
   handoff: HandoffView | null; workflow_id: string | null; leg_no: number | null;
 };
 type MemoryRow = { id: string; kind: string; summary: string };
-type Step = StepLike & { id: string; reply_text: string | null };
+type Step = StepLike & { id: string; reply_text: string | null; decision?: import("@/lib/outer-control-sessions").DecisionView | null };
 type KeyOpt = { id: string; name: string };
 
 const STATUS_STYLE: Record<SessionStatus, string> = {
@@ -69,7 +69,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
 
   const loadSteps = useCallback(async (sessionId: string) => {
     const { data } = await anyDb.from("outer_control_session_steps")
-      .select("id, step_no, attempt, verdict, next_action, error, note, reply_text").eq("session_id", sessionId).order("step_no").order("attempt");
+      .select("id, step_no, attempt, verdict, next_action, error, note, reply_text, decision").eq("session_id", sessionId).order("step_no").order("attempt");
     setSteps((p) => ({ ...p, [sessionId]: (data ?? []) as Step[] }));
     const { data: mem } = await anyDb.from("outer_control_memory").select("id, kind, summary").eq("session_id", sessionId).order("created_at");
     setMemory((p) => ({ ...p, [sessionId]: (mem ?? []) as MemoryRow[] }));
@@ -250,7 +250,12 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                 {open && (
                   <div className="mt-2 space-y-2 rounded border border-white/10 bg-black/20 p-2.5 text-[11px]">
                     <ul className="space-y-0.5">
-                      {(steps[s.id] ?? []).map((st) => <li key={st.id} className="text-zinc-300">{describeStep(st)}</li>)}
+                      {(steps[s.id] ?? []).map((st) => (
+                        <li key={st.id} className="text-zinc-300">
+                          {describeStep(st)}
+                          {describeDecision(st.decision).map((line, i) => <div key={i} className="ml-3 text-[10px] leading-snug text-zinc-500">{line}</div>)}
+                        </li>
+                      ))}
                       {(steps[s.id] ?? []).length === 0 && <li className="text-zinc-500">Nothing has been exchanged yet.</li>}
                     </ul>
                     {(memory[s.id] ?? []).length > 0 && (

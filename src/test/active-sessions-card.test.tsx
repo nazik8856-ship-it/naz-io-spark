@@ -160,5 +160,19 @@ describe("ActiveSessionsCard", () => {
     fireEvent.click(screen.getByText("Back"));
     expect(screen.queryByLabelText("Your reply")).toBeNull();
   });
+
+  it("an opened session shows the reasoning stored with each step", async () => {
+    state.tools = [tool];
+    state.sessions = [session({ status: "completed", final_output: "ok" })];
+    state.steps = [{
+      id: "a", step_no: 1, attempt: 1, verdict: "escalate", next_action: "pause_human", error: null, note: null, reply_text: "x",
+      decision: { why: "Needs approval. The strictest wins: require approval (\"Quote prices\").", plan: { reason: "The reply needs a person's approval.", basis: ["A rule requires a person's approval for this reply."] } },
+    }];
+    renderCard();
+    fireEvent.click(await screen.findByText("Draft a reply"));
+    expect(await screen.findByText(/Why: Needs approval/)).toBeTruthy();
+    expect(screen.getByText("Based on: A rule requires a person's approval for this reply.")).toBeTruthy();
+    expect(screen.getByText("Next: The reply needs a person's approval.")).toBeTruthy();
+  });
 });
 

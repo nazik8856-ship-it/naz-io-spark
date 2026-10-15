@@ -33,6 +33,8 @@ export type ToolRequestInput = {
   avoid?: string[];
   /** How many lower-priority rules were left out of `rules` (they are still enforced). */
   omittedRules?: number;
+  /** Extra limits on this reply, added when the request was tightened after repeated rule violations. */
+  constraints?: string[];
 };
 
 export const RESPONSE_CONTRACT =
@@ -60,6 +62,7 @@ export function buildInstruction(i: ToolRequestInput): string {
   ];
   if (i.context && i.context.trim()) parts.push(`Context:\n${i.context.trim()}`);
   parts.push(`Rules your reply is checked against:\n${renderRules(i.rules, i.omittedRules ?? 0)}`);
+  if (i.constraints && i.constraints.length) parts.push(`Constraints for this reply:\n${i.constraints.map((c) => `- ${c}`).join("\n")}`);
   if (i.memory && i.memory.length) parts.push(`Decisions already made in this run (stay consistent with them):\n${i.memory.map((m) => `- ${m}`).join("\n")}`);
   if (i.avoid && i.avoid.length) parts.push(`Earlier replies in this run already triggered these rules, so avoid them: ${i.avoid.join("; ")}.`);
   if (i.history.length) {
@@ -114,6 +117,7 @@ export function buildToolRequest(i: ToolRequestInput): { body: Record<string, un
       answer: i.answer ?? null,
       memory: i.memory ?? [],
       avoid: i.avoid ?? [],
+      constraints: i.constraints ?? [],
       response_contract: RESPONSE_CONTRACT,
       instruction,
     },
