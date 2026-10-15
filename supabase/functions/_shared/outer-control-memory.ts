@@ -29,6 +29,22 @@ export function renderMemory(entries: MemoryEntry[], limit = MEMORY_LIMIT): stri
   return lines;
 }
 
+/**
+ * For a person reading a hand-off: each distinct message once, oldest first by its latest
+ * occurrence, with "(3 times)" when it happened more than once. At most `limit` messages.
+ */
+export function renderMemoryCounted(entries: MemoryEntry[], limit = 3): string[] {
+  const seen = new Map<string, number>();
+  for (const e of entries) {
+    const line = clip(e.summary.replace(/\s+/g, " ").trim(), LINE_MAX);
+    if (!line) continue;
+    const n = (seen.get(line) ?? 0) + 1;
+    seen.delete(line); // re-insert so Map order follows the latest occurrence
+    seen.set(line, n);
+  }
+  return [...seen.entries()].slice(-limit).map(([line, n]) => (n > 1 ? `${line} (${n} times)` : line));
+}
+
 /** Rule names that replies in this run have already triggered (rejected, cleaned or escalated). */
 export function ruleNamesSeen(entries: MemoryEntry[]): string[] {
   const out: string[] = [];
