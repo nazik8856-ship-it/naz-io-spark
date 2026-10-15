@@ -50,6 +50,8 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showConnect, setShowConnect] = useState(false);
   const [startFor, setStartFor] = useState<string | null>(null);
+  const [keyFor, setKeyFor] = useState<string | null>(null);
+  const [newKey, setNewKey] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [conn, setConn] = useState({ name: "", url: "", format: "generic_json", model: "", token: "" });
@@ -58,7 +60,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const load = useCallback(async () => {
     if (!accountId) return;
     const [t, s, k] = await Promise.all([
-      anyDb.from("external_tools").select("id, name, endpoint_url, request_format, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).order("created_at", { ascending: false }),
+      anyDb.from("external_tools").select("id, name, endpoint_url, request_format, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
       anyDb.from("outer_control_sessions").select("id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no").eq("user_id", accountId).order("started_at", { ascending: false }).limit(10),
       anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
     ]);
@@ -109,6 +111,17 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     if (r.ok) { setJob({ objective: "", context: "", keyId: "", maxSteps: "5" }); setStartFor(null); setExpanded(r.data?.session_id ?? null); }
   };
 
+  const saveKey = async (toolId: string) => {
+    const r = await act(`key-${toolId}`, "update_key", { tool_id: toolId, token: newKey }, "New key saved. Press Test to check it.");
+    if (r.ok) { setNewKey(""); setKeyFor(null); }
+  };
+
+  const remove = async (t: Tool) => {
+    if (!window.confirm(`Remove "${t.name}"? Its stored key is deleted and any session still using it is cancelled. Past sessions stay in the history.`)) return;
+    const r = await act(`remove-${t.id}`, "remove_tool", { tool_id: t.id }, `"${t.name}" removed.`);
+    if (r.ok) { if (startFor === t.id) setStartFor(null); if (keyFor === t.id) setKeyFor(null); }
+  };
+
   const toolName = (id: string) => tools.find((t) => t.id === id)?.name ?? "Tool";
 
   return (
@@ -156,12 +169,26 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                 <button disabled={busy === `test-${t.id}`} onClick={() => act(`test-${t.id}`, "test_tool", { tool_id: t.id }, "Connection works.")} className="rounded border border-white/15 px-2.5 py-1 text-[11px] font-mono uppercase text-zinc-300 hover:bg-white/10 disabled:opacity-40">
                   {busy === `test-${t.id}` ? "Testing…" : "Test"}
                 </button>
+                <button onClick={() => { setKeyFor(keyFor === t.id ? null : t.id); setNewKey(""); }} className="rounded border border-white/15 px-2.5 py-1 text-[11px] font-mono uppercase text-zinc-300 hover:bg-white/10">
+                  Update key
+                </button>
                 <button onClick={() => setStartFor(startFor === t.id ? null : t.id)} className="flex items-center gap-1 rounded border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-mono uppercase text-cyan-200 hover:bg-cyan-500/20">
                   <Play className="h-3 w-3" /> Start session
+                </button>
+                <button disabled={busy === `remove-${t.id}`} onClick={() => remove(t)} className="rounded border border-rose-500/30 px-2.5 py-1 text-[11px] font-mono uppercase text-rose-300 hover:bg-rose-500/10 disabled:opacity-40">
+                  {busy === `remove-${t.id}` ? "Removing…" : "Remove"}
                 </button>
               </div>
             </div>
             {t.last_error && <p className="mt-1 text-xs text-rose-300/90">{t.last_error}</p>}
+            {keyFor === t.id && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <input className={`${inputCls} flex-1`} type="password" autoComplete="off" placeholder="New API key or token (stored encrypted, never shown again)" aria-label="New tool credential" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
+                <button disabled={busy === `key-${t.id}` || !newKey.trim()} onClick={() => saveKey(t.id)} className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-mono uppercase tracking-wider text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40">
+                  {busy === `key-${t.id}` ? "Saving…" : "Save key"}
+                </button>
+              </div>
+            )}
             {startFor === t.id && (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <textarea className={`${inputCls} sm:col-span-2`} rows={2} placeholder="Objective — what should the tool do?" aria-label="Objective" value={job.objective} onChange={(e) => setJob({ ...job, objective: e.target.value })} />
