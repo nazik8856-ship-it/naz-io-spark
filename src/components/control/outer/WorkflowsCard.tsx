@@ -5,6 +5,7 @@ import { Workflow, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
+import { DEFAULT_HISTORY, visibleItems } from "@/lib/outer-control-ui";
 import { legsPayload, STATUS_LABEL, WORKFLOW_LABEL, type CondKind, type DraftLeg, type SessionStatus, type WorkflowStatus } from "@/lib/outer-control-sessions";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -26,6 +27,7 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
   const [workflows, setWorkflows] = useState<WorkflowRow[]>([]);
   const [legs, setLegs] = useState<LegRow[]>([]);
   const [show, setShow] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
   const [objective, setObjective] = useState("");
   const [context, setContext] = useState("");
@@ -77,19 +79,19 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
   };
 
   return (
-    <div className="hud-glass mt-6 rounded-2xl px-5 py-5" data-testid="workflows-card">
+    <div className="hud-glass rounded-2xl px-6 py-5" data-testid="workflows-card">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-zinc-400">
-          <Workflow className="h-3.5 w-3.5 text-cyan-300" /> Workflows — several tools, one goal
-        </div>
-        <button onClick={() => setShow((v) => !v)} className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10">
+        <h3 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+          <Workflow className="h-4 w-4 text-cyan-300" /> Workflows — several tools, one goal
+        </h3>
+        <button onClick={() => setShow((v) => !v)} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/10">
           {show ? "Close" : "New workflow"}
         </button>
       </div>
 
       {show && (
         <div className="mt-4 space-y-3 rounded-xl border border-white/10 bg-black/20 p-3">
-          {tools.length === 0 && <p className="text-sm text-amber-200">Connect a tool in Active sessions first.</p>}
+          {tools.length === 0 && <p className="text-sm text-amber-200">Connect a tool in Connected tools first.</p>}
           <input className={inputCls} aria-label="Workflow goal" placeholder="Overall goal" value={objective} onChange={(e) => setObjective(e.target.value)} />
           <textarea className={inputCls} rows={2} aria-label="Workflow context" placeholder="Shared context (optional) — secrets are masked before anything is sent" value={context} onChange={(e) => setContext(e.target.value)} />
           {drafts.map((d, i) => (
@@ -154,8 +156,8 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
       )}
 
       <div className="mt-4 space-y-2">
-        {workflows.length === 0 && <p className="text-sm text-zinc-500">No workflow yet. Steps that don't wait for each other run at the same time.</p>}
-        {workflows.map((w) => (
+        {workflows.length === 0 && <p className="text-sm text-zinc-500">No workflows yet. A workflow runs several tools toward one goal; steps that don't wait for each other run at the same time. Press New workflow to build one.</p>}
+        {visibleItems(workflows, DEFAULT_HISTORY, showAll).map((w) => (
           <div key={w.id} className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5" data-testid="workflow-row">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 text-sm text-zinc-200">
@@ -176,13 +178,18 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
                   <span>{toolName(l.tool_id)}</span>
                   <span className={`rounded-full border px-1.5 py-0 text-[10px] font-mono uppercase ${chip(l.status)}`}>{STATUS_LABEL[l.status]}</span>
                   {l.depends_on.length > 0 && <span className="text-zinc-500">after step {l.depends_on.join(", ")}</span>}
-                  {l.status === "awaiting_human" && <span className="text-amber-300">needs you in Active sessions below</span>}
+                  {l.status === "awaiting_human" && <span className="text-amber-300">needs you in Connected tools</span>}
                   {l.stop_reason && l.status !== "completed" && <span className="text-zinc-500">{l.stop_reason}</span>}
                 </li>
               ))}
             </ul>
           </div>
         ))}
+        {workflows.length > DEFAULT_HISTORY && (
+          <button type="button" onClick={() => setShowAll((v) => !v)} className="text-sm text-cyan-300 hover:text-cyan-200">
+            {showAll ? "Show fewer" : `View all (${workflows.length})`}
+          </button>
+        )}
       </div>
     </div>
   );

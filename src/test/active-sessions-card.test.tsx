@@ -41,7 +41,10 @@ describe("ActiveSessionsCard", () => {
 
   it("invites the person to connect a tool when there is none", async () => {
     renderCard();
-    expect(await screen.findByText(/No tool connected yet/)).toBeTruthy();
+    expect(await screen.findByText(/No tools connected yet/)).toBeTruthy();
+    // the empty state tells the person what to do next and offers the action right there
+    expect(screen.getByText(/Then press Test, then Start session/)).toBeTruthy();
+    expect(screen.getAllByText("Connect a tool").length).toBe(2);
   });
 
   it("lists a connected tool with its host and approval state", async () => {
@@ -49,13 +52,64 @@ describe("ActiveSessionsCard", () => {
     renderCard();
     expect(await screen.findByText("Support bot")).toBeTruthy();
     expect(screen.getByText("bot.example.com")).toBeTruthy();
-    expect(screen.getByText(/needs first-contact approval/)).toBeTruthy();
+    expect(screen.getByText("Needs first approval")).toBeTruthy();
+  });
+
+  it("shows Test and Start session on every tool, and keeps Update key / Remove behind More", async () => {
+    state.tools = [tool];
+    renderCard();
+    expect(await screen.findByText("Test")).toBeTruthy();
+    expect(screen.getByText("Start session")).toBeTruthy();
+    expect(screen.queryByText("Update key")).toBeNull();
+    expect(screen.queryByText("Remove")).toBeNull();
+    fireEvent.click(screen.getByText("More"));
+    expect(screen.getByText("Update key")).toBeTruthy();
+    expect(screen.getByText("Remove")).toBeTruthy();
+  });
+
+  it("says in plain words whether each tool works: failed test, working, not tested yet", async () => {
+    state.tools = [
+      { ...tool, id: "a", name: "Broken", approved_at: "2026-10-01", last_checked_at: "2026-10-02", last_error: "The tool answered HTTP 401." },
+      { ...tool, id: "b", name: "Fine", approved_at: "2026-10-01", last_checked_at: "2026-10-02", last_error: null },
+      { ...tool, id: "c", name: "Fresh", approved_at: "2026-10-01", last_checked_at: null, last_error: null },
+    ];
+    renderCard();
+    expect(await screen.findByText("Test failed")).toBeTruthy();
+    expect(screen.getByText("Working")).toBeTruthy();
+    expect(screen.getByText("Not tested yet")).toBeTruthy();
+    expect(screen.getByText("The tool answered HTTP 401.")).toBeTruthy();
+  });
+
+  it("a running session is shown up front with a Stop button that needs no opening", async () => {
+    state.tools = [tool];
+    state.sessions = [session({ status: "running" })];
+    renderCard();
+    expect(await screen.findByText("Running now")).toBeTruthy();
+    expect(screen.queryByText("Nothing has been exchanged yet.")).toBeNull(); // step log stays closed
+    fireEvent.click(screen.getByText("Stop session"));
+    await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1));
+    const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ action: "cancel", session_id: "s1" });
+  });
+
+  it("finished sessions: the last 3 are shown and the rest wait behind View all", async () => {
+    state.tools = [tool];
+    state.sessions = [1, 2, 3, 4, 5].map((n) => session({ id: `s${n}`, status: "completed", objective: `Job ${n}` }));
+    renderCard();
+    expect(await screen.findByText("Job 1")).toBeTruthy();
+    expect(screen.queryByText("Job 4")).toBeNull();
+    expect(screen.queryByText("Running now")).toBeNull();
+    fireEvent.click(screen.getByText("View all (5)"));
+    expect(screen.getByText("Job 5")).toBeTruthy();
+    fireEvent.click(screen.getByText("Show fewer"));
+    expect(screen.queryByText("Job 5")).toBeNull();
   });
 
   it("Update key sends only the new key for that tool and clears the box afterwards", async () => {
     state.tools = [tool];
     renderCard();
-    fireEvent.click(await screen.findByText("Update key"));
+    fireEvent.click(await screen.findByText("More"));
+    fireEvent.click(screen.getByText("Update key"));
     const save = screen.getByText("Save key").closest("button")!;
     expect(save.hasAttribute("disabled")).toBe(true);
     fireEvent.change(screen.getByLabelText("New tool credential"), { target: { value: "  sk-new-key  " } });
@@ -70,7 +124,8 @@ describe("ActiveSessionsCard", () => {
     state.tools = [tool];
     renderCard();
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
-    fireEvent.click(await screen.findByText("Remove"));
+    fireEvent.click(await screen.findByText("More"));
+    fireEvent.click(screen.getByText("Remove"));
     expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
     fireEvent.click(screen.getByText("Remove"));
     await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1));
