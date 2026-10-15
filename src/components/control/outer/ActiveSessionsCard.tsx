@@ -7,7 +7,7 @@ import { Plug, Play, ChevronDown, ChevronRight, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
-import { describeStep, describeWaiting, isOpen, STATUS_LABEL, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
+import { describeDecision, describeStep, describeWaiting, isOpen, STATUS_LABEL, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
 
 // The tables are new and not in the generated Supabase types.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -20,7 +20,7 @@ type Session = {
   handoff: HandoffView | null; workflow_id: string | null; leg_no: number | null;
 };
 type MemoryRow = { id: string; kind: string; summary: string };
-type Step = StepLike & { id: string; reply_text: string | null };
+type Step = StepLike & { id: string; reply_text: string | null; decision?: import("@/lib/outer-control-sessions").DecisionView | null };
 type KeyOpt = { id: string; name: string };
 
 const STATUS_STYLE: Record<SessionStatus, string> = {
@@ -50,6 +50,8 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showConnect, setShowConnect] = useState(false);
   const [startFor, setStartFor] = useState<string | null>(null);
+  const [keyFor, setKeyFor] = useState<string | null>(null);
+  const [newKey, setNewKey] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [conn, setConn] = useState({ name: "", url: "", format: "generic_json", model: "", token: "" });
@@ -58,7 +60,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const load = useCallback(async () => {
     if (!accountId) return;
     const [t, s, k] = await Promise.all([
-      anyDb.from("external_tools").select("id, name, endpoint_url, request_format, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).order("created_at", { ascending: false }),
+      anyDb.from("external_tools").select("id, name, endpoint_url, request_format, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
       anyDb.from("outer_control_sessions").select("id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no").eq("user_id", accountId).order("started_at", { ascending: false }).limit(10),
       anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
     ]);
@@ -69,7 +71,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
 
   const loadSteps = useCallback(async (sessionId: string) => {
     const { data } = await anyDb.from("outer_control_session_steps")
-      .select("id, step_no, attempt, verdict, next_action, error, note, reply_text").eq("session_id", sessionId).order("step_no").order("attempt");
+      .select("id, step_no, attempt, verdict, next_action, error, note, reply_text, decision").eq("session_id", sessionId).order("step_no").order("attempt");
     setSteps((p) => ({ ...p, [sessionId]: (data ?? []) as Step[] }));
     const { data: mem } = await anyDb.from("outer_control_memory").select("id, kind, summary").eq("session_id", sessionId).order("created_at");
     setMemory((p) => ({ ...p, [sessionId]: (mem ?? []) as MemoryRow[] }));
@@ -107,6 +109,17 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       tool_id: toolId, objective: job.objective, context: job.context || undefined, api_key_id: job.keyId || undefined, max_steps: Number(job.maxSteps) || 5,
     }, "Session started.");
     if (r.ok) { setJob({ objective: "", context: "", keyId: "", maxSteps: "5" }); setStartFor(null); setExpanded(r.data?.session_id ?? null); }
+  };
+
+  const saveKey = async (toolId: string) => {
+    const r = await act(`key-${toolId}`, "update_key", { tool_id: toolId, token: newKey }, "New key saved. Press Test to check it.");
+    if (r.ok) { setNewKey(""); setKeyFor(null); }
+  };
+
+  const remove = async (t: Tool) => {
+    if (!window.confirm(`Remove "${t.name}"? Its stored key is deleted and any session still using it is cancelled. Past sessions stay in the history.`)) return;
+    const r = await act(`remove-${t.id}`, "remove_tool", { tool_id: t.id }, `"${t.name}" removed.`);
+    if (r.ok) { if (startFor === t.id) setStartFor(null); if (keyFor === t.id) setKeyFor(null); }
   };
 
   const toolName = (id: string) => tools.find((t) => t.id === id)?.name ?? "Tool";
@@ -156,12 +169,26 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                 <button disabled={busy === `test-${t.id}`} onClick={() => act(`test-${t.id}`, "test_tool", { tool_id: t.id }, "Connection works.")} className="rounded border border-white/15 px-2.5 py-1 text-[11px] font-mono uppercase text-zinc-300 hover:bg-white/10 disabled:opacity-40">
                   {busy === `test-${t.id}` ? "Testing…" : "Test"}
                 </button>
+                <button onClick={() => { setKeyFor(keyFor === t.id ? null : t.id); setNewKey(""); }} className="rounded border border-white/15 px-2.5 py-1 text-[11px] font-mono uppercase text-zinc-300 hover:bg-white/10">
+                  Update key
+                </button>
                 <button onClick={() => setStartFor(startFor === t.id ? null : t.id)} className="flex items-center gap-1 rounded border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-mono uppercase text-cyan-200 hover:bg-cyan-500/20">
                   <Play className="h-3 w-3" /> Start session
+                </button>
+                <button disabled={busy === `remove-${t.id}`} onClick={() => remove(t)} className="rounded border border-rose-500/30 px-2.5 py-1 text-[11px] font-mono uppercase text-rose-300 hover:bg-rose-500/10 disabled:opacity-40">
+                  {busy === `remove-${t.id}` ? "Removing…" : "Remove"}
                 </button>
               </div>
             </div>
             {t.last_error && <p className="mt-1 text-xs text-rose-300/90">{t.last_error}</p>}
+            {keyFor === t.id && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <input className={`${inputCls} flex-1`} type="password" autoComplete="off" placeholder="New API key or token (stored encrypted, never shown again)" aria-label="New tool credential" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
+                <button disabled={busy === `key-${t.id}` || !newKey.trim()} onClick={() => saveKey(t.id)} className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-mono uppercase tracking-wider text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40">
+                  {busy === `key-${t.id}` ? "Saving…" : "Save key"}
+                </button>
+              </div>
+            )}
             {startFor === t.id && (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <textarea className={`${inputCls} sm:col-span-2`} rows={2} placeholder="Objective — what should the tool do?" aria-label="Objective" value={job.objective} onChange={(e) => setJob({ ...job, objective: e.target.value })} />
@@ -250,7 +277,12 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                 {open && (
                   <div className="mt-2 space-y-2 rounded border border-white/10 bg-black/20 p-2.5 text-[11px]">
                     <ul className="space-y-0.5">
-                      {(steps[s.id] ?? []).map((st) => <li key={st.id} className="text-zinc-300">{describeStep(st)}</li>)}
+                      {(steps[s.id] ?? []).map((st) => (
+                        <li key={st.id} className="text-zinc-300">
+                          {describeStep(st)}
+                          {describeDecision(st.decision).map((line, i) => <div key={i} className="ml-3 text-[10px] leading-snug text-zinc-500">{line}</div>)}
+                        </li>
+                      ))}
                       {(steps[s.id] ?? []).length === 0 && <li className="text-zinc-500">Nothing has been exchanged yet.</li>}
                     </ul>
                     {(memory[s.id] ?? []).length > 0 && (

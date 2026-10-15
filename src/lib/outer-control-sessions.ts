@@ -38,6 +38,7 @@ const NEXT_ACTION_LABEL: Record<string, string> = {
   pause_human: "waiting for a person",
   reject: "rejected, no retries left",
   stop: "stopped at a limit",
+  modify_request: "request tightened, asked again",
   switch_tool: "the tool kept failing, switched to the fallback tool",
   handoff: "handed to a person with a recommendation",
   fail: "the tool kept failing",
@@ -91,4 +92,21 @@ export function legsPayload(drafts: DraftLeg[]): { legs: Record<string, unknown>
     legs.push(leg);
   }
   return { legs, message: "" };
+}
+
+export type DecisionView = {
+  why?: string;
+  conflicts?: string[];
+  guard?: string[];
+  plan?: { kind?: string; reason?: string; basis?: string[] } | null;
+};
+
+/** The reasoning behind one step, as short lines: why it was decided that way, what it was based on, and what happens next. */
+export function describeDecision(d: DecisionView | null | undefined): string[] {
+  if (!d) return [];
+  const lines: string[] = [];
+  if (d.why) lines.push(`Why: ${d.why.length > 280 ? `${d.why.slice(0, 279)}…` : d.why}`);
+  for (const b of d.plan?.basis ?? []) lines.push(`Based on: ${b}`);
+  if (d.plan?.reason) lines.push(`Next: ${d.plan.reason}`);
+  return lines;
 }

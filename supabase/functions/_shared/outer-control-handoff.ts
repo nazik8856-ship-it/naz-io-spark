@@ -2,7 +2,7 @@
 // by itself. A hand-off says what happened, what was already done, what the options are
 // and which one Outer Control recommends. Pure; the driver stores and resumes it.
 import type { FailureClass } from "./outer-control-recovery.ts";
-import { humanRetriesAt, renderMemory, type MemoryEntry } from "./outer-control-memory.ts";
+import { humanRetriesAt, renderMemoryCounted, type MemoryEntry } from "./outer-control-memory.ts";
 
 export type HandoffKind = "rule_exhausted" | "tool_failed";
 export type HandoffOptionId = "retry" | "stop" | "edit";
@@ -37,7 +37,7 @@ export type HandoffInput = {
 
 export function buildHandoff(i: HandoffInput): Handoff {
   const earlier = humanRetriesAt(i.memory, i.stepNo);
-  const recent = renderMemory(i.memory, 3);
+  const recent = renderMemoryCounted(i.memory, 3);
 
   if (i.kind === "rule_exhausted") {
     const names = i.ruleNames.length ? i.ruleNames.join("; ") : "a rule";

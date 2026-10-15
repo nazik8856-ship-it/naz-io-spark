@@ -73,7 +73,7 @@ import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writ
 // safety-rules scan) now lives in this shared module so agent-runtime's
 // http_post tool can run the SAME check on whatever an external endpoint
 // hands back, before it re-enters the agent's own reasoning loop.
-import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
+import { evaluateExternalText, excerptOf, maskedDescription } from "../_shared/outer-control-text-review.ts";
 import { extractExternalText, parseExternalId } from "../_shared/outer-control-intake.ts";
 import { sha256Hex } from "../_shared/api-key-auth.ts";
 
@@ -253,7 +253,7 @@ async function handleActionEvaluation(
       agent_id: agentId,
       source_model: sourceModel,
       content_kind: "action",
-      input_excerpt: description.slice(0, 4000),
+      input_excerpt: excerptOf(maskedDescription(description, gate.safety.matches)),
       action_type: actionType,
       action_provider: provider,
       action_params: params ?? {},

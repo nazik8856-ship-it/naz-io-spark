@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describeStep, describeWaiting, isOpen, legsPayload, STATUS_LABEL, WORKFLOW_LABEL } from "@/lib/outer-control-sessions";
+import { describeDecision, describeStep, describeWaiting, isOpen, legsPayload, STATUS_LABEL, WORKFLOW_LABEL } from "@/lib/outer-control-sessions";
 
 describe("outer-control-sessions", () => {
   it("queued, running and awaiting_human sessions are open", () => {
@@ -66,6 +66,26 @@ describe("outer-control-sessions", () => {
   it("labels skipped steps", () => {
     expect(STATUS_LABEL.skipped).toBe("Skipped");
     expect(isOpen("skipped")).toBe(false);
+  });
+
+  it("turns a stored decision into short reasoning lines, and says nothing when there is none", () => {
+    expect(describeDecision(null)).toEqual([]);
+    expect(describeDecision(undefined)).toEqual([]);
+    expect(describeDecision({})).toEqual([]);
+    const lines = describeDecision({
+      why: "Needs your approval. Matched rules asked for different outcomes. The strictest wins: require approval (\"Quote\").",
+      plan: { kind: "pause_human", reason: "The reply needs a person's approval.", basis: ["\"Quote\" blocked 2 time(s) earlier in this task."] },
+    });
+    expect(lines).toEqual([
+      'Why: Needs your approval. Matched rules asked for different outcomes. The strictest wins: require approval ("Quote").',
+      'Based on: "Quote" blocked 2 time(s) earlier in this task.',
+      "Next: The reply needs a person's approval.",
+    ]);
+    expect(describeDecision({ why: "x".repeat(400) })[0].length).toBeLessThanOrEqual(286);
+  });
+
+  it("describes the request-tightening step", () => {
+    expect(describeStep({ step_no: 1, attempt: 2, verdict: "block", next_action: "modify_request", error: null, note: null })).toMatch(/request tightened/);
   });
 });
 

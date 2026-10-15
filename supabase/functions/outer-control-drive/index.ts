@@ -1,6 +1,8 @@
 // Outer Control (active): the owner-facing entry point for driving external tools.
 //
 //   POST { action: "create_tool", name, endpoint_url, request_format, model?, auth_header?, auth_scheme?, token? }
+//   POST { action: "update_key", tool_id, token }   (replaces the stored credential)
+//   POST { action: "remove_tool", tool_id }         (switches it off, hides it, cancels its open sessions)
 //   POST { action: "test_tool", tool_id }
 //   POST { action: "start_session", tool_id, objective, context?, api_key_id?, max_steps? }
 //   POST { action: "answer", session_id, answer }
@@ -22,6 +24,7 @@ import { extractExternalText } from "../_shared/outer-control-intake.ts";
 import { applyEditedReply, contactRuleStopping, readGenericPayload } from "../_shared/outer-control-session.ts";
 import { cancelWorkflow, continueSession, driveSession, progressWorkflow, resumeAndDrive, startWorkflow } from "../_shared/outer-control-workflow.ts";
 import { encodeChoice, findOption, type Handoff } from "../_shared/outer-control-handoff.ts";
+import { removeTool, updateToolKey } from "../_shared/outer-control-tools.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -77,7 +80,7 @@ Deno.serve(async (req) => {
       if (!HEADER_NAME.test(authName) || scheme.length > 20 || /[\r\n]/.test(scheme)) return json({ error: "invalid_auth", message: "That authentication header is not valid." }, 400);
       const url = await validateOutboundUrl(endpoint);
       if (!url.ok) return json({ error: "address_not_allowed", message: `That address can't be used: ${url.reason}.` }, 400);
-      const { count } = await admin.from("external_tools").select("id", { count: "exact", head: true }).eq("user_id", accountId);
+      const { count } = await admin.from("external_tools").select("id", { count: "exact", head: true }).eq("user_id", accountId).is("removed_at", null);
       if ((count ?? 0) >= MAX_TOOLS_PER_ACCOUNT) return json({ error: "too_many_tools", message: `An account can connect at most ${MAX_TOOLS_PER_ACCOUNT} tools.` }, 409);
       let secretId: string | null = null;
       const token = typeof body.token === "string" ? body.token.trim() : "";
@@ -96,9 +99,22 @@ Deno.serve(async (req) => {
       return json({ ok: true, tool });
     }
 
+    // ---- update_key / remove_tool ----------------------------------------------------
+    if (action === "update_key") {
+      const r = await updateToolKey(admin, accountId, String(body.tool_id ?? ""), body.token);
+      return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.code, message: r.message }, r.status);
+    }
+    if (action === "remove_tool") {
+      const r = await removeTool(admin, accountId, String(body.tool_id ?? ""));
+      if (!r.ok) return json({ error: r.code, message: r.message }, r.status);
+      // Steps that were waiting on a cancelled one can now move on (or be skipped).
+      if (r.workflowIds?.length) inBackground(Promise.all(r.workflowIds.map((w) => progressWorkflow(admin, w).then((ids) => Promise.all(ids.map((id) => driveSession(admin, id)))))));
+      return json({ ok: true, message: r.message });
+    }
+
     // ---- test_tool ---------------------------------------------------------------
     if (action === "test_tool") {
-      const { data: tool } = await admin.from("external_tools").select("*").eq("id", String(body.tool_id ?? "")).eq("user_id", accountId).maybeSingle();
+      const { data: tool } = await admin.from("external_tools").select("*").eq("id", String(body.tool_id ?? "")).eq("user_id", accountId).is("removed_at", null).maybeSingle();
       if (!tool) return json({ error: "not_found", message: "Tool not found." }, 404);
       const kill = await checkKillSwitches(admin, accountId, null);
       if (kill.killed) return json({ error: "kill_switch", message: kill.reason }, 409);
@@ -223,7 +239,7 @@ Deno.serve(async (req) => {
       return json({ ok: true, status: "cancelled" });
     }
 
-    return json({ error: "unknown_action", message: "action must be create_tool, test_tool, start_session, answer, decide, cancel, start_workflow or cancel_workflow." }, 400);
+    return json({ error: "unknown_action", message: "action must be create_tool, update_key, remove_tool, test_tool, start_session, answer, decide, cancel, start_workflow or cancel_workflow." }, 400);
   } catch (e) {
     return json({ error: "internal_error", message: e instanceof Error ? e.message : "Unknown error" }, 500);
   }

@@ -17,7 +17,7 @@
 // exact hazard task #48's guardrail-reconciliation.ts extraction hit and
 // documented).
 import { checkKillSwitches, createPendingApproval, matchHardRule } from "./control-gate.ts";
-import { loadSafetyRules, type SafetyMatch } from "./safety-scanner.ts";
+import { BUILTIN_SAFETY_RULES, loadSafetyRules, type SafetyMatch, type SafetyRule } from "./safety-scanner.ts";
 import { isRedactableMatch, redactWithChanges, type RedactionChange } from "./outer-control-scoring.ts";
 import { decideExternalText, describeChanges, verifyRedaction, type NextStep } from "./outer-control-decision.ts";
 import { computeTrustScore as computeEntityTrustScore, gatherTrustScoreInput, type TrustScoreReport } from "./trust-score.ts";
@@ -104,6 +104,30 @@ export function textSafeToStore(content: string, matches: SafetyMatch[]): string
 }
 
 /**
+ * The same masking for a caller that has not scanned the text yet (the kill-switch and hard-rule
+ * paths return before the safety rules run). Shadow-mode rules are included: a secret that a
+ * rule only watches must still not be written down.
+ */
+export function storableText(rules: SafetyRule[], content: string): string {
+  const d = decideExternalText(rules, content);
+  return textSafeToStore(content, [...d.matches, ...d.shadowMatches]);
+}
+
+/**
+ * For a description that was scanned together with other fields (an action's parameters): mask whatever
+ * of it a secret/PII match covers, and keep the rest as it is. Unlike textSafeToStore it never withholds
+ * the text, because the sensitive span may simply live in a different field.
+ */
+export function maskedDescription(description: string, matches: SafetyMatch[]): string {
+  const sensitive = matches.filter((m) => isRedactableMatch(m));
+  return sensitive.length ? redactWithChanges(description, sensitive).text : description;
+}
+
+/** What goes into the stored "before" excerpt: masked first, then cut, so a cut can never leave half a secret. */
+export const EXCERPT_MAX = 4000;
+export const excerptOf = (storable: string) => storable.slice(0, EXCERPT_MAX);
+
+/**
  * Runs a piece of external-AI text through the full text-path control gate:
  * kill switches, then hard rules, then the safety-rules pattern scan -- the
  * exact same precedence order and DB side effects (outer_control_evaluations
@@ -146,16 +170,30 @@ export async function evaluateExternalText(
     ? computeEntityTrustScore(await gatherTrustScoreInput(admin, userId, trustScoreEntity.kind, trustScoreEntity.id))
     : null;
 
+  // Secrets/PII never reach the decision log, an approval row or the stored "before" text in the clear.
+  // Only the early-return paths need this before the rules are loaded, so it is computed on demand.
+  let safeMemo: string | null = null;
+  const safeText = async (): Promise<string> => {
+    if (safeMemo !== null) return safeMemo;
+    try {
+      safeMemo = storableText(await loadSafetyRules(admin, userId, agentId, apiKeyId), content);
+    } catch {
+      safeMemo = storableText(BUILTIN_SAFETY_RULES, content);
+    }
+    return safeMemo;
+  };
+
   const killCheck = await checkKillSwitches(admin, userId, agentId);
   if (killCheck.killed) {
+    const safe = await safeText();
     const decisionId = await logTextGateDecision(admin, {
-      userId, agentId, apiKeyId, isTest, sourceModel, content,
+      userId, agentId, apiKeyId, isTest, sourceModel, content: safe,
       decision: `BLOCK text_review (${sourceModel})`, reasoning: killCheck.reason ?? "Kill switch active.",
       source: killCheck.source ?? "kill_switch", escalated: false,
     });
     const evalRow = await recordEvaluation(admin, {
       user_id: userId, api_key_id: apiKeyId, agent_id: agentId, source_model: sourceModel,
-      content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: null,
+      content_kind: "text", input_excerpt: excerptOf(safe), output_text: null,
       action_type: TEXT_REVIEW_ACTION_TYPE, action_provider: sourceModel, decision_id: decisionId,
       verdict: "block", trust_score: 0, matches: [], summary: killCheck.reason,
       next_step: "discard", external_id: externalId, content_hash: contentHash,
@@ -175,8 +213,9 @@ export async function evaluateExternalText(
     const reason = blocking
       ? `Blocked by your hard rule: "${rule.rule_text}".${why} This was enforced by your rule, not judged by the model.`
       : `Your hard rule requires approval first: "${rule.rule_text}".${why} Nothing was returned — approve it explicitly to proceed.`;
+    const safe = await safeText();
     const decisionId = await logTextGateDecision(admin, {
-      userId, agentId, apiKeyId, isTest, sourceModel, content,
+      userId, agentId, apiKeyId, isTest, sourceModel, content: safe,
       decision: `${blocking ? "BLOCK" : "APPROVAL_REQUIRED"} text_review (${sourceModel})`, reasoning: reason,
       source: "hard_rule", escalated: !blocking, hardRuleId: rule.id, policyVersion: hardRuleMatch.policyVersion,
     });
@@ -189,7 +228,7 @@ export async function evaluateExternalText(
       });
       const evalRow = await recordEvaluation(admin, {
         user_id: userId, api_key_id: apiKeyId, agent_id: agentId, source_model: sourceModel,
-        content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: null,
+        content_kind: "text", input_excerpt: excerptOf(safe), output_text: null,
         action_type: TEXT_REVIEW_ACTION_TYPE, action_provider: sourceModel, decision_id: decisionId,
         verdict: "block", trust_score: 0, matches: [], summary: reason,
         next_step: "discard", external_id: externalId, content_hash: contentHash,
@@ -203,7 +242,7 @@ export async function evaluateExternalText(
 
     const outcome = await createPendingApproval(admin, {
       userId, decisionId, agentId, actionType: TEXT_REVIEW_ACTION_TYPE, provider: sourceModel,
-      description: content, reason, riskTier: "high", origin,
+      description: safe, reason, riskTier: "high", origin,
       apiKeyId, requiredApprovals: rule.required_approvals ?? undefined,
     });
     const verdict: "allow" | "block" | "escalate" = outcome.autoResolved
@@ -216,7 +255,7 @@ export async function evaluateExternalText(
     const trustScore = verdict === "block" ? 0 : verdict === "escalate" ? 50 : 100;
     const evalRow = await recordEvaluation(admin, {
       user_id: userId, api_key_id: apiKeyId, agent_id: agentId, source_model: sourceModel,
-      content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: outputText,
+      content_kind: "text", input_excerpt: excerptOf(safe), output_text: outputText,
       action_type: TEXT_REVIEW_ACTION_TYPE, action_provider: sourceModel, decision_id: decisionId,
       verdict, trust_score: trustScore, matches: [], summary,
       next_step: verdict === "allow" ? "use_output" : verdict === "block" ? "discard" : "await_approval",
@@ -237,8 +276,8 @@ export async function evaluateExternalText(
   let { verdict, output: outputText, summary, changes, nextStep } = decision;
   const { trustScore, matches, shadowMatches } = decision;
 
-  // Secrets/PII never go into the decision log, an approval row or the embedding provider in the clear.
-  const storable = textSafeToStore(content, matches);
+  // Secrets/PII never go into the decision log, an approval row, the stored "before" text or the embedding provider in the clear.
+  const storable = textSafeToStore(content, [...matches, ...shadowMatches]);
   let textDecisionId: string | null = null;
   let approvalId: string | null = null;
   if (verdict !== "allow") {
@@ -303,7 +342,7 @@ export async function evaluateExternalText(
 
   const evalRow = await recordEvaluation(admin, {
     user_id: userId, api_key_id: apiKeyId, agent_id: agentId, source_model: sourceModel,
-    content_kind: "text", input_excerpt: content.slice(0, 4000), output_text: outputText,
+    content_kind: "text", input_excerpt: excerptOf(storable), output_text: outputText,
     decision_id: textDecisionId, verdict, trust_score: trustScore, matches, summary,
     changes, next_step: nextStep, shadow_matches: shadowMatches, approval_id: approvalId, external_id: externalId, content_hash: contentHash,
   });

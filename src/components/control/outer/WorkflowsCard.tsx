@@ -34,7 +34,7 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
   const load = useCallback(async () => {
     if (!accountId) return;
     const [t, w] = await Promise.all([
-      anyDb.from("external_tools").select("id, name").eq("user_id", accountId).eq("enabled", true).order("created_at", { ascending: false }),
+      anyDb.from("external_tools").select("id, name").eq("user_id", accountId).eq("enabled", true).is("removed_at", null).order("created_at", { ascending: false }),
       anyDb.from("outer_control_workflows").select("id, objective, status, summary, started_at").eq("user_id", accountId).order("started_at", { ascending: false }).limit(8),
     ]);
     setTools((t.data ?? []) as ToolOpt[]);

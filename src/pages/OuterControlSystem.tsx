@@ -1,3 +1,4 @@
+import { maskSensitive } from "@/lib/mask-sensitive";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Globe2, ShieldCheck, Gauge, ArrowUpRight, KeyRound, Lock, Plug, ScanEye, ChevronDown, ChevronRight } from "lucide-react";
@@ -707,7 +708,7 @@ export default function OuterControlSystem() {
                               {r.input_excerpt && (
                                 <div>
                                   <div className="text-zinc-500 font-mono uppercase text-[10px]">Before</div>
-                                  <p className="mt-0.5 whitespace-pre-wrap text-zinc-400">{r.input_excerpt}</p>
+                                  <p className="mt-0.5 whitespace-pre-wrap text-zinc-400">{maskSensitive(r.input_excerpt, r.matches)}</p>
                                 </div>
                               )}
                               {r.output_text && (

@@ -52,6 +52,34 @@ describe("ActiveSessionsCard", () => {
     expect(screen.getByText(/needs first-contact approval/)).toBeTruthy();
   });
 
+  it("Update key sends only the new key for that tool and clears the box afterwards", async () => {
+    state.tools = [tool];
+    renderCard();
+    fireEvent.click(await screen.findByText("Update key"));
+    const save = screen.getByText("Save key").closest("button")!;
+    expect(save.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByLabelText("New tool credential"), { target: { value: "  sk-new-key  " } });
+    fireEvent.click(save);
+    await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1));
+    const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ action: "update_key", tool_id: "t1", token: "  sk-new-key  " });
+    await waitFor(() => expect(screen.queryByLabelText("New tool credential")).toBeNull());
+  });
+
+  it("Remove asks first, and only a yes sends remove_tool", async () => {
+    state.tools = [tool];
+    renderCard();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    fireEvent.click(await screen.findByText("Remove"));
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+    fireEvent.click(screen.getByText("Remove"));
+    await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1));
+    const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ action: "remove_tool", tool_id: "t1" });
+    expect(confirm).toHaveBeenCalledTimes(2);
+    confirm.mockRestore();
+  });
+
   it("a session waiting on a question shows it and sends the typed answer", async () => {
     state.tools = [tool];
     state.sessions = [session({ status: "awaiting_human", pending_kind: "question", pending_question: "Which order?" })];
@@ -159,6 +187,20 @@ describe("ActiveSessionsCard", () => {
     expect(screen.getByLabelText("Your reply")).toBeTruthy(); // stays open so the person can fix the text
     fireEvent.click(screen.getByText("Back"));
     expect(screen.queryByLabelText("Your reply")).toBeNull();
+  });
+
+  it("an opened session shows the reasoning stored with each step", async () => {
+    state.tools = [tool];
+    state.sessions = [session({ status: "completed", final_output: "ok" })];
+    state.steps = [{
+      id: "a", step_no: 1, attempt: 1, verdict: "escalate", next_action: "pause_human", error: null, note: null, reply_text: "x",
+      decision: { why: "Needs approval. The strictest wins: require approval (\"Quote prices\").", plan: { reason: "The reply needs a person's approval.", basis: ["A rule requires a person's approval for this reply."] } },
+    }];
+    renderCard();
+    fireEvent.click(await screen.findByText("Draft a reply"));
+    expect(await screen.findByText(/Why: Needs approval/)).toBeTruthy();
+    expect(screen.getByText("Based on: A rule requires a person's approval for this reply.")).toBeTruthy();
+    expect(screen.getByText("Next: The reply needs a person's approval.")).toBeTruthy();
   });
 });
 

@@ -1,7 +1,7 @@
 // Run with: deno test --allow-env supabase/functions/_shared/outer-control-robust_test.ts
 import { classifyFailure, parseRetryAfter, truncationOf } from "./outer-control-recovery.ts";
 import { buildHandoff, decodeChoice, encodeChoice, findOption } from "./outer-control-handoff.ts";
-import { humanRetriesAt, renderMemory, ruleNamesSeen, type MemoryEntry } from "./outer-control-memory.ts";
+import { humanRetriesAt, renderMemory, renderMemoryCounted, ruleNamesSeen, type MemoryEntry } from "./outer-control-memory.ts";
 import { MAX_RULES_IN_REQUEST, planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { buildLegContext, legReadiness, rollupStatus, validateLegs } from "./outer-control-workflow-plan.ts";
 import { buildToolRequest } from "./outer-control-tool-request.ts";
@@ -60,6 +60,17 @@ Deno.test("memory: lines are cut to size, deduplicated and limited to the most r
   assertEquals(lines.length, 2);
   assert(lines[1].length <= 300, "clipped");
   assertEquals(renderMemory(Array.from({ length: 50 }, (_, i) => mem({ summary: `s${i}` }))).length, 20);
+});
+
+Deno.test("memory: the hand-off shows each distinct message once, with a count when it repeated", () => {
+  const rep = mem({ summary: "Step 1 broke No price quotes." });
+  const lines = renderMemoryCounted([rep, mem({ summary: "other" }), rep, rep, mem({ summary: "last" })], 3);
+  assertEquals(lines, ["other", "Step 1 broke No price quotes. (3 times)", "last"]);
+  // a repeat that happened most recently is listed last, and only the newest 3 distinct messages are kept
+  assertEquals(renderMemoryCounted([mem({ summary: "a" }), mem({ summary: "b" }), mem({ summary: "c" }), mem({ summary: "d" }), mem({ summary: "a" })], 3), ["c", "d", "a (2 times)"]);
+  assertEquals(renderMemoryCounted([], 3), []);
+  const h = buildHandoff({ kind: "rule_exhausted", stepNo: 1, toolName: "Bot", ruleNames: ["A"], failure: null, attempts: 4, memory: [rep, rep, rep] });
+  assertEquals(h.summary.filter((l) => l.startsWith("Earlier:")), ["Earlier: Step 1 broke No price quotes. (3 times)"]);
 });
 
 Deno.test("memory: rule names seen and human retries are read from the right kinds", () => {

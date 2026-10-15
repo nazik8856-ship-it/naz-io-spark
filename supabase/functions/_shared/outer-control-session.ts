@@ -19,6 +19,7 @@ import { sendCriticalAlert } from "./critical-alerts.ts";
 import { buildToolRequest, parseToolReply, type RuleLine, type ToolFormat } from "./outer-control-tool-request.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
 import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.ts";
+import { buildWorkingMemory, decisionRecord, factsFor, planNextAction, think, type MemoryRow, type RequestChanges } from "./outer-control-brain.ts";
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
 import { buildHandoff, decodeChoice, type HandoffKind } from "./outer-control-handoff.ts";
@@ -38,6 +39,7 @@ export type SessionRow = {
   gate_cleared_step: number; lease_until: string | null; started_at: string; updated_at: string; waited_ms: number;
   workflow_id: string | null; leg_no: number | null; fallback_tool_id: string | null; fallback_used: boolean;
   on_failure: "handoff" | "reject"; resume_at: string | null; attempt_base: number;
+  request_mods_used: number; request_mods: RequestChanges | null;
 };
 
 export type ToolRow = {
@@ -223,7 +225,7 @@ async function acceptReply(admin: AnyAdmin, s: SessionRow, tool: ToolRow, stepNo
     failuresUsed: 0, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: activeMs(s, deps), maxMs: SESSION_TIME_LIMIT_MS,
   });
   const history = [...(s.history ?? []), ...(a.toolStatus === "need_info" ? [] : [{ step: stepNo, text: a.text }])];
-  const advance = { step_count: stepNo, retries_used: 0, failures_used: 0, attempt_base: 0, correction: null, next_input: null, resume_at: null, handoff: null, history };
+  const advance = { step_count: stepNo, retries_used: 0, failures_used: 0, attempt_base: 0, correction: null, next_input: null, resume_at: null, handoff: null, request_mods_used: 0, request_mods: null, history };
   if (action.kind === "finish") return finish(admin, s, "completed", action.reason, deps, { ...advance, final_output: a.text });
   if (action.kind === "stop") return finish(admin, s, "stopped", action.reason, deps, { ...advance, final_output: history.at(-1)?.text ?? null });
   if (action.kind === "pause_human") {
@@ -329,9 +331,12 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         return { status: "rejected", steps };
       }
       const plan = planRequest({ rules: ruleLines, memory });
+      const wm = buildWorkingMemory(memory as MemoryRow[]);
+      const tightened = s.request_mods ?? null; // the request was tightened after repeated violations of a rule
       const request = buildToolRequest({
         format: tool.request_format, model: tool.model, objective: maskForSend(safetyRules, s.objective),
-        context: maskForSend(safetyRules, s.context), rules: plan.rules, history: s.history ?? [],
+        context: tightened?.dropContext ? null : maskForSend(safetyRules, s.context), rules: plan.rules,
+        history: tightened?.dropContext ? [] : (s.history ?? []), constraints: tightened?.constraints,
         correction: s.correction, answer: s.next_input ? maskForSend(safetyRules, s.next_input) : null, sessionId: s.id, step: stepNo,
         memory: renderMemory(memory).map((l) => maskForSend(safetyRules, l)), avoid: plan.avoid, omittedRules: plan.omitted,
       });
@@ -398,10 +403,13 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       // 8a. No usable reply: classify why, then retry, switch tool, hand off or end.
       if (failed || !reply) {
         const fc = failureClass ?? classifyFailure({ httpStatus, attempt: s.failures_used + 1 });
-        const action = decideNextAction({
-          verdict: null, toolStatus: null, stepNo, maxSteps: s.max_steps, retriesUsed: s.retries_used, maxRetries: s.max_retries,
-          failuresUsed: s.failures_used, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: activeMs(s, deps), maxMs: SESSION_TIME_LIMIT_MS,
-          failure: fc, canFallback: !!s.fallback_tool_id && !s.fallback_used, onExhausted: s.on_failure,
+        const action = planNextAction({
+          base: {
+            verdict: null, toolStatus: null, stepNo, maxSteps: s.max_steps, retriesUsed: s.retries_used, maxRetries: s.max_retries,
+            failuresUsed: s.failures_used, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: activeMs(s, deps), maxMs: SESSION_TIME_LIMIT_MS,
+            failure: fc, canFallback: !!s.fallback_tool_id && !s.fallback_used, onExhausted: s.on_failure,
+          },
+          requestModsUsed: s.request_mods_used, hits: [], wm,
         });
         await admin.from("outer_control_session_steps").insert({ ...stepBase, error: fc.reason, next_action: action.kind, note: action.reason });
         steps++;
@@ -434,57 +442,79 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         return { status: action.kind === "stop" ? "stopped" : "failed", steps };
       }
 
-      // 8b. Evaluate the reply under the rules.
+      // 8b. The foundation judges the reply; the brain turns that into one decision for this loop.
+      const contentHash = await sha256Hex(content);
       const result = await evaluateExternalText(admin, {
         userId: s.user_id, agentId: null, apiKeyId: s.api_key_id, isTest: false,
         sourceModel: `tool:${tool.name}`.slice(0, 80), content, origin: "external-api",
-        externalId: `${s.id}:${stepNo}:${attempt}`, contentHash: await sha256Hex(content),
+        externalId: `${s.id}:${stepNo}:${attempt}`, contentHash,
       });
       const matches = result.matches ?? [];
-      const names = [...new Set(matches.map((m) => m.name))].join("; ");
-      const action = decideNextAction({
-        verdict: result.verdict, toolStatus: reply.status, stepNo, maxSteps: s.max_steps, retriesUsed: s.retries_used, maxRetries: s.max_retries,
-        failuresUsed: s.failures_used, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: activeMs(s, deps), maxMs: SESSION_TIME_LIMIT_MS,
-        onExhausted: s.on_failure,
+      const brain = think({
+        foundation: { verdict: result.verdict, output: result.output, matches, changes: result.changes ?? [], summary: result.summary },
+        content, contentHash, rules: safetyRules, wm, requestModsUsed: s.request_mods_used,
+        loop: {
+          toolStatus: reply.status, stepNo, maxSteps: s.max_steps, retriesUsed: s.retries_used, maxRetries: s.max_retries,
+          failuresUsed: s.failures_used, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: activeMs(s, deps), maxMs: SESSION_TIME_LIMIT_MS,
+          onExhausted: s.on_failure,
+        },
       });
+      const verdict = brain.verdict;
+      const action = brain.plan;
+      const ruleNames = [...new Set([...matches.map((m) => m.name), ...brain.applied.filter((h) => h.origin === "pinned").map((h) => h.name)])];
+      const names = ruleNames.join("; ");
       // What is stored is the masked/cleaned form, never the raw reply.
-      const stored = result.output ?? textSafeToStore(content, matches);
+      const stored = brain.output ?? textSafeToStore(content, matches);
       await admin.from("outer_control_session_steps").insert({
-        ...stepBase, reply_text: stored, tool_status: reply.status, evaluation_id: result.evaluationId, verdict: result.verdict,
-        next_action: action.kind, note: result.summary.slice(0, 500),
+        ...stepBase, reply_text: stored, tool_status: reply.status, evaluation_id: result.evaluationId, verdict,
+        next_action: action.kind, note: brain.why.slice(0, 500), decision: decisionRecord(brain),
       });
       steps++;
 
-      // What was decided, changed and applied is remembered for every later request.
-      if (result.verdict === "block") {
-        await recordMemory(admin, s, { stepNo, kind: "rejection", ruleNames: [...new Set(matches.map((m) => m.name))], summary: `Step ${stepNo}: the reply broke "${names || "a rule"}" and was rejected.` });
-      } else if (result.verdict === "modify") {
-        const changes = result.changes ?? [];
-        await recordMemory(admin, s, { stepNo, kind: "modification", ruleNames: changes.map((c) => c.name), summary: `Step ${stepNo}: removed ${changes.map((c) => `${c.count}× "${c.name}"`).join(", ") || "sensitive text"} from the reply; the cleaned reply was used.` });
-      } else if (result.verdict === "escalate") {
-        await recordMemory(admin, s, { stepNo, kind: "rule", ruleNames: [...new Set(matches.map((m) => m.name))], summary: `Step ${stepNo}: the reply matched "${names || "a rule"}" and needed a person's approval.` });
+      // What was decided, changed and applied is remembered for every later request (and re-applied by the guard).
+      const facts = factsFor(brain, contentHash, attempt) as unknown as Record<string, unknown>;
+      if (verdict === "block") {
+        await recordMemory(admin, s, { stepNo, kind: "rejection", ruleNames, data: facts, summary: `Step ${stepNo}: the reply broke "${names || "a rule"}" and was rejected.` });
+      } else if (verdict === "modify") {
+        await recordMemory(admin, s, {
+          stepNo, kind: "modification", ruleNames: brain.changes.map((c) => c.name), data: facts,
+          summary: `Step ${stepNo}: removed ${brain.changes.map((c) => `${c.count}× "${c.name}"`).join(", ") || "sensitive text"} from the reply; the cleaned reply was used.`,
+        });
+      } else if (verdict === "escalate") {
+        await recordMemory(admin, s, { stepNo, kind: "rule", ruleNames, data: facts, summary: `Step ${stepNo}: the reply matched "${names || "a rule"}" and needed a person's approval.` });
       }
 
-      // 9. Apply the decision.
+      // 9. Apply the plan.
       if (action.kind === "retry_with_correction") {
         await patch(admin, s.id, { retries_used: s.retries_used + 1, correction: `It matched: ${names || "a rule"}.` }, deps);
         continue;
       }
+      if (action.kind === "modify_request" && action.request) {
+        await patch(admin, s.id, {
+          retries_used: s.retries_used + 1, request_mods_used: s.request_mods_used + 1, request_mods: action.request,
+          correction: `It matched: ${names || "a rule"}.`,
+        }, deps);
+        await recordMemory(admin, s, {
+          stepNo, kind: "plan", ruleNames, data: { request_mod: true },
+          summary: `Step ${stepNo}: the request was tightened (${action.request.constraints.length} constraint(s)${action.request.dropContext ? ", earlier context left out" : ""}) after "${names || "a rule"}" kept being broken.`,
+        });
+        continue;
+      }
       if (action.kind === "handoff") {
-        await pauseForHandoff(admin, s, tool, stepNo, deps, { kind: "rule_exhausted", ruleNames: [...new Set(matches.map((m) => m.name))], failure: null });
+        await pauseForHandoff(admin, s, tool, stepNo, deps, { kind: "rule_exhausted", ruleNames, failure: null });
         return { status: "awaiting_human", steps };
       }
       if (action.kind === "reject") { await finish(admin, s, "rejected", `${action.reason}${names ? ` (${names})` : ""}`, deps); return { status: "rejected", steps }; }
-      if (action.kind === "stop" && result.verdict !== "allow" && result.verdict !== "modify") {
+      if (action.kind === "stop" && verdict !== "allow" && verdict !== "modify") {
         await finish(admin, s, "stopped", action.reason, deps);
         return { status: "stopped", steps };
       }
-      if (action.kind === "pause_human" && result.verdict === "escalate") {
+      if (action.kind === "pause_human" && verdict === "escalate") {
         await patch(admin, s.id, { status: "awaiting_human", pending_kind: "reply_approval", pending_approval_id: result.approvalId ?? null, pending_step_no: stepNo, lease_until: null }, deps);
         return { status: "awaiting_human", steps };
       }
       // allow / modify: continue, finish, or ask a person a question.
-      await acceptReply(admin, s, tool, stepNo, { text: result.output ?? content, toolStatus: reply.status }, deps);
+      await acceptReply(admin, s, tool, stepNo, { text: brain.output ?? content, toolStatus: reply.status }, deps);
       const { data: after } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
       const st = (after as { status?: string } | null)?.status ?? "running";
       if (st !== "running") return { status: st, steps };
@@ -530,18 +560,26 @@ export async function applyEditedReply(admin: AnyAdmin, sessionId: string, text:
     content: clean, origin: "external-api", externalId: `${s.id}:${stepNo}:${attempt}`, contentHash: await sha256Hex(clean),
   });
   const matches = result.matches ?? [];
-  const names = [...new Set(matches.map((m) => m.name))].join("; ");
-  if (result.verdict === "block") {
-    return { ok: false, message: names ? `That text breaks "${names}". Change it and try again.` : `That text cannot be used: ${result.summary}` };
+  // The person's text is held to everything this task already decided (rules pinned earlier included).
+  const safety = await loadSafetyRules(admin, s.user_id, null, s.api_key_id);
+  const wm = buildWorkingMemory((await loadMemory(admin, s)) as MemoryRow[]);
+  const brain = think({
+    foundation: { verdict: result.verdict, output: result.output, matches, changes: result.changes ?? [], summary: result.summary },
+    content: clean, contentHash: await sha256Hex(clean), rules: safety, wm, requestModsUsed: s.request_mods_used,
+    loop: { toolStatus: "done", stepNo, maxSteps: s.max_steps, retriesUsed: 0, maxRetries: s.max_retries, failuresUsed: 0, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: 0, maxMs: SESSION_TIME_LIMIT_MS, onExhausted: s.on_failure },
+  });
+  const names = [...new Set([...matches.map((m) => m.name), ...brain.applied.map((h) => h.name)])].filter((n) => n.length <= 80).join("; ");
+  if (brain.verdict === "block") {
+    return { ok: false, message: names ? `That text breaks "${names}". Change it and try again.` : `That text cannot be used: ${brain.why}` };
   }
 
   const { data: last } = await admin.from("outer_control_session_steps").select("tool_status")
     .eq("session_id", s.id).eq("step_no", stepNo).order("attempt", { ascending: false }).limit(1).maybeSingle();
   const toolStatus: "done" | "continue" = (last as { tool_status?: string } | null)?.tool_status === "continue" ? "continue" : "done";
-  const used = result.output ?? textSafeToStore(clean, matches);
+  const used = brain.output ?? textSafeToStore(clean, matches);
   const w = waited(s, deps);
 
-  const paused = result.verdict === "escalate";
+  const paused = brain.verdict === "escalate";
   const moved = await claimPause(admin, s, paused
     ? { pending_kind: "reply_approval", pending_approval_id: result.approvalId ?? null, handoff: null, pending_answer: null, pending_step_no: stepNo, ...w }
     : { pending_kind: null, pending_approval_id: null, handoff: null, pending_answer: null, pending_step_no: null, ...w }, deps);
@@ -549,12 +587,12 @@ export async function applyEditedReply(admin: AnyAdmin, sessionId: string, text:
 
   await admin.from("outer_control_session_steps").insert({
     session_id: s.id, user_id: s.user_id, step_no: stepNo, attempt, request: null, reply_text: used, tool_status: toolStatus,
-    evaluation_id: result.evaluationId, verdict: result.verdict, next_action: paused ? "pause_human" : "continue",
-    note: `Written by a person. ${result.summary}`.slice(0, 500),
+    evaluation_id: result.evaluationId, verdict: brain.verdict, next_action: paused ? "pause_human" : "continue",
+    note: `Written by a person. ${brain.why}`.slice(0, 500), decision: decisionRecord(brain),
   });
   await recordMemory(admin, s, {
     stepNo, kind: "human",
-    summary: `Step ${stepNo}: a person wrote the reply${result.verdict === "modify" ? " (sensitive text was removed)" : ""}${paused ? " and it needs approval" : " and it was used"}.`,
+    summary: `Step ${stepNo}: a person wrote the reply${brain.verdict === "modify" ? " (sensitive text was removed)" : ""}${paused ? " and it needs approval" : " and it was used"}.`,
   });
   if (paused) return { ok: true, status: "awaiting_human" };
 
@@ -622,7 +660,17 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
 
   const stepNo = s.pending_step_no ?? s.step_count + 1;
   const what = s.pending_kind === "first_contact" ? "first contact with the tool" : s.pending_kind === "contact_gate" ? "contacting the tool" : "the reply";
-  const remember = () => recordMemory(admin, s, { stepNo, kind: "human", summary: `Step ${stepNo}: a person ${approved ? "approved" : "declined"} ${what}.` });
+  // Which reply the decision was about, so the brain can tell later which texts a person approved.
+  let about: { step: number; attempt: number } | undefined;
+  if (s.pending_kind === "reply_approval") {
+    const { data: latest } = await admin.from("outer_control_session_steps").select("attempt")
+      .eq("session_id", s.id).eq("step_no", stepNo).order("attempt", { ascending: false }).limit(1).maybeSingle();
+    if (latest) about = { step: stepNo, attempt: (latest as { attempt: number }).attempt };
+  }
+  const remember = () => recordMemory(admin, s, {
+    stepNo, kind: "human", summary: `Step ${stepNo}: a person ${approved ? "approved" : "declined"} ${what}.`,
+    data: { human: approved ? "approved" : "declined", ...(about ? { about } : {}) },
+  });
 
   if (!approved) {
     if (!(await claim(ended("rejected", "A person declined the request.")))) return notResumed;
