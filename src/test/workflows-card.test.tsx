@@ -33,6 +33,15 @@ describe("WorkflowsCard", () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, workflow_id: "w1" }) })));
   });
 
+  it("shows the last 3 workflows and keeps the rest behind View all", async () => {
+    state.workflows = [1, 2, 3, 4, 5].map((n) => ({ id: `w${n}`, objective: `Goal ${n}`, status: "completed", summary: null, started_at: "2026-10-14T00:00:00Z" }));
+    render(<WorkflowsCard accountId="u1" />);
+    expect(await screen.findByText("Goal 1")).toBeTruthy();
+    expect(screen.queryByText("Goal 4")).toBeNull();
+    fireEvent.click(screen.getByText("View all (5)"));
+    expect(screen.getByText("Goal 5")).toBeTruthy();
+  });
+
   it("starts with an empty state that explains parallel steps", async () => {
     render(<WorkflowsCard accountId="u1" />);
     expect(await screen.findByText(/run at the same time/)).toBeTruthy();
@@ -76,7 +85,7 @@ describe("WorkflowsCard", () => {
     expect(await screen.findByText("Write the brief")).toBeTruthy();
     expect(screen.getByText(/1 of 2 steps completed/)).toBeTruthy();
     expect(screen.getByText("after step 1")).toBeTruthy();
-    expect(screen.getByText(/needs you in Active sessions/)).toBeTruthy();
+    expect(screen.getByText(/needs you in Connected tools/)).toBeTruthy();
     fireEvent.click(screen.getByText("Cancel"));
     await waitFor(() => expect(calls().length).toBe(1));
     expect(JSON.parse((calls()[0][1] as RequestInit).body as string)).toEqual({ action: "cancel_workflow", workflow_id: "w1" });

@@ -1,7 +1,6 @@
-import { maskSensitive } from "@/lib/mask-sensitive";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Globe2, ShieldCheck, Gauge, ArrowUpRight, KeyRound, Lock, Plug, ScanEye, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowLeft, Globe2, ShieldCheck, KeyRound, Lock, Plug, ScanEye } from "lucide-react";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -11,42 +10,13 @@ import { selectRulesForEntity, type EntityScopedLike } from "@/lib/agent-policy"
 // sandbox can't regenerate types for.
 const anyDb = supabase as any;
 
-import { describeOutcome } from "@/lib/outer-control-outcome";
 import ActiveSessionsCard from "@/components/control/outer/ActiveSessionsCard";
 import WorkflowsCard from "@/components/control/outer/WorkflowsCard";
+import OuterStatusBar, { type Attention } from "@/components/control/outer/OuterStatusBar";
+import RecentDecisions, { type DecisionRow } from "@/components/control/outer/RecentDecisions";
+import { healthText, type Verdict } from "@/lib/outer-control-ui";
 
-type Verdict = "allow" | "modify" | "block" | "escalate";
-
-type EvaluationRow = {
-  id: string;
-  source_model: string;
-  verdict: Verdict;
-  trust_score: number;
-  summary: string | null;
-  created_at: string;
-  content_kind: "text" | "action";
-  action_type: string | null;
-  executed: boolean;
-  // GAP 6 (Visible Control Decision Trail, 2026-10-10): the data a decision-
-  // detail view needs -- which rule(s) matched, and the before/after pair
-  // for whichever content kind this row is. Inner Control's agent_decisions
-  // already renders this class of detail (DecisionExplanationPanel); this
-  // is Outer Control's own equivalent, scoped to what this table actually
-  // stores for a text vs an action evaluation.
-  matches: { rule_id: string; name: string; category: string; severity: string; sample?: string; rationale?: string | null }[] | null;
-  input_excerpt: string | null;
-  output_text: string | null;
-  action_params: Record<string, unknown> | null;
-  corrected_params: Record<string, unknown> | null;
-  execution_summary: string | null;
-  // Outer Control foundation: what Modify actually removed, what the caller
-  // was told to do with the verdict, and shadow-mode rules that would have
-  // matched. All null/empty on rows written before these columns existed.
-  changes: { rule_id: string | null; name: string; category: string; action: string; count: number }[] | null;
-  next_step: "use_output" | "await_approval" | "discard" | null;
-  shadow_matches: { rule_id: string; name: string; severity: string }[] | null;
-  approval_id: string | null;
-};
+type EvaluationRow = DecisionRow;
 
 // Status colors, reserved for verdict meaning only (never reused as a
 // generic categorical series elsewhere on this page) -- each is always
@@ -58,16 +28,6 @@ const VERDICT_STYLE: Record<Verdict, { label: string; hex: string; text: string;
   escalate: { label: "Escalate", hex: "#fbbf24", text: "text-amber-300", border: "border-amber-500/40", bg: "bg-amber-500/10" },
   block: { label: "Block", hex: "#fb7185", text: "text-rose-300", border: "border-rose-500/40", bg: "bg-rose-500/10" },
 };
-
-function timeAgo(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const min = Math.floor(ms / 60_000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
 
 // ---- Verdict network: a fixed, organic node layout computed once (a
 // seeded pseudo-random scatter, not Math.random, so it's stable across
@@ -290,10 +250,8 @@ export default function OuterControlSystem() {
   // hasn't fired recently -- both show an empty-ish feed. Per-key last-seen
   // (or never) makes an inert key visible instead of silently zero.
   const [keyHealth, setKeyHealth] = useState<{ id: string; name: string; lastEvaluatedAt: string | null; ruleCount: number }[]>([]);
-  // GAP 6 (Visible Control Decision Trail, 2026-10-10): which row's detail
-  // is expanded, if any -- mirrors the click-to-expand pattern ControlLiveFeed
-  // already uses for Inner Control decisions.
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // The default view is calm: the graph, the stats and the workflows stay behind "Advanced".
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   // LOOP 3 (Outer Control Incomplete Activation, 2026-10-10): which key's
   // test evaluation is currently in flight, if any.
   const [testingKeyId, setTestingKeyId] = useState<string | null>(null);
@@ -414,12 +372,23 @@ export default function OuterControlSystem() {
     };
   }, [rows]);
 
-  // Once a key exists, the only remaining milestone is real traffic --
-  // 50% "ready, nothing's called it yet" vs 100% "actively governing."
-  const setupPercent = rows.length === 0 ? 50 : 100;
-  const setupLabel = rows.length === 0
-    ? "Key ready — call POST /outer-control/evaluate to see your first verdict here"
-    : "Outer Control is actively governing your connected external AI output";
+  const neverSeen = keyHealth.filter((k) => !k.lastEvaluatedAt);
+  const noRule = keyHealth.filter((k) => k.ruleCount === 0);
+  const attention: Attention[] = [
+    ...neverSeen.map((k) => ({
+      id: `never-${k.id}`,
+      message: `API key "${k.name}" has never received traffic.`,
+      actionLabel: testingKeyId === k.id ? "Testing…" : "Send test evaluation",
+      onAction: () => runSelfTest(k.id),
+      busy: testingKeyId === k.id,
+    })),
+    ...noRule.map((k) => ({
+      id: `rule-${k.id}`,
+      message: `No account rule applies to API key "${k.name}" yet. Built-in scanning still applies.`,
+      actionLabel: "Add a rule",
+      onAction: () => navigate("/control-system"),
+    })),
+  ];
 
   const networkVerdicts = useMemo(() => {
     const cells: (Verdict | null)[] = rows.slice(0, NETWORK_NODE_COUNT).map((r) => r.verdict);
@@ -438,327 +407,83 @@ export default function OuterControlSystem() {
       {!loading && !hasApiKey && <SetupRequired navigate={navigate} />}
 
       {!loading && hasApiKey && (
-        <div className="mx-auto max-w-6xl px-6 py-8 space-y-6">
-          {/* Setup progress */}
-          <div className="hud-glass rounded-2xl px-6 py-5">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">Setup progress</div>
-                <div className="mt-1 text-sm text-zinc-200">{setupLabel}</div>
-              </div>
-              <span className="text-2xl font-semibold text-gradient">{setupPercent}%</span>
-            </div>
-            <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{
-                  width: `${setupPercent}%`,
-                  background: "linear-gradient(90deg, #34d399, #22d3ee)",
-                }}
-              />
-            </div>
-          </div>
+        <div className="mx-auto max-w-4xl px-6 py-8 space-y-5">
+          {/* 1. Status */}
+          <OuterStatusBar
+            trust={stats.avgTrust}
+            health={healthText({ total7d: stats.total, nonAllow7d: stats.nonAllow, anyEver: rows.length > 0 })}
+            attention={attention}
+            advancedOpen={advancedOpen}
+            onToggleAdvanced={() => setAdvancedOpen((v) => !v)}
+            onApiDocs={() => navigate("/control-system/api-docs")}
+          />
 
-          {/* GAP 2 (Outer Control Full Activation, 2026-10-10): a registered
-              key that has never actually sent anything to
-              POST /outer-control/evaluate looks identical to one that's
-              working fine but quiet -- both just show a sparse feed below.
-              Named explicitly here, with the exact integration call to fix
-              it, instead of leaving it to be inferred from an empty chart. */}
-          {keyHealth.some((k) => !k.lastEvaluatedAt) && (
-            <div className="hud-glass rounded-2xl border border-amber-500/30 px-6 py-5">
-              <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-amber-300">
-                <ScanEye className="h-3.5 w-3.5" />
-                {keyHealth.filter((k) => !k.lastEvaluatedAt).length === 1 ? "An API key has" : "API keys have"} never received traffic
-              </div>
-              <div className="mt-2 space-y-2">
-                {keyHealth.filter((k) => !k.lastEvaluatedAt).map((k) => (
-                  <div key={k.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-zinc-300">
-                    <div>
-                      <span className="font-medium text-zinc-100">{k.name}</span>
-                      <span className="text-zinc-500"> — registered, but your own system has never called </span>
-                      <code className="text-cyan-300">POST /outer-control/evaluate</code>
-                      <span className="text-zinc-500"> with it.</span>
-                    </div>
-                    {/* LOOP 3 (Outer Control Incomplete Activation, 2026-10-10):
-                        this used to only link to docs -- the documented
-                        activation path requires wiring up an external tool
-                        first, so there was no way to confirm a key even
-                        works before doing that. This fires a real, harmless
-                        evaluation right now and clears the warning the
-                        moment it lands. */}
-                    <button
-                      onClick={() => runSelfTest(k.id)}
-                      disabled={testingKeyId === k.id}
-                      className="shrink-0 rounded-md border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider text-cyan-300 transition hover:bg-cyan-500/20 disabled:opacity-50"
-                    >
-                      {testingKeyId === k.id ? "Testing…" : "Send test evaluation"}
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={() => navigate("/control-system/api-docs")}
-                className="mt-3 flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:text-cyan-200"
-              >
-                See the integration snippet
-                <ArrowUpRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
-
-          {/* LOOP 2 (Low/Zero Rule Coverage, 2026-10-10): confirmed live
-              that 0 enabled hard_rules/safety_rules existed account-wide in
-              production -- an account-specific business rule (e.g. "always
-              require approval for a refund action") never gets added unless
-              someone goes looking for HardRulesPanel/ControlSafetyRules on
-              their own. Built-in content scanning (secrets, PII, destructive
-              wording, financial-no-reference, mass-audience, disposable
-              recipients) always applies regardless, so this is a real but
-              non-urgent gap -- named plainly rather than left to be noticed
-              only after something slips through that a business rule would
-              have caught. */}
-          {keyHealth.some((k) => k.ruleCount === 0) && (
-            <div className="hud-glass rounded-2xl border border-amber-500/30 px-6 py-5">
-              <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-amber-300">
-                <ShieldCheck className="h-3.5 w-3.5" />
-                No account-specific rule governs {keyHealth.filter((k) => k.ruleCount === 0).length === 1 ? "this key" : "these keys"} yet
-              </div>
-              <div className="mt-2 space-y-1">
-                {keyHealth.filter((k) => k.ruleCount === 0).map((k) => (
-                  <div key={k.id} className="text-sm text-zinc-300">
-                    <span className="font-medium text-zinc-100">{k.name}</span>
-                    <span className="text-zinc-500"> — built-in content scanning still applies, but no hard rule or custom safety rule (account-wide or scoped to this key) exists yet.</span>
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={() => navigate("/control-system")}
-                className="mt-3 flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:text-cyan-200"
-              >
-                Add a rule in Control System
-                <ArrowUpRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
-
-          {/* Stat tiles, each with a real 7-day sparkline */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="hud-glass rounded-2xl px-5 py-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">Evaluations (7d)</div>
-                  <div className="mt-1 text-3xl font-semibold">{stats.total}</div>
-                </div>
-                <Sparkline values={dailyBuckets.counts} accent="#22d3ee" />
-              </div>
-              <div className="mt-1 text-xs text-zinc-500">External AI responses checked against your criteria</div>
-            </div>
-            <div className="hud-glass rounded-2xl px-5 py-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">Avg trust score</div>
-                  <div className="mt-1 text-3xl font-semibold">{stats.avgTrust ?? "—"}</div>
-                </div>
-                <Sparkline values={dailyBuckets.avgTrusts} accent="#34d399" />
-              </div>
-              <div className="mt-1 text-xs text-zinc-500">100 minus a cost per rule match, floored at 0</div>
-            </div>
-            <div className="hud-glass rounded-2xl px-5 py-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">Non-allow rate</div>
-                  <div className="mt-1 text-3xl font-semibold">
-                    {stats.total ? `${Math.round((stats.nonAllow / stats.total) * 100)}%` : "—"}
-                  </div>
-                </div>
-                <Sparkline values={dailyBuckets.nonAllowPcts} accent="#fbbf24" />
-              </div>
-              <div className="mt-1 text-xs text-zinc-500">Modified, escalated, or blocked in the last 7 days</div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-            {/* Verdict health network */}
-            <div className="hud-glass rounded-2xl px-6 py-6 lg:col-span-3">
-              <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-zinc-400">
-                <ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />
-                Verdict health — most recent evaluations
-              </div>
-              <div className="mt-4">
-                <VerdictNetwork verdicts={networkVerdicts} />
-              </div>
-              <div className="mt-4 flex flex-wrap gap-4 text-[11px] font-mono uppercase tracking-wider">
-                {(Object.keys(VERDICT_STYLE) as Verdict[]).map((v) => (
-                  <div key={v} className="flex items-center gap-1.5 text-zinc-400">
-                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: VERDICT_STYLE[v].hex }} />
-                    {VERDICT_STYLE[v].label}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Recent evaluations feed */}
-            <div className="hud-glass rounded-2xl px-5 py-5 lg:col-span-2 flex flex-col min-h-[22rem]">
-              <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-zinc-400">
-                <Gauge className="h-3.5 w-3.5 text-cyan-300" />
-                Recent external AI evaluations
-              </div>
-              <div className="mt-4 flex-1 space-y-3 overflow-y-auto pr-1">
-                {rows.length === 0 && (
-                  <div className="text-sm text-zinc-500">
-                    Nothing evaluated yet. Once a connected external AI tool calls{" "}
-                    <code className="text-cyan-300">POST /outer-control/evaluate</code>, its verdicts will show up here.
-                  </div>
-                )}
-                {rows.slice(0, 12).map((r) => {
-                  const style = VERDICT_STYLE[r.verdict];
-                  const expanded = expandedId === r.id;
-                  return (
-                    <div key={r.id} className={`rounded-xl border ${style.border} ${style.bg} px-3 py-2.5`}>
-                      <button
-                        type="button"
-                        onClick={() => setExpandedId(expanded ? null : r.id)}
-                        className="w-full cursor-pointer text-left"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1 text-xs font-medium text-zinc-200 truncate">
-                            {expanded ? <ChevronDown className="h-3 w-3 shrink-0 text-zinc-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-zinc-500" />}
-                            {r.source_model}
-                            {r.content_kind === "action" && r.action_type && (
-                              <span className="ml-1.5 text-zinc-500">· {r.action_type}</span>
-                            )}
-                          </span>
-                          <span className={`shrink-0 rounded-full border ${style.border} px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${style.text}`}>
-                            {style.label}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-500">
-                          <span>Trust {r.trust_score}</span>
-                          <span className="flex items-center gap-2">
-                            {r.content_kind === "action" && (
-                              <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wide ${
-                                r.executed ? "border-emerald-500/40 text-emerald-300" : "border-white/15 text-zinc-500"
-                              }`}>
-                                {r.executed ? "Executed" : "Evaluated only"}
-                              </span>
-                            )}
-                            {timeAgo(r.created_at)}
-                          </span>
-                        </div>
-                      </button>
-                      {expanded && (
-                        <div className="mt-2 space-y-2 rounded border border-white/10 bg-black/20 p-2.5 text-[11px]">
-                          <div>
-                            <div className="text-zinc-500 font-mono uppercase text-[10px]">What happened</div>
-                            <p className="mt-0.5 text-zinc-100" data-testid="outcome-line">{describeOutcome(r)}</p>
-                            {r.verdict === "escalate" && r.approval_id && (
-                              <button
-                                type="button"
-                                onClick={() => navigate("/control-system/approvals")}
-                                className="mt-1 text-cyan-300 underline-offset-2 hover:underline"
-                              >
-                                Open the approval queue
-                              </button>
-                            )}
-                          </div>
-                          {r.summary && (
-                            <div>
-                              <div className="text-zinc-500 font-mono uppercase text-[10px]">Why</div>
-                              <p className="mt-0.5 text-zinc-300">{r.summary}</p>
-                            </div>
-                          )}
-                          {!!r.changes?.length && (
-                            <div>
-                              <div className="text-zinc-500 font-mono uppercase text-[10px]">Changed</div>
-                              <ul className="mt-1 space-y-0.5">
-                                {r.changes.map((c, i) => (
-                                  <li key={i} className="text-zinc-300">
-                                    Removed {c.count} {c.count === 1 ? "span" : "spans"} · <span className="text-zinc-200">{c.name}</span>
-                                    <span className="text-zinc-500"> · {c.category}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                          {!!r.shadow_matches?.length && (
-                            <div>
-                              <div className="text-zinc-500 font-mono uppercase text-[10px]">Shadow rules (observed only)</div>
-                              <p className="mt-0.5 text-zinc-400">
-                                {r.shadow_matches.map((m) => m.name).join(", ")} would have matched. They did not change this result.
-                              </p>
-                            </div>
-                          )}
-                          {!!r.matches?.length && (
-                            <div>
-                              <div className="text-zinc-500 font-mono uppercase text-[10px]">Matched rule(s)</div>
-                              <ul className="mt-1 space-y-0.5">
-                                {r.matches.map((m, i) => (
-                                  <li key={i} className="text-zinc-300">
-                                    <span className="text-zinc-200">{m.name}</span>
-                                    <span className="text-zinc-500"> · {m.category} · {m.severity}</span>
-                                    {m.rationale && <span className="text-zinc-500"> — {m.rationale}</span>}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                          {r.content_kind === "text" && (r.input_excerpt || r.output_text) && (
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              {r.input_excerpt && (
-                                <div>
-                                  <div className="text-zinc-500 font-mono uppercase text-[10px]">Before</div>
-                                  <p className="mt-0.5 whitespace-pre-wrap text-zinc-400">{maskSensitive(r.input_excerpt, r.matches)}</p>
-                                </div>
-                              )}
-                              {r.output_text && (
-                                <div>
-                                  <div className="text-zinc-500 font-mono uppercase text-[10px]">After</div>
-                                  <p className="mt-0.5 whitespace-pre-wrap text-zinc-300">{r.output_text}</p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {r.content_kind === "action" && (r.action_params || r.corrected_params) && (
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              {r.action_params && (
-                                <div>
-                                  <div className="text-zinc-500 font-mono uppercase text-[10px]">Before</div>
-                                  <pre className="mt-0.5 overflow-x-auto text-zinc-400">{JSON.stringify(r.action_params, null, 2)}</pre>
-                                </div>
-                              )}
-                              {r.corrected_params && (
-                                <div>
-                                  <div className="text-zinc-500 font-mono uppercase text-[10px]">After (corrected)</div>
-                                  <pre className="mt-0.5 overflow-x-auto text-zinc-300">{JSON.stringify(r.corrected_params, null, 2)}</pre>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {r.execution_summary && (
-                            <div>
-                              <div className="text-zinc-500 font-mono uppercase text-[10px]">Execution</div>
-                              <p className="mt-0.5 text-zinc-300">{r.execution_summary}</p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <button
-                onClick={() => navigate("/control-system/api-docs")}
-                className="mt-4 flex items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
-              >
-                View API docs
-                <ArrowUpRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <WorkflowsCard accountId={accountId} />
+          {/* 2. Connected tools (the main focus) */}
           <ActiveSessionsCard accountId={accountId} />
+
+          {/* 3. Recent decisions */}
+          <RecentDecisions rows={rows} onOpenApprovals={() => navigate("/control-system/approvals")} />
+
+          {/* Advanced: hidden until asked for */}
+          {advancedOpen && (
+            <section className="space-y-5 border-t border-white/5 pt-5" aria-label="Advanced" data-testid="advanced-panel">
+              <h2 className="text-base font-semibold text-zinc-100">Advanced</h2>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="hud-glass rounded-2xl px-5 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs text-zinc-400">Replies checked (7 days)</div>
+                      <div className="mt-1 text-2xl font-semibold">{stats.total}</div>
+                    </div>
+                    <Sparkline values={dailyBuckets.counts} accent="#22d3ee" />
+                  </div>
+                </div>
+                <div className="hud-glass rounded-2xl px-5 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs text-zinc-400">Average trust score</div>
+                      <div className="mt-1 text-2xl font-semibold">{stats.avgTrust ?? "—"}</div>
+                    </div>
+                    <Sparkline values={dailyBuckets.avgTrusts} accent="#34d399" />
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">100 minus a cost per rule match, floored at 0</div>
+                </div>
+                <div className="hud-glass rounded-2xl px-5 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs text-zinc-400">Changed, blocked or escalated</div>
+                      <div className="mt-1 text-2xl font-semibold">
+                        {stats.total ? `${Math.round((stats.nonAllow / stats.total) * 100)}%` : "—"}
+                      </div>
+                    </div>
+                    <Sparkline values={dailyBuckets.nonAllowPcts} accent="#fbbf24" />
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">Share of replies that were not simply allowed, last 7 days</div>
+                </div>
+              </div>
+
+              <div className="hud-glass rounded-2xl px-6 py-5">
+                <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                  <ShieldCheck className="h-4 w-4 text-cyan-300" />
+                  Verdict health — the 20 most recent decisions
+                </div>
+                <div className="mt-3">
+                  <VerdictNetwork verdicts={networkVerdicts} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-4 text-xs text-zinc-400">
+                  {(Object.keys(VERDICT_STYLE) as Verdict[]).map((v) => (
+                    <div key={v} className="flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: VERDICT_STYLE[v].hex }} />
+                      {VERDICT_STYLE[v].label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <WorkflowsCard accountId={accountId} />
+            </section>
+          )}
         </div>
       )}
     </div>

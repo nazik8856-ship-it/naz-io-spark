@@ -1,12 +1,14 @@
-// Outer Control (active): connect an external tool, start a session against it, and
-// watch / answer / cancel from here. Outer Control does the contacting, rule checking
+// Outer Control page, section 2 (the main focus): the connected tools, with Test and Start
+// session on every row, the sessions that are running or need you, and a short history.
+// Update key / Remove sit behind "More"; step logs open only for the session you click. Outer Control does the contacting, rule checking
 // and deciding; this card only shows it and collects the few things a person must give.
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plug, Play, ChevronDown, ChevronRight, Send, X } from "lucide-react";
+import { Plus, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
+import { DEFAULT_HISTORY, splitSessions, toolStatus, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems } from "@/lib/outer-control-ui";
 import { describeDecision, describeStep, describeWaiting, isOpen, STATUS_LABEL, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
 
 // The tables are new and not in the generated Supabase types.
@@ -50,6 +52,8 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showConnect, setShowConnect] = useState(false);
   const [startFor, setStartFor] = useState<string | null>(null);
+  const [moreFor, setMoreFor] = useState<string | null>(null);
+  const [showAllPast, setShowAllPast] = useState(false);
   const [keyFor, setKeyFor] = useState<string | null>(null);
   const [newKey, setNewKey] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -122,107 +126,26 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     if (r.ok) { if (startFor === t.id) setStartFor(null); if (keyFor === t.id) setKeyFor(null); }
   };
 
-  const toolName = (id: string) => tools.find((t) => t.id === id)?.name ?? "Tool";
-
-  return (
-    <div className="hud-glass mt-6 rounded-2xl px-5 py-5" data-testid="active-sessions-card">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-zinc-400">
-          <Plug className="h-3.5 w-3.5 text-cyan-300" /> Active sessions — Outer Control contacts a tool for you
-        </div>
-        <button onClick={() => setShowConnect((v) => !v)} className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10">
-          {showConnect ? "Close" : "Connect a tool"}
-        </button>
-      </div>
-
-      {showConnect && (
-        <div className="mt-4 grid gap-2 rounded-xl border border-white/10 bg-black/20 p-3 sm:grid-cols-2">
-          <input className={inputCls} placeholder="Name, e.g. Support bot" aria-label="Tool name" value={conn.name} onChange={(e) => setConn({ ...conn, name: e.target.value })} />
-          <input className={inputCls} placeholder="https://… (the tool's endpoint)" aria-label="Tool address" value={conn.url} onChange={(e) => setConn({ ...conn, url: e.target.value })} />
-          <select className={inputCls} aria-label="Request format" value={conn.format} onChange={(e) => setConn({ ...conn, format: e.target.value })}>
-            <option value="generic_json">Plain JSON</option>
-            <option value="openai_chat">OpenAI-style chat</option>
-            <option value="anthropic_messages">Anthropic messages</option>
-          </select>
-          <input className={inputCls} placeholder="Model (optional)" aria-label="Model" value={conn.model} onChange={(e) => setConn({ ...conn, model: e.target.value })} />
-          <input className={`${inputCls} sm:col-span-2`} type="password" placeholder="API key or token for that tool (stored encrypted, never shown again)" aria-label="Tool credential" value={conn.token} onChange={(e) => setConn({ ...conn, token: e.target.value })} />
-          <button disabled={busy === "connect" || !conn.name || !conn.url} onClick={connect} className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-mono uppercase tracking-wider text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40 sm:col-span-2">
-            {busy === "connect" ? "Connecting…" : "Connect"}
-          </button>
-        </div>
-      )}
-
-      <div className="mt-4 space-y-2">
-        {tools.length === 0 && <p className="text-sm text-zinc-500">No tool connected yet. Connect one to let Outer Control start a session with it.</p>}
-        {tools.map((t) => (
-          <div key={t.id} className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0 text-sm text-zinc-200">
-                <span className="font-medium">{t.name}</span>
-                <span className="ml-2 text-xs text-zinc-500">{hostOf(t.endpoint_url)}</span>
-                <span className={`ml-2 text-[10px] font-mono uppercase ${t.approved_at ? "text-emerald-300" : "text-amber-300"}`}>{t.approved_at ? "approved" : "needs first-contact approval"}</span>
-                {t.last_checked_at && (
-                  <span className={`ml-2 text-[10px] font-mono uppercase ${t.last_error ? "text-rose-300" : "text-emerald-300"}`}>{t.last_error ? "test failed" : "test ok"}</span>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <button disabled={busy === `test-${t.id}`} onClick={() => act(`test-${t.id}`, "test_tool", { tool_id: t.id }, "Connection works.")} className="rounded border border-white/15 px-2.5 py-1 text-[11px] font-mono uppercase text-zinc-300 hover:bg-white/10 disabled:opacity-40">
-                  {busy === `test-${t.id}` ? "Testing…" : "Test"}
-                </button>
-                <button onClick={() => { setKeyFor(keyFor === t.id ? null : t.id); setNewKey(""); }} className="rounded border border-white/15 px-2.5 py-1 text-[11px] font-mono uppercase text-zinc-300 hover:bg-white/10">
-                  Update key
-                </button>
-                <button onClick={() => setStartFor(startFor === t.id ? null : t.id)} className="flex items-center gap-1 rounded border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-mono uppercase text-cyan-200 hover:bg-cyan-500/20">
-                  <Play className="h-3 w-3" /> Start session
-                </button>
-                <button disabled={busy === `remove-${t.id}`} onClick={() => remove(t)} className="rounded border border-rose-500/30 px-2.5 py-1 text-[11px] font-mono uppercase text-rose-300 hover:bg-rose-500/10 disabled:opacity-40">
-                  {busy === `remove-${t.id}` ? "Removing…" : "Remove"}
-                </button>
-              </div>
-            </div>
-            {t.last_error && <p className="mt-1 text-xs text-rose-300/90">{t.last_error}</p>}
-            {keyFor === t.id && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <input className={`${inputCls} flex-1`} type="password" autoComplete="off" placeholder="New API key or token (stored encrypted, never shown again)" aria-label="New tool credential" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
-                <button disabled={busy === `key-${t.id}` || !newKey.trim()} onClick={() => saveKey(t.id)} className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-mono uppercase tracking-wider text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40">
-                  {busy === `key-${t.id}` ? "Saving…" : "Save key"}
-                </button>
-              </div>
-            )}
-            {startFor === t.id && (
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <textarea className={`${inputCls} sm:col-span-2`} rows={2} placeholder="Objective — what should the tool do?" aria-label="Objective" value={job.objective} onChange={(e) => setJob({ ...job, objective: e.target.value })} />
-                <textarea className={`${inputCls} sm:col-span-2`} rows={2} placeholder="Context (optional) — secrets are masked before anything is sent" aria-label="Context" value={job.context} onChange={(e) => setJob({ ...job, context: e.target.value })} />
-                <select className={inputCls} aria-label="Rules to apply" value={job.keyId} onChange={(e) => setJob({ ...job, keyId: e.target.value })}>
-                  <option value="">Account-wide rules</option>
-                  {keys.map((k) => <option key={k.id} value={k.id}>Rules for API key: {k.name}</option>)}
-                </select>
-                <input className={inputCls} type="number" min={1} max={20} aria-label="Maximum steps" value={job.maxSteps} onChange={(e) => setJob({ ...job, maxSteps: e.target.value })} />
-                <button disabled={busy === `start-${t.id}` || !job.objective.trim()} onClick={() => start(t.id)} className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-mono uppercase tracking-wider text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40 sm:col-span-2">
-                  {busy === `start-${t.id}` ? "Starting…" : "Start"}
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {sessions.length > 0 && (
-        <div className="mt-5 space-y-2">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-500">Recent sessions</div>
-          {sessions.map((s) => {
-            const open = expanded === s.id;
+  const renderSession = (s: Session) => {
+    const open = expanded === s.id;
             const waiting = s.status === "awaiting_human" && s.pending_kind !== "handoff" ? describeWaiting(s.pending_kind, s.pending_question) : null;
             return (
               <div key={s.id} className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5" data-testid="session-row">
-                <button type="button" onClick={() => setExpanded(open ? null : s.id)} className="flex w-full items-center justify-between gap-2 text-left">
-                  <span className="flex min-w-0 items-center gap-1.5 text-sm text-zinc-200">
-                    {open ? <ChevronDown className="h-3 w-3 shrink-0 text-zinc-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-zinc-500" />}
-                    <span className="truncate">{s.objective}</span>
-                    <span className="shrink-0 text-xs text-zinc-500">· {toolName(s.tool_id)}{s.workflow_id && s.leg_no ? ` · workflow step ${s.leg_no}` : ""}</span>
-                  </span>
-                  <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${STATUS_STYLE[s.status]}`}>{STATUS_LABEL[s.status]}</span>
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => setExpanded(open ? null : s.id)} aria-expanded={open} className="flex min-w-0 flex-1 basis-56 items-center justify-between gap-2 text-left">
+                    <span className="flex min-w-0 items-center gap-1.5 text-sm text-zinc-200">
+                      {open ? <ChevronDown className="h-3 w-3 shrink-0 text-zinc-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-zinc-500" />}
+                      <span className="truncate">{s.objective}</span>
+                      <span className="shrink-0 text-xs text-zinc-500">· {toolName(s.tool_id)}{s.workflow_id && s.leg_no ? ` · workflow step ${s.leg_no}` : ""}</span>
+                    </span>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${STATUS_STYLE[s.status]}`}>{STATUS_LABEL[s.status]}</span>
+                  </button>
+                  {isOpen(s.status) && (
+                    <button disabled={busy === `cancel-${s.id}`} onClick={() => act(`cancel-${s.id}`, "cancel", { session_id: s.id }, "Session stopped.")} className="flex shrink-0 items-center gap-1 rounded border border-white/15 px-2.5 py-1 text-xs text-zinc-300 hover:bg-white/10 disabled:opacity-40">
+                      <Square className="h-3 w-3" /> Stop session
+                    </button>
+                  )}
+                </div>
                 {waiting && (
                   <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-100">
                     <p>{waiting}</p>
@@ -300,18 +223,142 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                       </div>
                     )}
                     {s.stop_reason && !isOpen(s.status) && <p className="text-zinc-400">{s.stop_reason}</p>}
-                    {isOpen(s.status) && (
-                      <button disabled={busy === `cancel-${s.id}`} onClick={() => act(`cancel-${s.id}`, "cancel", { session_id: s.id }, "Session cancelled.")} className="flex items-center gap-1 rounded border border-white/15 px-2.5 py-1 font-mono uppercase text-zinc-300 hover:bg-white/10">
-                        <X className="h-3 w-3" /> Cancel session
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
             );
-          })}
+  };
+
+  const toolName = (id: string) => tools.find((t) => t.id === id)?.name ?? "Tool";
+
+  const { open: openSessions, past: pastSessions } = splitSessions(sessions);
+  const pastShown = visibleItems(pastSessions, DEFAULT_HISTORY, showAllPast);
+
+  return (
+    <section className="hud-glass rounded-2xl px-6 py-5" aria-label="Connected tools" data-testid="active-sessions-card">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold text-zinc-100">Connected tools</h2>
+        <button onClick={() => setShowConnect((v) => !v)} className="flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3.5 py-1.5 text-sm text-cyan-100 hover:bg-cyan-500/25">
+          {showConnect ? "Close" : <><Plus className="h-3.5 w-3.5" /> Connect a tool</>}
+        </button>
+      </div>
+
+      {showConnect && (
+        <div className="mt-4 grid gap-2 rounded-xl border border-white/10 bg-black/20 p-3 sm:grid-cols-2">
+          <input className={inputCls} placeholder="Name, e.g. Support bot" aria-label="Tool name" value={conn.name} onChange={(e) => setConn({ ...conn, name: e.target.value })} />
+          <input className={inputCls} placeholder="https://… (the tool's endpoint)" aria-label="Tool address" value={conn.url} onChange={(e) => setConn({ ...conn, url: e.target.value })} />
+          <select className={inputCls} aria-label="Request format" value={conn.format} onChange={(e) => setConn({ ...conn, format: e.target.value })}>
+            <option value="generic_json">Plain JSON</option>
+            <option value="openai_chat">OpenAI-style chat</option>
+            <option value="anthropic_messages">Anthropic messages</option>
+          </select>
+          <input className={inputCls} placeholder="Model (optional)" aria-label="Model" value={conn.model} onChange={(e) => setConn({ ...conn, model: e.target.value })} />
+          <input className={`${inputCls} sm:col-span-2`} type="password" placeholder="API key or token for that tool (stored encrypted, never shown again)" aria-label="Tool credential" value={conn.token} onChange={(e) => setConn({ ...conn, token: e.target.value })} />
+          <button disabled={busy === "connect" || !conn.name || !conn.url} onClick={connect} className="rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40 sm:col-span-2">
+            {busy === "connect" ? "Connecting…" : "Connect"}
+          </button>
         </div>
       )}
-    </div>
+
+      <div className="mt-4 space-y-2">
+        {tools.length === 0 && (
+          <div className="rounded-xl border border-dashed border-white/15 px-4 py-6 text-center">
+            <p className="text-sm text-zinc-300">No tools connected yet.</p>
+            <p className="mx-auto mt-1 max-w-md text-sm text-zinc-500">
+              Connect the external AI you want Outer Control to talk to. You need its web address and, if it has one, an API key. Then press Test, then Start session.
+            </p>
+            {!showConnect && (
+              <button onClick={() => setShowConnect(true)} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3.5 py-1.5 text-sm text-cyan-100 hover:bg-cyan-500/25">
+                <Plus className="h-3.5 w-3.5" /> Connect a tool
+              </button>
+            )}
+          </div>
+        )}
+        {tools.map((t) => {
+          const st = toolStatus(t);
+          const more = moreFor === t.id || keyFor === t.id;
+          return (
+            <div key={t.id} className={`rounded-xl border bg-white/[0.03] px-4 py-3 ${TONE_BORDER[st.tone]}`} data-testid="tool-row">
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <span className="text-sm font-medium text-zinc-100">{t.name}</span>
+                    <span className={`flex items-center gap-1.5 text-xs ${TONE_TEXT[st.tone]}`} title={st.hint}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[st.tone]}`} aria-hidden /> {st.label}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-xs text-zinc-500">{hostOf(t.endpoint_url)}</div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button disabled={busy === `test-${t.id}`} onClick={() => act(`test-${t.id}`, "test_tool", { tool_id: t.id }, "Connection works.")} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-40">
+                    {busy === `test-${t.id}` ? "Testing…" : "Test"}
+                  </button>
+                  <button onClick={() => setStartFor(startFor === t.id ? null : t.id)} className="flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-1.5 text-sm text-cyan-100 hover:bg-cyan-500/25">
+                    <Play className="h-3 w-3" /> Start session
+                  </button>
+                  <button onClick={() => { setMoreFor(more ? null : t.id); if (more) { setKeyFor(null); setNewKey(""); } }} aria-expanded={more} className="rounded-lg px-2 py-1.5 text-sm text-zinc-500 hover:text-zinc-200">
+                    More
+                  </button>
+                </div>
+              </div>
+              {t.last_error && <p className="mt-2 text-xs text-rose-300/90">{t.last_error}</p>}
+              {more && (
+                <div className="mt-3 border-t border-white/5 pt-3">
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => { setKeyFor(keyFor === t.id ? null : t.id); setNewKey(""); }} className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/10">
+                      Update key
+                    </button>
+                    <button disabled={busy === `remove-${t.id}`} onClick={() => remove(t)} className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-xs text-rose-300 hover:bg-rose-500/10 disabled:opacity-40">
+                      {busy === `remove-${t.id}` ? "Removing…" : "Remove"}
+                    </button>
+                  </div>
+                  {keyFor === t.id && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <input className={`${inputCls} flex-1`} type="password" autoComplete="off" placeholder="New API key or token (stored encrypted, never shown again)" aria-label="New tool credential" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
+                      <button disabled={busy === `key-${t.id}` || !newKey.trim()} onClick={() => saveKey(t.id)} className="rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40">
+                        {busy === `key-${t.id}` ? "Saving…" : "Save key"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {startFor === t.id && (
+                <div className="mt-3 grid gap-2 border-t border-white/5 pt-3 sm:grid-cols-2">
+                  <textarea className={`${inputCls} sm:col-span-2`} rows={2} placeholder="Objective — what should the tool do?" aria-label="Objective" value={job.objective} onChange={(e) => setJob({ ...job, objective: e.target.value })} />
+                  <textarea className={`${inputCls} sm:col-span-2`} rows={2} placeholder="Context (optional) — secrets are masked before anything is sent" aria-label="Context" value={job.context} onChange={(e) => setJob({ ...job, context: e.target.value })} />
+                  <select className={inputCls} aria-label="Rules to apply" value={job.keyId} onChange={(e) => setJob({ ...job, keyId: e.target.value })}>
+                    <option value="">Account-wide rules</option>
+                    {keys.map((k) => <option key={k.id} value={k.id}>Rules for API key: {k.name}</option>)}
+                  </select>
+                  <input className={inputCls} type="number" min={1} max={20} aria-label="Maximum steps" value={job.maxSteps} onChange={(e) => setJob({ ...job, maxSteps: e.target.value })} />
+                  <button disabled={busy === `start-${t.id}` || !job.objective.trim()} onClick={() => start(t.id)} className="rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40 sm:col-span-2">
+                    {busy === `start-${t.id}` ? "Starting…" : "Start"}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {openSessions.length > 0 && (
+        <div className="mt-5 space-y-2" data-testid="open-sessions">
+          <h3 className="text-sm font-medium text-zinc-300">Running now</h3>
+          {openSessions.map(renderSession)}
+        </div>
+      )}
+
+      {pastSessions.length > 0 && (
+        <div className="mt-5 space-y-2" data-testid="past-sessions">
+          <h3 className="text-sm font-medium text-zinc-400">Recent sessions</h3>
+          {pastShown.map(renderSession)}
+          {pastSessions.length > DEFAULT_HISTORY && (
+            <button type="button" onClick={() => setShowAllPast((v) => !v)} className="text-sm text-cyan-300 hover:text-cyan-200">
+              {showAllPast ? "Show fewer" : `View all (${pastSessions.length})`}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
