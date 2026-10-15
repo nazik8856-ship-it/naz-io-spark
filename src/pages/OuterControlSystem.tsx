@@ -14,6 +14,7 @@ import ActiveSessionsCard from "@/components/control/outer/ActiveSessionsCard";
 import WorkflowsCard from "@/components/control/outer/WorkflowsCard";
 import OuterStatusBar, { type Attention } from "@/components/control/outer/OuterStatusBar";
 import RecentDecisions, { type DecisionRow } from "@/components/control/outer/RecentDecisions";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { healthText, type Verdict } from "@/lib/outer-control-ui";
 
 type EvaluationRow = DecisionRow;
@@ -250,7 +251,7 @@ export default function OuterControlSystem() {
   // hasn't fired recently -- both show an empty-ish feed. Per-key last-seen
   // (or never) makes an inert key visible instead of silently zero.
   const [keyHealth, setKeyHealth] = useState<{ id: string; name: string; lastEvaluatedAt: string | null; ruleCount: number }[]>([]);
-  // The default view is calm: the graph, the stats and the workflows stay behind "Advanced".
+  // The default view is calm: the graph, the stats and the workflows open in a window from "Advanced".
   const [advancedOpen, setAdvancedOpen] = useState(false);
   // LOOP 3 (Outer Control Incomplete Activation, 2026-10-10): which key's
   // test evaluation is currently in flight, if any.
@@ -413,8 +414,7 @@ export default function OuterControlSystem() {
             trust={stats.avgTrust}
             health={healthText({ total7d: stats.total, nonAllow7d: stats.nonAllow, anyEver: rows.length > 0 })}
             attention={attention}
-            advancedOpen={advancedOpen}
-            onToggleAdvanced={() => setAdvancedOpen((v) => !v)}
+            onOpenAdvanced={() => setAdvancedOpen(true)}
             onApiDocs={() => navigate("/control-system/api-docs")}
           />
 
@@ -424,10 +424,18 @@ export default function OuterControlSystem() {
           {/* 3. Recent decisions */}
           <RecentDecisions rows={rows} onOpenApprovals={() => navigate("/control-system/approvals")} />
 
-          {/* Advanced: hidden until asked for */}
-          {advancedOpen && (
-            <section className="space-y-5 border-t border-white/5 pt-5" aria-label="Advanced" data-testid="advanced-panel">
-              <h2 className="text-base font-semibold text-zinc-100">Advanced</h2>
+          {/* Advanced: a closable window, opened from the button in the status bar */}
+          <Dialog open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <DialogContent
+              className="max-h-[88vh] w-[calc(100%-2rem)] max-w-4xl gap-5 overflow-y-auto border-white/10 bg-[#050b1a] text-white sm:rounded-2xl"
+              data-testid="advanced-panel"
+            >
+              <DialogHeader>
+                <DialogTitle className="text-lg font-semibold text-zinc-100">Advanced</DialogTitle>
+                <DialogDescription className="text-sm text-zinc-400">
+                  Statistics for the last 7 days, the most recent decisions as a graph, and workflows that run several tools toward one goal.
+                </DialogDescription>
+              </DialogHeader>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div className="hud-glass rounded-2xl px-5 py-4">
@@ -482,8 +490,8 @@ export default function OuterControlSystem() {
               </div>
 
               <WorkflowsCard accountId={accountId} />
-            </section>
-          )}
+            </DialogContent>
+          </Dialog>
         </div>
       )}
     </div>

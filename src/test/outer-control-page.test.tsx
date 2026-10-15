@@ -85,15 +85,51 @@ describe("Outer Control page", () => {
     expect(within(list).queryByText("Why 3")).toBeNull();
   });
 
-  it("Advanced opens the graph, the stats and the workflows; Hide advanced closes them", async () => {
+  it("Advanced opens a window over the page with the graph, the stats and the workflows", async () => {
     renderPage();
     fireEvent.click(await screen.findByText("Advanced"));
-    const panel = await screen.findByTestId("advanced-panel");
-    expect(within(panel).getByLabelText("Verdict health network")).toBeTruthy();
-    expect(within(panel).getByText("Changed, blocked or escalated")).toBeTruthy();
-    expect(within(panel).getByTestId("workflows-card")).toBeTruthy();
-    fireEvent.click(screen.getByText("Hide advanced"));
-    expect(screen.queryByTestId("advanced-panel")).toBeNull();
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Advanced", { selector: "h2" })).toBeTruthy();
+    expect(within(dialog).getByLabelText("Verdict health network")).toBeTruthy();
+    expect(within(dialog).getByText("Changed, blocked or escalated")).toBeTruthy();
+    expect(within(dialog).getByTestId("workflows-card")).toBeTruthy();
+    // it is a window, not a block added to the bottom of the page
+    expect(screen.getByTestId("recent-decisions").contains(dialog)).toBe(false);
+    expect(document.querySelector('[data-testid="advanced-panel"]')).toBe(dialog);
+  });
+
+  it("the Advanced window closes with its close button and with Escape", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByText("Advanced"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Close").closest("button")!);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByText("Advanced"));
+    await screen.findByRole("dialog");
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByTestId("workflows-card")).toBeNull();
+  });
+
+  it("clicking outside the Advanced window closes it", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByText("Advanced"));
+    await screen.findByRole("dialog");
+    const overlay = document.querySelector("[data-state='open'].fixed.inset-0") as HTMLElement;
+    expect(overlay).toBeTruthy();
+    fireEvent.pointerDown(overlay);
+    fireEvent.pointerUp(overlay);
+    fireEvent.click(overlay);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("the Advanced button stands out: filled, with a glow, and larger than the API docs link", async () => {
+    renderPage();
+    const btn = (await screen.findByText("Advanced")).closest("button")!;
+    expect(btn.className).toMatch(/bg-cyan-500\/20/);
+    expect(btn.className).toMatch(/shadow-/);
+    expect(btn.className).toMatch(/text-sm/);
+    expect(btn.getAttribute("aria-haspopup")).toBe("dialog");
   });
 
   it("API docs is a small secondary link, not a big button", async () => {

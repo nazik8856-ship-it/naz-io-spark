@@ -10,25 +10,24 @@ type Props = {
   trust: number | null;
   health: string;
   attention: Attention[];
-  advancedOpen: boolean;
-  onToggleAdvanced: () => void;
+  onOpenAdvanced: () => void;
   onApiDocs: () => void;
 };
 
-export default function OuterStatusBar({ trust, health, attention, advancedOpen, onToggleAdvanced, onApiDocs }: Props) {
+export default function OuterStatusBar({ trust, health, attention, onOpenAdvanced, onApiDocs }: Props) {
   const [showAttention, setShowAttention] = useState(false);
   const tone = attention.length ? "warn" : "ok";
   return (
     <section className="hud-glass rounded-2xl px-6 py-5" aria-label="Status" data-testid="status-bar">
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-        <div className="flex min-w-0 items-start gap-3">
+        <div className="flex min-w-0 flex-1 basis-72 items-start gap-3">
           <span className={`mt-2 h-2.5 w-2.5 shrink-0 rounded-full ${TONE_DOT[tone]}`} aria-hidden />
           <div className="min-w-0">
             <h1 className="text-lg font-semibold text-zinc-100">Outer Control is active</h1>
             <p className="mt-0.5 text-sm text-zinc-400" data-testid="health-text">{health}</p>
           </div>
         </div>
-        <div className="flex items-center gap-5">
+        <div className="flex shrink-0 items-center gap-5">
           <div className="text-right" title="Average trust score of the replies checked in the last 7 days">
             <div className="text-3xl font-semibold leading-none text-zinc-100" data-testid="trust-score">{trust ?? "—"}</div>
             <div className="mt-1 text-xs text-zinc-500">Trust score</div>
@@ -36,11 +35,11 @@ export default function OuterStatusBar({ trust, health, attention, advancedOpen,
           <div className="flex flex-col items-end gap-1.5">
             <button
               type="button"
-              onClick={onToggleAdvanced}
-              aria-expanded={advancedOpen}
-              className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5"
+              onClick={onOpenAdvanced}
+              aria-haspopup="dialog"
+              className="flex items-center gap-2 rounded-lg border border-cyan-400/50 bg-cyan-500/20 px-4 py-2 text-sm font-medium text-cyan-100 shadow-[0_0_16px_rgba(34,211,238,0.25)] transition hover:bg-cyan-500/30"
             >
-              <SlidersHorizontal className="h-3.5 w-3.5" /> {advancedOpen ? "Hide advanced" : "Advanced"}
+              <SlidersHorizontal className="h-4 w-4" /> Advanced
             </button>
             <button type="button" onClick={onApiDocs} className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline">
               API docs
