@@ -59,6 +59,7 @@
 // verify_jwt = false, same as control-api/agent-runtime -- auth is the
 // Authorization: Bearer nazai_sk_... header via resolveApiKeyAuth, not a
 // Supabase session JWT.
+import { judgeStateless } from "../_shared/outer-control-judgement.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { checkRateLimit, checkIpRateLimit } from "../_shared/rate-limit.ts";
@@ -279,11 +280,20 @@ async function handleActionEvaluation(
     return json({ error: "internal_error", message: "Could not record this evaluation." }, 500);
   }
 
+  // Risk, confidence and a short reasoning trace, same wording as Outer Control sessions. A single
+  // call has no task around it, so earlier steps and earlier human corrections play no part.
+  const judged = judgeStateless({
+    verdict, matches: gate.safety.matches, content: `${description} ${JSON.stringify(params ?? {})}`, source: gate.source,
+  });
+
   return json({
     ok: true,
     id: evalRow.id,
     verdict,
     trust_score: trustScore,
+    risk: judged.risk,
+    confidence: judged.confidence,
+    trace: judged.trace,
     // GAP 4: the governing entity's own aggregate, measured-history trust
     // score (distinct from `trust_score` above, which is just this one
     // decision's safety-match score) -- null only when neither an agent
@@ -415,6 +425,7 @@ Deno.serve(async (req) => {
         replayed: true,
         verdict: prior.verdict,
         trust_score: prior.trust_score,
+        ...judgeStateless({ verdict: prior.verdict, matches: prior.matches ?? [], shadowMatches: (prior.shadow_matches ?? []).length, content: prior.output_text ?? "" }),
         output: prior.output_text,
         matches: prior.matches ?? [],
         changes: prior.changes ?? [],
@@ -452,6 +463,8 @@ Deno.serve(async (req) => {
       input_format: intake.format,
       verdict: result.verdict,
       trust_score: result.trustScore,
+      // Risk, confidence and a short reasoning trace (stateless: only the rules that matched and the text itself).
+      ...judgeStateless({ verdict: result.verdict, matches: result.matches, shadowMatches: result.shadowMatches.length, content: result.output ?? content }),
       // GAP 4: this entity's own aggregate, measured-history trust score --
       // see outer-control-text-review.ts's own TextReviewResult doc comment.
       entity_trust_score: result.entityTrustScore,

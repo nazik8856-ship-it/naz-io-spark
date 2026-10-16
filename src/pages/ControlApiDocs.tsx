@@ -111,6 +111,14 @@ const EXAMPLE_OUTER_CONTROL_RESPONSE = `{
   "id": "b6b1...",
   "verdict": "escalate",
   "trust_score": 80,
+  "risk": { "level": "medium", "reasons": ["\"Refund or cancellation without a reference\" needs a person's approval"] },
+  "confidence": { "level": "high", "reasons": ["decided directly by \"Refund or cancellation without a reference\""] },
+  "trace": [
+    "Decision: Escalate.",
+    "Decided by \"Refund or cancellation without a reference\" (account rule: require approval).",
+    "Risk: medium — \"Refund or cancellation without a reference\" needs a person's approval.",
+    "Confidence: high — decided directly by \"Refund or cancellation without a reference\"."
+  ],
   "output": null,
   "changes": [],
   "next_step": "await_approval",
@@ -480,6 +488,11 @@ export default function ControlApiDocs() {
             count), and <span className="font-mono">next_step</span> says what to do:{" "}
             <span className="font-mono">use_output</span>, <span className="font-mono">await_approval</span> (an{" "}
             <span className="font-mono">approval_id</span> is returned) or <span className="font-mono">discard</span>.
+            <span className="font-mono">risk</span> and <span className="font-mono">confidence</span> are{" "}
+            <span className="font-mono">low</span>, <span className="font-mono">medium</span> or{" "}
+            <span className="font-mono">high</span> with the reasons, and <span className="font-mono">trace</span> is a
+            short readable list of why it was decided that way. A single call has no task around it, so they use only
+            the rules that matched and the content itself, never earlier steps or earlier human corrections.
             A modify is only returned after the cleaned text was re-checked against the same rules; if the matching
             text can't be removed safely the verdict is <span className="font-mono">block</span>. Every call is logged to your account's Outer Control dashboard with a trust score and
             full provenance, whether it came from the API or from NazAI's own internal use of a connected tool.

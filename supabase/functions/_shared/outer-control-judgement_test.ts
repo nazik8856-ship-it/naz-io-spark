@@ -201,3 +201,60 @@ Deno.test("goal: a stated word limit and a forbidden quoted phrase are enforced"
   assertEquals(checkGoal("Say hello, but do not mention \"price\"", "Hello, the price is low.").ok, false);
   assertEquals(checkGoal("Say hello, but do not mention \"price\"", "Hello there.").ok, true);
 });
+
+// ---- stateless evaluate API (judgeStateless) --------------------------------
+
+import { judgeStateless } from "./outer-control-judgement.ts";
+
+const m = (o: Record<string, unknown> = {}) => ({ rule_id: "r1", name: "Card number", category: "pii", severity: "block", pattern: "\\d{16}", ...o });
+
+Deno.test("judgeStateless: a blocking safety match is high risk and the trace names the rule", () => {
+  const j = judgeStateless({ verdict: "block", matches: [m()], content: "card 4111111111111111" });
+  assertEquals(j.risk.level, "high");
+  assert(j.trace[0].startsWith("Decision: Block"));
+  assert(j.trace.some((l) => l.includes('Decided by "Card number"')));
+  assert(j.trace.some((l) => l.startsWith("Risk: high")));
+  assert(j.trace.some((l) => l.startsWith("Confidence:")));
+});
+
+Deno.test("judgeStateless: clean allow is low risk, high confidence", () => {
+  const j = judgeStateless({ verdict: "allow", matches: [], content: "Thanks for your message." });
+  assertEquals(j.risk.level, "low");
+  assertEquals(j.confidence.level, "high");
+});
+
+Deno.test("judgeStateless: an observe-only match lowers confidence to medium without changing risk", () => {
+  const j = judgeStateless({ verdict: "allow", matches: [], shadowMatches: 2, content: "hello" });
+  assertEquals(j.confidence.level, "medium");
+  assertEquals(j.risk.level, "low");
+});
+
+Deno.test("judgeStateless: a redaction of a secret is high risk; of other text, medium", () => {
+  assertEquals(judgeStateless({ verdict: "modify", matches: [m({ category: "secrets", redact: true })], content: "x" }).risk.level, "high");
+  assertEquals(judgeStateless({ verdict: "modify", matches: [m({ category: "custom", redact: true })], content: "x" }).risk.level, "medium");
+});
+
+Deno.test("judgeStateless: an approval rule is medium risk", () => {
+  assertEquals(judgeStateless({ verdict: "escalate", matches: [m({ category: "financial", severity: "require_approval" })], content: "refund" }).risk.level, "medium");
+});
+
+Deno.test("judgeStateless: early stops by a kill switch or hard rule are high, other layers medium, and say what stopped it", () => {
+  const ks = judgeStateless({ verdict: "block", matches: [], content: "send", source: "kill_switch" });
+  assertEquals(ks.risk.level, "high");
+  assert(ks.trace.some((l) => l.includes("the account kill switch")));
+  const hr = judgeStateless({ verdict: "block", matches: [], content: "send", source: "hard_rule" });
+  assertEquals(hr.risk.level, "high");
+  assertEquals(hr.confidence.level, "high");
+  const cap = judgeStateless({ verdict: "block", matches: [], content: "send", source: "spend_cap" });
+  assertEquals(cap.risk.level, "medium");
+  assertEquals(cap.confidence.reasons, ["decided directly by the daily spend cap"]);
+});
+
+Deno.test("judgeStateless: an amount in an allowed action raises risk to medium", () => {
+  assertEquals(judgeStateless({ verdict: "allow", matches: [], content: "refund $900 to the customer" }).risk.level, "medium");
+});
+
+Deno.test("judgeStateless: never says anything about earlier steps or learning", () => {
+  const j = judgeStateless({ verdict: "block", matches: [m()], content: "x" });
+  assert(!j.trace.some((l) => /earlier|similar|declin/i.test(l)));
+});
