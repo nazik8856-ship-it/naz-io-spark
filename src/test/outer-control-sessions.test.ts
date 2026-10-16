@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describeDecision, describeStep, describeWaiting, isOpen, legsPayload, STATUS_LABEL, WORKFLOW_LABEL } from "@/lib/outer-control-sessions";
+import { describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, legsPayload, STATUS_LABEL, WORKFLOW_LABEL } from "@/lib/outer-control-sessions";
 
 describe("outer-control-sessions", () => {
   it("queued, running and awaiting_human sessions are open", () => {
@@ -86,6 +86,34 @@ describe("outer-control-sessions", () => {
 
   it("describes the request-tightening step", () => {
     expect(describeStep({ step_no: 1, attempt: 2, verdict: "block", next_action: "modify_request", error: null, note: null })).toMatch(/request tightened/);
+  });
+});
+
+describe("trace, risk and confidence in the step log", () => {
+  it("shows the trace instead of the single reason, then what it was based on and what happens next", () => {
+    const lines = describeDecision({
+      why: "old single reason", trace: ["Decision: Block.", "Risk: high — a blocking rule.", "Confidence: high — decided directly by a rule."],
+      plan: { reason: "A person decides.", basis: ["Rule X blocked 1 time earlier."] },
+    });
+    expect(lines).toEqual(["Decision: Block.", "Risk: high — a blocking rule.", "Confidence: high — decided directly by a rule.", "Based on: Rule X blocked 1 time earlier.", "Next: A person decides."]);
+    expect(lines.some((l) => l.startsWith("Why:"))).toBe(false);
+  });
+
+  it("falls back to the single reason for steps stored before traces existed, and clips long trace lines", () => {
+    expect(describeDecision({ why: "Because." })).toEqual(["Why: Because."]);
+    expect(describeDecision({ trace: ["x".repeat(400)] })[0].length).toBeLessThanOrEqual(240);
+  });
+
+  it("badges: risk is red when high, confidence is red when low", () => {
+    const b = riskConfidenceBadges({ risk: { level: "high" }, confidence: { level: "low" } });
+    expect(b.map((x) => x.label)).toEqual(["Risk high", "Confidence low"]);
+    expect(b[0].className).toMatch(/rose/);
+    expect(b[1].className).toMatch(/rose/);
+    const ok = riskConfidenceBadges({ risk: { level: "low" }, confidence: { level: "high" } });
+    expect(ok[0].className).toMatch(/emerald/);
+    expect(ok[1].className).toMatch(/emerald/);
+    expect(riskConfidenceBadges({})).toEqual([]);
+    expect(riskConfidenceBadges(null)).toEqual([]);
   });
 });
 

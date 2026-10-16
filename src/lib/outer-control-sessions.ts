@@ -52,7 +52,7 @@ export function describeStep(s: StepLike): string {
 }
 
 export type HandoffView = {
-  kind: "rule_exhausted" | "tool_failed";
+  kind: "rule_exhausted" | "tool_failed" | "goal_unmet";
   title: string;
   summary: string[];
   options: { id: "retry" | "edit" | "stop"; label: string; description: string }[];
@@ -99,14 +99,38 @@ export type DecisionView = {
   conflicts?: string[];
   guard?: string[];
   plan?: { kind?: string; reason?: string; basis?: string[] } | null;
+  /** Short readable lines: what was decided, by which rule, what earlier human decisions say, risk, confidence. */
+  trace?: string[];
+  risk?: { level?: string } | null;
+  confidence?: { level?: string } | null;
 };
 
-/** The reasoning behind one step, as short lines: why it was decided that way, what it was based on, and what happens next. */
+/**
+ * The reasoning behind one step, as short lines. Newer steps carry a trace (decision, deciding rule, what it
+ * overrode, risk, confidence); older ones only have a single reason. Then what it was based on and what happens next.
+ */
 export function describeDecision(d: DecisionView | null | undefined): string[] {
   if (!d) return [];
   const lines: string[] = [];
-  if (d.why) lines.push(`Why: ${d.why.length > 280 ? `${d.why.slice(0, 279)}…` : d.why}`);
+  if (d.trace?.length) lines.push(...d.trace.map((l) => (l.length > 240 ? `${l.slice(0, 239)}…` : l)));
+  else if (d.why) lines.push(`Why: ${d.why.length > 280 ? `${d.why.slice(0, 279)}…` : d.why}`);
   for (const b of d.plan?.basis ?? []) lines.push(`Based on: ${b}`);
   if (d.plan?.reason) lines.push(`Next: ${d.plan.reason}`);
   return lines;
+}
+
+const LEVEL_STYLE: Record<string, string> = {
+  low: "border-emerald-500/30 text-emerald-300", medium: "border-amber-500/40 text-amber-300", high: "border-rose-500/40 text-rose-300",
+};
+
+/** "Risk high · Confidence low" for the step row, or null for steps stored before these existed. */
+export function riskConfidenceBadges(d: DecisionView | null | undefined): { label: string; className: string }[] {
+  const out: { label: string; className: string }[] = [];
+  if (d?.risk?.level && LEVEL_STYLE[d.risk.level]) out.push({ label: `Risk ${d.risk.level}`, className: LEVEL_STYLE[d.risk.level] });
+  if (d?.confidence?.level && LEVEL_STYLE[d.confidence.level]) {
+    // For confidence the colours run the other way: low is the one to look at.
+    const inverse = { high: LEVEL_STYLE.low, medium: LEVEL_STYLE.medium, low: LEVEL_STYLE.high } as Record<string, string>;
+    out.push({ label: `Confidence ${d.confidence.level}`, className: inverse[d.confidence.level] });
+  }
+  return out;
 }

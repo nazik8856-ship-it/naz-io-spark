@@ -4,7 +4,7 @@
 import type { FailureClass } from "./outer-control-recovery.ts";
 import { humanRetriesAt, renderMemoryCounted, type MemoryEntry } from "./outer-control-memory.ts";
 
-export type HandoffKind = "rule_exhausted" | "tool_failed";
+export type HandoffKind = "rule_exhausted" | "tool_failed" | "goal_unmet";
 export type HandoffOptionId = "retry" | "stop" | "edit";
 export type HandoffOption = { id: HandoffOptionId; label: string; description: string };
 export type Handoff = {
@@ -33,11 +33,36 @@ export type HandoffInput = {
   failure: FailureClass | null;
   attempts: number;
   memory: MemoryEntry[];
+  /** What the final result got wrong about the goal (goal_unmet). */
+  problems?: string[];
 };
 
 export function buildHandoff(i: HandoffInput): Handoff {
   const earlier = humanRetriesAt(i.memory, i.stepNo);
   const recent = renderMemoryCounted(i.memory, 3);
+
+  if (i.kind === "goal_unmet") {
+    const recommended: HandoffOptionId = earlier > 0 ? "stop" : "retry";
+    return {
+      kind: i.kind,
+      title: `"${i.toolName}" gave a result that may not match the goal (step ${i.stepNo})`,
+      summary: [
+        `Step ${i.stepNo}: the result passed every rule, but the final check found a problem with the goal.`,
+        ...(i.problems ?? []).slice(0, 3),
+        "The tool was already asked once to fix it. Nothing was finished yet.",
+        earlier > 0
+          ? "You already chose to retry this step once, so stopping is recommended."
+          : "A short note about what the result should contain may let the tool get it right.",
+        ...recent.map((l) => `Earlier: ${l}`),
+      ],
+      options: [
+        { id: "retry", label: "Ask again with my note", description: "Gives the tool one more try. Your note is added to the request." },
+        EDIT_OPTION,
+        { id: "stop", label: "Stop the session", description: "Ends the session. Accepted steps are kept." },
+      ],
+      recommended,
+    };
+  }
 
   if (i.kind === "rule_exhausted") {
     const names = i.ruleNames.length ? i.ruleNames.join("; ") : "a rule";

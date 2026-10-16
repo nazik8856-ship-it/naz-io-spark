@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, toolStatus, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems } from "@/lib/outer-control-ui";
-import { describeDecision, describeStep, describeWaiting, isOpen, STATUS_LABEL, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
+import { describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, STATUS_LABEL, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
 
 // The tables are new and not in the generated Supabase types.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -203,6 +203,9 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                       {(steps[s.id] ?? []).map((st) => (
                         <li key={st.id} className="text-zinc-300">
                           {describeStep(st)}
+                          {riskConfidenceBadges(st.decision).map((b) => (
+                            <span key={b.label} className={`ml-2 rounded-full border px-1.5 py-0 text-[10px] ${b.className}`}>{b.label}</span>
+                          ))}
                           {describeDecision(st.decision).map((line, i) => <div key={i} className="ml-3 text-[10px] leading-snug text-zinc-500">{line}</div>)}
                         </li>
                       ))}
