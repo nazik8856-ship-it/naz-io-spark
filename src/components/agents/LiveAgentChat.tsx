@@ -23,6 +23,11 @@ type Props = {
    * messaging-app look used by the website/agent builder chats.
    */
   compact?: boolean;
+  /**
+   * Put text in the box without sending it (e.g. "Ask in chat" on a list row). A new
+   * `nonce` re-applies the same text. The person reviews it, then sends.
+   */
+  prefill?: { text: string; nonce: number } | null;
 };
 
 export default function LiveAgentChat({
@@ -37,6 +42,7 @@ export default function LiveAgentChat({
   composerExtras,
   executionLog,
   compact = false,
+  prefill,
 }: Props) {
   const [input, setInput] = useState("");
   const [showSpec, setShowSpec] = useState(false);
@@ -53,6 +59,13 @@ export default function LiveAgentChat({
   useEffect(() => {
     inputRef.current?.focus();
   }, [agentId]);
+
+  useEffect(() => {
+    if (!prefill) return;
+    setInput(prefill.text);
+    inputRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill?.nonce]);
 
   useEffect(() => {
     if (!streaming) setBusyHint(false);
