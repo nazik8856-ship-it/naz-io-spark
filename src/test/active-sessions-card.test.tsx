@@ -271,5 +271,20 @@ describe("ActiveSessionsCard", () => {
     expect(screen.getByText("Based on: A rule requires a person's approval for this reply.")).toBeTruthy();
     expect(screen.getByText("Next: The reply needs a person's approval.")).toBeTruthy();
   });
-});
 
+  it("shows the stored completion check on a finished session, expandable, with each criterion marked", async () => {
+    state.tools = [tool];
+    state.sessions = [session({
+      id: "s9", status: "completed", final_output: "Returns are accepted within thirty days.", stop_reason: "Done.",
+      completion: { passed: true, outcome: "completed", summary: "Completion check passed: all 2 criteria met.", criteria: [
+        { id: "output_present", label: "A final result exists", ok: true, detail: "a result exists" },
+        { id: "output_stored", label: "The stored result was read back and matches", ok: true, detail: "stored and read back identically" },
+      ] },
+    })];
+    renderCard();
+    fireEvent.click(await screen.findByText(/Draft a reply/));
+    const cc = await screen.findByTestId("completion-check");
+    expect(cc.textContent).toMatch(/Completion check passed \(2\/2\)/);
+    expect(cc.textContent).toMatch(/✓ A final result exists — a result exists/);
+  });
+});

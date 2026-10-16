@@ -22,6 +22,7 @@ import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.t
 import { buildWorkingMemory, decisionRecord, factsFor, guardConsistency, planNextAction, think, type MemoryRow, type RequestChanges } from "./outer-control-brain.ts";
 import { loadCorrections, recordCorrection } from "./outer-control-corrections.ts";
 import { checkGoal } from "./outer-control-judgement.ts";
+import { buildChecklist, correctionFor, passedCount, settle, type Checklist, type ChecklistInput } from "./outer-control-completion.ts";
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
 import { buildHandoff, decodeChoice, type HandoffKind } from "./outer-control-handoff.ts";
@@ -228,23 +229,42 @@ type Accept = {
   fromPerson?: boolean;
 };
 
-type FinalCheck = { kind: "ok"; note: string } | { kind: "violation"; message: string } | { kind: "unmet"; problems: string[] };
-
 /**
- * Before a loop finishes: the final text must still keep every blocking rule (including the ones that fired
- * earlier in this task) and, unless a person decided it, still match the original goal.
+ * Everything the completion checklist needs, read fresh: the final text against every blocking rule (including the
+ * ones that fired earlier in this task), the goal (unless a person decided it), the recorded exchanges, and whether
+ * anything is still open for this session.
  */
-async function finalCheck(admin: AnyAdmin, s: SessionRow, a: Accept): Promise<FinalCheck> {
+async function gatherCompletionInput(admin: AnyAdmin, s: SessionRow, stepNo: number, a: Accept, deps: SessionDeps): Promise<ChecklistInput> {
   const rules = (await loadSafetyRules(admin, s.user_id, null, s.api_key_id)).filter((r) => !r.shadow_mode && r.severity === "block");
   const wm = buildWorkingMemory((await loadMemory(admin, s)) as MemoryRow[]);
   const pinned = guardConsistency({ content: a.text, contentHash: "", wm, reportedRuleIds: [] }).pinnedHits;
   const broken = [...new Set([...scanWithRules(rules, a.text, "").matches.map((m) => m.name), ...pinned.map((h) => h.name)])];
-  if (broken.length) return { kind: "violation", message: `The final result breaks ${broken.join("; ")}, so it was not released.` };
-  if (!a.fromPerson) {
-    const goal = checkGoal(s.objective, a.text);
-    if (!goal.ok) return { kind: "unmet", problems: goal.problems };
+  const goal = a.fromPerson ? null : checkGoal(s.objective, a.text);
+  const { data: ex } = await admin.from("outer_control_session_steps").select("step_no, attempt, error").eq("session_id", s.id);
+  const { data: cur } = await admin.from("outer_control_sessions").select("pending_kind").eq("id", s.id).maybeSingle();
+  let approval: { status: string | null } | null = null;
+  if (s.pending_approval_id) {
+    const { data: ap } = await admin.from("pending_approvals").select("status").eq("id", s.pending_approval_id).maybeSingle();
+    approval = { status: (ap as { status?: string } | null)?.status ?? null };
   }
-  return { kind: "ok", note: ` Final check: the result keeps every blocking rule${a.fromPerson ? "" : " and matches the goal"}.` };
+  return {
+    now: iso(deps.now()), toolStatus: a.toolStatus === "done" || a.toolStatus === "continue" || a.toolStatus === "need_info" ? a.toolStatus : null,
+    stepNo, exchanges: ((ex ?? []) as { step_no: number; attempt: number; error: string | null }[]),
+    approval, openPending: !!(cur as { pending_kind?: string | null } | null)?.pending_kind,
+    text: a.text, objective: s.objective, brokenRules: broken, goal, fromPerson: !!a.fromPerson, stored: null,
+    outputSha256: await sha256Hex(a.text ?? ""),
+  };
+}
+
+/** Every evaluation is appended here, whatever it decided. A completed session needs this row to exist. */
+async function logChecklist(admin: AnyAdmin, s: SessionRow, stepNo: number, c: Checklist): Promise<boolean> {
+  try {
+    const { error } = await admin.from("outer_control_completion_checks").insert({
+      session_id: s.id, user_id: s.user_id, step_no: stepNo, attempt: (s.align_used ?? 0) + 1,
+      outcome: c.outcome, passed: c.passed, criteria: c.criteria, summary: c.summary.slice(0, 500), output_sha256: c.output_sha256,
+    });
+    return !error;
+  } catch { return false; }
 }
 
 /** The last exchange of the step records what the final check decided about it. */
@@ -255,6 +275,76 @@ async function noteOnLastStep(admin: AnyAdmin, s: SessionRow, stepNo: number, ne
   if (row) await admin.from("outer_control_session_steps").update({ next_action: nextAction, note: `${row.note ?? ""} ${note}`.trim().slice(0, 500) }).eq("id", row.id);
 }
 
+/**
+ * The only way a session becomes "completed". The checklist (outer-control-completion.ts) must pass, the result is
+ * stored and read back, and the checklist is logged; anything else ends as rejected, failed, sent back once, or
+ * handed to a person. A database trigger refuses a "completed" row that does not carry a passing checklist.
+ */
+async function completeSession(
+  admin: AnyAdmin, s: SessionRow, tool: ToolRow, stepNo: number, a: Accept,
+  advance: Record<string, unknown>, reason: string, deps: SessionDeps,
+): Promise<void> {
+  const input = await gatherCompletionInput(admin, s, stepNo, a, deps);
+  let c = buildChecklist(input);
+
+  // Store the result while the session is still open, then read it back before anything is called complete.
+  const readyToStore = c.criteria.filter((x) => x.id !== "output_stored").every((x) => x.ok === true);
+  if (readyToStore) {
+    await patch(admin, s.id, { ...advance, final_output: a.text }, deps);
+    const { data: back } = await admin.from("outer_control_sessions").select("final_output, status").eq("id", s.id).maybeSingle();
+    const row = back as { final_output: string | null; status: string } | null;
+    // Cancelled or finished by someone else meanwhile: nothing to complete. (A session resumed after a person's decision is
+    // still stored as awaiting_human until this very write, so both open states are fine.)
+    if (!row || (row.status !== "running" && row.status !== "awaiting_human")) return;
+    c = buildChecklist({ ...input, stored: { text: row.final_output } });
+  }
+
+  // A result sent back once is "retry"; the second time the same finding becomes a person's decision. Log what was decided.
+  if (c.outcome === "retry") c = settle(c, (s.align_used ?? 0) < MAX_ALIGN_RETRIES);
+  const logged = await logChecklist(admin, s, stepNo, c);
+
+  if (c.passed) {
+    if (!logged) return finish(admin, s, "failed", "The result passed the completion check but the check could not be logged, so it was not marked completed.", deps);
+    const note = `Final check: the result keeps every blocking rule${a.fromPerson ? "" : " and matches the goal"}.`;
+    await finish(admin, s, "completed", `${reason} ${note} ${c.summary}`.slice(0, 600), deps, { ...advance, final_output: a.text, completion: c });
+    // A refusal by the database (or a late cancel) must never leave a running session behind to be driven again.
+    const { data: after } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
+    const afterStatus = (after as { status?: string } | null)?.status;
+    if (afterStatus === "running" || afterStatus === "awaiting_human") {
+      await patch(admin, s.id, { status: "failed", stop_reason: "The completion could not be recorded, so the session was not marked completed.", finished_at: iso(deps.now()), lease_until: null }, deps);
+    }
+    return;
+  }
+
+  if (c.outcome === "blocked") {
+    const names = input.brokenRules.join("; ");
+    return finish(admin, s, "rejected", `The final result breaks ${names}, so it was not released.`, deps, { completion: c });
+  }
+
+  if (c.outcome === "retry" || c.outcome === "needs_attention") {
+    const used = s.align_used ?? 0;
+    const settled = c;
+    const unusable = settled.criteria.some((x) => (x.id === "output_present" || x.id === "output_useful") && x.ok === false);
+    const problems = settled.criteria.filter((x) => x.ok === false).map((x) => x.detail);
+    await recordMemory(admin, s, { stepNo, kind: "plan", data: { completion: { outcome: settled.outcome, problems } }, summary: `Step ${stepNo}: final check — ${problems[0]}` });
+    if (settled.outcome === "retry") {
+      await noteOnLastStep(admin, s, stepNo, "retry_with_correction", `Final check failed: ${problems[0]} Asking the tool once to fix it.`);
+      // The result is not accepted: same step, a new attempt, and the tool is told what is missing.
+      await patch(admin, s.id, {
+        status: "running", align_used: used + 1, attempt_base: s.attempt_base + 1, lease_until: null,
+        correction: correctionFor(settled).slice(0, 500),
+      }, deps);
+      return;
+    }
+    await noteOnLastStep(admin, s, stepNo, "handoff", `Final check failed again: ${problems[0]}`);
+    await admin.from("outer_control_sessions").update({ completion: settled }).eq("id", s.id).in("status", ["running", "awaiting_human"]);
+    return pauseForHandoff(admin, s, tool, stepNo, deps, { kind: unusable ? "no_result" : "goal_unmet", ruleNames: [], failure: null, problems });
+  }
+
+  // A structural criterion failed (a step with no record, an approval not granted, the result not stored): not fixable by asking again.
+  return finish(admin, s, "failed", c.summary, deps, { completion: c });
+}
+
 /** A reply that is usable (allow, cleaned modify, or human-approved) moves the session forward. */
 async function acceptReply(admin: AnyAdmin, s: SessionRow, tool: ToolRow, stepNo: number, a: Accept, deps: SessionDeps): Promise<void> {
   const action = decideNextAction({
@@ -263,26 +353,7 @@ async function acceptReply(admin: AnyAdmin, s: SessionRow, tool: ToolRow, stepNo
   });
   const history = [...(s.history ?? []), ...(a.toolStatus === "need_info" ? [] : [{ step: stepNo, text: a.text }])];
   const advance = { step_count: stepNo, retries_used: 0, failures_used: 0, attempt_base: 0, correction: null, next_input: null, resume_at: null, handoff: null, request_mods_used: 0, request_mods: null, history };
-  if (action.kind === "finish") {
-    const check = await finalCheck(admin, s, a);
-    if (check.kind === "violation") return finish(admin, s, "rejected", check.message, deps);
-    if (check.kind === "unmet") {
-      await recordMemory(admin, s, { stepNo, kind: "plan", data: { goal_check: { ok: false, problems: check.problems } }, summary: `Step ${stepNo}: final check — ${check.problems[0]}` });
-      const used = s.align_used ?? 0;
-      if (used < MAX_ALIGN_RETRIES) {
-        await noteOnLastStep(admin, s, stepNo, "retry_with_correction", `Final check failed: ${check.problems[0]} Asking the tool once to fix it.`);
-        // The result is not accepted: same step, a new attempt, and the tool is told what is missing.
-        await patch(admin, s.id, {
-          status: "running", align_used: used + 1, attempt_base: s.attempt_base + 1, lease_until: null,
-          correction: `The result does not match the goal. ${check.problems.join(" ")} Answer the goal directly.`.slice(0, 500),
-        }, deps);
-        return;
-      }
-      await noteOnLastStep(admin, s, stepNo, "handoff", `Final check failed again: ${check.problems[0]}`);
-      return pauseForHandoff(admin, s, tool, stepNo, deps, { kind: "goal_unmet", ruleNames: [], failure: null, problems: check.problems });
-    }
-    return finish(admin, s, "completed", `${action.reason}${check.note}`, deps, { ...advance, final_output: a.text });
-  }
+  if (action.kind === "finish") return completeSession(admin, s, tool, stepNo, a, advance, action.reason, deps);
   if (action.kind === "stop") return finish(admin, s, "stopped", action.reason, deps, { ...advance, final_output: history.at(-1)?.text ?? null });
   if (action.kind === "pause_human") {
     await patch(admin, s.id, { ...advance, status: "awaiting_human", pending_kind: "question", pending_question: a.text, pending_answer: null, pending_approval_id: null, pending_step_no: stepNo, lease_until: null }, deps);

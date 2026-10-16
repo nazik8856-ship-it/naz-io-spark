@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, toolStatus, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems } from "@/lib/outer-control-ui";
-import { describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, STATUS_LABEL, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
+import { describeCompletion, describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, STATUS_LABEL, type CompletionView, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
 
 // The tables are new and not in the generated Supabase types.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,7 +19,7 @@ type Tool = { id: string; name: string; endpoint_url: string; request_format: st
 type Session = {
   id: string; tool_id: string; objective: string; status: SessionStatus; step_count: number; max_steps: number;
   final_output: string | null; stop_reason: string | null; pending_kind: PendingKind | null; pending_question: string | null; started_at: string;
-  handoff: HandoffView | null; workflow_id: string | null; leg_no: number | null;
+  handoff: HandoffView | null; workflow_id: string | null; leg_no: number | null; completion?: CompletionView | null;
 };
 type MemoryRow = { id: string; kind: string; summary: string };
 type Step = StepLike & { id: string; reply_text: string | null; decision?: import("@/lib/outer-control-sessions").DecisionView | null };
@@ -65,7 +65,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     if (!accountId) return;
     const [t, s, k] = await Promise.all([
       anyDb.from("external_tools").select("id, name, endpoint_url, request_format, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
-      anyDb.from("outer_control_sessions").select("id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no").eq("user_id", accountId).order("started_at", { ascending: false }).limit(10),
+      anyDb.from("outer_control_sessions").select("id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no, completion").eq("user_id", accountId).order("started_at", { ascending: false }).limit(10),
       anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
     ]);
     setTools((t.data ?? []) as Tool[]);
@@ -226,6 +226,20 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                       </div>
                     )}
                     {s.stop_reason && !isOpen(s.status) && <p className="text-zinc-400">{s.stop_reason}</p>}
+                    {(() => {
+                      const cc = describeCompletion(s.completion);
+                      if (!cc) return null;
+                      return (
+                        <details className="rounded border border-white/10 px-2 py-1" data-testid="completion-check">
+                          <summary className={`cursor-pointer ${cc.ok ? "text-emerald-300" : "text-amber-300"}`}>{cc.headline}</summary>
+                          <ul className="mt-1 space-y-0.5">
+                            {cc.lines.map((l, i) => (
+                              <li key={i} className={l.ok === true ? "text-zinc-300" : l.ok === false ? "text-rose-300" : "text-zinc-500"}>{l.mark} {l.text}</li>
+                            ))}
+                          </ul>
+                        </details>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
