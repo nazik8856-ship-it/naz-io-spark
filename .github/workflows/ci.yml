@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Web (types, tests, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check
+        run: npx tsc --noEmit -p tsconfig.app.json
+      - name: Unit and component tests
+        run: npx vitest run
+      - name: Build
+        run: npx vite build
+
+  edge:
+    name: Edge functions (Deno tests)
+    runs-on: ubuntu-latest
+    # Shown on every PR but does not block merging until it has been seen green on this
+    # repository once. Remove this line then.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Deno tests
+        run: deno test --no-check --allow-env --allow-net --allow-read supabase/functions

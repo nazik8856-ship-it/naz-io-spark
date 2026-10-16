@@ -41,7 +41,8 @@ export async function updateToolKey(admin: AnyAdmin, accountId: string, toolId: 
 
 /**
  * Remove a tool: switch it off, hide it, drop its stored credential and cancel any session
- * still using it. Returns the workflows whose later steps may now be able to move on.
+ * still using it as its tool (sessions that only had it as a fallback keep going without one).
+ * Returns the workflows whose later steps may now be able to move on.
  */
 export async function removeTool(admin: AnyAdmin, accountId: string, toolId: string): Promise<ToolChange & { workflowIds?: string[] }> {
   // The id goes into a filter string below, so it must be a plain uuid.
@@ -49,14 +50,24 @@ export async function removeTool(admin: AnyAdmin, accountId: string, toolId: str
   const { data: tool } = await admin.from("external_tools").select("id, credentials_secret_id, removed_at").eq("id", toolId).eq("user_id", accountId).maybeSingle();
   if (!tool || tool.removed_at) return { ok: false, code: "not_found", message: "Tool not found.", status: 404 };
 
-  // Close its open sessions first, so nothing starts contacting it while it is being removed.
-  const { data: open } = await admin.from("outer_control_sessions").select("id, workflow_id")
+  // Close the sessions that use it as their tool first, so nothing starts contacting it while it is
+  // being removed. A session that only had it as its fallback is not cancelled: its own tool still
+  // works, so it keeps going without a fallback (a later failure then goes to a person instead of
+  // switching tools).
+  const { data: open } = await admin.from("outer_control_sessions").select("id, workflow_id, tool_id")
     .eq("user_id", accountId).in("status", ["queued", "running", "awaiting_human"]).or(`tool_id.eq.${toolId},fallback_tool_id.eq.${toolId}`);
-  const rows = (open ?? []) as { id: string; workflow_id: string | null }[];
+  const found = (open ?? []) as { id: string; workflow_id: string | null; tool_id: string }[];
+  const rows = found.filter((r) => r.tool_id === toolId);
+  const fallbackOnly = found.filter((r) => r.tool_id !== toolId);
   if (rows.length) {
     await admin.from("outer_control_sessions")
       .update({ status: "cancelled", stop_reason: "The tool was removed.", finished_at: iso(), updated_at: iso(), pending_kind: null, pending_approval_id: null, lease_until: null, handoff: null })
       .in("id", rows.map((r) => r.id));
+  }
+  if (fallbackOnly.length) {
+    await admin.from("outer_control_sessions")
+      .update({ fallback_tool_id: null, updated_at: iso() })
+      .in("id", fallbackOnly.map((r) => r.id)).eq("fallback_tool_id", toolId);
   }
 
   const { error } = await admin.from("external_tools")

@@ -276,3 +276,67 @@ export function checkGoal(objective: string, text: string): GoalCheck {
   }
   return { ok: problems.length === 0, problems };
 }
+
+// ---------------------------------------------------------------------------------------
+// The same three readouts for the stateless evaluate API (POST /outer-control/evaluate).
+// There is no task around a single call, so nothing about earlier steps or earlier human
+// corrections can be said: only the rules that matched and the content itself are used.
+
+export type StatelessMatch = { rule_id: string; name: string; category: string; severity: string; pattern: string; redact?: boolean };
+
+/** Where the gate stopped, for calls that never reached the safety scan. */
+export type StopSource =
+  | "safety_scanner" | "hard_rule" | "kill_switch" | "agent_kill_switch" | "platform_kill_switch"
+  | "spend_cap" | "circuit_breaker" | "anomaly" | "other";
+
+const EMERGENCY_STOPS = new Set<StopSource>(["kill_switch", "agent_kill_switch", "platform_kill_switch"]);
+const STOP_WORD: Record<string, string> = {
+  hard_rule: "a hard rule", kill_switch: "the account kill switch", agent_kill_switch: "the agent kill switch",
+  platform_kill_switch: "the platform kill switch", spend_cap: "the daily spend cap", circuit_breaker: "the circuit breaker",
+  anomaly: "the anomaly check", other: "an earlier check",
+};
+
+export function judgeStateless(i: {
+  verdict: "allow" | "modify" | "block" | "escalate";
+  matches: StatelessMatch[];
+  shadowMatches?: number;
+  content: string;
+  /** Which layer decided. Defaults to the safety scan. */
+  source?: StopSource | string | null;
+}): { risk: Risk; confidence: Confidence; trace: string[] } {
+  const source = (i.source ?? "safety_scanner") as StopSource;
+  const hits: RuleHit[] = i.matches.map((m) => ({
+    id: m.rule_id, name: m.name, category: m.category, pattern: m.pattern,
+    effect: m.redact ? "redact" : m.severity === "block" ? "block" : "approval",
+    origin: "safety", scope: "account",
+  }));
+  const early = source !== "safety_scanner" && hits.length === 0 && i.verdict !== "allow";
+  const stoppedBy = STOP_WORD[source] ?? STOP_WORD.other;
+
+  let risk = classifyRisk({ hits, content: i.content, ruleOutcomes: {} });
+  if (early) {
+    const level: Level = i.verdict === "block" && (source === "hard_rule" || EMERGENCY_STOPS.has(source)) ? "high" : "medium";
+    risk = { level, reasons: [`stopped by ${stoppedBy} before any text or content check`] };
+  }
+
+  const confidence = scoreConfidence({
+    verdict: i.verdict, foundationVerdict: i.verdict, hits, conflicts: [], tightened: false, removalFailed: false,
+    shadowMatches: i.shadowMatches ?? 0, contentLength: i.content.length, priorConcerns: false,
+    learned: { approved: 0, declined: 0, edited: 0, tighten: false, lines: [] },
+    decidedByHardRule: early && (source === "hard_rule" || EMERGENCY_STOPS.has(source)),
+  });
+  if (early && !EMERGENCY_STOPS.has(source) && source !== "hard_rule") {
+    // The reason line for a stop by a non-rule layer: say what decided it.
+    confidence.reasons = [`decided directly by ${stoppedBy}`];
+  }
+
+  const rank: Record<string, number> = { block: 3, approval: 2, redact: 1 };
+  const winner = hits.length ? [...hits].sort((a, b) => rank[b.effect] - rank[a.effect])[0] : null;
+  const trace = buildTrace({
+    verdict: i.verdict, foundationVerdict: i.verdict, winner, overridden: [], changesText: "",
+    guard: early ? [`Stopped by ${stoppedBy}; the rules on the text itself were not needed.`] : [],
+    learned: { approved: 0, declined: 0, edited: 0, tighten: false, lines: [] },
+    risk, confidence, escalatedForCare: false, escalatedByLearning: false,
+  });
+  return { risk, confidence, trace };
+}

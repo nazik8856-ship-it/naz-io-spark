@@ -1244,7 +1244,8 @@ Deno.test("half-open trial: a successful outcome clears the breaker outright, ev
   });
   const result = await runControlGate(client, baseCtx);
   await result.recordAttempt(false, "ok");
-  const updated = (updates.circuit_breakers ?? [])[0] as { tripped?: boolean; tripped_at?: string | null; recent_outcomes?: string[] } | undefined;
+  // The trial is first claimed atomically (an update of half_open_claimed_at alone); the outcome is the update that sets `tripped`.
+  const updated = (updates.circuit_breakers ?? []).find((u) => u && typeof u === "object" && "tripped" in u) as { tripped?: boolean; tripped_at?: string | null; recent_outcomes?: string[] } | undefined;
   assertEquals(updated?.tripped, false, "one successful trial must clear the breaker even though the raw window is still mostly failed");
   assertEquals(updated?.tripped_at, null);
   assertEquals(updated?.recent_outcomes, ["ok"], "the window resets on a successful trial so leftover stale failures can't immediately re-trip it");
@@ -1260,7 +1261,8 @@ Deno.test("half-open trial: a failed outcome re-trips immediately and restarts t
   });
   const result = await runControlGate(client, baseCtx);
   await result.recordAttempt(true, "still broken");
-  const updated = (updates.circuit_breakers ?? [])[0] as { tripped?: boolean; tripped_at?: string | null; trip_count?: number } | undefined;
+  // See the claim note in the test above: pick the outcome update, not the claim.
+  const updated = (updates.circuit_breakers ?? []).find((u) => u && typeof u === "object" && "tripped" in u) as { tripped?: boolean; tripped_at?: string | null; trip_count?: number } | undefined;
   assertEquals(updated?.tripped, true, "a failed trial must re-trip immediately, not wait for a fresh window to confirm a pattern");
   assert(!!updated?.tripped_at, "tripped_at must be restamped so the cooldown restarts from now");
   assertEquals(updated?.trip_count, 2, "a re-trip after a failed trial counts as a new trip");
