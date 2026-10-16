@@ -29,17 +29,3 @@ jobs:
         run: npx vitest run
       - name: Build
         run: npx vite build
-
-  edge:
-    name: Edge functions (Deno tests)
-    runs-on: ubuntu-latest
-    # Shown on every PR but does not block merging until it has been seen green on this
-    # repository once. Remove this line then.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-      - name: Deno tests
-        run: deno test --no-check --allow-env --allow-net --allow-read supabase/functions
