@@ -13,7 +13,8 @@ import { useInnerControlRules } from "@/hooks/useInnerControlRules";
 import YourRulesCard from "@/components/control/dashboard/YourRulesCard";
 import RecentActivityCard from "@/components/control/dashboard/RecentActivityCard";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { CHAT_SPEC, CHAT_SUGGESTIONS, chatStepLabels, needsTemplate, statusLine, type RuleItem } from "@/lib/inner-control-ui";
+import PromptExtras, { type Attachment } from "@/components/generator/PromptExtras";
+import { buildControlMessage, CHAT_SPEC, CHAT_SUGGESTIONS, chatStepLabels, needsTemplate, statusLine, type RuleItem } from "@/lib/inner-control-ui";
 import SpendSafetyStatusBadge from "@/components/control/SpendSafetyStatusBadge";
 import { useSpendSafetyStatus } from "@/hooks/useSpendSafetyStatus";
 import { useControlDashboardData } from "@/hooks/useControlDashboardData";
@@ -74,6 +75,7 @@ export default function ControlSystem() {
   const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(null);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [ruleEditorOpen, setRuleEditorOpen] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const canSignOff = canApprove(role);
 
   useEffect(() => {
@@ -117,7 +119,12 @@ export default function ControlSystem() {
     const history = turns
       .filter((t) => t.content)
       .map((t) => ({ role: t.role, content: t.content }));
-    setTurns((t) => [...t, { role: "user", content: text }, { role: "assistant", content: "" }]);
+    // The chat shows what the person typed plus the attachment names; the reviewed message also carries
+    // the attachment text. Earlier turns are sent as shown, so old attachments are not resent every time.
+    const sent = buildControlMessage(text, attachments);
+    const shown = attachments.length ? `${text}\n\n📎 ${attachments.map((a) => a.label).join(" · ")}` : text;
+    setAttachments([]);
+    setTurns((t) => [...t, { role: "user", content: shown }, { role: "assistant", content: "" }]);
     setStreaming(true);
     // Live status: the page shows the phases it can actually see (sent, then working until
     // the answer arrives) with a running timer. The server reports no sub-steps, so none are invented.
@@ -130,7 +137,7 @@ export default function ControlSystem() {
         // Was missing entirely -- the entire review/execute flow silently
         // ran against the caller's own account regardless of which account
         // was selected via the switcher.
-        body: { message: text, history, dry_run: dryRun, account_id: accountId || undefined },
+        body: { message: sent, history, dry_run: dryRun, account_id: accountId || undefined },
       });
       if (error) throw error;
       const d = data as ControlDecision & { error?: string; message?: string; mode?: string; reply?: string };
@@ -461,6 +468,9 @@ export default function ControlSystem() {
             fullSpec={CHAT_SPEC}
             onSend={handleSend}
             prefill={prefill}
+            composerExtras={
+              <PromptExtras controlMode attachments={attachments} onChange={setAttachments} tone={null} onToneChange={() => {}} />
+            }
           />
         </div>
       </div>

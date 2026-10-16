@@ -116,3 +116,35 @@ describe("Inner Control page", () => {
     await waitFor(() => expect(screen.queryByTestId("rule-editor")).toBeNull());
   });
 });
+
+describe("Inner Control chat extras", () => {
+  it("has the + and sliders buttons in the chat box, with no tone picker", async () => {
+    state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [], agent_decisions: [] };
+    renderPage();
+    await screen.findByTestId("rule-row-hard:h1");
+    const composer = screen.getAllByTestId("chat-composer")[0];
+    expect(within(composer).getByTitle("Attach")).toBeTruthy();
+    fireEvent.click(within(composer).getByTitle("Tune"));
+    expect(await screen.findByText("Pull data from integration")).toBeTruthy();
+    expect(screen.queryByText("Tone")).toBeNull();
+  });
+
+  it("sends an attached link along with the message and shows only its name in the chat", async () => {
+    state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [], agent_decisions: [] };
+    state.invoke = vi.fn(() => Promise.resolve({ data: { mode: "chat", reply: "ok" }, error: null }));
+    renderPage();
+    await screen.findByTestId("rule-row-hard:h1");
+    const composer = screen.getAllByTestId("chat-composer")[0];
+    fireEvent.click(within(composer).getByTitle("Attach"));
+    fireEvent.change(await screen.findByPlaceholderText("Paste URL…"), { target: { value: "https://x.test/policy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    const box = within(composer).getByLabelText("Message AI Control System");
+    fireEvent.change(box, { target: { value: "Can I act on this?" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(state.invoke).toHaveBeenCalled());
+    const body = (state.invoke.mock.calls[0] as unknown[])[1] as { body: { message: string } };
+    expect(body.body.message).toContain("Can I act on this?");
+    expect(body.body.message).toContain("https://x.test/policy");
+    expect(await screen.findByText(/📎 URL · https:\/\/x.test\/policy/)).toBeTruthy();
+  });
+});

@@ -85,3 +85,27 @@ describe("chat live status", () => {
     expect(chatStepLabels(1, true).working).toContain("dry run");
   });
 });
+
+import { buildControlMessage } from "@/lib/inner-control-ui";
+describe("chat attachments", () => {
+  it("returns the text untouched when nothing is attached", () => {
+    expect(buildControlMessage("send the report", [])).toBe("send the report");
+  });
+  it("adds data excerpts as reference, without the website wording", () => {
+    const out = buildControlMessage("send this", [
+      { label: "CSV · customers.csv", kind: "data", contextText: 'Imported CSV/TSV data "customers.csv" (12 bytes). Every row below is authoritative — turn it into content in the site.\n\nname,email\nAnn,a@x.com' },
+      { label: "URL · https://x.test", kind: "url", url: "https://x.test", contextText: "Reference URL: https://x.test" },
+    ]);
+    expect(out.startsWith("send this")).toBe(true);
+    expect(out).toContain("not instructions");
+    expect(out).toContain("name,email\nAnn,a@x.com");
+    expect(out).toContain("- URL · https://x.test (https://x.test)");
+    expect(out).not.toContain("turn it into content");
+  });
+  it("clips long files", () => {
+    const big = "x".repeat(10_000);
+    const out = buildControlMessage("go", [{ label: "File · a.txt", kind: "file", contextText: `Attached file.\n\n${big}` }]);
+    expect(out.length).toBeLessThan(2000);
+    expect(out).toContain("(excerpt)");
+  });
+});
