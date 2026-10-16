@@ -117,3 +117,23 @@ describe("trace, risk and confidence in the step log", () => {
   });
 });
 
+
+import { describeCompletion } from "@/lib/outer-control-sessions";
+describe("describeCompletion", () => {
+  const crit = (id: string, ok: boolean | null, detail = "d") => ({ id, label: `L-${id}`, ok, detail });
+  it("is null for sessions that have no stored check", () => {
+    expect(describeCompletion(null)).toBeNull();
+    expect(describeCompletion(undefined)).toBeNull();
+  });
+  it("says passed with the count and marks every line", () => {
+    const d = describeCompletion({ passed: true, outcome: "completed", summary: "Completion check passed: all 2 criteria met.", criteria: [crit("a", true), crit("b", true)] })!;
+    expect(d.ok).toBe(true); expect(d.headline).toBe("Completion check passed (2/2)");
+    expect(d.lines.map((l) => l.mark)).toEqual(["✓", "✓"]);
+  });
+  it("names what was not met and marks unevaluated criteria", () => {
+    const d = describeCompletion({ passed: false, outcome: "failed", summary: "Completion check failed: a result exists — there is no result.", criteria: [crit("a", true), crit("b", false, "there is no result"), crit("c", null)] })!;
+    expect(d.ok).toBe(false);
+    expect(d.headline).toBe("Completion check not passed (1/3): a result exists — there is no result.");
+    expect(d.lines.map((l) => l.mark)).toEqual(["✓", "✗", "–"]);
+  });
+});

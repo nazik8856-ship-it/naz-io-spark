@@ -4,7 +4,7 @@
 import type { FailureClass } from "./outer-control-recovery.ts";
 import { humanRetriesAt, renderMemoryCounted, type MemoryEntry } from "./outer-control-memory.ts";
 
-export type HandoffKind = "rule_exhausted" | "tool_failed" | "goal_unmet";
+export type HandoffKind = "rule_exhausted" | "tool_failed" | "goal_unmet" | "no_result";
 export type HandoffOptionId = "retry" | "stop" | "edit";
 export type HandoffOption = { id: HandoffOptionId; label: string; description: string };
 export type Handoff = {
@@ -40,6 +40,29 @@ export type HandoffInput = {
 export function buildHandoff(i: HandoffInput): Handoff {
   const earlier = humanRetriesAt(i.memory, i.stepNo);
   const recent = renderMemoryCounted(i.memory, 3);
+
+  if (i.kind === "no_result") {
+    const recommended: HandoffOptionId = earlier > 0 ? "stop" : "retry";
+    return {
+      kind: i.kind,
+      title: `"${i.toolName}" returned nothing useful (step ${i.stepNo})`,
+      summary: [
+        `Step ${i.stepNo}: the tool answered, but there is no usable result to complete the session with.`,
+        ...(i.problems ?? []).slice(0, 3),
+        "The tool was already asked once to answer properly. The session is not marked completed.",
+        earlier > 0
+          ? "You already chose to retry this step once, so stopping is recommended."
+          : "A short note about what the answer should contain may let the tool get it right.",
+        ...recent.map((l) => `Earlier: ${l}`),
+      ],
+      options: [
+        { id: "retry", label: "Ask again with my note", description: "Gives the tool one more try. Your note is added to the request." },
+        EDIT_OPTION,
+        { id: "stop", label: "Stop the session", description: "Ends the session. Accepted steps are kept." },
+      ],
+      recommended,
+    };
+  }
 
   if (i.kind === "goal_unmet") {
     const recommended: HandoffOptionId = earlier > 0 ? "stop" : "retry";

@@ -51,8 +51,27 @@ export function describeStep(s: StepLike): string {
   return `Step ${s.step_no}${s.attempt > 1 ? ` (try ${s.attempt})` : ""} — ${what}${next ? ` — ${next}` : ""}`;
 }
 
+/** The stored completion checklist of a session (see supabase/functions/_shared/outer-control-completion.ts). */
+export type CompletionView = {
+  passed: boolean;
+  outcome: "completed" | "blocked" | "retry" | "needs_attention" | "failed";
+  summary: string;
+  criteria: { id: string; label: string; ok: boolean | null; detail: string }[];
+};
+
+/** "8/8 criteria met" or what was not met, plus one line per criterion with a mark. Null when no check was stored (older sessions). */
+export function describeCompletion(c: CompletionView | null | undefined): { headline: string; ok: boolean; lines: { mark: string; text: string; ok: boolean | null }[] } | null {
+  if (!c || !Array.isArray(c.criteria)) return null;
+  const met = c.criteria.filter((x) => x.ok === true).length;
+  return {
+    ok: c.passed,
+    headline: c.passed ? `Completion check passed (${met}/${c.criteria.length})` : `Completion check not passed (${met}/${c.criteria.length}): ${c.summary.replace(/^Completion check failed: /, "")}`,
+    lines: c.criteria.map((x) => ({ mark: x.ok === true ? "✓" : x.ok === false ? "✗" : "–", text: `${x.label} — ${x.detail}`, ok: x.ok })),
+  };
+}
+
 export type HandoffView = {
-  kind: "rule_exhausted" | "tool_failed" | "goal_unmet";
+  kind: "rule_exhausted" | "tool_failed" | "goal_unmet" | "no_result";
   title: string;
   summary: string[];
   options: { id: "retry" | "edit" | "stop"; label: string; description: string }[];
