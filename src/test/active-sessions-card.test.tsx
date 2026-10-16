@@ -244,6 +244,20 @@ describe("ActiveSessionsCard", () => {
     expect(screen.queryByLabelText("Your reply")).toBeNull();
   });
 
+  it("an opened step shows its risk and confidence badges and the trace lines", async () => {
+    state.tools = [tool];
+    state.sessions = [session({ status: "completed" })];
+    state.steps = [{ id: "st1", step_no: 1, attempt: 1, verdict: "modify", next_action: "finish", error: null, note: null, reply_text: "x",
+      decision: { why: "legacy", trace: ["Decision: Modify.", "Risk: high — secrets had to be removed."], risk: { level: "high" }, confidence: { level: "medium" }, plan: { reason: "The tool reported the objective as done." } } }];
+    renderCard();
+    fireEvent.click(await screen.findByText("Draft a reply"));
+    expect(await screen.findByText("Risk high")).toBeTruthy();
+    expect(screen.getByText("Confidence medium")).toBeTruthy();
+    expect(screen.getByText("Decision: Modify.")).toBeTruthy();
+    expect(screen.getByText("Risk: high — secrets had to be removed.")).toBeTruthy();
+    expect(screen.queryByText(/Why: legacy/)).toBeNull();
+  });
+
   it("an opened session shows the reasoning stored with each step", async () => {
     state.tools = [tool];
     state.sessions = [session({ status: "completed", final_output: "ok" })];

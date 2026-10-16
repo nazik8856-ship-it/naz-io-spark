@@ -19,6 +19,10 @@
 import { scanWithRules, type SafetyMatch, type SafetyRule } from "./safety-scanner.ts";
 import { isRedactableMatch, redactWithChanges, type OuterControlVerdict, type RedactionChange } from "./outer-control-scoring.ts";
 import { decideNextAction, type NextAction, type NextActionInput, type NextActionKind } from "./outer-control-next-action.ts";
+import {
+  buildTrace, classifyRisk, fingerprintOf, learnedSignal, needsCare, scoreConfidence,
+  type Confidence, type Correction, type Learned, type Risk,
+} from "./outer-control-judgement.ts";
 
 // ---------------------------------------------------------------------------------------
 // Rules as the resolver sees them
@@ -289,6 +293,8 @@ export type Foundation = {
   matches: SafetyMatch[];
   changes: RedactionChange[];
   summary: string;
+  /** Observe-only (shadow) rules that also matched; they never change the verdict. */
+  shadowMatches?: number;
 };
 
 export type BrainDecision = {
@@ -305,6 +311,17 @@ export type BrainDecision = {
   conflicts: string[];
   guard: string[];
   plan: Plan;
+  /** How risky the situation is, and how far this decision can be trusted to stand without a person. */
+  risk: Risk;
+  confidence: Confidence;
+  /** What earlier human decisions on similar replies say. */
+  learned: Learned;
+  /** Short readable lines: what was decided, by which rule, why. */
+  trace: string[];
+  /** Word-overlap fingerprint of the reply (hashes only), kept so a later human correction can be matched to it. */
+  fingerprint: number[];
+  escalatedForCare: boolean;
+  escalatedByLearning: boolean;
 };
 
 export type ThinkInput = {
@@ -316,6 +333,8 @@ export type ThinkInput = {
   /** Loop state for the planner; `verdict` is filled in from the decision. */
   loop: Omit<NextActionInput, "verdict">;
   requestModsUsed: number;
+  /** Earlier human corrections for this account/key (approved, declined, edited replies). */
+  corrections?: Correction[];
 };
 
 export function think(i: ThinkInput): BrainDecision {
@@ -333,8 +352,18 @@ export function think(i: ThinkInput): BrainDecision {
   }
   const res = resolveRules(hits);
 
-  // Never weaker than the foundation; the resolver and the guard can only tighten it.
-  let verdict = stricterVerdict(f.verdict, res.verdict, guard.floor);
+  // Learning: when people declined similar replies more often than they approved them, this one goes to a
+  // person too. Learning only ever tightens; approvals alone never let anything through.
+  const fingerprint = fingerprintOf(i.content);
+  const learned = learnedSignal({
+    corrections: i.corrections ?? [], fingerprint, hitIds: hits.map((h) => h.id), hitNames: hits.map((h) => h.name),
+  });
+
+  // Never weaker than the foundation; the resolver, the guard and learning can only tighten it.
+  const baseVerdict = stricterVerdict(f.verdict, res.verdict, guard.floor);
+  let verdict = stricterVerdict(baseVerdict, learned.tighten ? "escalate" : "allow");
+  const escalatedByLearning = verdict !== baseVerdict;
+  let removalFailed = false;
   let output = f.output;
   let changes = f.changes;
 
@@ -349,11 +378,23 @@ export function think(i: ThinkInput): BrainDecision {
       const cleaned = redactWithChanges(output ?? i.content, pinnedRedact);
       const recheck = scanWithRules(pinnedAsRules(i.wm.pinned), cleaned.text, "");
       if (cleaned.changes.length && !recheck.matched) { output = cleaned.text; changes = [...f.changes, ...cleaned.changes]; }
-      else { verdict = "block"; output = null; changes = []; }
+      else { verdict = "block"; output = null; changes = []; removalFailed = true; }
     } else if (f.verdict !== "modify") {
       // "Clean it" was demanded but there is nothing to cut out by rule: never release it unchanged.
-      verdict = "block"; output = null; changes = [];
+      verdict = "block"; output = null; changes = []; removalFailed = true;
     }
+  }
+
+  // Risk and confidence. A high-risk reply that the brain itself does not trust goes to a person.
+  const risk = classifyRisk({ hits, content: i.content, ruleOutcomes: i.wm.ruleOutcomes });
+  const confidence = scoreConfidence({
+    verdict, foundationVerdict: f.verdict, hits, conflicts: res.conflicts, tightened: baseVerdict !== f.verdict, removalFailed,
+    shadowMatches: f.shadowMatches ?? 0, contentLength: i.content.length, priorConcerns: Object.keys(i.wm.ruleOutcomes).length > 0,
+    learned, decidedByHardRule: hits.some((h) => h.id === "foundation"),
+  });
+  let escalatedForCare = false;
+  if ((verdict === "allow" || verdict === "modify") && needsCare(risk, confidence)) {
+    verdict = "escalate"; output = null; changes = []; escalatedForCare = true;
   }
 
   const parts: string[] = [f.summary];
@@ -361,12 +402,20 @@ export function think(i: ThinkInput): BrainDecision {
   parts.push(...res.conflicts, ...guard.findings);
   const why = parts.filter(Boolean).join(" ").slice(0, 900);
 
+  // High risk is treated more strictly: one correction attempt, then a person.
+  const loop = risk.level === "high" ? { ...i.loop, maxRetries: Math.min(i.loop.maxRetries, 1) } : i.loop;
   const plan = planNextAction({
-    base: { ...i.loop, verdict }, requestModsUsed: i.requestModsUsed, hits, wm: i.wm,
+    base: { ...loop, verdict }, requestModsUsed: i.requestModsUsed, hits, wm: i.wm,
+  });
+  const trace = buildTrace({
+    verdict, foundationVerdict: f.verdict, winner: res.winner, overridden: res.overridden, guard: guard.findings, learned, risk, confidence,
+    changesText: changes.length ? `Removed ${changes.map((c) => `${c.count}× "${c.name}"`).join(", ")}.` : "",
+    escalatedForCare, escalatedByLearning,
   });
   return {
     verdict, output, changes, why, foundationVerdict: f.verdict, winner: res.winner, applied: res.applied,
     overridden: res.overridden, conflicts: res.conflicts, guard: guard.findings, plan,
+    risk, confidence, learned, trace, fingerprint, escalatedForCare, escalatedByLearning,
   };
 }
 
@@ -378,6 +427,11 @@ export function decisionRecord(d: BrainDecision) {
     applied: d.applied.map((h) => h.name), overridden: d.overridden.map((o) => ({ rule: o.rule.name, by: o.by.name, reason: o.reason })),
     conflicts: d.conflicts, guard: d.guard,
     plan: { kind: d.plan.kind, reason: d.plan.reason, basis: d.plan.basis, request: d.plan.request },
+    risk: d.risk, confidence: d.confidence, trace: d.trace,
+    learned: { approved: d.learned.approved, declined: d.learned.declined, edited: d.learned.edited },
+    // What a later human correction needs to be matched back to this reply (hashes only, no text).
+    fingerprint: d.fingerprint, rule_ids: [...d.applied, ...d.overridden.map((o) => o.rule)].map((h) => h.id)
+      .filter((id, k, a) => a.indexOf(id) === k),
   };
 }
 
