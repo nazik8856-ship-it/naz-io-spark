@@ -34,6 +34,12 @@ interface Props {
   onChange: (next: Attachment[]) => void;
   tone: string | null;
   onToneChange: (t: string | null) => void;
+  /**
+   * For chats where the text is a decision to review, not content to generate (the AI
+   * Control System): no tone picker, and only text-based files can be attached (nothing
+   * is uploaded to public storage).
+   */
+  controlMode?: boolean;
 }
 
 const TONES = ["Playful", "Professional", "Luxury", "Minimal", "Bold"];
@@ -58,7 +64,7 @@ async function readFileAsText(file: File): Promise<string> {
   });
 }
 
-export default function PromptExtras({ attachments, onChange, tone, onToneChange }: Props) {
+export default function PromptExtras({ attachments, onChange, tone, onToneChange, controlMode = false }: Props) {
   const { user } = useAuth();
   const [plusOpen, setPlusOpen] = useState(false);
   const [tunerOpen, setTunerOpen] = useState(false);
@@ -259,7 +265,10 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
           toast.error(`Couldn't read ${f.name}`);
         }
       } else {
-
+        if (controlMode) {
+          toast.error(`${f.name} can't be attached here. Attach a text, CSV or JSON file instead.`);
+          continue;
+        }
         if (!user?.id) {
           toast.error(`Sign in to attach ${f.name}`);
           continue;
@@ -333,12 +342,13 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
             onClick={() => fileInputRef.current?.click()}
             className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-zinc-200 hover:bg-white/5"
           >
-            <Upload className="h-4 w-4 text-purple-300" /> Upload file or image
+            <Upload className="h-4 w-4 text-purple-300" /> {controlMode ? "Upload a text, CSV or JSON file" : "Upload file or image"}
           </button>
           <input
             ref={fileInputRef}
             type="file"
             multiple
+            accept={controlMode ? ".csv,.tsv,.json,.txt,.md,.log,.xml,.yaml,.yml,text/*" : undefined}
             className="hidden"
             onChange={(e) => { handleFiles(e.target.files, false); setPlusOpen(false); e.target.value = ""; }}
           />
@@ -388,22 +398,26 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
           style={{ position: "fixed", left: tunerPos.left, bottom: tunerPos.bottom, zIndex: 10000 }}
           className="w-80 rounded-xl border border-white/10 bg-zinc-950 p-3 shadow-2xl"
         >
-          <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Tone</div>
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {TONES.map((t) => (
-              <button
-                key={t}
-                onClick={() => onToneChange(tone === t ? null : t)}
-                className={`px-2.5 py-1 rounded-full text-xs border transition ${
-                  tone === t
-                    ? "bg-purple-500/25 border-purple-400/60 text-white"
-                    : "bg-white/[0.03] border-white/10 text-zinc-300 hover:border-white/30"
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
+          {!controlMode && (
+            <>
+              <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Tone</div>
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {TONES.map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => onToneChange(tone === t ? null : t)}
+                    className={`px-2.5 py-1 rounded-full text-xs border transition ${
+                      tone === t
+                        ? "bg-purple-500/25 border-purple-400/60 text-white"
+                        : "bg-white/[0.03] border-white/10 text-zinc-300 hover:border-white/30"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
 
           <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Pull data from integration</div>
           <div className="space-y-1 mb-3">
@@ -472,12 +486,12 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
           </div>
 
 
-          <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Import from CSV / export</div>
+          <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">{controlMode ? "Import data" : "Import from CSV / export"}</div>
           <button
             onClick={() => csvInputRef.current?.click()}
             className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-xs text-zinc-200 border border-dashed border-white/10 hover:border-purple-400/40"
           >
-            <FileSpreadsheet className="h-4 w-4 text-purple-300" /> Upload CSV/JSON (Wix, Shopify export, etc.)
+            <FileSpreadsheet className="h-4 w-4 text-purple-300" /> {controlMode ? "Upload CSV/JSON data" : "Upload CSV/JSON (Wix, Shopify export, etc.)"}
           </button>
           <input
             ref={csvInputRef}

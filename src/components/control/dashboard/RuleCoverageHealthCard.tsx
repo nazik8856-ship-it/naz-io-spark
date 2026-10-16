@@ -11,6 +11,7 @@
 import { useId, useMemo, useState } from "react";
 import type { CapabilityForCoverage, CoverageCellStatus } from "@/lib/coverage-gaps";
 import { Activity } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type Cell = CapabilityForCoverage & { status: CoverageCellStatus };
 
@@ -484,6 +485,7 @@ export default function RuleCoverageHealthCard({
   healthPct,
   onCoverageClick,
   onHealthClick,
+  onConnect,
 }: {
   coveragePct: number | null;
   coverageGapCount: number;
@@ -492,21 +494,28 @@ export default function RuleCoverageHealthCard({
   healthPct: number | null;
   onCoverageClick: () => void;
   onHealthClick: () => void;
+  /** Where to go to connect an integration, shown in the empty state. */
+  onConnect?: () => void;
 }) {
+  const [mapOpen, setMapOpen] = useState(false);
+  const empty = coverageTotal === 0;
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
-      <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Rule Coverage &amp; System Health</div>
-
-      {/* Mockup fidelity (task #67): the coverage / health readouts float as glass callouts over the graph itself, not as a static card header. */}
-      <div className="relative mt-4">
-        <button onClick={onCoverageClick} className="block w-full text-left" aria-label="Open rule coverage">
-          <HexNetwork cells={coverageCells} />
-        </button>
-        <div className="absolute right-2 top-2 flex flex-col items-end gap-1.5 text-[11px]" data-testid="coverage-overlay">
+    <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4 sm:p-5" aria-label="Rule coverage and system health">
+      {/* Coverage and Health sit in the header, top right, where the eye lands first. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-zinc-100">Rule coverage</h2>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            {empty
+              ? "Which of the things your AI can do are covered by a live rule."
+              : `${coverageGapCount} of ${coverageTotal} ${coverageTotal === 1 ? "capability is" : "capabilities are"} not covered by a live rule.`}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-1.5 text-[11px]" data-testid="coverage-overlay">
           <button
             onClick={onCoverageClick}
             title="How much of what your AI can do is actually governed by a live rule"
-            className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0a0f1e]/70 px-2.5 py-1 text-zinc-300 shadow-lg shadow-cyan-500/5 backdrop-blur-sm hover:text-white"
+            className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0a0f1e]/70 px-2.5 py-1 text-zinc-300 hover:text-white"
           >
             <span className="h-2 w-2 rounded-full" style={{ background: STATUS_PALETTE.covered.base }} />
             Coverage {coveragePct === null ? "—" : `${coveragePct}%`}
@@ -514,7 +523,7 @@ export default function RuleCoverageHealthCard({
           <button
             onClick={onHealthClick}
             title="How reliably the Control System itself is running"
-            className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0a0f1e]/70 px-2.5 py-1 text-zinc-300 shadow-lg shadow-amber-500/5 backdrop-blur-sm hover:text-white"
+            className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0a0f1e]/70 px-2.5 py-1 text-zinc-300 hover:text-white"
           >
             <Activity className="h-3 w-3 text-amber-300" />
             Health {healthPct === null ? "—" : `${healthPct}%`}
@@ -522,20 +531,51 @@ export default function RuleCoverageHealthCard({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-zinc-500">
-        <span className="flex items-center gap-1.5 whitespace-nowrap">
-          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: STATUS_PALETTE.covered.base }} /> Covered
-        </span>
-        <span className="flex items-center gap-1.5 whitespace-nowrap">
-          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: STATUS_PALETTE.shadow.base }} /> Shadow/disabled
-        </span>
-        <span className="flex items-center gap-1.5 whitespace-nowrap">
-          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: STATUS_PALETTE.gap.base }} /> Ungoverned
-        </span>
-        <span className="whitespace-nowrap sm:ml-auto">
-          {coverageTotal === 0 ? "No connected capabilities yet" : `${coverageGapCount} of ${coverageTotal} ungoverned`}
-        </span>
-      </div>
-    </div>
+      {empty ? (
+        <div className="mt-3 rounded-lg border border-dashed border-white/15 bg-black/20 p-4 text-center" data-testid="coverage-empty">
+          <p className="text-sm font-medium text-zinc-200">Nothing connected to cover yet</p>
+          <p className="mx-auto mt-1 max-w-sm text-xs text-zinc-500">
+            Connect an integration such as email, Slack or Shopify. Each action it allows then appears here, marked as covered or not covered by a rule.
+          </p>
+          {onConnect && (
+            <button onClick={onConnect} className="mt-3 rounded-lg border border-white/15 px-3 py-1.5 text-xs text-zinc-200 hover:bg-white/5">
+              Open the Generator to connect one
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-zinc-500">
+          <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: STATUS_PALETTE.covered.base }} /> Covered
+          </span>
+          <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: STATUS_PALETTE.shadow.base }} /> Shadow/disabled
+          </span>
+          <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: STATUS_PALETTE.gap.base }} /> Not covered
+          </span>
+          {/* The honeycomb is detail, not the headline: it opens on demand. */}
+          <button
+            onClick={() => setMapOpen(true)}
+            aria-haspopup="dialog"
+            className="rounded-md border border-white/15 px-2.5 py-1 text-xs text-zinc-200 hover:bg-white/5 sm:ml-auto"
+          >
+            Advanced: coverage map
+          </button>
+        </div>
+      )}
+
+      <Dialog open={mapOpen} onOpenChange={setMapOpen}>
+        <DialogContent className="max-w-3xl border-white/10 bg-[#050813] text-white" data-testid="coverage-map-dialog">
+          <DialogHeader>
+            <DialogTitle>Coverage map</DialogTitle>
+            <DialogDescription>
+              Every capability your AI can use, linked by provider. Hover or tap a node to see whether a live rule covers it.
+            </DialogDescription>
+          </DialogHeader>
+          <HexNetwork cells={coverageCells} />
+        </DialogContent>
+      </Dialog>
+    </section>
   );
 }

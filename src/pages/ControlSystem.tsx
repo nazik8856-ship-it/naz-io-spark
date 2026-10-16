@@ -7,6 +7,14 @@ import { canApprove } from "@/lib/account-switcher";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
+import ExecutionLog from "@/components/execution/ExecutionLog";
+import { useExecutionLog } from "@/hooks/useExecutionLog";
+import { useInnerControlRules } from "@/hooks/useInnerControlRules";
+import YourRulesCard from "@/components/control/dashboard/YourRulesCard";
+import RecentActivityCard from "@/components/control/dashboard/RecentActivityCard";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import PromptExtras, { type Attachment } from "@/components/generator/PromptExtras";
+import { buildControlMessage, CHAT_SPEC, CHAT_SUGGESTIONS, chatStepLabels, needsTemplate, statusLine, type RuleItem } from "@/lib/inner-control-ui";
 import SpendSafetyStatusBadge from "@/components/control/SpendSafetyStatusBadge";
 import { useSpendSafetyStatus } from "@/hooks/useSpendSafetyStatus";
 import { useControlDashboardData } from "@/hooks/useControlDashboardData";
@@ -61,6 +69,13 @@ export default function ControlSystem() {
   const spendStatus = useSpendSafetyStatus(accountId);
   const dashboard = useControlDashboardData(accountId);
   const approvalsFeed = usePendingApprovalsFeed(accountId);
+  const innerRules = useInnerControlRules();
+  const chatLog = useExecutionLog();
+  // "Ask in chat" on a rule or activity row: text is placed in the box, not sent.
+  const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(null);
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
+  const [ruleEditorOpen, setRuleEditorOpen] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const canSignOff = canApprove(role);
 
   useEffect(() => {
@@ -104,18 +119,30 @@ export default function ControlSystem() {
     const history = turns
       .filter((t) => t.content)
       .map((t) => ({ role: t.role, content: t.content }));
-    setTurns((t) => [...t, { role: "user", content: text }, { role: "assistant", content: "" }]);
+    // The chat shows what the person typed plus the attachment names; the reviewed message also carries
+    // the attachment text. Earlier turns are sent as shown, so old attachments are not resent every time.
+    const sent = buildControlMessage(text, attachments);
+    const shown = attachments.length ? `${text}\n\n📎 ${attachments.map((a) => a.label).join(" · ")}` : text;
+    setAttachments([]);
+    setTurns((t) => [...t, { role: "user", content: shown }, { role: "assistant", content: "" }]);
     setStreaming(true);
+    // Live status: the page shows the phases it can actually see (sent, then working until
+    // the answer arrives) with a running timer. The server reports no sub-steps, so none are invented.
+    const labels = chatStepLabels(innerRules.counts.enforcing, dryRun);
+    chatLog.start([{ id: "sent", label: labels.sent }, { id: "work", label: labels.working }]);
+    chatLog.done("sent");
+    chatLog.begin("work");
     try {
       const { data, error } = await supabase.functions.invoke("control-system-decide", {
         // Was missing entirely -- the entire review/execute flow silently
         // ran against the caller's own account regardless of which account
         // was selected via the switcher.
-        body: { message: text, history, dry_run: dryRun, account_id: accountId || undefined },
+        body: { message: sent, history, dry_run: dryRun, account_id: accountId || undefined },
       });
       if (error) throw error;
       const d = data as ControlDecision & { error?: string; message?: string; mode?: string; reply?: string };
       if (d?.error) throw new Error(d.message || d.error);
+      chatLog.done("work");
 
       setTurns((t) => {
         const next = [...t];
@@ -127,6 +154,7 @@ export default function ControlSystem() {
 
     } catch (e) {
       const msg = (await extractFunctionErrorMessage(e)) ?? (e as Error)?.message ?? "Something went wrong reviewing that action.";
+      chatLog.fail("work", msg);
       toast({ title: "Decision failed", description: msg, variant: "destructive" });
       setTurns((t) => {
         const next = [...t];
@@ -135,7 +163,30 @@ export default function ControlSystem() {
       });
     } finally {
       setStreaming(false);
+      chatLog.reset();
+      // A task may have created an incident or approval, or changed a rule: refresh what the page shows.
+      void innerRules.refetch();
+      dashboard.refetch();
     }
+  };
+
+  const askInChat = (text: string) => {
+    setPrefill({ text, nonce: Date.now() });
+    setMobileChatOpen(true);
+  };
+  const showRule = (hardRuleId: string) => {
+    const key = `hard:${hardRuleId}`;
+    setHighlightKey(key);
+    document.querySelector(`[data-testid="rule-row-${key}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    window.setTimeout(() => setHighlightKey((k) => (k === key ? null : k)), 3000);
+  };
+  const editRule = (r: RuleItem) => {
+    if (r.kind === "safety") navigate("/control-system/safety-rules");
+    else setRuleEditorOpen(true);
+  };
+  const closeRuleEditor = (open: boolean) => {
+    setRuleEditorOpen(open);
+    if (!open) { void innerRules.refetch(); dashboard.refetch(); }
   };
 
   // Pending approvals rendered as real, actionable chat cards ahead of the
@@ -162,10 +213,10 @@ export default function ControlSystem() {
   ];
 
   const setupChecks = [
-    { label: "Hard rules configured", done: dashboard.setup.hardRules, onClick: () => navigate("/control-system/safety-rules") },
-    { label: "Safety rules configured", done: dashboard.setup.safetyRules, onClick: () => navigate("/control-system/safety-rules") },
-    { label: "Daily spend limit set", done: dashboard.setup.spendCapCustom, onClick: () => navigate("/control-system/spend-safety") },
-    { label: "An agent deployed", done: dashboard.setup.agentDeployed, onClick: () => navigate("/generator-home") },
+    { label: "Hard rules", done: dashboard.setup.hardRules, onClick: () => navigate("/control-system/safety-rules") },
+    { label: "Safety rules", done: dashboard.setup.safetyRules, onClick: () => navigate("/control-system/safety-rules") },
+    { label: "Daily spend limit", done: dashboard.setup.spendCapCustom, onClick: () => navigate("/control-system/spend-safety") },
+    { label: "Agent deployed", done: dashboard.setup.agentDeployed, onClick: () => navigate("/generator-home") },
   ];
 
   return (
@@ -254,14 +305,45 @@ export default function ControlSystem() {
         {/* Left: dashboard -- the main view on phone */}
         <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
           <div className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
+            {/* 1. Setup & status */}
             <SetupProgressBar
               pct={dashboard.setup.pct}
               checks={setupChecks}
-              cta={!dashboard.setup.hardRules && !dashboard.setup.safetyRules
-                ? { label: "Start from a policy template", onClick: () => navigate("/control-system/templates") }
+              cta={!innerRules.loading && needsTemplate(innerRules.counts)
+                ? { label: "Start from a Policy Template", onClick: () => navigate("/control-system/templates") }
+                : null}
+              status={!innerRules.loading && !needsTemplate(innerRules.counts)
+                ? statusLine(innerRules.counts, dashboard.coveragePct)
                 : null}
             />
 
+            {/* 2. Your rules: the centre of the page */}
+            <YourRulesCard
+              rules={innerRules.rules}
+              counts={innerRules.counts}
+              loading={innerRules.loading}
+              canWrite={innerRules.canWrite}
+              dualControl={innerRules.dualControl}
+              busyKey={innerRules.busyKey}
+              highlightKey={highlightKey}
+              onAdd={() => setRuleEditorOpen(true)}
+              onTemplates={() => navigate("/control-system/templates")}
+              onEdit={editRule}
+              onToggle={(r) => void innerRules.setEnabled(r, r.status === "disabled")}
+              onDelete={(r) => void innerRules.remove(r)}
+              onAsk={(r) => askInChat(`Explain my rule "${r.name}": what does it stop, and has it triggered recently?`)}
+            />
+
+            {/* 3. Recent activity, linked to the rules above and the chat */}
+            <RecentActivityCard
+              items={innerRules.activity}
+              loading={innerRules.loading}
+              onShowRule={showRule}
+              onAsk={askInChat}
+              onViewAll={() => navigate("/control-system/decision-history")}
+            />
+
+            {/* 4. Detail, lower on the page */}
             <RuleCoverageHealthCard
               coveragePct={dashboard.coveragePct}
               coverageGapCount={dashboard.coverageGapCount}
@@ -270,10 +352,12 @@ export default function ControlSystem() {
               healthPct={dashboard.healthPct}
               onCoverageClick={() => navigate("/control-system/coverage")}
               onHealthClick={() => navigate("/control-system/health")}
+              onConnect={() => navigate("/generator-home")}
             />
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <StatSparkCard
+                small
                 label="Daily spend"
                 value={`$${dashboard.spend.today.toFixed(2)}`}
                 sub={`of $${dashboard.spend.cap.toFixed(2)} cap${dashboard.spend.capIsCustom ? "" : " (default)"}`}
@@ -282,6 +366,7 @@ export default function ControlSystem() {
                 onClick={() => navigate("/control-system/spend-safety")}
               />
               <StatSparkCard
+                small
                 label="Recent incidents"
                 value={String(dashboard.incidents.openCount)}
                 sub="open, last 7 days shown"
@@ -290,6 +375,7 @@ export default function ControlSystem() {
                 onClick={() => navigate("/control-system/incidents")}
               />
               <StatSparkCard
+                small
                 label="AI agent efficiency"
                 value={dashboard.efficiency.autonomousPct === null ? "—" : `${dashboard.efficiency.autonomousPct}%`}
                 sub="autonomous, no human needed"
@@ -305,7 +391,7 @@ export default function ControlSystem() {
                 className="flex w-full items-center justify-between px-4 py-3 text-left"
               >
                 <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                  Quick settings — rules, retention, notifications
+                  Quick settings — strictness, retention, notifications
                 </span>
                 {settingsOpen ? <ChevronDown className="h-4 w-4 text-zinc-500" /> : <ChevronRight className="h-4 w-4 text-zinc-500" />}
               </button>
@@ -314,7 +400,6 @@ export default function ControlSystem() {
                   <SpendSafetyStatusBadge />
                   <StrictnessPanel />
                   <RetentionPanel />
-                  <HardRulesPanel />
                   <PolicyOverviewPanel />
                   <NotificationPreferencesPanel />
                   <DryRunToggle on={dryRun} onChange={setDryRun} />
@@ -343,7 +428,7 @@ export default function ControlSystem() {
           className={cn(
             "fixed inset-y-0 right-0 z-50 flex w-[88vw] max-w-sm flex-col border-l border-white/10 bg-[#050813] transition-transform duration-300 ease-out",
             mobileChatOpen ? "translate-x-0" : "translate-x-full",
-            "lg:static lg:z-auto lg:w-[380px] lg:max-w-none lg:translate-x-0 lg:min-h-0 lg:border-t-0",
+            "lg:static lg:z-auto lg:w-[420px] lg:max-w-none lg:translate-x-0 lg:min-h-0 lg:border-t-0",
           )}
         >
           <div className="flex items-center justify-between border-b border-white/5 px-4 py-3 lg:hidden">
@@ -371,20 +456,49 @@ export default function ControlSystem() {
           <LiveAgentChat
             agentId="control-system"
             name="AI Control System"
-            goal="Your AI's decisions, explained and controlled"
+            goal="Ask about your rules, or give it a task to run"
             turns={chatTurns}
-            suggestions={[
-              "My agent wants to post to #general",
-              "Should I let this run: send email to all customers",
-              "Agent wants to update product prices in Shopify",
-            ]}
+            suggestions={CHAT_SUGGESTIONS}
             streaming={streaming}
-            fullSpec="Describe any action your AI wants to take. The Control System scores intent match, risk and confidence, then returns Allow, Modify, Block or Deferred — and logs it to your decision history."
+            executionLog={
+              chatLog.steps.length > 0 ? (
+                <ExecutionLog steps={chatLog.steps} title="Working" accent="#22d3ee" compact />
+              ) : null
+            }
+            fullSpec={CHAT_SPEC}
             onSend={handleSend}
-            compact
+            prefill={prefill}
+            composerExtras={
+              <PromptExtras controlMode attachments={attachments} onChange={setAttachments} tone={null} onToneChange={() => {}} />
+            }
           />
         </div>
       </div>
+
+      {/* Add / edit rules: the existing hard-rule editor, in a closable window. */}
+      <Dialog open={ruleEditorOpen} onOpenChange={closeRuleEditor}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-white/10 bg-[#050813] p-0 text-white" data-testid="rule-editor">
+          <DialogHeader className="px-6 pt-6">
+            <DialogTitle>Add or edit a rule</DialogTitle>
+            <DialogDescription>
+              Write a hard rule in plain English below. Existing hard rules are listed under the form, where you can switch one to live or remove it.
+              To change a pattern-based safety rule, use the safety rules page.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="-mx-0">
+            <HardRulesPanel defaultOpen />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-6 py-4">
+            <p className="text-xs text-zinc-500">Need to catch specific words or patterns (card numbers, names, links)?</p>
+            <button
+              onClick={() => { closeRuleEditor(false); navigate("/control-system/safety-rules"); }}
+              className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-zinc-200 hover:bg-white/5"
+            >
+              Add a safety rule
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Floating button to open the chat drawer on phone -- badged with
           the pending-approvals count so a collapsed chat never hides

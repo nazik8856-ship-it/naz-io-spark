@@ -50,12 +50,12 @@ const SCOPES: { label: string; pattern: string }[] = [
  * Shadow rules are evaluated and logged only — they never change an outcome,
  * so you can see the impact before promoting one to live.
  */
-export default function HardRulesPanel() {
+export default function HardRulesPanel({ defaultOpen = false }: { defaultOpen?: boolean } = {}) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { accountId, role, permissions } = useActiveAccount();
   const canWrite = hasPermission(role, permissions, "policy");
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [rules, setRules] = useState<HardRule[]>([]);
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [reports, setReports] = useState<Record<string, ShadowReport>>({});

@@ -20,6 +20,7 @@ export default function StatSparkCard({
   tone = "neutral",
   series,
   onClick,
+  small = false,
 }: {
   label: string;
   value: string;
@@ -27,6 +28,8 @@ export default function StatSparkCard({
   tone?: StatTone;
   series: (number | null)[];
   onClick?: () => void;
+  /** Secondary placement: less padding, smaller number and chart. */
+  small?: boolean;
 }) {
   const color = TONE_COLOR[tone];
   const data = series.map((v, i) => ({ i, v }));
@@ -36,12 +39,12 @@ export default function StatSparkCard({
     <button
       onClick={onClick}
       disabled={!onClick}
-      className="flex w-full flex-col rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/20 hover:bg-white/[0.05] disabled:cursor-default"
+      className={`flex w-full flex-col rounded-xl border border-white/10 bg-white/[0.03] ${small ? "p-3" : "p-4"} text-left transition hover:border-white/20 hover:bg-white/[0.05] disabled:cursor-default`}
     >
       <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
-      <div className="mt-1.5 text-2xl font-semibold text-white">{value}</div>
+      <div className={`${small ? "mt-1 text-lg" : "mt-1.5 text-2xl"} font-semibold text-white`}>{value}</div>
       {sub && <div className="mt-0.5 text-xs text-zinc-500">{sub}</div>}
-      <div className="mt-2 h-10 w-full">
+      <div className={`${small ? "mt-1.5 h-6" : "mt-2 h-10"} w-full`}>
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
