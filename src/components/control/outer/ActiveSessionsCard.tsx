@@ -6,10 +6,13 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
 import { toast } from "sonner";
+import FinalArtifactView from "./FinalArtifactView";
+import { HonestStatusBadge, StatusReason } from "./HonestStatusBadge";
+import { honestStatus } from "@/lib/outer-control-status";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, toolStatus, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems } from "@/lib/outer-control-ui";
-import { describeCompletion, describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, STATUS_LABEL, type CompletionView, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
+import { describeCompletion, describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, waitingReason, type CompletionView, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
 
 // The tables are new and not in the generated Supabase types.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,23 +22,12 @@ type Tool = { id: string; name: string; endpoint_url: string; request_format: st
 type Session = {
   id: string; tool_id: string; objective: string; status: SessionStatus; step_count: number; max_steps: number;
   final_output: string | null; stop_reason: string | null; pending_kind: PendingKind | null; pending_question: string | null; started_at: string;
-  handoff: HandoffView | null; workflow_id: string | null; leg_no: number | null; completion?: CompletionView | null;
+  handoff: HandoffView | null; workflow_id: string | null; leg_no: number | null; completion?: CompletionView | null; final_artifact?: unknown;
 };
 type MemoryRow = { id: string; kind: string; summary: string };
 type Step = StepLike & { id: string; reply_text: string | null; decision?: import("@/lib/outer-control-sessions").DecisionView | null };
 type KeyOpt = { id: string; name: string };
 
-const STATUS_STYLE: Record<SessionStatus, string> = {
-  queued: "border-white/20 text-zinc-400",
-  skipped: "border-white/20 text-zinc-500",
-  running: "border-cyan-500/40 text-cyan-300",
-  awaiting_human: "border-amber-500/50 text-amber-300",
-  completed: "border-emerald-500/40 text-emerald-300",
-  rejected: "border-rose-500/40 text-rose-300",
-  failed: "border-rose-500/40 text-rose-300",
-  cancelled: "border-white/20 text-zinc-400",
-  stopped: "border-white/20 text-zinc-300",
-};
 
 const hostOf = (u: string) => { try { return new URL(u).hostname; } catch { return u; } };
 const inputCls = "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500/50";
@@ -66,7 +58,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     if (!accountId) return;
     const [t, s, k] = await Promise.all([
       anyDb.from("external_tools").select("id, name, endpoint_url, request_format, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
-      anyDb.from("outer_control_sessions").select("id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no, completion").eq("user_id", accountId).order("started_at", { ascending: false }).limit(10),
+      anyDb.from("outer_control_sessions").select("id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no, completion, final_artifact").eq("user_id", accountId).order("started_at", { ascending: false }).limit(10),
       anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
     ]);
     setTools((t.data ?? []) as Tool[]);
@@ -94,7 +86,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const anyOpen = sessions.some((s) => isOpen(s.status));
   useEffect(() => {
     if (!anyOpen) return;
-    const id = setInterval(() => { load(); if (expanded) loadSteps(expanded); }, 4000);
+    const id = setInterval(() => { load(); if (expanded) loadSteps(expanded); }, 3000);
     return () => clearInterval(id);
   }, [anyOpen, expanded, load, loadSteps]);
   useEffect(() => { if (expanded) loadSteps(expanded); }, [expanded, loadSteps]);
@@ -137,6 +129,11 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const renderSession = (s: Session) => {
     const open = expanded === s.id;
             const waiting = s.status === "awaiting_human" && s.pending_kind !== "handoff" ? describeWaiting(s.pending_kind, s.pending_question) : null;
+            // The one honest status: Completed only with a valid final artifact; every other status says why.
+            const hs = honestStatus({
+              kind: "session", status: s.status, artifact: s.final_artifact, stop_reason: s.stop_reason,
+              waiting_for: s.status === "awaiting_human" ? waitingReason(s.pending_kind) : null, step_count: s.step_count, max_steps: s.max_steps,
+            });
             return (
               <div key={s.id} className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5" data-testid="session-row">
                 <div className="flex flex-wrap items-center gap-2">
@@ -146,7 +143,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                       <span className="truncate">{s.objective}</span>
                       <span className="shrink-0 text-xs text-zinc-500">· {toolName(s.tool_id)}{s.workflow_id && s.leg_no && !singles.has(s.workflow_id) ? ` · workflow step ${s.leg_no}` : ""}</span>
                     </span>
-                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${STATUS_STYLE[s.status]}`}>{STATUS_LABEL[s.status]}</span>
+                    <HonestStatusBadge status={hs} />
                   </button>
                   {isOpen(s.status) && (
                     <button disabled={busy === `cancel-${s.id}`} onClick={() => act(`cancel-${s.id}`, "cancel", { session_id: s.id }, "Session stopped.")} className="flex shrink-0 items-center gap-1 rounded border border-white/15 px-2.5 py-1 text-xs text-zinc-300 hover:bg-white/10 disabled:opacity-40">
@@ -154,6 +151,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                     </button>
                   )}
                 </div>
+                <div className="mt-1 pl-4"><StatusReason status={hs} /></div>
                 {waiting && (
                   <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-100">
                     <p>{waiting}</p>
@@ -207,6 +205,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                 )}
                 {open && (
                   <div className="mt-2 space-y-2 rounded border border-white/10 bg-black/20 p-2.5 text-[11px]">
+                    {hs.key === "completed" && <FinalArtifactView artifact={s.final_artifact} kind="session" />}
                     <ul className="space-y-0.5">
                       {(steps[s.id] ?? []).map((st) => (
                         <li key={st.id} className="text-zinc-300">
@@ -227,13 +226,13 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                         </ul>
                       </div>
                     )}
-                    {s.final_output && (
+                    {hs.key !== "completed" && s.final_output && (
                       <div>
-                        <div className="font-mono text-[10px] uppercase text-zinc-500">Result</div>
-                        <p className="mt-0.5 whitespace-pre-wrap text-zinc-100">{s.final_output}</p>
+                        <div className="font-mono text-[10px] uppercase text-zinc-500">Last reply (not an accepted result)</div>
+                        <p className="mt-0.5 whitespace-pre-wrap text-zinc-400">{s.final_output}</p>
                       </div>
                     )}
-                    {s.stop_reason && !isOpen(s.status) && <p className="text-zinc-400">{s.stop_reason}</p>}
+                    {s.stop_reason && !isOpen(s.status) && hs.key !== "completed" && <p className="text-zinc-400">{s.stop_reason}</p>}
                     {(() => {
                       const cc = describeCompletion(s.completion);
                       if (!cc) return null;

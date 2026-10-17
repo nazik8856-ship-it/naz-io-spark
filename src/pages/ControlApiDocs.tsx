@@ -508,6 +508,16 @@ export default function ControlApiDocs() {
             read the state and the controlled final result with <span className="font-mono">GET /outer-control/task/&lt;task_id&gt;</span> using the
             same key. If any step fails or breaks a rule the Task stops there and says which step and why.
           </p>
+          <p className="mt-3 text-sm text-zinc-400" data-testid="status-docs">
+            <span className="font-mono">status</span> is one of <span className="font-mono">Completed</span>,{" "}
+            <span className="font-mono">Partially completed</span>, <span className="font-mono">Failed</span>,{" "}
+            <span className="font-mono">Waiting for human</span>, <span className="font-mono">Stopped</span>, or the in-progress{" "}
+            <span className="font-mono">Running</span> / <span className="font-mono">Queued</span>, with a short{" "}
+            <span className="font-mono">status_reason</span> for every status except Completed. Only a <span className="font-mono">Completed</span>{" "}
+            Task has a <span className="font-mono">final_artifact</span>: the controlled output, a proof of the completion checks, the rules applied
+            and what was changed, as structured JSON with a <span className="font-mono">human_text</span> version of the same record.{" "}
+            <span className="font-mono">final_output</span> is that artifact's controlled output and is <span className="font-mono">null</span> for every other status.
+          </p>
         </Section>
 
         <Section title="Outer Control: judge a structured proposed action">

@@ -23,6 +23,7 @@ import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.t
 import { buildWorkingMemory, decisionRecord, factsFor, guardConsistency, planNextAction, think, type MemoryRow, type RequestChanges } from "./outer-control-brain.ts";
 import { loadCorrections, recordCorrection } from "./outer-control-corrections.ts";
 import { checkGoal } from "./outer-control-judgement.ts";
+import { buildSessionArtifact, type StepEvidence } from "./outer-control-artifact.ts";
 import { buildChecklist, correctionFor, passedCount, settle, type Checklist, type ChecklistInput } from "./outer-control-completion.ts";
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
@@ -319,8 +320,16 @@ async function completeSession(
 
   if (c.passed) {
     if (!logged) return finish(admin, s, "failed", "The result passed the completion check but the check could not be logged, so it was not marked completed.", deps);
+    // The final artifact is the official result. No artifact, no "completed".
+    const { data: exchanges } = await admin.from("outer_control_session_steps").select("step_no, attempt, verdict, decision").eq("session_id", s.id);
+    const built = buildSessionArtifact({
+      id: s.id, taskId: s.workflow_id, objective: s.objective, tool: tool.name, completedAt: iso(deps.now()), finalText: a.text,
+      sha256: input.outputSha256 ?? "", checklist: c, steps: (exchanges ?? []) as StepEvidence[],
+      rulesInForce: (await loadRuleLines(admin, s.user_id, s.api_key_id, tool.name).catch(() => [])).map((r) => ({ name: r.name, action: r.action })), decidedBy: a.fromPerson ? "person" : "tool",
+    });
+    if (!built.ok) return finish(admin, s, "failed", `The result passed the completion check but its final artifact could not be built (${built.reason}), so it was not marked completed.`, deps);
     const note = `Final check: the result keeps every blocking rule${a.fromPerson ? "" : " and matches the goal"}.`;
-    await finish(admin, s, "completed", `${reason} ${note} ${c.summary}`.slice(0, 600), deps, { ...advance, final_output: a.text, completion: c });
+    await finish(admin, s, "completed", `${reason} ${note} ${c.summary}`.slice(0, 600), deps, { ...advance, final_output: a.text, completion: c, final_artifact: built.artifact });
     // A refusal by the database (or a late cancel) must never leave a running session behind to be driven again.
     const { data: after } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
     const afterStatus = (after as { status?: string } | null)?.status;

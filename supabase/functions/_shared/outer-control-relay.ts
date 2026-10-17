@@ -15,6 +15,8 @@ import { sha256Hex } from "./api-key-auth.ts";
 import { createAgentTool } from "./outer-control-tools.ts";
 import { startTask } from "./outer-control-workflow.ts";
 import { originContext, type TaskOrigin } from "./outer-control-task.ts";
+import { officialOutput } from "./outer-control-artifact.ts";
+import { honestStatus } from "./outer-control-status.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -102,20 +104,29 @@ export async function relayToTask(
 export async function taskForKey(admin: AnyAdmin, auth: RelayAuth, taskId: string): Promise<RelayResult> {
   if (!taskId || taskId.length > 64) return err(404, "not_found", "Task not found.");
   const { data: t } = await admin.from("outer_control_workflows")
-    .select("id, status, summary, current_leg, steps_total, steps_done, final_output, final_leg, failed_leg, stop_reason, api_key_id, started_at, finished_at")
+    .select("id, status, summary, current_leg, steps_total, steps_done, final_output, final_leg, failed_leg, stop_reason, final_artifact, api_key_id, started_at, finished_at")
     .eq("id", taskId).eq("user_id", auth.userId).maybeSingle();
   // A key sees only the Tasks started with that key.
   if (!t || (t.api_key_id ?? null) !== (auth.keyId ?? null)) return err(404, "not_found", "Task not found.");
   const { data: legs } = await admin.from("outer_control_sessions").select("leg_no, status, tool_id").eq("workflow_id", taskId).order("leg_no");
+  const legRows = (legs ?? []) as { leg_no: number; status: string }[];
+  const root = legRows.find((l) => l.leg_no === t.failed_leg)?.status ?? null;
+  const st = honestStatus({
+    kind: "task", status: t.status, artifact: t.final_artifact, stop_reason: t.stop_reason, current_leg: t.current_leg,
+    steps_total: t.steps_total, steps_done: t.steps_done, failed_leg: t.failed_leg, root_status: root,
+  });
+  // The final artifact is the only result: its controlled output is returned only when the status is Completed.
+  const artifact = st.key === "completed" ? t.final_artifact : null;
   return {
     status: 200,
     body: {
       ok: true,
       task: {
-        id: t.id, status: t.status, summary: t.summary, current_step: t.current_leg, steps_total: t.steps_total, steps_done: t.steps_done,
-        final_output: t.status === "completed" ? t.final_output : null, failed_step: t.failed_leg, stop_reason: t.stop_reason,
-        started_at: t.started_at, finished_at: t.finished_at,
-        steps: ((legs ?? []) as { leg_no: number; status: string }[]).map((l) => ({ step: l.leg_no, status: l.status })),
+        id: t.id, status: st.label, status_key: st.key, status_reason: st.reason, raw_status: t.status, summary: t.summary,
+        current_step: t.current_leg, steps_total: t.steps_total, steps_done: t.steps_done,
+        final_output: artifact ? officialOutput(artifact, "task") : null, final_artifact: artifact,
+        failed_step: t.failed_leg, stop_reason: t.stop_reason, started_at: t.started_at, finished_at: t.finished_at,
+        steps: legRows.map((l) => ({ step: l.leg_no, status: l.status })),
       },
     },
   };
