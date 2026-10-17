@@ -97,7 +97,7 @@ export async function relayToTask(
     });
   } catch { /* the audit row must never break the Task */ }
   drive(started.running);
-  return { status: 200, body: { ok: true, relayed: true, task_id: started.workflowId, status: "running", ...verdictBody } };
+  return { status: 200, body: { ok: true, relayed: true, task_id: started.workflowId, status: "Running", status_key: "running", ...verdictBody } };
 }
 
 /** What an external agent may read back about a Task it started through its own key: state and the controlled final result. */

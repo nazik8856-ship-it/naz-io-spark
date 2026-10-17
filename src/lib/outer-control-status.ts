@@ -85,7 +85,8 @@ export function honestStatus(i: StatusInput): HonestStatus {
     const done = i.steps_done ?? 0;
     const total = i.steps_total ?? null;
     const ended = i.status === "failed" || i.status === "cancelled";
-    if (ended && done > 0) {
+    // Every step finished but the Task still did not complete: its final result could not be verified. That is a failure, not a partial.
+    if (ended && done > 0 && !(total !== null && total > 0 && done >= total)) {
       return make("partial", `${done}${total ? ` of ${total}` : ""} step${(total ?? done) === 1 ? "" : "s"} completed. ${why || (i.failed_leg ? `Step ${i.failed_leg} did not finish.` : "The rest did not run.")}`);
     }
     const byRule = i.root_status === "rejected" || i.root_status === "stopped" || i.root_status === "cancelled";

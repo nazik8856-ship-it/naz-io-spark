@@ -147,6 +147,8 @@ describe("honest status", () => {
   it("a Task that ended after some steps completed is Partially completed; with none it is Failed or Stopped", () => {
     expect(t({ status: "failed", steps_done: 1, steps_total: 3, failed_leg: 2, stop_reason: "Step 2 broke a rule" })).toMatchObject({ key: "partial", reason: "1 of 3 steps completed. Step 2 broke a rule." });
     expect(t({ status: "cancelled", steps_done: 2, steps_total: 3 }).key).toBe("partial");
+    // All steps finished but the Task did not complete (its final result could not be verified): Failed, not partial.
+    expect(t({ status: "failed", steps_done: 3, steps_total: 3, stop_reason: "Every step finished, but the Task's final result could not be verified." })).toMatchObject({ key: "failed" });
     expect(t({ status: "failed", steps_done: 0, steps_total: 3, stop_reason: "The tool answered HTTP 503" }).key).toBe("failed");
     expect(t({ status: "failed", steps_done: 0, steps_total: 3, root_status: "rejected", stop_reason: "A rule" }).key).toBe("stopped");
     expect(t({ status: "cancelled", steps_done: 0, steps_total: 3 }).key).toBe("stopped");
