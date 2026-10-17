@@ -28,6 +28,18 @@ export function describeWaiting(kind: PendingKind | null, question: string | nul
   }
 }
 
+/** The short reason next to "Waiting for human"; the long instructions stay in the panel below. */
+export function waitingReason(kind: PendingKind | null): string {
+  switch (kind) {
+    case "first_contact": return "Waiting for your approval to contact this tool";
+    case "contact_gate": return "Waiting for your approval under a contact rule";
+    case "reply_approval": return "Waiting for your approval of the tool's reply";
+    case "question": return "Waiting for your answer to the tool's question";
+    case "handoff": return "Waiting for your decision on how to continue";
+    default: return "Waiting for a person to decide";
+  }
+}
+
 export type StepLike = { step_no: number; attempt: number; verdict: string | null; next_action: string | null; error: string | null; note: string | null };
 
 const NEXT_ACTION_LABEL: Record<string, string> = {

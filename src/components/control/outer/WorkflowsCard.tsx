@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Workflow, Plus, X } from "lucide-react";
 import { toast } from "sonner";
+import FinalArtifactView from "./FinalArtifactView";
+import { HonestStatusBadge, StatusReason } from "./HonestStatusBadge";
+import { honestStatus } from "@/lib/outer-control-status";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, visibleItems } from "@/lib/outer-control-ui";
-import { legsPayload, STATUS_LABEL, WORKFLOW_LABEL, type CondKind, type DraftLeg, type SessionStatus, type WorkflowStatus } from "@/lib/outer-control-sessions";
+import { legsPayload, type CondKind, type DraftLeg, type SessionStatus, type WorkflowStatus } from "@/lib/outer-control-sessions";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any; // the tables are new and not in the generated types
@@ -16,19 +19,16 @@ type WorkflowRow = {
   id: string; objective: string; status: WorkflowStatus; summary: string | null; started_at: string;
   // The Task fields: where it is, what it produced, why it stopped.
   kind?: "single" | "chain"; current_leg?: number | null; steps_total?: number; steps_done?: number;
-  final_output?: string | null; final_leg?: number | null; failed_leg?: number | null; stop_reason?: string | null;
+  final_output?: string | null; final_leg?: number | null; failed_leg?: number | null; stop_reason?: string | null; final_artifact?: unknown;
   origin?: { kind: string; source_model?: string } | null;
 };
 type HandoffRow = { id: string; task_id: string; from_leg: number | null; from_label: string; to_leg: number; outcome: "passed" | "modified" | "blocked"; rules: string[]; note: string };
 type AgentOpt = { id: string; name: string };
-type LegRow = { id: string; workflow_id: string; leg_no: number; tool_id: string; objective: string; status: SessionStatus; stop_reason: string | null; final_output: string | null; depends_on: number[] };
+type LegRow = { id: string; workflow_id: string; leg_no: number; tool_id: string; objective: string; status: SessionStatus; stop_reason: string | null; final_output: string | null; depends_on: number[]; final_artifact?: unknown };
 
 const MAX_LEGS = 6;
 const emptyLeg = (): DraftLeg => ({ toolId: "", instruction: "", deps: [], fallbackId: "", condKind: "always", condLeg: 1, condValue: "" });
 const inputCls = "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500/50";
-const chip = (s: string) =>
-  s === "completed" ? "border-emerald-500/40 text-emerald-300" : s === "failed" || s === "rejected" ? "border-rose-500/40 text-rose-300"
-    : s === "awaiting_human" ? "border-amber-500/50 text-amber-300" : s === "running" ? "border-cyan-500/40 text-cyan-300" : s === "skipped" ? "border-white/20 text-zinc-500" : "border-white/20 text-zinc-400";
 
 export default function WorkflowsCard({ accountId }: { accountId: string | null | undefined }) {
   const [tools, setTools] = useState<ToolOpt[]>([]);
@@ -49,7 +49,7 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
     const [t, w, a] = await Promise.all([
       anyDb.from("external_tools").select("id, name").eq("user_id", accountId).eq("enabled", true).is("removed_at", null).order("created_at", { ascending: false }),
       // One-tool runs are Tasks too, but they are shown as sessions: this list is for several steps.
-      anyDb.from("outer_control_workflows").select("id, objective, status, summary, started_at, kind, current_leg, steps_total, steps_done, final_output, final_leg, failed_leg, stop_reason, origin").eq("user_id", accountId).neq("kind", "single").order("started_at", { ascending: false }).limit(8),
+      anyDb.from("outer_control_workflows").select("id, objective, status, summary, started_at, kind, current_leg, steps_total, steps_done, final_output, final_leg, failed_leg, stop_reason, final_artifact, origin").eq("user_id", accountId).neq("kind", "single").order("started_at", { ascending: false }).limit(8),
       anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
     ]);
     setTools((t.data ?? []) as ToolOpt[]);
@@ -60,7 +60,7 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
       const h = await anyDb.from("outer_control_task_handoffs").select("id, task_id, from_leg, from_label, to_leg, outcome, rules, note").in("task_id", rows.map((r) => r.id)).order("created_at");
       setHandoffs((h.data ?? []) as HandoffRow[]);
       const l = await anyDb.from("outer_control_sessions")
-        .select("id, workflow_id, leg_no, tool_id, objective, status, stop_reason, final_output, depends_on").in("workflow_id", rows.map((r) => r.id)).order("leg_no");
+        .select("id, workflow_id, leg_no, tool_id, objective, status, stop_reason, final_output, depends_on, final_artifact").in("workflow_id", rows.map((r) => r.id)).order("leg_no");
       setLegs((l.data ?? []) as LegRow[]);
     } else { setLegs([]); setHandoffs([]); }
   }, [accountId]);
@@ -69,7 +69,7 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
   const anyOpen = workflows.some((w) => w.status === "running" || w.status === "awaiting_human");
   useEffect(() => {
     if (!anyOpen) return;
-    const id = setInterval(load, 4000);
+    const id = setInterval(load, 3000);
     return () => clearInterval(id);
   }, [anyOpen, load]);
 
@@ -191,33 +191,29 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
 
       <div className="mt-4 space-y-2">
         {workflows.length === 0 && <p className="text-sm text-zinc-500">No workflows yet. A workflow runs several tools toward one goal; steps that don't wait for each other run at the same time. Press New workflow to build one.</p>}
-        {visibleItems(workflows, DEFAULT_HISTORY, showAll).map((w) => (
+        {visibleItems(workflows, DEFAULT_HISTORY, showAll).map((w) => {
+          const wLegs = legs.filter((l) => l.workflow_id === w.id);
+          const hs = honestStatus({
+            kind: "task", status: w.status, artifact: w.final_artifact, stop_reason: w.stop_reason, current_leg: w.current_leg,
+            steps_total: w.steps_total, steps_done: w.steps_done, failed_leg: w.failed_leg, waiting_for: w.summary,
+            root_status: wLegs.find((l) => l.leg_no === w.failed_leg)?.status ?? null,
+          });
+          return (
           <div key={w.id} className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5" data-testid="workflow-row">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 text-sm text-zinc-200">
                 <div className="truncate font-medium">{w.objective}</div>
-                {w.summary && <div className="text-xs text-zinc-400">{w.summary}</div>}
                 {w.origin?.kind === "external_agent" && <div className="text-[11px] text-zinc-500">Started by an external agent ({w.origin.source_model})</div>}
-                {(w.status === "running" || w.status === "awaiting_human") && w.current_leg ? (
-                  <div className="text-[11px] text-cyan-300" data-testid="task-progress">Step {w.current_leg} of {w.steps_total ?? "?"} · {w.steps_done ?? 0} done</div>
-                ) : null}
-                {w.status === "failed" && w.failed_leg ? (
-                  <div className="text-[11px] text-rose-300" data-testid="task-stop">Stopped at step {w.failed_leg}{w.stop_reason ? `: ${w.stop_reason}` : "."}</div>
-                ) : null}
+                <StatusReason status={hs} />
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${chip(w.status)}`}>{WORKFLOW_LABEL[w.status]}</span>
+                <HonestStatusBadge status={hs} />
                 {(w.status === "running" || w.status === "awaiting_human") && (
                   <button onClick={() => cancel(w.id)} className="rounded border border-white/15 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/10">Cancel</button>
                 )}
               </div>
             </div>
-            {w.status === "completed" && w.final_output && (
-              <details className="mt-2 rounded border border-emerald-500/20 px-2 py-1 text-xs" data-testid="task-result">
-                <summary className="cursor-pointer text-emerald-300">Final result (from step {w.final_leg})</summary>
-                <p className="mt-1 whitespace-pre-wrap text-zinc-100">{w.final_output}</p>
-              </details>
-            )}
+            {hs.key === "completed" && <div className="mt-2"><FinalArtifactView artifact={w.final_artifact} kind="task" /></div>}
             {handoffs.some((h) => h.task_id === w.id) && (
               <details className="mt-2 rounded border border-white/10 px-2 py-1 text-xs" data-testid="task-handoffs">
                 <summary className="cursor-pointer text-zinc-300">Hand-offs between steps ({handoffs.filter((h) => h.task_id === w.id).length})</summary>
@@ -231,19 +227,25 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
               </details>
             )}
             <ul className="mt-2 space-y-1 text-xs">
-              {legs.filter((l) => l.workflow_id === w.id).map((l) => (
-                <li key={l.id} className="flex flex-wrap items-center gap-2 text-zinc-300">
-                  <span className="text-zinc-500">Step {l.leg_no}</span>
-                  <span>{toolName(l.tool_id)}</span>
-                  <span className={`rounded-full border px-1.5 py-0 text-[10px] font-mono uppercase ${chip(l.status)}`}>{STATUS_LABEL[l.status]}</span>
-                  {l.depends_on.length > 0 && <span className="text-zinc-500">after step {l.depends_on.join(", ")}</span>}
-                  {l.status === "awaiting_human" && <span className="text-amber-300">needs you in Connected tools</span>}
-                  {l.stop_reason && l.status !== "completed" && <span className="text-zinc-500">{l.stop_reason}</span>}
-                </li>
-              ))}
+              {wLegs.map((l) => {
+                const ls = honestStatus({
+                  kind: "session", status: l.status, artifact: l.final_artifact, stop_reason: l.stop_reason,
+                  waiting_for: l.status === "awaiting_human" ? "Needs you in Connected tools" : null,
+                });
+                return (
+                  <li key={l.id} className="flex flex-wrap items-center gap-2 text-zinc-300">
+                    <span className="text-zinc-500">Step {l.leg_no}</span>
+                    <span>{toolName(l.tool_id)}</span>
+                    <HonestStatusBadge status={ls} className="!px-1.5 !py-0 text-[10px]" />
+                    {l.depends_on.length > 0 && <span className="text-zinc-500">after step {l.depends_on.join(", ")}</span>}
+                    {ls.reason && <span className="text-zinc-500">{ls.reason}</span>}
+                  </li>
+                );
+              })}
             </ul>
           </div>
-        ))}
+          );
+        })}
         {workflows.length > DEFAULT_HISTORY && (
           <button type="button" onClick={() => setShowAll((v) => !v)} className="text-sm text-cyan-300 hover:text-cyan-200">
             {showAll ? "Show fewer" : `View all (${workflows.length})`}

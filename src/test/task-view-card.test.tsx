@@ -17,6 +17,7 @@ vi.mock("@/lib/outer-control-drive", () => ({ callDrive: (...a: unknown[]) => st
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import WorkflowsCard from "@/components/control/outer/WorkflowsCard";
+import { taskArtifact } from "./artifact-fixture";
 
 const wf = (o: Record<string, unknown>) => ({
   id: "w1", objective: "Reply to Dana", status: "running", summary: "1 of 3 steps completed.", started_at: "2026-10-17T00:00:00Z",
@@ -32,23 +33,38 @@ describe("WorkflowsCard as the Task view", () => {
 
   it("shows where a running Task is and leaves one-tool runs to the sessions list", async () => {
     render(<WorkflowsCard accountId="u1" />);
-    expect((await screen.findByTestId("task-progress")).textContent).toMatch(/Step 2 of 3 · 1 done/);
+    const row = await screen.findByTestId("workflow-row");
+    expect(within(row).getAllByTestId("status-badge")[0].textContent).toBe("Running");
+    expect(within(row).getAllByTestId("status-reason")[0].textContent).toMatch(/Step 2 of 3 is running; 1 done/);
     expect(state.neq.some((c) => c[0] === "outer_control_workflows" && c[1] === "kind" && c[2] === "single")).toBe(true);
   });
 
-  it("shows the final controlled result only when the Task completed, and which step produced it", async () => {
-    state.tables.outer_control_workflows = [wf({ status: "completed", current_leg: null, steps_done: 3, final_output: "Dear Dana, returns take thirty days.", final_leg: 3, summary: "All 3 steps completed." })];
+  it("shows the final artifact (controlled result) when the Task completed with a valid one", async () => {
+    state.tables.outer_control_workflows = [wf({ status: "completed", current_leg: null, steps_done: 1, steps_total: 1, final_output: "Dear Dana, returns take thirty days.", final_leg: 1, summary: "All 1 steps completed.", final_artifact: taskArtifact() })];
+    state.tables.outer_control_sessions = [leg(1, "completed")];
     render(<WorkflowsCard accountId="u1" />);
-    const box = await screen.findByTestId("task-result");
-    expect(box.textContent).toMatch(/Final result \(from step 3\)/); expect(box.textContent).toMatch(/Dear Dana, returns take thirty days\./);
-    expect(screen.queryByTestId("task-stop")).toBeNull();
+    const row = await screen.findByTestId("workflow-row");
+    expect(within(row).getAllByTestId("status-badge")[0].textContent).toBe("Completed");
+    expect(within(row).getByTestId("final-artifact-output").textContent).toBe("Dear Dana, returns take thirty days.");
   });
 
-  it("shows where a failed Task stopped and why, and no final result", async () => {
+  it("never shows Completed without a valid final artifact: it shows Failed and says why, with no result", async () => {
+    state.tables.outer_control_workflows = [wf({ status: "completed", current_leg: null, steps_done: 3, final_output: "Dear Dana", final_leg: 3, final_artifact: null })];
+    render(<WorkflowsCard accountId="u1" />);
+    const row = await screen.findByTestId("workflow-row");
+    expect(within(row).getAllByTestId("status-badge")[0].textContent).toBe("Failed");
+    expect(within(row).getAllByTestId("status-reason")[0].textContent).toMatch(/not accepted: no final artifact is stored/);
+    expect(screen.queryByTestId("final-artifact")).toBeNull();
+    expect(row.textContent).not.toMatch(/Dear Dana/);
+  });
+
+  it("shows a stopped Task as Partially completed with the step and reason, and no final result", async () => {
     state.tables.outer_control_workflows = [wf({ status: "failed", current_leg: null, failed_leg: 2, stop_reason: "The result of step 1 breaks No codename, so it was not passed to step 2.", final_output: "stale" })];
     render(<WorkflowsCard accountId="u1" />);
-    expect((await screen.findByTestId("task-stop")).textContent).toMatch(/Stopped at step 2: The result of step 1 breaks No codename/);
-    expect(screen.queryByTestId("task-result")).toBeNull();
+    const row = await screen.findByTestId("workflow-row");
+    expect(within(row).getAllByTestId("status-badge")[0].textContent).toBe("Partially completed");
+    expect(within(row).getAllByTestId("status-reason")[0].textContent).toMatch(/1 of 3 steps completed\. The result of step 1 breaks No codename/);
+    expect(screen.queryByTestId("final-artifact")).toBeNull();
   });
 
   it("lists every hand-off with what the rules did, and names an external agent as the origin", async () => {

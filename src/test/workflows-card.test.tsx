@@ -85,7 +85,7 @@ describe("WorkflowsCard", () => {
     expect(await screen.findByText("Write the brief")).toBeTruthy();
     expect(screen.getByText(/1 of 2 steps completed/)).toBeTruthy();
     expect(screen.getByText("after step 1")).toBeTruthy();
-    expect(screen.getByText(/needs you in Connected tools/)).toBeTruthy();
+    expect(screen.getByText(/Needs you in Connected tools/)).toBeTruthy();
     fireEvent.click(screen.getByText("Cancel"));
     await waitFor(() => expect(calls().length).toBe(1));
     expect(JSON.parse((calls()[0][1] as RequestInit).body as string)).toEqual({ action: "cancel_workflow", workflow_id: "w1" });

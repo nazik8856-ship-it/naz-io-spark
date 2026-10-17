@@ -8,6 +8,7 @@ import { isRedactableMatch } from "./outer-control-scoring.ts";
 import { textSafeToStore } from "./outer-control-text-review.ts";
 import { sha256Hex } from "./api-key-auth.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
+import { buildTaskArtifact, officialOutput, validateArtifact, type TaskArtifactHandoff } from "./outer-control-artifact.ts";
 import {
   chainLegs, contextFromHandoffs, deriveTaskState, makeHandoff, type HandoffCheck, type HandoffRecord, type TaskKind, type TaskLeg, type TaskOrigin,
 } from "./outer-control-task.ts";
@@ -20,12 +21,20 @@ type AnyAdmin = any;
 
 const iso = () => new Date().toISOString();
 
-type LegRow = LegState & { id: string; depends_on: number[]; context: string | null; tool_id: string; user_id: string; api_key_id: string | null; objective: string };
+type LegRow = LegState & { id: string; depends_on: number[]; context: string | null; tool_id: string; user_id: string; api_key_id: string | null; objective: string; final_artifact: unknown };
 
 async function loadLegs(admin: AnyAdmin, workflowId: string): Promise<LegRow[]> {
   const { data } = await admin.from("outer_control_sessions")
-    .select("id, leg_no, status, depends_on, final_output, stop_reason, context, condition, tool_id, user_id, api_key_id, objective").eq("workflow_id", workflowId).order("leg_no");
-  return ((data ?? []) as LegRow[]).map((l) => ({ ...l, depends_on: l.depends_on ?? [] }));
+    .select("id, leg_no, status, depends_on, final_output, stop_reason, context, condition, tool_id, user_id, api_key_id, objective, final_artifact").eq("workflow_id", workflowId).order("leg_no");
+  // Only the final artifact is a result. A leg recorded as completed without a valid one has no result and counts as failed.
+  return ((data ?? []) as LegRow[]).map((l) => {
+    const base = { ...l, depends_on: l.depends_on ?? [] };
+    if (l.status !== "completed") return base;
+    const out = officialOutput(l.final_artifact, "session");
+    return out === null
+      ? { ...base, status: "failed", final_output: null, stop_reason: "It was recorded as completed but has no valid final result, so it is not treated as completed." }
+      : { ...base, final_output: out };
+  });
 }
 
 type ToolInfo = { name: string; agent_id: string | null };
@@ -72,9 +81,9 @@ async function logHandoffs(admin: AnyAdmin, taskId: string, userId: string, reco
  */
 export async function progressWorkflow(admin: AnyAdmin, workflowId: string): Promise<string[]> {
   const started: string[] = [];
-  const { data: wf } = await admin.from("outer_control_workflows").select("id, context, status, kind, objective, user_id").eq("id", workflowId).maybeSingle();
+  const { data: wf } = await admin.from("outer_control_workflows").select("id, context, status, kind, objective, user_id, origin").eq("id", workflowId).maybeSingle();
   if (!wf) return started;
-  const workflow = wf as { id: string; context: string | null; status: string; kind: TaskKind; objective: string; user_id: string };
+  const workflow = wf as { id: string; context: string | null; status: string; kind: TaskKind; objective: string; user_id: string; origin: unknown };
 
   let legs = await loadLegs(admin, workflowId);
   const tools = await loadToolInfo(admin, legs);
@@ -126,12 +135,26 @@ export async function progressWorkflow(admin: AnyAdmin, workflowId: string): Pro
 
   if (workflow.status !== "cancelled" && legs.length) {
     const taskLegs: TaskLeg[] = legs.map((l) => ({ ...l, label: tools.get(l.tool_id)?.name }));
-    const state = deriveTaskState(taskLegs);
+    let state = deriveTaskState(taskLegs);
+    // "Completed" needs the Task's own final artifact, built from the verified artifacts of its steps.
+    let finalArtifact: unknown = null;
+    if (state.status === "completed") {
+      const { data: hand } = await admin.from("outer_control_task_handoffs").select("from_leg, from_label, to_leg, outcome, rules").eq("task_id", workflowId).order("created_at");
+      const built = buildTaskArtifact({
+        id: workflowId, request: workflow.objective, origin: (workflow.origin as { source_model?: string; verdict?: string } | null) ?? null, completedAt: iso(),
+        legs: legs.map((l) => ({ leg_no: l.leg_no, tool: tools.get(l.tool_id)?.name ?? "tool", status: l.status, artifact: l.final_artifact })),
+        finalLeg: state.final_leg,
+        handoffs: ((hand ?? []) as { from_leg: number | null; from_label: string; to_leg: number; outcome: string; rules: string[] }[])
+          .map((h): TaskArtifactHandoff => ({ from: h.from_leg, from_label: h.from_label, to: h.to_leg, outcome: h.outcome, rules: h.rules ?? [] })),
+      });
+      if (built.ok && validateArtifact(built.artifact, "task").ok) finalArtifact = built.artifact;
+      else state = { ...state, status: "failed", final_output: null, final_leg: null, stop_reason: `Every step finished, but the Task's final result could not be verified (${built.ok ? "the artifact is invalid" : built.reason}).` };
+    }
     const terminal = state.status === "completed" || state.status === "failed" || state.status === "cancelled";
     const { data: wrote } = await admin.from("outer_control_workflows")
       .update({
         status: state.status, summary: state.summary, current_leg: state.current_leg, steps_total: state.steps_total, steps_done: state.steps_done,
-        final_output: state.final_output, final_leg: state.final_leg, failed_leg: state.failed_leg, stop_reason: state.stop_reason,
+        final_output: state.final_output, final_leg: state.final_leg, failed_leg: state.failed_leg, stop_reason: state.stop_reason, final_artifact: finalArtifact,
         updated_at: iso(), ...(terminal ? { finished_at: iso() } : {}),
       })
       .eq("id", workflowId).in("status", ["running", "awaiting_human"]).select("id").maybeSingle();

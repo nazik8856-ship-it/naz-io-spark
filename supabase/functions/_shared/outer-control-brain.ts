@@ -424,7 +424,7 @@ export function decisionRecord(d: BrainDecision) {
   return {
     verdict: d.verdict, foundation: d.foundationVerdict, why: d.why,
     winner: d.winner ? { id: d.winner.id, name: d.winner.name, effect: d.winner.effect, scope: d.winner.scope, origin: d.winner.origin } : null,
-    applied: d.applied.map((h) => h.name), overridden: d.overridden.map((o) => ({ rule: o.rule.name, by: o.by.name, reason: o.reason })),
+    applied: d.applied.map((h) => h.name), changes: d.changes.map((c) => ({ name: c.name, count: c.count })), overridden: d.overridden.map((o) => ({ rule: o.rule.name, by: o.by.name, reason: o.reason })),
     conflicts: d.conflicts, guard: d.guard,
     plan: { kind: d.plan.kind, reason: d.plan.reason, basis: d.plan.basis, request: d.plan.request },
     risk: d.risk, confidence: d.confidence, trace: d.trace,

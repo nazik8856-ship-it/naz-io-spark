@@ -25,6 +25,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import ActiveSessionsCard from "@/components/control/outer/ActiveSessionsCard";
 import { toast } from "sonner";
+import { sessionArtifact } from "./artifact-fixture";
 
 const tool = { id: "t1", name: "Support bot", endpoint_url: "https://bot.example.com/chat", request_format: "generic_json", approved_at: null, last_ok_at: null, last_error: null, last_checked_at: null };
 const session = (over: Record<string, unknown>) => ({
@@ -161,12 +162,12 @@ describe("ActiveSessionsCard", () => {
 
   it("an opened session shows its steps and result; finished sessions have no cancel", async () => {
     state.tools = [tool];
-    state.sessions = [session({ status: "completed", final_output: "Here is the reply." })];
+    state.sessions = [session({ status: "completed", final_output: "Here is the reply.", final_artifact: sessionArtifact("Here is the reply.") })];
     state.steps = [{ id: "a", step_no: 1, attempt: 1, verdict: "allow", next_action: "finish", error: null, note: null, reply_text: "x" }];
     renderCard();
     fireEvent.click(await screen.findByText("Draft a reply"));
     expect(await screen.findByText("Step 1 — verdict allow — accepted, finished")).toBeTruthy();
-    expect(screen.getByText("Here is the reply.")).toBeTruthy();
+    expect(screen.getByTestId("final-artifact-output").textContent).toBe("Here is the reply.");
     expect(screen.queryByText(/Cancel session/)).toBeNull();
   });
 
@@ -215,7 +216,8 @@ describe("ActiveSessionsCard", () => {
     state.sessions = [session({ workflow_id: "w1", leg_no: 2, status: "queued" })];
     renderCard();
     expect(await screen.findByText(/workflow step 2/)).toBeTruthy();
-    expect(screen.getByText("Waiting")).toBeTruthy();
+    expect(screen.getByTestId("status-badge").textContent).toBe("Queued");
+    expect(screen.getByTestId("status-reason").textContent).toMatch(/Not started: waiting for an earlier step/);
   });
 
   it("writing the reply myself: starts from the rejected reply, sends the text, and shows what the server says when it is refused", async () => {
