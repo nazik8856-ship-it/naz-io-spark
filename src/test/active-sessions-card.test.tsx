@@ -11,7 +11,7 @@ vi.mock("@/integrations/supabase/client", () => {
     const data = table === "external_tools" ? state.tools : table === "outer_control_sessions" ? state.sessions
       : table === "outer_control_session_steps" ? state.steps : table === "outer_control_memory" ? state.memory : state.keys;
     const q: Record<string, unknown> = {};
-    for (const m of ["select", "eq", "is", "order", "limit"]) q[m] = () => q;
+    for (const m of ["select", "eq", "is", "in", "order", "limit"]) q[m] = () => q;
     q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data, error: null }).then(res);
     return q;
   };

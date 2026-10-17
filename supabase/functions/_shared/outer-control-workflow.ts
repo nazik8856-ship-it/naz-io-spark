@@ -2,9 +2,17 @@
 // ordinary session, so everything a session does (gate, rules, recovery, hand-off) applies
 // to every leg unchanged. This file only starts the legs, lets waiting legs begin once what
 // they depend on has finished (handing them the results), and keeps the workflow's status.
-import { advanceSession, defaultSessionDeps, resumeSession, type SessionDeps } from "./outer-control-session.ts";
+import { advanceSession, alertSnippet, defaultSessionDeps, resumeSession, type SessionDeps } from "./outer-control-session.ts";
+import { loadSafetyRules, scanWithRules } from "./safety-scanner.ts";
+import { isRedactableMatch } from "./outer-control-scoring.ts";
+import { textSafeToStore } from "./outer-control-text-review.ts";
+import { sha256Hex } from "./api-key-auth.ts";
+import { sendCriticalAlert } from "./critical-alerts.ts";
 import {
-  buildLegContext, isLegOpen, legReadiness, MAX_LEGS, rollupStatus, validateLegs, type LegState,
+  chainLegs, contextFromHandoffs, deriveTaskState, makeHandoff, type HandoffCheck, type HandoffRecord, type TaskKind, type TaskLeg, type TaskOrigin,
+} from "./outer-control-task.ts";
+import {
+  buildLegContext, isLegOpen, legReadiness, MAX_CONTEXT_CHARS, MAX_LEGS, validateLegs, type LegState,
 } from "./outer-control-workflow-plan.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -12,12 +20,50 @@ type AnyAdmin = any;
 
 const iso = () => new Date().toISOString();
 
-type LegRow = LegState & { id: string; depends_on: number[]; context: string | null };
+type LegRow = LegState & { id: string; depends_on: number[]; context: string | null; tool_id: string; user_id: string; api_key_id: string | null; objective: string };
 
 async function loadLegs(admin: AnyAdmin, workflowId: string): Promise<LegRow[]> {
   const { data } = await admin.from("outer_control_sessions")
-    .select("id, leg_no, status, depends_on, final_output, stop_reason, context, condition").eq("workflow_id", workflowId).order("leg_no");
+    .select("id, leg_no, status, depends_on, final_output, stop_reason, context, condition, tool_id, user_id, api_key_id, objective").eq("workflow_id", workflowId).order("leg_no");
   return ((data ?? []) as LegRow[]).map((l) => ({ ...l, depends_on: l.depends_on ?? [] }));
+}
+
+type ToolInfo = { name: string; agent_id: string | null };
+
+async function loadToolInfo(admin: AnyAdmin, legs: LegRow[]): Promise<Map<string, ToolInfo>> {
+  const ids = [...new Set(legs.map((l) => l.tool_id))];
+  if (!ids.length) return new Map();
+  const { data } = await admin.from("external_tools").select("id, name, agent_id").in("id", ids);
+  return new Map(((data ?? []) as { id: string; name: string; agent_id: string | null }[]).map((t) => [t.id, { name: t.name, agent_id: t.agent_id ?? null }]));
+}
+
+/**
+ * The same rules a step's own replies are checked against, applied to a result about to be handed to it:
+ * the account's rules, the API key's, and (when the receiver is a NazAI agent) that agent's own. A blocking
+ * rule that cannot be worked around stops the hand-off; text a rule can remove is handed over without it.
+ */
+export async function checkForReceiver(
+  admin: AnyAdmin, userId: string, apiKeyId: string | null, receiverAgentId: string | null, text: string,
+): Promise<HandoffCheck> {
+  const rules = (await loadSafetyRules(admin, userId, receiverAgentId, apiKeyId)).filter((r) => !r.shadow_mode);
+  const scan = scanWithRules(rules, text, "");
+  const blocked: string[] = [];
+  const changed: string[] = [];
+  for (const m of scan.matches) {
+    if (m.severity === "block") (isRedactableMatch(m) ? changed : blocked).push(m.name);
+    // An approval rule already had its say when the sending step's result was accepted.
+  }
+  const uniq = (a: string[]) => [...new Set(a)];
+  return { blocked: uniq(blocked), changed: uniq(changed), cleaned: changed.length ? textSafeToStore(text, scan.matches.filter((m) => m.severity === "block" && isRedactableMatch(m))) : text };
+}
+
+async function logHandoffs(admin: AnyAdmin, taskId: string, userId: string, records: HandoffRecord[]) {
+  if (!records.length) return;
+  const rows = await Promise.all(records.map(async (h) => ({
+    task_id: taskId, user_id: userId, from_leg: h.from_leg, from_label: h.from_label.slice(0, 120), to_leg: h.to_leg, outcome: h.outcome,
+    rules: h.rules, chars: h.text.length, text_sha256: h.text ? await sha256Hex(h.text) : null, note: h.note.slice(0, 500),
+  })));
+  try { await admin.from("outer_control_task_handoffs").insert(rows); } catch { /* the audit row must never break the Task */ }
 }
 
 /**
@@ -26,21 +72,42 @@ async function loadLegs(admin: AnyAdmin, workflowId: string): Promise<LegRow[]> 
  */
 export async function progressWorkflow(admin: AnyAdmin, workflowId: string): Promise<string[]> {
   const started: string[] = [];
-  const { data: wf } = await admin.from("outer_control_workflows").select("id, context, status").eq("id", workflowId).maybeSingle();
+  const { data: wf } = await admin.from("outer_control_workflows").select("id, context, status, kind, objective, user_id").eq("id", workflowId).maybeSingle();
   if (!wf) return started;
-  const workflow = wf as { id: string; context: string | null; status: string };
+  const workflow = wf as { id: string; context: string | null; status: string; kind: TaskKind; objective: string; user_id: string };
 
   let legs = await loadLegs(admin, workflowId);
+  const tools = await loadToolInfo(admin, legs);
   for (let round = 0; round <= MAX_LEGS; round++) {
     let changed = false;
     for (const leg of legs.filter((l) => l.status === "queued")) {
       const verdict = legReadiness(leg, legs);
       if (verdict === "ready") {
         const deps = legs.filter((d) => leg.depends_on.includes(d.leg_no));
+        // The hand-off step: each completed dependency's controlled result is checked for this step, then passed on.
+        const receiverAgent = tools.get(leg.tool_id)?.agent_id ?? null;
+        const records: HandoffRecord[] = [];
+        for (const d of deps.filter((x) => x.status === "completed" && (x.final_output ?? "").trim())) {
+          const check = await checkForReceiver(admin, leg.user_id, leg.api_key_id, receiverAgent, d.final_output as string);
+          records.push(makeHandoff({
+            from_leg: d.leg_no, from_label: tools.get(d.tool_id)?.name ?? "tool", to_leg: leg.leg_no,
+            text: d.final_output as string, check, maxChars: MAX_CONTEXT_CHARS,
+          }));
+        }
+        const stopped = records.find((r) => r.outcome === "blocked");
+        if (stopped) {
+          const { data: moved } = await admin.from("outer_control_sessions")
+            .update({ status: "rejected", stop_reason: stopped.note, finished_at: iso(), updated_at: iso() })
+            .eq("id", leg.id).eq("status", "queued").select("id").maybeSingle();
+          if (moved) { await logHandoffs(admin, workflowId, leg.user_id, records); changed = true; }
+          continue;
+        }
+        const failedNotes = buildLegContext(null, deps.filter((d) => d.status !== "completed"));
+        const context = [contextFromHandoffs(workflow.context, records), failedNotes].filter(Boolean).join("\n\n").slice(0, MAX_CONTEXT_CHARS) || null;
         const { data: moved } = await admin.from("outer_control_sessions")
-          .update({ status: "running", context: buildLegContext(workflow.context, deps), updated_at: iso() })
+          .update({ status: "running", context, updated_at: iso() })
           .eq("id", leg.id).eq("status", "queued").select("id").maybeSingle();
-        if (moved) { started.push(leg.id); changed = true; }
+        if (moved) { started.push(leg.id); await logHandoffs(admin, workflowId, leg.user_id, records); changed = true; }
       } else if (verdict === "cancel") {
         await admin.from("outer_control_sessions")
           .update({ status: "cancelled", stop_reason: "A step it depends on did not finish.", finished_at: iso(), updated_at: iso() })
@@ -58,11 +125,25 @@ export async function progressWorkflow(admin: AnyAdmin, workflowId: string): Pro
   }
 
   if (workflow.status !== "cancelled" && legs.length) {
-    const roll = rollupStatus(legs);
-    const terminal = roll.status === "completed" || roll.status === "failed";
-    await admin.from("outer_control_workflows")
-      .update({ status: roll.status, summary: roll.summary, updated_at: iso(), ...(terminal ? { finished_at: iso() } : {}) })
-      .eq("id", workflowId).in("status", ["running", "awaiting_human"]);
+    const taskLegs: TaskLeg[] = legs.map((l) => ({ ...l, label: tools.get(l.tool_id)?.name }));
+    const state = deriveTaskState(taskLegs);
+    const terminal = state.status === "completed" || state.status === "failed" || state.status === "cancelled";
+    const { data: wrote } = await admin.from("outer_control_workflows")
+      .update({
+        status: state.status, summary: state.summary, current_leg: state.current_leg, steps_total: state.steps_total, steps_done: state.steps_done,
+        final_output: state.final_output, final_leg: state.final_leg, failed_leg: state.failed_leg, stop_reason: state.stop_reason,
+        updated_at: iso(), ...(terminal ? { finished_at: iso() } : {}),
+      })
+      .eq("id", workflowId).in("status", ["running", "awaiting_human"]).select("id").maybeSingle();
+    // A chain that stopped on a failure or a rule tells the owner once, and says which step and why.
+    if (wrote && state.status === "failed" && workflow.kind === "chain") {
+      try {
+        await sendCriticalAlert(admin, workflow.user_id, {
+          event: "outer_control_session_failed",
+          summary: `An Outer Control task stopped: "${await alertSnippet(admin, { user_id: workflow.user_id, api_key_id: legs[0]?.api_key_id ?? null, objective: workflow.objective })}". ${(state.stop_reason ?? state.summary).slice(0, 220)}`,
+        });
+      } catch { /* the dashboard still shows it */ }
+    }
   }
   return started;
 }
@@ -96,12 +177,12 @@ export async function resumeAndDrive(admin: AnyAdmin, sessionId: string, deps: S
 }
 
 export type StartWorkflowResult =
-  | { ok: true; workflowId: string; running: string[] }
+  | { ok: true; workflowId: string; running: string[]; legIds: string[] }
   | { ok: false; code: string; message: string };
 
 export async function startWorkflow(
   admin: AnyAdmin, userId: string,
-  input: { objective: unknown; context: unknown; legs: unknown; api_key_id?: unknown; max_steps?: unknown },
+  input: { objective: unknown; context: unknown; legs: unknown; api_key_id?: unknown; max_steps?: unknown; kind?: TaskKind; origin?: TaskOrigin | null },
 ): Promise<StartWorkflowResult> {
   const objective = typeof input.objective === "string" ? input.objective.trim() : "";
   const context = typeof input.context === "string" && input.context.trim() ? input.context.trim() : null;
@@ -127,7 +208,10 @@ export async function startWorkflow(
   const maxSteps = Math.max(1, Math.min(20, Number.isFinite(Number(input.max_steps)) ? Math.trunc(Number(input.max_steps)) : 5));
 
   const { data: wf, error } = await admin.from("outer_control_workflows")
-    .insert({ user_id: userId, api_key_id: apiKeyId, objective, context, status: "running" }).select("id").maybeSingle();
+    .insert({
+      user_id: userId, api_key_id: apiKeyId, objective, context, status: "running", kind: input.kind ?? "chain",
+      origin: input.origin ?? null, steps_total: checked.legs.length, current_leg: 1,
+    }).select("id").maybeSingle();
   if (error || !wf) return { ok: false, code: "internal_error", message: "Could not start the workflow." };
   const workflowId = (wf as { id: string }).id;
 
@@ -139,12 +223,33 @@ export async function startWorkflow(
     status: l.depends_on.length ? "queued" : "running", condition: l.condition,
     on_failure: l.on_failure ?? (watched.has(l.leg_no) ? "reject" : "handoff"),
   }));
-  const { data: made, error: legErr } = await admin.from("outer_control_sessions").insert(rows).select("id, status");
+  const { data: made, error: legErr } = await admin.from("outer_control_sessions").insert(rows).select("id, status, leg_no");
   if (legErr || !made) {
     await admin.from("outer_control_workflows").update({ status: "failed", summary: "The steps could not be created.", finished_at: iso() }).eq("id", workflowId);
     return { ok: false, code: "internal_error", message: "Could not create the workflow's steps." };
   }
-  return { ok: true, workflowId, running: (made as { id: string; status: string }[]).filter((r) => r.status === "running").map((r) => r.id) };
+  const madeRows = made as { id: string; status: string; leg_no: number }[];
+  return {
+    ok: true, workflowId, running: madeRows.filter((r) => r.status === "running").map((r) => r.id),
+    legIds: [...madeRows].sort((a, b) => a.leg_no - b.leg_no).map((r) => r.id),
+  };
+}
+
+/**
+ * A Task of several steps in sequence: step N waits for step N-1 and receives its controlled result.
+ * `steps` is `[{ tool_id, instruction, fallback_tool_id?, on_failure? }]`; the Task stops at the first step
+ * that fails or breaks a rule.
+ */
+export async function startTask(
+  admin: AnyAdmin, userId: string,
+  input: { request: unknown; context: unknown; steps: unknown; api_key_id?: unknown; max_steps?: unknown; origin?: TaskOrigin | null },
+): Promise<StartWorkflowResult> {
+  const chain = chainLegs(input.steps);
+  if (!chain.ok) return { ok: false, code: "invalid_steps", message: chain.message };
+  return startWorkflow(admin, userId, {
+    objective: input.request, context: input.context, legs: chain.legs, api_key_id: input.api_key_id, max_steps: input.max_steps,
+    kind: "chain", origin: input.origin ?? null,
+  });
 }
 
 /** Cancels every open step and the workflow itself. */

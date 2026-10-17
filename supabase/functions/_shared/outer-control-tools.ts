@@ -10,6 +10,7 @@ const iso = () => new Date().toISOString();
 export type ToolChange = { ok: true; message: string } | { ok: false; code: string; message: string; status: number };
 
 const MAX_TOKEN = 2000;
+const MAX_NAME = 80;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -21,8 +22,9 @@ export async function updateToolKey(admin: AnyAdmin, accountId: string, toolId: 
   const token = typeof rawToken === "string" ? rawToken.trim() : "";
   if (!token) return { ok: false, code: "invalid_token", message: "Paste the new API key or token.", status: 400 };
   if (token.length > MAX_TOKEN) return { ok: false, code: "invalid_token", message: "That credential is too long.", status: 400 };
-  const { data: tool } = await admin.from("external_tools").select("id, credentials_secret_id, removed_at").eq("id", toolId).eq("user_id", accountId).maybeSingle();
+  const { data: tool } = await admin.from("external_tools").select("id, credentials_secret_id, removed_at, agent_id").eq("id", toolId).eq("user_id", accountId).maybeSingle();
   if (!tool || tool.removed_at) return { ok: false, code: "not_found", message: "Tool not found.", status: 404 };
+  if (tool.agent_id) return { ok: false, code: "no_key", message: "A NazAI agent has no key to replace.", status: 400 };
 
   let secretId: string | null = tool.credentials_secret_id ?? null;
   if (secretId) {
@@ -77,4 +79,30 @@ export async function removeTool(admin: AnyAdmin, accountId: string, toolId: str
 
   const workflowIds = [...new Set(rows.map((r) => r.workflow_id).filter((w): w is string => !!w))];
   return { ok: true, message: "Tool removed.", workflowIds };
+}
+
+export type AgentToolResult =
+  | { ok: true; tool: { id: string; name: string; agent_id: string }; created: boolean }
+  | { ok: false; code: string; message: string; status: number };
+
+/**
+ * Makes one of the account's own NazAI agents available as a step in a Task. The "tool" row has no outside
+ * address (the endpoint is a placeholder that is never fetched) and no credential; it is already approved
+ * because it is the owner's own agent. Its replies are still checked like any other tool's.
+ */
+export async function createAgentTool(admin: AnyAdmin, accountId: string, agentId: unknown, maxTools: number): Promise<AgentToolResult> {
+  if (typeof agentId !== "string" || !UUID.test(agentId)) return { ok: false, code: "invalid_agent", message: "Choose one of your agents.", status: 400 };
+  const { data: agent } = await admin.from("agents").select("id, name").eq("id", agentId).eq("user_id", accountId).maybeSingle();
+  if (!agent) return { ok: false, code: "not_found", message: "Agent not found.", status: 404 };
+  const { data: existing } = await admin.from("external_tools").select("id, name, agent_id").eq("user_id", accountId).eq("agent_id", agentId).is("removed_at", null).maybeSingle();
+  if (existing) return { ok: true, tool: existing as { id: string; name: string; agent_id: string }, created: false };
+  const { count } = await admin.from("external_tools").select("id", { count: "exact", head: true }).eq("user_id", accountId).is("removed_at", null);
+  if ((count ?? 0) >= maxTools) return { ok: false, code: "too_many_tools", message: `An account can connect at most ${maxTools} tools.`, status: 409 };
+  const name = `Agent: ${String((agent as { name: string }).name ?? "agent")}`.slice(0, MAX_NAME);
+  const { data: tool, error } = await admin.from("external_tools").insert({
+    user_id: accountId, name, endpoint_url: `nazai-agent://${agentId}`, request_format: "generic_json",
+    agent_id: agentId, approved_at: new Date().toISOString(), enabled: true,
+  }).select("id, name, agent_id").maybeSingle();
+  if (error || !tool) return { ok: false, code: "internal_error", message: "Could not add the agent.", status: 500 };
+  return { ok: true, tool: tool as { id: string; name: string; agent_id: string }, created: true };
 }

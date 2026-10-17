@@ -4,7 +4,9 @@
 //   POST { action: "update_key", tool_id, token }   (replaces the stored credential)
 //   POST { action: "remove_tool", tool_id }         (switches it off, hides it, cancels its open sessions)
 //   POST { action: "test_tool", tool_id }
-//   POST { action: "start_session", tool_id, objective, context?, api_key_id?, max_steps? }
+//   POST { action: "start_session", tool_id, objective, context?, api_key_id?, max_steps? }   (a Task of one step)
+//   POST { action: "start_task", request, context?, steps: [{ tool_id, instruction, fallback_tool_id?, on_failure? }], api_key_id? }
+//   POST { action: "create_agent_tool", agent_id }   (one of the account's own NazAI agents as a step)
 //   POST { action: "answer", session_id, answer }
 //   POST { action: "decide", session_id, option, note? | text? }  (answers a hand-off; text = "write the reply myself")
 //   POST { action: "cancel", session_id }
@@ -22,9 +24,9 @@ import { checkKillSwitches } from "../_shared/control-gate.ts";
 import { buildToolRequest, parseToolReply, type ToolFormat } from "../_shared/outer-control-tool-request.ts";
 import { extractExternalText } from "../_shared/outer-control-intake.ts";
 import { applyEditedReply, contactRuleStopping, readGenericPayload } from "../_shared/outer-control-session.ts";
-import { cancelWorkflow, continueSession, driveSession, progressWorkflow, resumeAndDrive, startWorkflow } from "../_shared/outer-control-workflow.ts";
+import { cancelWorkflow, continueSession, driveSession, progressWorkflow, resumeAndDrive, startTask, startWorkflow } from "../_shared/outer-control-workflow.ts";
 import { encodeChoice, findOption, type Handoff } from "../_shared/outer-control-handoff.ts";
-import { removeTool, updateToolKey } from "../_shared/outer-control-tools.ts";
+import { createAgentTool, removeTool, updateToolKey } from "../_shared/outer-control-tools.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -116,6 +118,13 @@ Deno.serve(async (req) => {
     if (action === "test_tool") {
       const { data: tool } = await admin.from("external_tools").select("*").eq("id", String(body.tool_id ?? "")).eq("user_id", accountId).is("removed_at", null).maybeSingle();
       if (!tool) return json({ error: "not_found", message: "Tool not found." }, 404);
+      if (tool.agent_id) {
+        // An agent is run internally: the test is that it still exists. Nothing is run.
+        const { data: ag } = await admin.from("agents").select("id").eq("id", tool.agent_id).eq("user_id", accountId).maybeSingle();
+        const ok = !!ag;
+        await admin.from("external_tools").update({ last_checked_at: new Date().toISOString(), last_ok_at: ok ? new Date().toISOString() : tool.last_ok_at, last_error: ok ? null : "The agent no longer exists." }).eq("id", tool.id);
+        return json({ ok, error: ok ? null : "The agent no longer exists." });
+      }
       const kill = await checkKillSwitches(admin, accountId, null);
       if (kill.killed) return json({ error: "kill_switch", message: kill.reason }, 409);
       const record = async (ok: boolean, error: string | null) => {
@@ -154,7 +163,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ---- start_session -------------------------------------------------------------
+    // ---- start_session: a one-tool run, carried as a Task of one step ------------------------------
     if (action === "start_session") {
       const objective = String(body.objective ?? "").trim();
       const context = typeof body.context === "string" && body.context.trim() ? body.context.trim() : null;
@@ -162,26 +171,31 @@ Deno.serve(async (req) => {
       if (context && context.length > 8000) return json({ error: "invalid_context", message: "The context is limited to 8000 characters." }, 400);
       const { data: tool } = await admin.from("external_tools").select("id, enabled").eq("id", String(body.tool_id ?? "")).eq("user_id", accountId).maybeSingle();
       if (!tool || !tool.enabled) return json({ error: "not_found", message: "Tool not found or disabled." }, 404);
-      let apiKeyId: string | null = null;
-      if (body.api_key_id) {
-        const { data: key } = await admin.from("api_keys").select("id, revoked_at").eq("id", String(body.api_key_id)).eq("user_id", accountId).maybeSingle();
-        if (!key || key.revoked_at) return json({ error: "invalid_key", message: "That API key is not available." }, 400);
-        apiKeyId = key.id;
-      }
-      const maxSteps = Math.max(1, Math.min(20, Number.isFinite(Number(body.max_steps)) ? Math.trunc(Number(body.max_steps)) : 5));
-      let fallbackId: string | null = null;
       if (body.fallback_tool_id) {
         const { data: fb } = await admin.from("external_tools").select("id, enabled").eq("id", String(body.fallback_tool_id)).eq("user_id", accountId).maybeSingle();
         if (!fb || !fb.enabled || fb.id === tool.id) return json({ error: "invalid_fallback", message: "The fallback tool must be a different, enabled tool." }, 400);
-        fallbackId = fb.id;
       }
-      const { data: session, error } = await admin.from("outer_control_sessions").insert({
-        user_id: accountId, tool_id: tool.id, api_key_id: apiKeyId, objective, context, max_steps: maxSteps,
-        fallback_tool_id: fallbackId, on_failure: body.on_failure === "reject" ? "reject" : "handoff",
-      }).select("id").maybeSingle();
-      if (error || !session) return json({ error: "internal_error", message: "Could not start the session." }, 500);
-      inBackground(driveSession(admin, session.id));
-      return json({ ok: true, session_id: session.id, status: "running" });
+      const started = await startWorkflow(admin, accountId, {
+        objective, context, api_key_id: body.api_key_id, max_steps: body.max_steps, kind: "single",
+        legs: [{ tool_id: tool.id, instruction: objective, fallback_tool_id: body.fallback_tool_id || null, on_failure: body.on_failure === "reject" ? "reject" : "handoff" }],
+      });
+      if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+      inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
+      return json({ ok: true, session_id: started.legIds[0], task_id: started.workflowId, status: "running" });
+    }
+
+    // ---- start_task: several tools in sequence; each step receives the previous step's controlled result ----
+    if (action === "start_task") {
+      const started = await startTask(admin, accountId, { request: body.request, context: body.context, steps: body.steps, api_key_id: body.api_key_id, max_steps: body.max_steps });
+      if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+      inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
+      return json({ ok: true, task_id: started.workflowId });
+    }
+
+    // ---- create_agent_tool: one of the account's own NazAI agents as a step -------------------------
+    if (action === "create_agent_tool") {
+      const made = await createAgentTool(admin, accountId, body.agent_id, MAX_TOOLS_PER_ACCOUNT);
+      return made.ok ? json({ ok: true, tool: made.tool, created: made.created }) : json({ error: made.code, message: made.message }, made.status);
     }
 
     // ---- answer / cancel -------------------------------------------------------------
@@ -239,7 +253,7 @@ Deno.serve(async (req) => {
       return json({ ok: true, status: "cancelled" });
     }
 
-    return json({ error: "unknown_action", message: "action must be create_tool, update_key, remove_tool, test_tool, start_session, answer, decide, cancel, start_workflow or cancel_workflow." }, 400);
+    return json({ error: "unknown_action", message: "action must be create_tool, create_agent_tool, update_key, remove_tool, test_tool, start_session, start_task, answer, decide, cancel, start_workflow or cancel_workflow." }, 400);
   } catch (e) {
     return json({ error: "internal_error", message: e instanceof Error ? e.message : "Unknown error" }, 500);
   }

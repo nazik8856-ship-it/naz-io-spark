@@ -7,7 +7,7 @@ const state = vi.hoisted(() => ({ tables: {} as Record<string, unknown[]> }));
 vi.mock("@/integrations/supabase/client", () => {
   const result = (table: string) => {
     const q: Record<string, unknown> = {};
-    for (const m of ["select", "eq", "is", "not", "contains", "in", "order", "limit"]) q[m] = () => q;
+    for (const m of ["select", "eq", "is", "not", "neq", "contains", "in", "order", "limit"]) q[m] = () => q;
     q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: state.tables[table] ?? [], error: null }).then(res);
     return q;
   };
