@@ -111,13 +111,13 @@ const EXAMPLE_OUTER_CONTROL_RESPONSE = `{
   "id": "b6b1...",
   "verdict": "escalate",
   "trust_score": 80,
-  "risk": { "level": "medium", "reasons": ["\"Refund or cancellation without a reference\" needs a person's approval"] },
-  "confidence": { "level": "high", "reasons": ["decided directly by \"Refund or cancellation without a reference\""] },
+  "risk": { "level": "medium", "reasons": ["\\"Refund or cancellation without a reference\\" needs a person's approval"] },
+  "confidence": { "level": "high", "reasons": ["decided directly by \\"Refund or cancellation without a reference\\""] },
   "trace": [
     "Decision: Escalate.",
-    "Decided by \"Refund or cancellation without a reference\" (account rule: require approval).",
-    "Risk: medium — \"Refund or cancellation without a reference\" needs a person's approval.",
-    "Confidence: high — decided directly by \"Refund or cancellation without a reference\"."
+    "Decided by \\"Refund or cancellation without a reference\\" (account rule: require approval).",
+    "Risk: medium — \\"Refund or cancellation without a reference\\" needs a person's approval.",
+    "Confidence: high — decided directly by \\"Refund or cancellation without a reference\\"."
   ],
   "output": null,
   "changes": [],
