@@ -248,7 +248,7 @@ export async function startTask(
   if (!chain.ok) return { ok: false, code: "invalid_steps", message: chain.message };
   return startWorkflow(admin, userId, {
     objective: input.request, context: input.context, legs: chain.legs, api_key_id: input.api_key_id, max_steps: input.max_steps,
-    kind: chain.legs.length === 1 ? "single" : "chain", origin: input.origin ?? null,
+    kind: "chain", origin: input.origin ?? null,
   });
 }
 
