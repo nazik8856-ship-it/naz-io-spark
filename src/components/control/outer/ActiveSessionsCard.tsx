@@ -43,6 +43,7 @@ const inputCls = "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2
 export default function ActiveSessionsCard({ accountId }: { accountId: string | null | undefined }) {
   const navigate = useNavigate();
   const [tools, setTools] = useState<Tool[]>([]);
+  const [singles, setSingles] = useState<Set<string>>(new Set());
   const [sessions, setSessions] = useState<Session[]>([]);
   const [keys, setKeys] = useState<KeyOpt[]>([]);
   const [steps, setSteps] = useState<Record<string, Step[]>>({});
@@ -69,8 +70,15 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
     ]);
     setTools((t.data ?? []) as Tool[]);
-    setSessions((s.data ?? []) as Session[]);
+    const rows = (s.data ?? []) as Session[];
+    setSessions(rows);
     setKeys((k.data ?? []) as KeyOpt[]);
+    // A one-tool run is a Task of one step: it is not "step 1 of a workflow".
+    const wfIds = [...new Set(rows.map((r) => r.workflow_id).filter((x): x is string => !!x))];
+    if (wfIds.length) {
+      const w = await anyDb.from("outer_control_workflows").select("id, kind").in("id", wfIds);
+      setSingles(new Set(((Array.isArray(w.data) ? w.data : []) as { id: string; kind?: string }[]).filter((x) => x?.kind === "single").map((x) => x.id)));
+    } else setSingles(new Set());
   }, [accountId]);
 
   const loadSteps = useCallback(async (sessionId: string) => {
@@ -136,7 +144,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                     <span className="flex min-w-0 items-center gap-1.5 text-sm text-zinc-200">
                       {open ? <ChevronDown className="h-3 w-3 shrink-0 text-zinc-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-zinc-500" />}
                       <span className="truncate">{s.objective}</span>
-                      <span className="shrink-0 text-xs text-zinc-500">· {toolName(s.tool_id)}{s.workflow_id && s.leg_no ? ` · workflow step ${s.leg_no}` : ""}</span>
+                      <span className="shrink-0 text-xs text-zinc-500">· {toolName(s.tool_id)}{s.workflow_id && s.leg_no && !singles.has(s.workflow_id) ? ` · workflow step ${s.leg_no}` : ""}</span>
                     </span>
                     <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${STATUS_STYLE[s.status]}`}>{STATUS_LABEL[s.status]}</span>
                   </button>
@@ -304,7 +312,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                       <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[st.tone]}`} aria-hidden /> {st.label}
                     </span>
                   </div>
-                  <div className="mt-0.5 text-xs text-zinc-500">{hostOf(t.endpoint_url)}</div>
+                  <div className="mt-0.5 text-xs text-zinc-500">{t.endpoint_url.startsWith("nazai-agent://") ? "Your NazAI agent" : hostOf(t.endpoint_url)}</div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button disabled={busy === `test-${t.id}`} onClick={() => act(`test-${t.id}`, "test_tool", { tool_id: t.id }, "Connection works.")} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-40">

@@ -60,6 +60,8 @@
 // Authorization: Bearer nazai_sk_... header via resolveApiKeyAuth, not a
 // Supabase session JWT.
 import { judgeStateless } from "../_shared/outer-control-judgement.ts";
+import { relayToTask, taskForKey } from "../_shared/outer-control-relay.ts";
+import { driveSession } from "../_shared/outer-control-workflow.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { checkRateLimit, checkIpRateLimit } from "../_shared/rate-limit.ts";
@@ -320,12 +322,56 @@ async function handleActionEvaluation(
   });
 }
 
+
+// Runs a started Task's first steps after the response is sent (the sweep carries on afterwards).
+// deno-lint-ignore no-explicit-any
+const inBackground = (p: Promise<unknown>) => {
+  // deno-lint-ignore no-explicit-any
+  const rt = (globalThis as any).EdgeRuntime;
+  const safe = p.catch((e) => console.error("outer-control background", e));
+  if (rt?.waitUntil) rt.waitUntil(safe);
+};
+
+/** POST /outer-control/relay and GET /outer-control/task/<id>: same key checks and rate limits as /evaluate. */
+async function handleTaskRoutes(req: Request, relay: boolean, taskId: string): Promise<Response> {
+  if (relay && req.method !== "POST") return json({ error: "method_not_allowed", message: "POST only." }, 405);
+  if (!relay && req.method !== "GET") return json({ error: "method_not_allowed", message: "GET only." }, 405);
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("cf-connecting-ip") || "unknown";
+  const ipRate = await checkIpRateLimit(admin, ip, "outer-control-preauth", PRE_AUTH_RATE_LIMIT_PER_MINUTE, 60);
+  if (!ipRate.allowed) return json({ error: "rate_limited", message: "Too many requests from this address. Try again shortly." }, 429);
+  const auth = await resolveApiKeyAuth(admin, req.headers.get("Authorization"));
+  if (!auth.ok) return json(auth.body, auth.status);
+  if (!auth.scopes.includes("control:verdict")) {
+    return json({ error: "insufficient_scope", message: "Outer Control requires a full-access API key. Create one without the respond-only scope." }, 403);
+  }
+  const rate = await checkRateLimit(admin, auth.userId, relay ? "outer-control-relay" : "outer-control-task", RATE_LIMIT_PER_MINUTE, 60);
+  if (!rate.allowed) return json({ error: "rate_limited", message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.` }, 429);
+  if (!relay) {
+    const r = await taskForKey(admin, auth, taskId);
+    return json(r.body, r.status);
+  }
+  let body: Record<string, unknown>;
+  try {
+    const parsed = await req.json();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+    body = parsed as Record<string, unknown>;
+  } catch {
+    return json({ error: "invalid_json", message: "The request body must be a JSON object." }, 400);
+  }
+  const r = await relayToTask(admin, auth, body, (ids) => inBackground(Promise.all(ids.map((id) => driveSession(admin, id)))));
+  return json(r.body, r.status);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const url = new URL(req.url);
+    const relayRoute = /\/relay\/?$/.test(url.pathname);
+    const taskRoute = url.pathname.match(/\/task\/([^/]+)\/?$/);
+    if (relayRoute || taskRoute) return await handleTaskRoutes(req, relayRoute, taskRoute?.[1] ?? "");
     if (!/\/evaluate\/?$/.test(url.pathname)) {
-      return json({ error: "not_found", message: "POST /outer-control/evaluate is the only route today." }, 404);
+      return json({ error: "not_found", message: "Routes: POST /outer-control/evaluate, POST /outer-control/relay, GET /outer-control/task/<id>." }, 404);
     }
     if (req.method !== "POST") return json({ error: "method_not_allowed", message: "POST only." }, 405);
 

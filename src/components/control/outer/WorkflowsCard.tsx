@@ -12,7 +12,15 @@ import { legsPayload, STATUS_LABEL, WORKFLOW_LABEL, type CondKind, type DraftLeg
 const anyDb = supabase as any; // the tables are new and not in the generated types
 
 type ToolOpt = { id: string; name: string };
-type WorkflowRow = { id: string; objective: string; status: WorkflowStatus; summary: string | null; started_at: string };
+type WorkflowRow = {
+  id: string; objective: string; status: WorkflowStatus; summary: string | null; started_at: string;
+  // The Task fields: where it is, what it produced, why it stopped.
+  kind?: "single" | "chain"; current_leg?: number | null; steps_total?: number; steps_done?: number;
+  final_output?: string | null; final_leg?: number | null; failed_leg?: number | null; stop_reason?: string | null;
+  origin?: { kind: string; source_model?: string } | null;
+};
+type HandoffRow = { id: string; task_id: string; from_leg: number | null; from_label: string; to_leg: number; outcome: "passed" | "modified" | "blocked"; rules: string[]; note: string };
+type AgentOpt = { id: string; name: string };
 type LegRow = { id: string; workflow_id: string; leg_no: number; tool_id: string; objective: string; status: SessionStatus; stop_reason: string | null; final_output: string | null; depends_on: number[] };
 
 const MAX_LEGS = 6;
@@ -25,6 +33,9 @@ const chip = (s: string) =>
 export default function WorkflowsCard({ accountId }: { accountId: string | null | undefined }) {
   const [tools, setTools] = useState<ToolOpt[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowRow[]>([]);
+  const [handoffs, setHandoffs] = useState<HandoffRow[]>([]);
+  const [agents, setAgents] = useState<AgentOpt[]>([]);
+  const [agentChoice, setAgentChoice] = useState("");
   const [legs, setLegs] = useState<LegRow[]>([]);
   const [show, setShow] = useState(false);
   const [showAll, setShowAll] = useState(false);
@@ -35,18 +46,23 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const [t, w] = await Promise.all([
+    const [t, w, a] = await Promise.all([
       anyDb.from("external_tools").select("id, name").eq("user_id", accountId).eq("enabled", true).is("removed_at", null).order("created_at", { ascending: false }),
-      anyDb.from("outer_control_workflows").select("id, objective, status, summary, started_at").eq("user_id", accountId).order("started_at", { ascending: false }).limit(8),
+      // One-tool runs are Tasks too, but they are shown as sessions: this list is for several steps.
+      anyDb.from("outer_control_workflows").select("id, objective, status, summary, started_at, kind, current_leg, steps_total, steps_done, final_output, final_leg, failed_leg, stop_reason, origin").eq("user_id", accountId).neq("kind", "single").order("started_at", { ascending: false }).limit(8),
+      anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
     ]);
     setTools((t.data ?? []) as ToolOpt[]);
+    setAgents((a.data ?? []) as AgentOpt[]);
     const rows = (w.data ?? []) as WorkflowRow[];
     setWorkflows(rows);
     if (rows.length) {
+      const h = await anyDb.from("outer_control_task_handoffs").select("id, task_id, from_leg, from_label, to_leg, outcome, rules, note").in("task_id", rows.map((r) => r.id)).order("created_at");
+      setHandoffs((h.data ?? []) as HandoffRow[]);
       const l = await anyDb.from("outer_control_sessions")
         .select("id, workflow_id, leg_no, tool_id, objective, status, stop_reason, final_output, depends_on").in("workflow_id", rows.map((r) => r.id)).order("leg_no");
       setLegs((l.data ?? []) as LegRow[]);
-    } else setLegs([]);
+    } else { setLegs([]); setHandoffs([]); }
   }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
@@ -73,6 +89,14 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
     await load();
   };
 
+  const addAgent = async () => {
+    if (!agentChoice) return;
+    const r = await callDrive("create_agent_tool", { agent_id: agentChoice });
+    if (!r.ok) { toast.error(r.message || "That did not work."); return; }
+    toast.success(r.data?.created === false ? "That agent can already be chosen as a step." : "Agent added: choose it as a step's tool.");
+    setAgentChoice(""); await load();
+  };
+
   const cancel = async (id: string) => {
     const r = await callDrive("cancel_workflow", { workflow_id: id });
     if (!r.ok) toast.error(r.message || "That did not work."); else { toast.success("Workflow cancelled."); await load(); }
@@ -92,6 +116,16 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
       {show && (
         <div className="mt-4 space-y-3 rounded-xl border border-white/10 bg-black/20 p-3">
           {tools.length === 0 && <p className="text-sm text-amber-200">Connect a tool in Connected tools first.</p>}
+          {agents.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-300">
+              <span className="text-zinc-500">A step can also be one of your NazAI agents:</span>
+              <select className="rounded border border-white/10 bg-black/30 px-2 py-1" aria-label="Agent to add as a step" value={agentChoice} onChange={(e) => setAgentChoice(e.target.value)}>
+                <option value="">Choose an agent</option>
+                {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <button type="button" disabled={!agentChoice} onClick={addAgent} className="rounded border border-white/15 px-2 py-1 hover:bg-white/10 disabled:opacity-40">Add agent</button>
+            </div>
+          )}
           <input className={inputCls} aria-label="Workflow goal" placeholder="Overall goal" value={objective} onChange={(e) => setObjective(e.target.value)} />
           <textarea className={inputCls} rows={2} aria-label="Workflow context" placeholder="Shared context (optional) — secrets are masked before anything is sent" value={context} onChange={(e) => setContext(e.target.value)} />
           {drafts.map((d, i) => (
@@ -163,6 +197,13 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
               <div className="min-w-0 text-sm text-zinc-200">
                 <div className="truncate font-medium">{w.objective}</div>
                 {w.summary && <div className="text-xs text-zinc-400">{w.summary}</div>}
+                {w.origin?.kind === "external_agent" && <div className="text-[11px] text-zinc-500">Started by an external agent ({w.origin.source_model})</div>}
+                {(w.status === "running" || w.status === "awaiting_human") && w.current_leg ? (
+                  <div className="text-[11px] text-cyan-300" data-testid="task-progress">Step {w.current_leg} of {w.steps_total ?? "?"} · {w.steps_done ?? 0} done</div>
+                ) : null}
+                {w.status === "failed" && w.failed_leg ? (
+                  <div className="text-[11px] text-rose-300" data-testid="task-stop">Stopped at step {w.failed_leg}{w.stop_reason ? `: ${w.stop_reason}` : "."}</div>
+                ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <span className={`rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${chip(w.status)}`}>{WORKFLOW_LABEL[w.status]}</span>
@@ -171,6 +212,24 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
                 )}
               </div>
             </div>
+            {w.status === "completed" && w.final_output && (
+              <details className="mt-2 rounded border border-emerald-500/20 px-2 py-1 text-xs" data-testid="task-result">
+                <summary className="cursor-pointer text-emerald-300">Final result (from step {w.final_leg})</summary>
+                <p className="mt-1 whitespace-pre-wrap text-zinc-100">{w.final_output}</p>
+              </details>
+            )}
+            {handoffs.some((h) => h.task_id === w.id) && (
+              <details className="mt-2 rounded border border-white/10 px-2 py-1 text-xs" data-testid="task-handoffs">
+                <summary className="cursor-pointer text-zinc-300">Hand-offs between steps ({handoffs.filter((h) => h.task_id === w.id).length})</summary>
+                <ul className="mt-1 space-y-0.5">
+                  {handoffs.filter((h) => h.task_id === w.id).map((h) => (
+                    <li key={h.id} className={h.outcome === "blocked" ? "text-rose-300" : h.outcome === "modified" ? "text-amber-300" : "text-zinc-300"}>
+                      {h.from_leg === null ? h.from_label : `Step ${h.from_leg}`} → step {h.to_leg}: {h.note}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
             <ul className="mt-2 space-y-1 text-xs">
               {legs.filter((l) => l.workflow_id === w.id).map((l) => (
                 <li key={l.id} className="flex flex-wrap items-center gap-2 text-zinc-300">

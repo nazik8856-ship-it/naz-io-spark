@@ -149,7 +149,7 @@ export function buildLegContext(workflowContext: string | null, deps: LegState[]
   return joined ? clip(joined, MAX_CONTEXT_CHARS) : null;
 }
 
-export type Rollup = { status: "running" | "awaiting_human" | "completed" | "failed"; summary: string };
+export type Rollup = { status: "running" | "awaiting_human" | "completed" | "failed" | "cancelled"; summary: string };
 
 /** A failed step is "handled" when a step whose condition is dep_failed on it completed. */
 const handledBy = (leg: LegState, all: LegState[]) =>
@@ -163,6 +163,10 @@ export function rollupStatus(legs: LegState[]): Rollup {
   if (legs.some((l) => isLegOpen(l.status))) return { status: "running", summary: `${done} of ${legs.length} steps completed${suffix}.` };
 
   const bad = legs.filter((l) => l.status !== "completed" && l.status !== "skipped");
+  // Everything unfinished was cancelled, and at least one of those by the owner: the Task was cancelled, it did not fail.
+  if (bad.length > 0 && bad.every((l) => l.status === "cancelled") && bad.some((l) => /^Cancelled by the owner/.test(l.stop_reason ?? ""))) {
+    return { status: "cancelled", summary: `${done} of ${legs.length} steps completed${suffix}; cancelled by the owner.` };
+  }
   const unhandled = bad.filter((l) => !(ERROR_ENDS.has(l.status) && handledBy(l, legs)));
   if (unhandled.length === 0 && done > 0) {
     const handled = bad.map((l) => `step ${l.leg_no} failed and was handled by step ${handledBy(l, legs)!.leg_no}`);

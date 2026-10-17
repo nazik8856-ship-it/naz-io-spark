@@ -16,7 +16,8 @@ import { ruleMatchesAction, selectRulesForEntity } from "./rule-matching.ts";
 import { sha256Hex } from "./api-key-auth.ts";
 import { validateOutboundUrl } from "./url-safety.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
-import { buildToolRequest, parseToolReply, type RuleLine, type ToolFormat } from "./outer-control-tool-request.ts";
+import { buildInstruction, buildToolRequest, parseToolReply, type RuleLine, type ToolFormat, type ToolRequestInput } from "./outer-control-tool-request.ts";
+import { AGENT_FAILURE_TEXT, readAgentRun } from "./outer-control-task.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
 import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.ts";
 import { buildWorkingMemory, decisionRecord, factsFor, guardConsistency, planNextAction, think, type MemoryRow, type RequestChanges } from "./outer-control-brain.ts";
@@ -50,6 +51,8 @@ export type SessionRow = {
 export type ToolRow = {
   id: string; user_id: string; name: string; endpoint_url: string; request_format: ToolFormat; model: string | null;
   auth_header: string; auth_scheme: string; credentials_secret_id: string | null; enabled: boolean; approved_at: string | null;
+  /** Set when the "tool" is one of the account's own NazAI agents: it is run through agent-runtime, not fetched. */
+  agent_id?: string | null;
 };
 
 export type SessionDeps = {
@@ -60,6 +63,13 @@ export type SessionDeps = {
   /** How long one invocation may keep stepping before handing back to the sweep. */
   budgetMs: number;
   toolTimeoutMs: number;
+  /** Where a NazAI agent is run (agent-runtime) and with which key; null when this runtime cannot reach it. */
+  agent: { url: string; serviceKey: string } | null;
+  agentTimeoutMs: number;
+};
+
+const denoEnv = (k: string): string => {
+  try { return (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno?.env.get(k) ?? ""; } catch { return ""; }
 };
 
 export const defaultSessionDeps = (): SessionDeps => ({
@@ -69,6 +79,10 @@ export const defaultSessionDeps = (): SessionDeps => ({
   validateUrl: validateOutboundUrl,
   budgetMs: 100_000,
   toolTimeoutMs: 60_000,
+  agent: denoEnv("SUPABASE_URL") && denoEnv("SUPABASE_SERVICE_ROLE_KEY")
+    ? { url: `${denoEnv("SUPABASE_URL")}/functions/v1/agent-runtime`, serviceKey: denoEnv("SUPABASE_SERVICE_ROLE_KEY") }
+    : null,
+  agentTimeoutMs: 120_000,
 });
 
 const LEASE_MS = 150_000;
@@ -182,7 +196,7 @@ async function notifyQuestion(admin: AnyAdmin, userId: string, toolName: string,
 }
 
 /** A short piece of the objective that is safe to put in an alert (anything the rules would remove is masked). */
-async function alertSnippet(admin: AnyAdmin, s: SessionRow): Promise<string> {
+export async function alertSnippet(admin: AnyAdmin, s: Pick<SessionRow, "user_id" | "api_key_id" | "objective">): Promise<string> {
   try { return maskForSend(await loadSafetyRules(admin, s.user_id, null, s.api_key_id), s.objective).slice(0, 80); }
   catch { return "(objective hidden)"; }
 }
@@ -442,8 +456,11 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       }
 
       // 4. The destination is checked again on every call (DNS can change).
-      const urlCheck = await deps.validateUrl(tool.endpoint_url);
-      if (!urlCheck.ok) { await finish(admin, s, "failed", `The tool's address is not allowed: ${urlCheck.reason}.`, deps); return { status: "failed", steps }; }
+      // (A NazAI agent is run internally and has no outside address.)
+      if (!tool.agent_id) {
+        const urlCheck = await deps.validateUrl(tool.endpoint_url);
+        if (!urlCheck.ok) { await finish(admin, s, "failed", `The tool's address is not allowed: ${urlCheck.reason}.`, deps); return { status: "failed", steps }; }
+      }
 
       // 5. Structured request: objective, masked context, active rules.
       const safetyRules = await loadSafetyRules(admin, s.user_id, null, s.api_key_id);
@@ -460,13 +477,14 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       const plan = planRequest({ rules: ruleLines, memory });
       const wm = buildWorkingMemory(memory as MemoryRow[]);
       const tightened = s.request_mods ?? null; // the request was tightened after repeated violations of a rule
-      const request = buildToolRequest({
+      const reqInput: ToolRequestInput = {
         format: tool.request_format, model: tool.model, objective: maskForSend(safetyRules, s.objective),
         context: tightened?.dropContext ? null : maskForSend(safetyRules, s.context), rules: plan.rules,
         history: tightened?.dropContext ? [] : (s.history ?? []), constraints: tightened?.constraints,
         correction: s.correction, answer: s.next_input ? maskForSend(safetyRules, s.next_input) : null, sessionId: s.id, step: stepNo,
         memory: renderMemory(memory).map((l) => maskForSend(safetyRules, l)), avoid: plan.avoid, omittedRules: plan.omitted,
-      });
+      };
+      const request = buildToolRequest(reqInput);
 
       // 6. Call the tool.
       let token = "";
@@ -487,7 +505,19 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       let incomplete: "empty" | "truncated" | "too_long" | null = null;
       let unusableCode: string | null = null;
       try {
-        const res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(request.body), signal: AbortSignal.timeout(deps.toolTimeoutMs) });
+        let res: Response;
+        if (tool.agent_id) {
+          if (!deps.agent) throw Object.assign(new Error("agent runtime unreachable"), { name: "AgentUnavailable" });
+          // The agent runs as the account owner (the same way its schedule does); its own actions go through Inner Control.
+          res = await deps.fetchImpl(deps.agent.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${deps.agent.serviceKey}`, "x-scheduler-user-id": s.user_id },
+            body: JSON.stringify({ agentId: tool.agent_id, trigger: "manual", userInstruction: buildInstruction(reqInput).slice(0, 12_000) }),
+            signal: AbortSignal.timeout(deps.agentTimeoutMs),
+          });
+        } else {
+          res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(request.body), signal: AbortSignal.timeout(deps.toolTimeoutMs) });
+        }
         httpStatus = res.status;
         retryAfterMs = parseRetryAfter(res.headers?.get?.("retry-after"), deps.now());
         rawText = await res.text();
@@ -503,8 +533,14 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       if (!failed) {
         let payload: unknown = rawText;
         try { payload = JSON.parse(rawText); } catch { /* plain text body */ }
-        const generic = readGenericPayload(payload);
-        const intake = generic !== null ? ({ ok: true, text: generic } as const) : extractExternalText(payload);
+        let intake: { ok: true; text: string } | { ok: false; code: string };
+        if (tool.agent_id) {
+          const run = readAgentRun(payload);
+          intake = run.ok ? { ok: true, text: run.text } : { ok: false, code: run.code };
+        } else {
+          const generic = readGenericPayload(payload);
+          intake = generic !== null ? { ok: true, text: generic } : extractExternalText(payload);
+        }
         if (!intake.ok) {
           failed = true;
           if (intake.code === "content_required") incomplete = "empty";

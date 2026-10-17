@@ -497,6 +497,17 @@ export default function ControlApiDocs() {
             text can't be removed safely the verdict is <span className="font-mono">block</span>. Every call is logged to your account's Outer Control dashboard with a trust score and
             full provenance, whether it came from the API or from NazAI's own internal use of a connected tool.
           </p>
+          <p className="mt-3 text-sm text-zinc-400" data-testid="relay-docs">
+            <span className="font-mono">POST /outer-control/relay</span> hands an external agent's output to one of your NazAI agents (or a
+            connected tool) through Outer Control. Send <span className="font-mono">source_model</span>, <span className="font-mono">content</span>{" "}
+            and <span className="font-mono">steps</span> (each with an <span className="font-mono">agent_id</span> or{" "}
+            <span className="font-mono">tool_id</span> and an <span className="font-mono">instruction</span>); the key needs the{" "}
+            <span className="font-mono">outer_control:execute</span> scope. The content is judged like <span className="font-mono">/evaluate</span>:
+            only an allowed or cleaned output moves on, and it becomes the first step's input; the steps run in order, each receiving the previous
+            step's controlled result after the rules are applied to it again. The response gives a <span className="font-mono">task_id</span>;
+            read the state and the controlled final result with <span className="font-mono">GET /outer-control/task/&lt;task_id&gt;</span> using the
+            same key. If any step fails or breaks a rule the Task stops there and says which step and why.
+          </p>
         </Section>
 
         <Section title="Outer Control: judge a structured proposed action">
