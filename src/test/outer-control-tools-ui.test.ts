@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { existsSync } from "node:fs";
-import { buildActivity, checkConnector, FEATURED_TOOLS, featuredPayload, healthSummary, searchConnectors, toolHealth } from "@/lib/outer-control-tools-ui";
+import { buildActivity, checkConnector, FEATURED_TOOLS, featuredPayload, healthSummary, keyPageUrl, searchConnectors, toolHealth } from "@/lib/outer-control-tools-ui";
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();
@@ -73,7 +73,7 @@ describe("searching connectors", () => {
     expect(FEATURED_TOOLS.find((f) => f.id === "groq")!.blurb).toMatch(/Groq, not Grok/);
   });
   it("every connector has an https address and its own auth header", () => {
-    for (const f of FEATURED_TOOLS) { expect(existsSync(`public${f.icon}`)).toBe(true); expect(f.endpoint_url.startsWith("https://")).toBe(true); expect(f.keyLabel.length).toBeGreaterThan(3); expect(f.model.length).toBeGreaterThan(1); }
+    for (const f of FEATURED_TOOLS) { expect(existsSync(`public${f.icon}`)).toBe(true); expect(f.endpoint_url.startsWith("https://")).toBe(true); expect(f.keyLabel.length).toBeGreaterThan(3); expect(f.keyStep.length).toBeGreaterThan(10); expect(new URL(keyPageUrl(f)).hostname).toContain("."); expect(f.model.length).toBeGreaterThan(1); }
   });
 });
 

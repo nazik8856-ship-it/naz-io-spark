@@ -2,9 +2,9 @@
 // only need a key (the address, format and header are filled in); a custom connector needs a name and an https address.
 // Nothing is called "connected" until the server saved it; the caller then runs the connection test so the status is real.
 import { useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, Check, Plug, Plus, Search } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ExternalLink, Plug, Plus, Search } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { checkConnector, FEATURED_TOOLS, featuredPayload, searchConnectors, toolHealth, type Featured, type ToolHealthInput } from "@/lib/outer-control-tools-ui";
+import { checkConnector, FEATURED_TOOLS, featuredPayload, keyPageUrl, searchConnectors, toolHealth, type Featured, type ToolHealthInput } from "@/lib/outer-control-tools-ui";
 
 const inputCls = "w-full rounded-xl border border-cyan-400/20 bg-[#071226]/80 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-slate-500 outline-none transition focus:border-cyan-300/70 focus:shadow-[0_0_0_3px_rgba(34,211,238,0.15)]";
 const DOT: Record<string, string> = { working: "bg-emerald-400", failed: "bg-rose-400", attention: "bg-amber-400" };
@@ -141,7 +141,21 @@ export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onCo
                   <p className="break-all font-mono text-[11px] text-slate-500">{view.tool.endpoint_url}</p>
                 </div>
               </div>
-              <input className={inputCls} type="password" autoComplete="off" autoFocus aria-label={view.tool.keyLabel} placeholder={`${view.tool.keyLabel} (get one at ${view.tool.keysAt})`} value={key} onChange={(e) => setKey(e.target.value)} />
+              <div className="rounded-2xl border border-cyan-300/25 bg-cyan-400/[0.06] p-4" data-testid="get-key">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-sm font-medium text-white">Get your {view.tool.keyLabel}</div>
+                  <a href={keyPageUrl(view.tool)} target="_blank" rel="noopener noreferrer" data-testid="get-key-link"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-300/50 bg-cyan-400/15 px-3 py-1.5 text-xs font-medium text-cyan-100 transition hover:bg-cyan-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60">
+                    Open {view.tool.keysAt.split("/")[0]} <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+                <ol className="mt-2.5 space-y-1.5 text-xs leading-relaxed text-slate-300">
+                  <li className="flex gap-2"><span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyan-400/20 text-[10px] font-semibold text-cyan-200">1</span>Open the key page with the button.</li>
+                  <li className="flex gap-2"><span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyan-400/20 text-[10px] font-semibold text-cyan-200">2</span>{view.tool.keyStep}</li>
+                  <li className="flex gap-2"><span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyan-400/20 text-[10px] font-semibold text-cyan-200">3</span>Copy the key and paste it below. NazAI stores it encrypted and never shows it again.</li>
+                </ol>
+              </div>
+              <input className={inputCls} type="password" autoComplete="off" autoFocus aria-label={view.tool.keyLabel} placeholder={`Paste your ${view.tool.keyLabel} here`} value={key} onChange={(e) => setKey(e.target.value)} />
               <input className={inputCls} aria-label="Model" placeholder="Model" value={model} onChange={(e) => setModel(e.target.value)} />
               <p className="text-xs text-slate-500">The model name is a starting value. Providers rename models; if the test fails with a model error, change it here.</p>
               <button disabled={busy || !key.trim()} onClick={async () => { if (await onConnect(featuredPayload(view.tool, key, model))) close(false); }}
