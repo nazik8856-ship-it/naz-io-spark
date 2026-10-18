@@ -1,12 +1,16 @@
-// Outer Control: the "Connect a tool" panel. Search finds a connector by name, company or what it is known for; featured tools
+// The one "Connect a tool" panel (Outer Control and Generator). Two groups: AI models (a key; only where the caller can save one)
+// and Productivity & Data (sign-in connectors). Search finds a connector by name, company or what it is known for; featured tools
 // only need a key (the address, format and header are filled in); a custom connector needs a name and an https address.
 // Nothing is called "connected" until the server saved it; the caller then runs the connection test so the status is real.
 import { useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, Check, ExternalLink, Plug, Plus, Search } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Database, ExternalLink, Loader2, Plug, Plus, Search } from "lucide-react";
+import { IntegrationLogo } from "@/components/IntegrationLogos";
+import { useProductivityIntegrations, type ProductivityRow } from "@/hooks/useProductivityIntegrations";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { checkConnector, FEATURED_TOOLS, featuredPayload, keyPageUrl, searchConnectors, toolHealth, type Featured, type ToolHealthInput } from "@/lib/outer-control-tools-ui";
 
 const inputCls = "w-full rounded-xl border border-cyan-400/20 bg-[#071226]/80 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-slate-500 outline-none transition focus:border-cyan-300/70 focus:shadow-[0_0_0_3px_rgba(34,211,238,0.15)]";
+const ACTION = "rounded-full border border-cyan-300/40 bg-cyan-400/10 px-2.5 py-0.5 text-[11px] font-medium text-cyan-100 transition hover:bg-cyan-400/20 disabled:opacity-50";
 const DOT: Record<string, string> = { working: "bg-emerald-400", failed: "bg-rose-400", attention: "bg-amber-400" };
 
 export type ConnectedTool = ToolHealthInput & { id: string; name: string; endpoint_url: string };
@@ -25,11 +29,17 @@ function Tile({ icon, label }: { icon: string; label: string }) {
   );
 }
 
-export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onConnect }: {
-  open: boolean; onOpenChange: (o: boolean) => void; tools: ConnectedTool[]; busy: boolean;
-  /** Saves the tool and tests it; resolves true when it was saved. */
-  onConnect: (p: ConnectPayload) => Promise<boolean>;
+export default function ConnectToolPanel({ open, onOpenChange, tools = [], busy = false, onConnect, onTest, testingId, onUse, attachedIds = [] }: {
+  open: boolean; onOpenChange: (o: boolean) => void; tools?: ConnectedTool[]; busy?: boolean;
+  /** Saves the tool and tests it; resolves true when it was saved. Without it the AI models group and custom connector are not shown. */
+  onConnect?: (p: ConnectPayload) => Promise<boolean>;
+  /** Runs the connection test for a connected AI tool. */
+  onTest?: (t: ConnectedTool) => void; testingId?: string | null;
+  /** Generator: use a connected productivity tool's data in the prompt. */
+  onUse?: (row: ProductivityRow) => void; attachedIds?: string[];
 }) {
+  const int = useProductivityIntegrations(open);
+  const aiModels = !!onConnect;
   const [view, setView] = useState<View>({ kind: "home" });
   const [query, setQuery] = useState("");
   const [key, setKey] = useState("");
@@ -42,10 +52,12 @@ export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onCo
   const found = useMemo(() => searchConnectors(FEATURED_TOOLS, query), [query]);
   const foundConnected = useMemo(() => searchConnectors(tools.map((t) => ({ ...t, blurb: t.endpoint_url })), query), [tools, query]);
   const searching = query.trim().length > 0;
+  const foundProductivity = int.rows.filter((r) => !searching || r.label.toLowerCase().includes(query.trim().toLowerCase()));
   const openCustom = () => { setCustom((c) => ({ ...c, name: c.name || (searching ? query.trim().slice(0, 80) : "") })); setView({ kind: "custom" }); };
 
   return (
-    <Dialog open={open} onOpenChange={close}>
+    <>
+    <Dialog open={open && !int.connecting} onOpenChange={close}>
       <DialogContent className="max-h-[90vh] gap-0 overflow-hidden border border-cyan-400/25 bg-[#050b18] p-0 text-zinc-100 shadow-[0_0_80px_rgba(34,211,238,0.2)] sm:max-w-3xl" data-testid="connect-panel">
         {/* blue fog and fine lines behind everything */}
         <div className="pointer-events-none absolute inset-0" aria-hidden>
@@ -63,7 +75,9 @@ export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onCo
               Connect a tool
             </DialogTitle>
             <DialogDescription className="text-sm leading-relaxed text-slate-400">
-              Outer Control talks to the tool over HTTPS, checks every reply against your rules, and keeps the result. Your key is stored encrypted and never shown again.
+              {aiModels
+                ? "Outer Control talks to the tool over HTTPS, checks every reply against your rules, and keeps the result. Your key is stored encrypted and never shown again."
+                : "Sign in to a tool so NazAI can use its data in your prompt. Connect or disconnect at any time."}
             </DialogDescription>
           </DialogHeader>
 
@@ -71,11 +85,11 @@ export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onCo
             <div className="mt-6 space-y-7">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-300/80" aria-hidden />
-                <input type="search" autoFocus role="searchbox" aria-label="Search connectors" placeholder="Search connectors: ChatGPT, Claude, Gemini, Grok, Mistral…" value={query} onChange={(e) => setQuery(e.target.value)} className={`${inputCls} pl-10`} data-testid="connector-search" />
+                <input type="search" autoFocus role="searchbox" aria-label="Search connectors" placeholder={aiModels ? "Search connectors: ChatGPT, Claude, Gemini, Drive, Slack…" : "Search connectors: Google Drive, Slack, Notion…"} value={query} onChange={(e) => setQuery(e.target.value)} className={`${inputCls} pl-10`} data-testid="connector-search" />
               </div>
               <p className="sr-only" aria-live="polite" data-testid="search-status">{searching ? `${found.length} connector${found.length === 1 ? "" : "s"} found` : ""}</p>
 
-              {(!searching || foundConnected.length > 0) && (
+              {aiModels && (!searching || foundConnected.length > 0) && (
                 <section aria-label="Connected">
                   <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300/80">Connected</h3>
                   {tools.length === 0 ? (
@@ -87,7 +101,10 @@ export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onCo
                         return (
                           <li key={t.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm backdrop-blur" data-testid="panel-connected">
                             <span className="min-w-0 truncate text-zinc-100">{t.name}</span>
-                            <span className="flex shrink-0 items-center gap-1.5 text-xs text-slate-300"><span className={`h-1.5 w-1.5 rounded-full ${DOT[h.key]}`} aria-hidden />{h.label}</span>
+                            <span className="flex shrink-0 items-center gap-3 text-xs text-slate-300">
+                              <span className="flex items-center gap-1.5"><span className={`h-1.5 w-1.5 rounded-full ${DOT[h.key]}`} aria-hidden />{h.label}</span>
+                              {onTest && <button type="button" disabled={testingId === t.id} onClick={() => onTest(t)} className={ACTION} data-testid="panel-test">{testingId === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}</button>}
+                            </span>
                           </li>
                         );
                       })}
@@ -96,8 +113,8 @@ export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onCo
                 </section>
               )}
 
-              <section aria-label={searching ? "Search results" : "Featured tools"}>
-                <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300/80">{searching ? `Results (${found.length})` : "Featured"}</h3>
+              {aiModels && <section aria-label={searching ? "Search results" : "AI models"}>
+                <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300/80">{searching ? `AI models (${found.length})` : "AI models"}</h3>
                 {found.length === 0 ? (
                   <p className="mt-2 text-sm text-slate-400" data-testid="no-results">No connector matches "{query.trim()}". You can add it as a custom connector below.</p>
                 ) : (
@@ -116,9 +133,40 @@ export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onCo
                     ))}
                   </ul>
                 )}
+              </section>}
+
+              <section aria-label="Productivity and data" data-testid="productivity-group">
+                <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300/80">Productivity &amp; Data</h3>
+                {foundProductivity.length === 0 ? (
+                  <p className="mt-2 text-sm text-slate-400" data-testid="no-productivity">No productivity tool matches "{query.trim()}".</p>
+                ) : (
+                  <ul className="mt-2 space-y-1.5">
+                    {foundProductivity.map((r) => {
+                      const used = attachedIds.includes(`int-${r.id}`);
+                      return (
+                        <li key={r.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm backdrop-blur" data-testid="productivity-tool">
+                          <span className="flex min-w-0 items-center gap-3 text-zinc-100">
+                            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white ring-1 ring-cyan-200/40" aria-hidden><IntegrationLogo name={r.label} size={18} fallback={<Database className="h-4 w-4 text-slate-700" />} /></span>
+                            <span className="min-w-0"><span className="block truncate">{r.label}</span>
+                              <span className="flex items-center gap-1.5 text-[11px] text-slate-400"><span className={`h-1.5 w-1.5 rounded-full ${r.connected ? "bg-emerald-400" : "bg-slate-500"}`} aria-hidden />{r.connected ? "Connected" : "Not connected"}</span>
+                            </span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            {r.connected && onUse && (used
+                              ? <span className="flex items-center gap-1 text-[11px] text-emerald-300"><Check className="h-3 w-3" />In prompt</span>
+                              : <button type="button" onClick={() => onUse(r)} className={ACTION} data-testid="use-in-prompt">Use in prompt</button>)}
+                            {r.connected
+                              ? <button type="button" disabled={int.disconnecting.has(r.id)} onClick={() => int.askDisconnect(r)} className={`${ACTION} border-rose-400/40 text-rose-200 hover:bg-rose-400/10`} data-testid="productivity-disconnect">{int.disconnecting.has(r.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : "Disconnect"}</button>
+                              : <button type="button" onClick={() => int.connect(r)} className={ACTION} data-testid="productivity-connect">Connect</button>}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </section>
 
-              <section aria-label="Custom connector">
+              {aiModels && <section aria-label="Custom connector">
                 <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300/80">Custom</h3>
                 <button type="button" onClick={openCustom} className="group mt-2 flex w-full items-center gap-3 rounded-2xl border border-dashed border-cyan-300/35 bg-cyan-400/[0.03] p-3.5 text-left transition hover:border-cyan-300/70 hover:bg-cyan-400/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60" data-testid="custom-connector">
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-cyan-300/30 bg-cyan-400/10 text-cyan-200"><Plus className="h-4 w-4" /></span>
@@ -127,7 +175,7 @@ export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onCo
                     <span className="mt-0.5 block text-xs text-slate-400">Any tool with an HTTPS address: a name and the address are enough.</span>
                   </span>
                 </button>
-              </section>
+              </section>}
             </div>
           )}
 
@@ -158,7 +206,7 @@ export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onCo
               <input className={inputCls} type="password" autoComplete="off" autoFocus aria-label={view.tool.keyLabel} placeholder={`Paste your ${view.tool.keyLabel} here`} value={key} onChange={(e) => setKey(e.target.value)} />
               <input className={inputCls} aria-label="Model" placeholder="Model" value={model} onChange={(e) => setModel(e.target.value)} />
               <p className="text-xs text-slate-500">The model name is a starting value. Providers rename models; if the test fails with a model error, change it here.</p>
-              <button disabled={busy || !key.trim()} onClick={async () => { if (await onConnect(featuredPayload(view.tool, key, model))) close(false); }}
+              <button disabled={busy || !key.trim()} onClick={async () => { if (await onConnect?.(featuredPayload(view.tool, key, model))) close(false); }}
                 className="w-full rounded-xl border border-cyan-300/60 bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-[#03101c] shadow-[0_0_24px_rgba(34,211,238,0.35)] transition hover:bg-cyan-300 disabled:opacity-40 disabled:shadow-none">
                 {busy ? "Connecting and testing…" : "Connect and test"}
               </button>
@@ -182,7 +230,7 @@ export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onCo
               {(custom.name || custom.url) && checked.errors.map((m) => <p key={m} className="flex items-center gap-1.5 text-xs text-rose-300"><AlertTriangle className="h-3 w-3" />{m}</p>)}
               {checked.notes.map((m) => <p key={m} className="text-xs text-amber-200/90" data-testid="connector-note">{m}</p>)}
               <button disabled={busy || checked.errors.length > 0}
-                onClick={async () => { if (await onConnect({ name: custom.name.trim(), endpoint_url: custom.url.trim(), request_format: custom.format, model: custom.model.trim() || undefined, token: custom.token.trim() || undefined })) close(false); }}
+                onClick={async () => { if (await onConnect?.({ name: custom.name.trim(), endpoint_url: custom.url.trim(), request_format: custom.format, model: custom.model.trim() || undefined, token: custom.token.trim() || undefined })) close(false); }}
                 className="w-full rounded-xl border border-cyan-300/60 bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-[#03101c] shadow-[0_0_24px_rgba(34,211,238,0.35)] transition hover:bg-cyan-300 disabled:opacity-40 disabled:shadow-none">
                 {busy ? "Connecting and testing…" : "Connect and test"}
               </button>
@@ -192,5 +240,7 @@ export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onCo
         </div>
       </DialogContent>
     </Dialog>
+    {int.node}
+    </>
   );
 }
