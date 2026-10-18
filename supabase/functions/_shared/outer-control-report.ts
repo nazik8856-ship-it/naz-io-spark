@@ -8,6 +8,7 @@
 
 import { callAiGateway, pickAiGateway } from "./ai-gateway.ts";
 import { officialOutput, extractLinks, type ArtifactLink, type SessionArtifact } from "./outer-control-artifact.ts";
+import { composeReportText, type ReportDoc } from "./outer-control-report-doc.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -73,36 +74,23 @@ export function parseAnalysis(raw: string, sourceCount: number): Analysis | null
 // ---------------------------------------------------------------------------------------
 // The report
 
-const quote = (t: string) => t.trim().split("\n").map((l) => `> ${l}`).join("\n");
-
-export function composeReport(i: { topic: string; at: string; opinions: Opinion[]; analysis: Analysis }): string {
-  const { opinions: ops, analysis: a } = i;
-  const out: string[] = [];
-  out.push(`# Report: ${clip(i.topic.replace(/\s+/g, " ").trim(), 160)}`, "");
-  out.push(`Compiled ${i.at} by NazAI Outer Control from ${ops.length} external tool${ops.length === 1 ? "" : "s"}. Every answer below was checked against the account's rules before it was used.`, "");
-  out.push("## Summary", a.summary, "");
-  out.push("## Opinions by source");
-  for (const o of ops) {
-    out.push("", `### [${o.n}] ${o.tool}`, quote(o.text));
-    if (o.shortened) out.push("", "_Shortened for the report; the full controlled answer is stored in the step._");
-  }
-  out.push("", "## Where they agree");
-  out.push(...(a.agreements.length ? a.agreements.map((x) => `- ${x}`) : ["- No shared points were identified."]));
-  out.push("", "## Where they differ");
-  out.push(...(a.differences.length ? a.differences.map((x) => `- ${x}`) : ["- No differences were identified."]));
-  out.push("", "## Conclusion", a.conclusion, "");
-  out.push("## Sources", "| # | Tool | Received | Fingerprint (SHA-256) |", "|---|------|----------|-----------------------|");
-  for (const o of ops) out.push(`| ${o.n} | ${o.tool} | ${o.at} | ${o.sha256.slice(0, 16)} |`);
-  const links = [...new Map(ops.flatMap((o) => o.links).map((l) => [l.url, l])).values()];
-  if (links.length) out.push("", "## Links from the sources", ...links.map((l) => `- ${l.label}: ${l.url}`));
-  return out.join("\n");
+/** The report as a document: the opinions word for word, the analysis from the AI. */
+export function buildReportDoc(i: { topic: string; at: string; opinions: Opinion[]; analysis: Analysis }): ReportDoc {
+  return {
+    version: 1, topic: clip(i.topic.replace(/\s+/g, " ").trim(), 300), compiled_at: i.at,
+    summary: i.analysis.summary, agreements: i.analysis.agreements, differences: i.analysis.differences, conclusion: i.analysis.conclusion,
+    opinions: i.opinions.map((o) => ({ n: o.n, tool: o.tool, text: o.text, shortened: o.shortened, sha256: o.sha256, at: o.at })),
+  };
 }
+
+/** The report as clean text (the Task's controlled result). */
+export const composeReport = (i: { topic: string; at: string; opinions: Opinion[]; analysis: Analysis }): string => composeReportText(buildReportDoc(i));
 
 // ---------------------------------------------------------------------------------------
 // Writing the report for a session (the last step of a report Task)
 
 export type ReportAi = (prompt: { system: string; user: string }) => Promise<string | null>;
-export type ReportResult = { ok: true; text: string; sources: number } | { ok: false; code: keyof typeof REPORT_FAILURE_TEXT };
+export type ReportResult = { ok: true; text: string; sources: number; doc: ReportDoc } | { ok: false; code: keyof typeof REPORT_FAILURE_TEXT };
 
 /** The AI call used in production: NazAI's own gateway. Null when it is not configured or does not answer. */
 export const gatewayAi: ReportAi = async (p) => {
@@ -150,6 +138,6 @@ export async function writeReport(admin: AnyAdmin, s: { workflow_id: string | nu
   if (raw === null) return { ok: false, code: "report_ai_unavailable" };
   const analysis = parseAnalysis(raw, opinions.length);
   if (!analysis) return { ok: false, code: "report_analysis_invalid" };
-  return { ok: true, text: composeReport({ topic, at: new Date(deps.now()).toISOString().slice(0, 16).replace("T", " ") + " UTC", opinions, analysis }), sources: opinions.length };
+  const doc = buildReportDoc({ topic, at: new Date(deps.now()).toISOString(), opinions, analysis });
+  return { ok: true, text: composeReportText(doc), sources: opinions.length, doc };
 }
-

@@ -13,10 +13,41 @@
 //   [stub:quote]    replies with the text "zzquote" (for a rule that needs approval)
 //   [stub:offtopic] first replies about the weather, then (once told it missed the goal) about returns for premium customers
 //   [stub:alwaysoff] always replies about the weather
-// Requires "Authorization: Bearer stub-token". It holds no data and calls nothing.
+// With no marker it answers the request for real, with NazAI's own AI, so every answer is different and about the request
+// (it stands in for a real external AI such as ChatGPT). If the AI is not available it falls back to "Stub tool answer."
+// Requires "Authorization: Bearer stub-token". It holds no data and calls nothing else.
+import { callAiGateway, pickAiGateway } from "../_shared/ai-gateway.ts";
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json" } });
 
 const textOf = (body: unknown): string => JSON.stringify(body ?? {});
+
+/** The request as the caller phrased it: the plain-JSON objective, or the last message of a chat-style body. */
+function requestOf(body: unknown): { objective: string; context: string } {
+  const b = (body ?? {}) as { objective?: unknown; context?: unknown; messages?: { content?: unknown }[] };
+  if (typeof b.objective === "string" && b.objective.trim()) return { objective: b.objective.trim(), context: typeof b.context === "string" ? b.context.slice(0, 1500) : "" };
+  const last = Array.isArray(b.messages) ? b.messages[b.messages.length - 1]?.content : null;
+  const text = typeof last === "string" ? last : Array.isArray(last) ? last.map((p) => (p as { text?: string }).text ?? "").join(" ") : "";
+  return { objective: text.slice(0, 3000), context: "" };
+}
+
+/** A real answer to the request from NazAI's AI, or null when it is not available. */
+async function answerWithAi(req: { objective: string; context: string }): Promise<string | null> {
+  const cfg = pickAiGateway();
+  if (!cfg || !req.objective) return null;
+  try {
+    const res = await callAiGateway({
+      model: cfg.model, temperature: 1,
+      messages: [
+        { role: "system", content: "You are a thoughtful assistant answering a request from another system. Answer it directly, in your own words and from your own angle, in plain prose under 120 words. No markdown, no headings, no lists." },
+        { role: "user", content: `${req.objective}${req.context ? `\n\nContext:\n${req.context}` : ""}` },
+      ],
+    }, cfg, AbortSignal.timeout(45_000));
+    if (!res.ok) return null;
+    const j = await res.json() as { choices?: { message?: { content?: string } }[] };
+    const text = j.choices?.[0]?.message?.content?.trim();
+    return text || null;
+  } catch { return null; }
+}
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
@@ -45,6 +76,16 @@ Deno.serve(async (req) => {
   else if (all.includes("[stub:refund]")) reply = { status: "done", answer: "I will refund the customer." };
   else if (all.includes("[stub:question]")) reply = answered ? { status: "done", answer: "Thanks, here is the final answer." } : { status: "need_info", answer: "", question: "Which plan is the customer on?" };
   else if (all.includes("[stub:steps]")) reply = hasStepOne ? { status: "done", answer: "Final round." } : { status: "continue", answer: "First round." };
+
+  // No marker: answer the request for real, so each answer differs and is about what was asked.
+  if (!all.includes("[stub:")) {
+    const req2 = requestOf(body);
+    if (/^Connection test/i.test(req2.objective)) reply = { status: "done", answer: "ok, I am here and answering." };
+    else {
+      const real = await answerWithAi(req2);
+      if (real) reply = { status: "done", answer: real };
+    }
+  }
 
   const content = JSON.stringify(reply);
   if (format === "openai") return json({ id: "stub", choices: [{ index: 0, message: { role: "assistant", content } }] });

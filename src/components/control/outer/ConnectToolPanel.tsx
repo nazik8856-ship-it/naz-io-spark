@@ -1,19 +1,29 @@
-// Outer Control: the "Connect a tool" panel. Three parts: what is already connected, featured tools (the address and format
-// are filled in; the person adds a key), and a custom connector (name + address). Nothing is called "connected" until the
-// server saved it; the caller then runs the connection test so the status shown is real.
-import { useState } from "react";
-import { Plug, Check, AlertTriangle, ArrowLeft } from "lucide-react";
+// Outer Control: the "Connect a tool" panel. Search finds a connector by name, company or what it is known for; featured tools
+// only need a key (the address, format and header are filled in); a custom connector needs a name and an https address.
+// Nothing is called "connected" until the server saved it; the caller then runs the connection test so the status is real.
+import { useMemo, useState } from "react";
+import { AlertTriangle, ArrowLeft, Check, Plug, Plus, Search } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { checkConnector, FEATURED_TOOLS, featuredPayload, toolHealth, type Featured, type ToolHealthInput } from "@/lib/outer-control-tools-ui";
-import { TONE_DOT } from "@/lib/outer-control-ui";
+import { checkConnector, FEATURED_TOOLS, featuredPayload, searchConnectors, toolHealth, type Featured, type ToolHealthInput } from "@/lib/outer-control-tools-ui";
 
-const inputCls = "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500/50";
-const DOT: Record<string, string> = { working: TONE_DOT.ok, failed: TONE_DOT.bad, attention: TONE_DOT.warn };
+const inputCls = "w-full rounded-xl border border-cyan-400/20 bg-[#071226]/80 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-slate-500 outline-none transition focus:border-cyan-300/70 focus:shadow-[0_0_0_3px_rgba(34,211,238,0.15)]";
+const DOT: Record<string, string> = { working: "bg-emerald-400", failed: "bg-rose-400", attention: "bg-amber-400" };
 
 export type ConnectedTool = ToolHealthInput & { id: string; name: string; endpoint_url: string };
 export type ConnectPayload = { name: string; endpoint_url: string; request_format: string; model?: string; token?: string; auth_header?: string; auth_scheme?: string };
 
 type View = { kind: "home" } | { kind: "featured"; tool: Featured } | { kind: "custom" };
+
+/** The service's real logo on a light tile (most logos are dark); its short mark if the logo can not be loaded. */
+function Tile({ icon, label }: { icon: string; label: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-cyan-300/30 bg-gradient-to-br from-cyan-400/25 to-blue-600/25 text-sm font-semibold text-cyan-100" aria-hidden>{label}</span>;
+  return (
+    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white shadow-[0_0_18px_rgba(34,211,238,0.22)] ring-1 ring-cyan-200/40" aria-hidden>
+      <img src={icon} alt="" className="h-6 w-6 object-contain" onError={() => setBroken(true)} />
+    </span>
+  );
+}
 
 export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onConnect }: {
   open: boolean; onOpenChange: (o: boolean) => void; tools: ConnectedTool[]; busy: boolean;
@@ -21,110 +31,151 @@ export default function ConnectToolPanel({ open, onOpenChange, tools, busy, onCo
   onConnect: (p: ConnectPayload) => Promise<boolean>;
 }) {
   const [view, setView] = useState<View>({ kind: "home" });
+  const [query, setQuery] = useState("");
   const [key, setKey] = useState("");
   const [model, setModel] = useState("");
   const [custom, setCustom] = useState({ name: "", url: "", format: "generic_json", model: "", token: "" });
-  const reset = () => { setView({ kind: "home" }); setKey(""); setModel(""); setCustom({ name: "", url: "", format: "generic_json", model: "", token: "" }); };
+  const reset = () => { setView({ kind: "home" }); setQuery(""); setKey(""); setModel(""); setCustom({ name: "", url: "", format: "generic_json", model: "", token: "" }); };
   const close = (o: boolean) => { if (!o) reset(); onOpenChange(o); };
   const checked = checkConnector({ name: custom.name, url: custom.url, format: custom.format, token: custom.token, model: custom.model });
-  const already = (f: Featured) => tools.some((t) => t.endpoint_url === f.endpoint_url);
+  const connectedFor = (f: Featured) => tools.find((t) => t.endpoint_url === f.endpoint_url);
+  const found = useMemo(() => searchConnectors(FEATURED_TOOLS, query), [query]);
+  const foundConnected = useMemo(() => searchConnectors(tools.map((t) => ({ ...t, blurb: t.endpoint_url })), query), [tools, query]);
+  const searching = query.trim().length > 0;
+  const openCustom = () => { setCustom((c) => ({ ...c, name: c.name || (searching ? query.trim().slice(0, 80) : "") })); setView({ kind: "custom" }); };
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto border-white/10 bg-zinc-950 text-zinc-100 sm:max-w-2xl" data-testid="connect-panel">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-lg"><Plug className="h-4 w-4 text-cyan-300" /> Connect a tool</DialogTitle>
-          <DialogDescription className="text-zinc-400">
-            Outer Control talks to the tool over HTTPS, checks every reply against your rules, and keeps the result. Your key is stored encrypted and never shown again.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="max-h-[90vh] gap-0 overflow-hidden border border-cyan-400/25 bg-[#050b18] p-0 text-zinc-100 shadow-[0_0_80px_rgba(34,211,238,0.2)] sm:max-w-3xl" data-testid="connect-panel">
+        {/* blue fog and fine lines behind everything */}
+        <div className="pointer-events-none absolute inset-0" aria-hidden>
+          <div className="absolute -left-32 -top-32 h-96 w-96 rounded-full bg-cyan-500/25 blur-[110px]" />
+          <div className="absolute -right-32 top-24 h-96 w-96 rounded-full bg-blue-600/25 blur-[120px]" />
+          <div className="absolute bottom-[-8rem] left-1/3 h-80 w-80 rounded-full bg-sky-500/15 blur-[110px]" />
+          <div className="absolute inset-0 opacity-[0.07]" style={{ backgroundImage: "linear-gradient(rgba(125,211,252,1) 1px, transparent 1px), linear-gradient(90deg, rgba(125,211,252,1) 1px, transparent 1px)", backgroundSize: "36px 36px" }} />
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/70 to-transparent" />
+        </div>
 
-        {view.kind === "home" && (
-          <div className="space-y-6">
-            <section aria-label="Connected">
-              <h3 className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Connected</h3>
-              {tools.length === 0 ? (
-                <p className="mt-2 text-sm text-zinc-500">Nothing connected yet. Pick a tool below.</p>
-              ) : (
-                <ul className="mt-2 space-y-1.5">
-                  {tools.map((t) => {
-                    const h = toolHealth(t);
-                    return (
-                      <li key={t.id} className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm" data-testid="panel-connected">
-                        <span className="min-w-0 truncate text-zinc-100">{t.name}</span>
-                        <span className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-400"><span className={`h-1.5 w-1.5 rounded-full ${DOT[h.key]}`} aria-hidden />{h.label}</span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
+        <div className="relative max-h-[90vh] overflow-y-auto p-6 sm:p-8">
+          <DialogHeader className="space-y-2 text-left">
+            <DialogTitle className="flex items-center gap-3 text-xl font-semibold text-white">
+              <span className="grid h-10 w-10 place-items-center rounded-xl border border-cyan-300/40 bg-cyan-400/10 shadow-[0_0_22px_rgba(34,211,238,0.3)]"><Plug className="h-5 w-5 text-cyan-200" /></span>
+              Connect a tool
+            </DialogTitle>
+            <DialogDescription className="text-sm leading-relaxed text-slate-400">
+              Outer Control talks to the tool over HTTPS, checks every reply against your rules, and keeps the result. Your key is stored encrypted and never shown again.
+            </DialogDescription>
+          </DialogHeader>
 
-            <section aria-label="Featured tools">
-              <h3 className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Featured</h3>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                {FEATURED_TOOLS.map((f) => (
-                  <button key={f.id} type="button" onClick={() => { setView({ kind: "featured", tool: f }); setModel(f.model); setKey(""); }}
-                    className="rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 text-left transition hover:border-cyan-500/40 hover:bg-white/[0.06]" data-testid="featured-tool">
-                    <div className="flex items-center justify-between gap-2 text-sm font-medium text-zinc-100">
-                      {f.name}{already(f) && <span className="flex items-center gap-1 text-[10px] font-normal text-emerald-300"><Check className="h-3 w-3" /> Connected</span>}
-                    </div>
-                    <p className="mt-1 text-xs text-zinc-400">{f.blurb}</p>
-                  </button>
-                ))}
+          {view.kind === "home" && (
+            <div className="mt-6 space-y-7">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan-300/80" aria-hidden />
+                <input type="search" autoFocus role="searchbox" aria-label="Search connectors" placeholder="Search connectors: ChatGPT, Claude, Gemini, Grok, Mistral…" value={query} onChange={(e) => setQuery(e.target.value)} className={`${inputCls} pl-10`} data-testid="connector-search" />
               </div>
-            </section>
+              <p className="sr-only" aria-live="polite" data-testid="search-status">{searching ? `${found.length} connector${found.length === 1 ? "" : "s"} found` : ""}</p>
 
-            <section aria-label="Custom connector">
-              <h3 className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Custom</h3>
-              <button type="button" onClick={() => setView({ kind: "custom" })} className="mt-2 w-full rounded-xl border border-dashed border-white/20 px-3.5 py-3 text-left transition hover:border-cyan-500/40 hover:bg-white/[0.04]" data-testid="custom-connector">
-                <div className="text-sm font-medium text-zinc-100">Add custom connector</div>
-                <p className="mt-1 text-xs text-zinc-400">Any tool with an HTTPS address: a name and the address are enough.</p>
+              {(!searching || foundConnected.length > 0) && (
+                <section aria-label="Connected">
+                  <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300/80">Connected</h3>
+                  {tools.length === 0 ? (
+                    <p className="mt-2 text-sm text-slate-500">Nothing connected yet. Pick a tool below.</p>
+                  ) : (
+                    <ul className="mt-2 space-y-1.5">
+                      {(searching ? foundConnected : tools).map((t) => {
+                        const h = toolHealth(t);
+                        return (
+                          <li key={t.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm backdrop-blur" data-testid="panel-connected">
+                            <span className="min-w-0 truncate text-zinc-100">{t.name}</span>
+                            <span className="flex shrink-0 items-center gap-1.5 text-xs text-slate-300"><span className={`h-1.5 w-1.5 rounded-full ${DOT[h.key]}`} aria-hidden />{h.label}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </section>
+              )}
+
+              <section aria-label={searching ? "Search results" : "Featured tools"}>
+                <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300/80">{searching ? `Results (${found.length})` : "Featured"}</h3>
+                {found.length === 0 ? (
+                  <p className="mt-2 text-sm text-slate-400" data-testid="no-results">No connector matches "{query.trim()}". You can add it as a custom connector below.</p>
+                ) : (
+                  <ul className="mt-2 grid gap-2.5 sm:grid-cols-2">
+                    {found.map((f) => (
+                      <li key={f.id} className="h-full">
+                        <button type="button" onClick={() => { setView({ kind: "featured", tool: f }); setModel(f.model); setKey(""); }}
+                          className="group flex h-full w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3.5 text-left backdrop-blur transition hover:border-cyan-300/50 hover:bg-cyan-400/[0.07] hover:shadow-[0_0_28px_rgba(34,211,238,0.14)] focus-visible:border-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60" data-testid="featured-tool">
+                          <Tile icon={f.icon} label={f.mark} />
+                          <span className="min-w-0">
+                            <span className="flex items-center gap-2 text-sm font-medium text-white">{f.name}{connectedFor(f) && <span className="flex items-center gap-1 text-[10px] font-normal text-emerald-300"><Check className="h-3 w-3" />Connected</span>}</span>
+                            <span className="mt-0.5 block text-xs leading-snug text-slate-400">{f.blurb}</span>
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section aria-label="Custom connector">
+                <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300/80">Custom</h3>
+                <button type="button" onClick={openCustom} className="group mt-2 flex w-full items-center gap-3 rounded-2xl border border-dashed border-cyan-300/35 bg-cyan-400/[0.03] p-3.5 text-left transition hover:border-cyan-300/70 hover:bg-cyan-400/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60" data-testid="custom-connector">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-cyan-300/30 bg-cyan-400/10 text-cyan-200"><Plus className="h-4 w-4" /></span>
+                  <span>
+                    <span className="block text-sm font-medium text-white">{searching && found.length === 0 ? `Add "${query.trim().slice(0, 40)}" as a custom connector` : "Add custom connector"}</span>
+                    <span className="mt-0.5 block text-xs text-slate-400">Any tool with an HTTPS address: a name and the address are enough.</span>
+                  </span>
+                </button>
+              </section>
+            </div>
+          )}
+
+          {view.kind === "featured" && (
+            <div className="mt-6 space-y-3" data-testid="featured-form">
+              <button type="button" onClick={() => setView({ kind: "home" })} className="flex items-center gap-1 text-xs text-slate-400 hover:text-cyan-200"><ArrowLeft className="h-3 w-3" /> Back</button>
+              <div className="flex items-center gap-3">
+                <Tile icon={view.tool.icon} label={view.tool.mark} />
+                <div>
+                  <div className="text-base font-medium text-white">{view.tool.name}</div>
+                  <p className="break-all font-mono text-[11px] text-slate-500">{view.tool.endpoint_url}</p>
+                </div>
+              </div>
+              <input className={inputCls} type="password" autoComplete="off" autoFocus aria-label={view.tool.keyLabel} placeholder={`${view.tool.keyLabel} (get one at ${view.tool.keysAt})`} value={key} onChange={(e) => setKey(e.target.value)} />
+              <input className={inputCls} aria-label="Model" placeholder="Model" value={model} onChange={(e) => setModel(e.target.value)} />
+              <p className="text-xs text-slate-500">The model name is a starting value. Providers rename models; if the test fails with a model error, change it here.</p>
+              <button disabled={busy || !key.trim()} onClick={async () => { if (await onConnect(featuredPayload(view.tool, key, model))) close(false); }}
+                className="w-full rounded-xl border border-cyan-300/60 bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-[#03101c] shadow-[0_0_24px_rgba(34,211,238,0.35)] transition hover:bg-cyan-300 disabled:opacity-40 disabled:shadow-none">
+                {busy ? "Connecting and testing…" : "Connect and test"}
               </button>
-            </section>
-          </div>
-        )}
-
-        {view.kind === "featured" && (
-          <div className="space-y-3" data-testid="featured-form">
-            <button type="button" onClick={() => setView({ kind: "home" })} className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200"><ArrowLeft className="h-3 w-3" /> Back</button>
-            <div>
-              <div className="text-sm font-medium text-zinc-100">{view.tool.name}</div>
-              <p className="mt-0.5 break-all font-mono text-[11px] text-zinc-500">{view.tool.endpoint_url}</p>
             </div>
-            <input className={inputCls} type="password" autoComplete="off" aria-label={view.tool.keyLabel} placeholder={`${view.tool.keyLabel} (get one at ${view.tool.keysAt})`} value={key} onChange={(e) => setKey(e.target.value)} />
-            <input className={inputCls} aria-label="Model" placeholder="Model" value={model} onChange={(e) => setModel(e.target.value)} />
-            <p className="text-xs text-zinc-500">The model name is a starting value. Providers rename models; if the test fails with a model error, change it here.</p>
-            <button disabled={busy || !key.trim()} onClick={async () => { if (await onConnect(featuredPayload(view.tool, key, model))) close(false); }}
-              className="w-full rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40">
-              {busy ? "Connecting and testing…" : "Connect and test"}
-            </button>
-          </div>
-        )}
+          )}
 
-        {view.kind === "custom" && (
-          <div className="space-y-3" data-testid="custom-form">
-            <button type="button" onClick={() => setView({ kind: "home" })} className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200"><ArrowLeft className="h-3 w-3" /> Back</button>
-            <input className={inputCls} placeholder="Name, e.g. Support bot" aria-label="Tool name" value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} />
-            <input className={inputCls} placeholder="https://… (MCP server URL or the tool's endpoint)" aria-label="Tool address" value={custom.url} onChange={(e) => setCustom({ ...custom, url: e.target.value })} />
-            <input className={inputCls} type="password" autoComplete="off" placeholder="API key or token (optional; stored encrypted, never shown again)" aria-label="Tool credential" value={custom.token} onChange={(e) => setCustom({ ...custom, token: e.target.value })} />
-            <div className="grid gap-2 sm:grid-cols-2">
-              <select className={inputCls} aria-label="Request format" value={custom.format} onChange={(e) => setCustom({ ...custom, format: e.target.value })}>
-                <option value="generic_json">Plain JSON</option>
-                <option value="openai_chat">OpenAI-style chat</option>
-                <option value="anthropic_messages">Anthropic messages</option>
-              </select>
-              <input className={inputCls} placeholder="Model (optional)" aria-label="Model" value={custom.model} onChange={(e) => setCustom({ ...custom, model: e.target.value })} />
+          {view.kind === "custom" && (
+            <div className="mt-6 space-y-3" data-testid="custom-form">
+              <button type="button" onClick={() => setView({ kind: "home" })} className="flex items-center gap-1 text-xs text-slate-400 hover:text-cyan-200"><ArrowLeft className="h-3 w-3" /> Back</button>
+              <input className={inputCls} placeholder="Name, e.g. Support bot" aria-label="Tool name" autoFocus value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} />
+              <input className={inputCls} placeholder="https://… (MCP server URL or the tool's endpoint)" aria-label="Tool address" value={custom.url} onChange={(e) => setCustom({ ...custom, url: e.target.value })} />
+              <input className={inputCls} type="password" autoComplete="off" placeholder="API key or token (optional; stored encrypted, never shown again)" aria-label="Tool credential" value={custom.token} onChange={(e) => setCustom({ ...custom, token: e.target.value })} />
+              <div className="grid gap-2 sm:grid-cols-2">
+                <select className={inputCls} aria-label="Request format" value={custom.format} onChange={(e) => setCustom({ ...custom, format: e.target.value })}>
+                  <option value="generic_json">Plain JSON</option>
+                  <option value="openai_chat">OpenAI-style chat</option>
+                  <option value="anthropic_messages">Anthropic messages</option>
+                </select>
+                <input className={inputCls} placeholder="Model (optional)" aria-label="Model" value={custom.model} onChange={(e) => setCustom({ ...custom, model: e.target.value })} />
+              </div>
+              {(custom.name || custom.url) && checked.errors.map((m) => <p key={m} className="flex items-center gap-1.5 text-xs text-rose-300"><AlertTriangle className="h-3 w-3" />{m}</p>)}
+              {checked.notes.map((m) => <p key={m} className="text-xs text-amber-200/90" data-testid="connector-note">{m}</p>)}
+              <button disabled={busy || checked.errors.length > 0}
+                onClick={async () => { if (await onConnect({ name: custom.name.trim(), endpoint_url: custom.url.trim(), request_format: custom.format, model: custom.model.trim() || undefined, token: custom.token.trim() || undefined })) close(false); }}
+                className="w-full rounded-xl border border-cyan-300/60 bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-[#03101c] shadow-[0_0_24px_rgba(34,211,238,0.35)] transition hover:bg-cyan-300 disabled:opacity-40 disabled:shadow-none">
+                {busy ? "Connecting and testing…" : "Connect and test"}
+              </button>
             </div>
-            {(custom.name || custom.url) && checked.errors.map((m) => <p key={m} className="flex items-center gap-1.5 text-xs text-rose-300"><AlertTriangle className="h-3 w-3" />{m}</p>)}
-            {checked.notes.map((m) => <p key={m} className="text-xs text-amber-200/90" data-testid="connector-note">{m}</p>)}
-            <button disabled={busy || checked.errors.length > 0}
-              onClick={async () => { if (await onConnect({ name: custom.name.trim(), endpoint_url: custom.url.trim(), request_format: custom.format, model: custom.model.trim() || undefined, token: custom.token.trim() || undefined })) close(false); }}
-              className="w-full rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40">
-              {busy ? "Connecting and testing…" : "Connect and test"}
-            </button>
-          </div>
-        )}
+          )}
+          <p className="mt-7 text-[10px] leading-relaxed text-slate-600">Logos belong to their owners and are shown only to identify the service.</p>
+        </div>
       </DialogContent>
     </Dialog>
   );
