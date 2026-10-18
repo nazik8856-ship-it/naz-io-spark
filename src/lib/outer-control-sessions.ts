@@ -42,7 +42,7 @@ export function waitingReason(kind: PendingKind | null): string {
 
 export type StepLike = { step_no: number; attempt: number; verdict: string | null; next_action: string | null; error: string | null; note: string | null };
 
-const NEXT_ACTION_LABEL: Record<string, string> = {
+export const NEXT_ACTION_LABEL: Record<string, string> = {
   continue: "accepted, asked for another round",
   finish: "accepted, finished",
   retry_with_correction: "rejected, asked again without the broken rule",
@@ -134,6 +134,9 @@ export type DecisionView = {
   trace?: string[];
   risk?: { level?: string } | null;
   confidence?: { level?: string } | null;
+  /** Names of the rules that matched this reply, and what they removed from it. */
+  applied?: string[];
+  changes?: { name: string; count: number }[];
 };
 
 /**

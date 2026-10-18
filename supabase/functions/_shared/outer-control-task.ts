@@ -188,7 +188,7 @@ export const AGENT_FAILURE_TEXT: Record<string, string> = {
 };
 
 /** The result of an agent run as text, or why there is none. Only the agent's own summary is the result. */
-export function readAgentRun(payload: unknown): { ok: true; text: string } | { ok: false; code: keyof typeof AGENT_FAILURE_TEXT } {
+export function readAgentRun(payload: unknown): { ok: true; text: string; runId: string | null } | { ok: false; code: keyof typeof AGENT_FAILURE_TEXT } {
   const r = (payload && typeof payload === "object" ? payload : {}) as AgentRunReply;
   if (r.error) return { ok: false, code: "agent_error" };
   if (r.skipped) return { ok: false, code: "agent_skipped" };
@@ -196,5 +196,5 @@ export function readAgentRun(payload: unknown): { ok: true; text: string } | { o
   if (r.paused) return { ok: false, code: "agent_paused" };
   const text = typeof r.summary === "string" ? r.summary.trim() : "";
   if (!text) return { ok: false, code: "agent_no_result" };
-  return { ok: true, text };
+  return { ok: true, text, runId: typeof r.runId === "string" ? r.runId : null };
 }

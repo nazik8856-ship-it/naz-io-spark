@@ -1,7 +1,7 @@
 // Outer Control: the official result of a Completed session or Task. The controlled output is always visible; the
 // proof, rules and changes are one tap away, as readable text or as the structured JSON (the same record).
 import { useState } from "react";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { validateArtifact, type Artifact } from "@/lib/outer-control-artifact";
 
@@ -29,6 +29,21 @@ export default function FinalArtifactView({ artifact, kind }: { artifact: unknow
         </button>
       </div>
       <p className="mt-1.5 whitespace-pre-wrap text-sm text-zinc-100" data-testid="final-artifact-output">{a.final_output}</p>
+      {a.what_done && (
+        <p className="mt-2 text-xs text-zinc-300" data-testid="final-artifact-what-done"><span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">What was done · </span>{a.what_done}</p>
+      )}
+      {a.links && a.links.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-2" data-testid="final-artifact-links">
+          {a.links.map((l) => (
+            <li key={l.url}>
+              <a href={l.url} target="_blank" rel="noopener noreferrer" title={l.url}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 hover:bg-cyan-500/20">
+                <ExternalLink className="h-3 w-3" /> Open the work · {l.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
       <details className="mt-2 rounded border border-white/10 px-2 py-1 text-xs" data-testid="final-artifact-proof">
         <summary className="cursor-pointer text-zinc-300">
           Proof, rules applied and changes · {a.rules.triggered.length} rule{a.rules.triggered.length === 1 ? "" : "s"} triggered · {a.changes.length} change{a.changes.length === 1 ? "" : "s"}

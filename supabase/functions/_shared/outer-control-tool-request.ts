@@ -39,7 +39,8 @@ export type ToolRequestInput = {
 
 export const RESPONSE_CONTRACT =
   'Reply with JSON only: {"status": "done" | "continue" | "need_info", "answer": "<your reply>", "question": "<only when status is need_info>"}. ' +
-  'Use "done" when the objective is met, "continue" when you need another round, and "need_info" only when you cannot proceed without information from a person.';
+  'Use "done" when the objective is met, "continue" when you need another round, and "need_info" only when you cannot proceed without information from a person. ' +
+  'When the work produced something that can be opened (a document, an event, a page), add its https address as "links": [{"url": "<https address>", "label": "<what it is>"}].';
 
 const ACTION_TEXT: Record<RuleLine["action"], string> = {
   block: "the reply is rejected",
@@ -142,7 +143,14 @@ export function parseToolReply(text: string): ToolReply {
     try {
       const o = JSON.parse(unfenced) as Record<string, unknown>;
       if (o && typeof o === "object" && typeof o.status === "string" && STATUSES.has(o.status)) {
-        const answer = typeof o.answer === "string" ? o.answer : "";
+        let answer = typeof o.answer === "string" ? o.answer : "";
+        // Links the tool reports travel inside the answer, so the rules check them and the artifact records them.
+        const linkLines = Array.isArray(o.links) ? (o.links as unknown[]).flatMap((l) => {
+          const x = (l && typeof l === "object" ? l : {}) as { url?: unknown; label?: unknown };
+          const url = typeof x.url === "string" ? x.url.trim() : "";
+          return /^https?:\/\/\S+$/i.test(url) && !answer.includes(url) ? [`- ${typeof x.label === "string" && x.label.trim() ? x.label.trim().slice(0, 80) : "Link"}: ${url}`] : [];
+        }).slice(0, 5) : [];
+        if (linkLines.length && o.status !== "need_info") answer = `${answer.trimEnd()}\n\nLinks:\n${linkLines.join("\n")}`.trim();
         const question = typeof o.question === "string" && o.question.trim() ? o.question.trim() : null;
         if (o.status === "need_info") {
           return { status: "need_info", answer, question: question ?? (answer.trim() || null), structured: true };
