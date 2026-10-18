@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
+const rowsFor: Record<string, unknown[]> = { agent_integrations: [{ provider: "Gmail", metadata: { services: ["drive"] } }, { provider: "Slack", metadata: null }], integration_snapshots: [] };
+vi.mock("@/integrations/supabase/client", () => {
+  const q = (t: string) => { const o: Record<string, unknown> = {}; const chain = () => o; Object.assign(o, { select: chain, eq: chain, order: chain, limit: chain, then: (r: (v: unknown) => void) => r({ data: rowsFor[t] ?? [], error: null }) }); return o; };
+  return { supabase: { from: (t: string) => q(t), functions: { invoke: vi.fn(async () => ({ data: {}, error: null })) } } };
+});
+vi.mock("@/components/agents/IntegrationConnectModal", () => ({ default: ({ integration, onClose }: { integration: { name: string }; onClose: () => void }) => <div data-testid="oauth-modal">{integration.name}<button onClick={onClose}>close-modal</button></div> }));
 import ConnectToolPanel from "@/components/control/outer/ConnectToolPanel";
 
 const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
@@ -99,5 +106,69 @@ describe("ConnectToolPanel", () => {
     fireEvent.click(screen.getAllByTestId("featured-tool")[2]);
     expect((screen.getByTestId("get-key-link") as HTMLAnchorElement).href).toBe("https://aistudio.google.com/apikey");
     expect(screen.getByTestId("get-key").textContent).toMatch(/Sign in with your Google account and choose Create API key/);
+  });
+
+  it("has two clear groups: AI models and Productivity & Data, then the custom connector last", async () => {
+    setup();
+    const panel = screen.getByTestId("connect-panel");
+    const heads = within(panel).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(heads).toEqual(["Connected", "AI models", "Productivity & Data", "Custom"]);
+    const group = screen.getByTestId("productivity-group");
+    expect(within(group).getAllByTestId("productivity-tool").map((r) => r.textContent)).toEqual(expect.arrayContaining([expect.stringMatching(/Google Drive/), expect.stringMatching(/Slack/), expect.stringMatching(/Notion/), expect.stringMatching(/Figma/)]));
+    expect(within(panel).queryByText("Featured")).toBeNull();
+  });
+
+  it("shows each productivity tool's real state: Connected with Disconnect, or Not connected with Connect", async () => {
+    setup();
+    await waitFor(() => expect(screen.getAllByTestId("productivity-tool").find((r) => /Google Drive/.test(r.textContent ?? ""))?.textContent).toMatch(/Connected.*Disconnect/));
+    const row = (n: string) => screen.getAllByTestId("productivity-tool").find((r) => r.textContent?.includes(n))!;
+    expect(row("Slack").textContent).toMatch(/Disconnect/);
+    expect(row("Notion").textContent).toMatch(/Not connected.*Connect/);
+    expect(within(row("Google Calendar")).queryByText("Disconnect")).toBeNull();
+  });
+
+  it("Connect opens the existing sign-in window and hides the panel meanwhile", async () => {
+    setup();
+    const notion = screen.getAllByTestId("productivity-tool").find((r) => r.textContent?.includes("Notion"))!;
+    fireEvent.click(within(notion).getByTestId("productivity-connect"));
+    expect(screen.getByTestId("oauth-modal").textContent).toMatch(/Notion/);
+    expect(screen.queryByTestId("connect-panel")).toBeNull();
+    fireEvent.click(screen.getByText("close-modal"));
+    expect(await screen.findByTestId("connect-panel")).toBeTruthy();
+  });
+
+  it("Disconnect asks first", async () => {
+    setup();
+    await waitFor(() => expect(screen.getAllByTestId("productivity-tool").find((r) => r.textContent?.includes("Slack"))?.textContent).toMatch(/Disconnect/));
+    const slack = screen.getAllByTestId("productivity-tool").find((r) => r.textContent?.includes("Slack"))!;
+    fireEvent.click(within(slack).getByTestId("productivity-disconnect"));
+    expect(await screen.findByText("Disconnect Slack?")).toBeTruthy();
+  });
+
+  it("search filters both groups", () => {
+    setup();
+    fireEvent.change(screen.getByTestId("connector-search"), { target: { value: "notion" } });
+    expect(screen.getAllByTestId("productivity-tool")).toHaveLength(1);
+    expect(screen.queryAllByTestId("featured-tool")).toHaveLength(0);
+    fireEvent.change(screen.getByTestId("connector-search"), { target: { value: "zzzz" } });
+    expect(screen.getByTestId("no-productivity")).toBeTruthy();
+  });
+
+  it("a connected AI tool has a Test button", () => {
+    const onTest = vi.fn();
+    render(<ConnectToolPanel open onOpenChange={vi.fn()} tools={tools} onConnect={vi.fn(async () => true)} onTest={onTest} />);
+    fireEvent.click(screen.getByTestId("panel-test"));
+    expect(onTest).toHaveBeenCalledWith(expect.objectContaining({ id: "t1" }));
+  });
+
+  it("in Generator (no AI-model connect) only the productivity group shows, and Use in prompt hands the row back", async () => {
+    const onUse = vi.fn();
+    render(<ConnectToolPanel open onOpenChange={vi.fn()} onUse={onUse} />);
+    const panel = screen.getByTestId("connect-panel");
+    expect(within(panel).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Productivity & Data"]);
+    expect(screen.queryByTestId("custom-connector")).toBeNull();
+    await waitFor(() => expect(screen.getAllByTestId("use-in-prompt").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByTestId("use-in-prompt")[0]);
+    expect(onUse).toHaveBeenCalledWith(expect.objectContaining({ connected: true }));
   });
 });

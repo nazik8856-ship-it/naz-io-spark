@@ -311,7 +311,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
         </button>
         </div>
       </div>
-      <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} />
+      <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} onTest={(t) => runTest(t.id, t.name)} testingId={busy?.startsWith("test-") ? busy.slice(5) : null} />
       <ReportPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startReport} />
 
       <div className="mt-4 space-y-2">

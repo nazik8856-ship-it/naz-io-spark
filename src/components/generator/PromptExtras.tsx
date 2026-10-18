@@ -1,23 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Plus, SlidersHorizontal, X, Upload, Link2, Box, FileSpreadsheet, Database, Check, Loader2 } from "lucide-react";
-import { IntegrationLogo } from "@/components/IntegrationLogos";
+import { Plus, SlidersHorizontal, X, Upload, Link2, Box, FileSpreadsheet, Plug } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
-import IntegrationConnectModal from "@/components/agents/IntegrationConnectModal";
-import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
-import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import ConnectToolPanel from "@/components/control/outer/ConnectToolPanel";
 
 export type Attachment = {
   id: string;
@@ -43,18 +30,6 @@ interface Props {
 }
 
 const TONES = ["Playful", "Professional", "Luxury", "Minimal", "Bold"];
-const INTEGRATIONS = [
-  { id: "gdrive", label: "Google Drive", providerKey: "Google Drive" },
-  { id: "gcal", label: "Google Calendar", providerKey: "Google Calendar" },
-  { id: "ganalytics", label: "Google Analytics", providerKey: "Google Analytics" },
-  
-  { id: "shopify", label: "Shopify", providerKey: "Shopify" },
-  { id: "slack", label: "Slack", providerKey: "Slack" },
-  { id: "notion", label: "Notion", providerKey: "Notion" },
-  { id: "canva", label: "Canva", providerKey: "Canva" },
-  { id: "figma", label: "Figma", providerKey: "Figma" },
-];
-
 async function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -70,8 +45,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
   const [tunerOpen, setTunerOpen] = useState(false);
   const [urlInput, setUrlInput] = useState("");
   const [projects, setProjects] = useState<Array<{ id: string; label: string; text: string }>>([]);
-  const [connected, setConnected] = useState<Array<{ provider: string; hasSnapshot: boolean; snapshotText?: string }>>([]);
-  const [disconnecting, setDisconnecting] = useState<Set<string>>(new Set());
+  const [connectOpen, setConnectOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const plusBtnRef = useRef<HTMLButtonElement>(null);
@@ -80,8 +54,6 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
   const tunerPanelRef = useRef<HTMLDivElement>(null);
   const [plusPos, setPlusPos] = useState<{ left: number; bottom: number } | null>(null);
   const [tunerPos, setTunerPos] = useState<{ left: number; bottom: number } | null>(null);
-  const [connectTarget, setConnectTarget] = useState<{ name: string; category: string } | null>(null);
-  const [confirmDisconnect, setConfirmDisconnect] = useState<{ id: string; label: string; providerKey: string } | null>(null);
 
   const computePos = (btn: HTMLButtonElement | null) => {
     if (!btn) return null;
@@ -137,108 +109,8 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
     })();
   }, [plusOpen, user?.id, projects.length]);
 
-  const loadConnected = useCallback(async () => {
-    if (!user?.id) { setConnected([]); return; }
-    const { data: ints } = await supabase
-      .from("agent_integrations")
-      .select("provider, metadata")
-      .eq("user_id", user.id)
-      .eq("status", "connected");
-    const providers = new Set<string>();
-    (ints || []).forEach((i: any) => {
-      const p = String(i.provider || "").toLowerCase();
-      if (p) providers.add(p);
-      // The shared "Gmail" row records each granted Google surface in
-      // metadata.services (e.g. ["drive","calendar","analytics"]). Expand
-      // those into their catalogue names so per-service Connect buttons can
-      // show a live green "Connected" state across every project.
-      if (p === "gmail") {
-        const services = Array.isArray(i.metadata?.services) ? (i.metadata.services as string[]) : [];
-        services.forEach((s) => {
-          const key = String(s).toLowerCase();
-          if (key === "drive") providers.add("google drive");
-          else if (key === "calendar") providers.add("google calendar");
-          else if (key === "analytics") providers.add("google analytics");
-        });
-      }
-    });
-    const list = Array.from(providers);
-    if (!list.length) { setConnected([]); return; }
-    const { data: snaps } = await supabase
-      .from("integration_snapshots")
-      .select("provider, kind, data, created_at")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(50);
-    const byProv = new Map<string, string>();
-    (snaps || []).forEach((s: any) => {
-      const p = String(s.provider).toLowerCase();
-      if (!byProv.has(p)) byProv.set(p, JSON.stringify(s.data ?? {}));
-    });
-    setConnected(list.map((p) => ({ provider: p, hasSnapshot: byProv.has(p), snapshotText: byProv.get(p) })));
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (!tunerOpen || !user?.id) return;
-    loadConnected();
-  }, [tunerOpen, user?.id, loadConnected]);
-
-  // Shared listener — every integration popup (Google bundle, Figma, Canva,
-  // plus any future provider) routes through the same handler so the "Connected"
-  // pill flips instantly instead of waiting for a refetch.
-  useIntegrationOAuthMessages(useCallback((info) => {
-    if (!user?.id) return;
-    const optimisticKey =
-      info.provider === "Figma" ? "figma"
-      : info.provider === "Canva" ? "canva"
-      : info.provider === "Notion" ? "notion"
-      : info.provider === "Slack" ? "slack"
-      : info.provider === "Shopify" ? "shopify"
-      : (() => {
-          const svc = (info.service || "").toLowerCase();
-          if (svc === "drive") return "google drive";
-          if (svc === "calendar") return "google calendar";
-          if (svc === "analytics") return "google analytics";
-          return "gmail";
-        })();
-    setConnected((prev) =>
-      prev.some((c) => c.provider === optimisticKey)
-        ? prev
-        : [...prev, { provider: optimisticKey, hasSnapshot: false }],
-    );
-  }, [user?.id]));
-
   const add = (a: Attachment) => onChange([...attachments, a]);
   const remove = (id: string) => onChange(attachments.filter((a) => a.id !== id));
-
-  // Was previously rendered as a static, non-interactive "connected" label
-  // with no way to disconnect -- exactly what got NazAI's Figma app
-  // rejected ("app is already connected... there does not appear to be a
-  // way to disconnect so that we can test"). Google surfaces (Drive/
-  // Calendar/Analytics) share ONE underlying agent_integrations row keyed
-  // by provider "Gmail" (see loadConnected's expansion above and
-  // IntegrationConnectModal's identical providerKey mapping) -- there's no
-  // per-service row to selectively remove, so disconnecting any one of them
-  // disconnects the whole Google grant, same as the modal already does.
-  const disconnectIntegration = async (item: { id: string; label: string; providerKey: string }) => {
-    const isGoogleFamily = /^Google/i.test(item.providerKey);
-    const backingProvider = isGoogleFamily ? "Gmail" : item.providerKey;
-    setDisconnecting((prev) => new Set(prev).add(item.id));
-    try {
-      const { error } = await supabase.functions.invoke("integration-connect", {
-        body: { action: "disconnect", provider: backingProvider, agentId: null },
-      });
-      if (error) throw new Error((await extractFunctionErrorMessage(error)) ?? error.message ?? "Disconnect failed");
-      setConnected((prev) =>
-        prev.filter((x) => (isGoogleFamily ? !x.provider.startsWith("google") && x.provider !== "gmail" : x.provider !== item.providerKey.toLowerCase())),
-      );
-      toast.success(`${item.label} disconnected`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Disconnect failed");
-    } finally {
-      setDisconnecting((prev) => { const next = new Set(prev); next.delete(item.id); return next; });
-    }
-  };
 
   const handleFiles = async (files: FileList | null, isCsv: boolean) => {
     if (!files) return;
@@ -420,71 +292,15 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
           )}
 
           <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Pull data from integration</div>
-          <div className="space-y-1 mb-3">
-            {INTEGRATIONS.map((i) => {
-              const pk = i.providerKey.toLowerCase();
-              const c = connected.find((x) => x.provider === pk || x.provider === i.id || x.provider.includes(i.id.split("_")[1] || i.id));
-              const already = attachments.some((a) => a.id === `int-${i.id}`);
-              const attach = () => {
-                if (!c) return;
-                add({
-                  id: `int-${i.id}`,
-                  label: `Data · ${i.label}`,
-                  kind: "integration",
-                  contextText: c.hasSnapshot && c.snapshotText
-                    ? `Live data from ${i.label} (connected):\n${c.snapshotText.slice(0, 3000)}`
-                    : `User has ${i.label} connected via OAuth. Assume relevant data is available and shape output accordingly.`,
-                });
-                setTunerOpen(false);
-              };
-              return (
-                <div
-                  key={i.id}
-                  className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs hover:bg-white/5"
-                >
-                  <button
-                    type="button"
-                    disabled={!c || already}
-                    onClick={attach}
-                    className="flex items-center gap-2 text-zinc-300 disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    <IntegrationLogo
-                      name={i.label}
-                      size={16}
-                      fallback={<Database className="h-3.5 w-3.5 text-purple-300" />}
-                    /> {i.label}
-                  </button>
-                  {already ? (
-                    <span className="flex items-center gap-1 text-[10px] text-emerald-400">
-                      <Check className="h-3 w-3" /> attached
-                    </span>
-                  ) : c ? (
-                    <button
-                      type="button"
-                      disabled={disconnecting.has(i.id)}
-                      onClick={(e) => { e.stopPropagation(); setConfirmDisconnect(i); }}
-                      className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border border-red-400/40 text-red-300 hover:bg-red-400/10 hover:text-red-200 transition disabled:opacity-60"
-                    >
-                      {disconnecting.has(i.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                      Disconnect
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConnectTarget({ name: i.providerKey, category: /Google|Gmail/i.test(i.providerKey) ? "Google" : i.providerKey });
-                      }}
-                      className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/50 text-purple-200 hover:bg-purple-500/30 hover:text-white transition"
-                    >
-                      Connect
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
+          <button
+            type="button"
+            onClick={() => { setTunerOpen(false); setConnectOpen(true); }}
+            className="mb-3 w-full flex items-center gap-2 px-2 py-2 rounded-lg text-xs text-cyan-100 border border-cyan-300/30 bg-cyan-400/[0.06] hover:bg-cyan-400/10"
+            data-testid="open-connect-panel"
+          >
+            <Plug className="h-4 w-4 text-cyan-300" /> Connect a tool
+            <span className="ml-auto text-[10px] text-slate-400">Drive, Calendar, Slack, Notion…</span>
+          </button>
 
           <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">{controlMode ? "Import data" : "Import from CSV / export"}</div>
           <button
@@ -519,45 +335,22 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
         </span>
       ))}
 
-      {connectTarget && (
-        <IntegrationConnectModal
-          integration={{
-            name: connectTarget.name,
-            category: connectTarget.category,
-            method: "Sign in",
-            examples: [],
-            steps: [`Sign in with ${connectTarget.name}`],
-          }}
-          agentId={null}
-          accent="#a78bfa"
-          onClose={() => setConnectTarget(null)}
-          onChange={() => { loadConnected(); }}
-        />
-      )}
-
-      <AlertDialog open={!!confirmDisconnect} onOpenChange={(open) => { if (!open) setConfirmDisconnect(null); }}>
-        <AlertDialogContent className="bg-zinc-950 border-white/10 text-white">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Disconnect {confirmDisconnect?.label}?</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
-              NazAI will no longer be able to pull data from {confirmDisconnect?.label}. You can reconnect it again at any time.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="bg-transparent border-white/10 text-zinc-200 hover:bg-white/5 hover:text-white">No</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                const target = confirmDisconnect;
-                setConfirmDisconnect(null);
-                if (target) disconnectIntegration(target);
-              }}
-              className="bg-red-500/20 text-red-200 border border-red-400/30 hover:bg-red-500/30"
-            >
-              Yes, disconnect
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConnectToolPanel
+        open={connectOpen}
+        onOpenChange={setConnectOpen}
+        attachedIds={attachments.map((a) => a.id)}
+        onUse={(r) => {
+          add({
+            id: `int-${r.id}`,
+            label: `Data · ${r.label}`,
+            kind: "integration",
+            contextText: r.hasSnapshot && r.snapshotText
+              ? `Live data from ${r.label} (connected):\n${r.snapshotText.slice(0, 3000)}`
+              : `User has ${r.label} connected via OAuth. Assume relevant data is available and shape output accordingly.`,
+          });
+          setConnectOpen(false);
+        }}
+      />
     </div>
   );
 }
