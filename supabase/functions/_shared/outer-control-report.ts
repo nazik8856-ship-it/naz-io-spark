@@ -29,7 +29,7 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trim
 
 /** The question a report step asks every tool. */
 export const opinionInstruction = (topic: string) =>
-  `Give your own opinion and insights on: ${topic}\nStart by naming the topic in one short phrase, then give your opinion, your reasoning and where you are unsure. Under 300 words.`;
+  `Give your own opinion and insights on: ${topic}\nStart by naming the topic in one short phrase, then give your opinion, your reasoning and where you are unsure. Keep it concise, around 250 words.`;
 
 export const reportInstruction = (topic: string) => `Write the final report for: ${topic}`;
 

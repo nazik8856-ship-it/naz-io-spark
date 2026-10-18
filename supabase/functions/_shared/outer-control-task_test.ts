@@ -97,7 +97,7 @@ Deno.test("origin: an external agent's controlled text is labelled as handed ove
 });
 
 Deno.test("agent run: only the agent's own summary is the result; every other outcome says why there is none", () => {
-  assertEquals(readAgentRun({ runId: "r", summary: "  Done: sent 3 emails.  ", goal_met: true }), { ok: true, text: "Done: sent 3 emails." });
+  assertEquals(readAgentRun({ runId: "r", summary: "  Done: sent 3 emails.  ", goal_met: true }), { ok: true, text: "Done: sent 3 emails.", runId: "r" });
   assertEquals(readAgentRun({ paused: true, summary: "x" }), { ok: false, code: "agent_paused" });
   assertEquals(readAgentRun({ skipped: true, reason: "already running" }), { ok: false, code: "agent_skipped" });
   assertEquals(readAgentRun({ creditsExhausted: true, summary: "x" }), { ok: false, code: "agent_credits_exhausted" });
