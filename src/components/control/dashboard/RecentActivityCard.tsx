@@ -1,9 +1,13 @@
 // Inner Control page, secondary section: the latest decisions, short and scannable.
 // Each row points two ways: to the rule that decided it (when one did) and into the chat
 // with the question already written.
-import { MessageCircle } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronUp, MessageCircle } from "lucide-react";
 import { timeAgo, TONE_DOT, TONE_TEXT } from "@/lib/outer-control-ui";
 import type { ActivityItem } from "@/lib/inner-control-ui";
+
+/** How many decisions show before "Show all". */
+export const ACTIVITY_SHOWN = 5;
 
 export default function RecentActivityCard({
   items,
@@ -18,6 +22,8 @@ export default function RecentActivityCard({
   onAsk: (question: string) => void;
   onViewAll: () => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? items : items.slice(0, ACTIVITY_SHOWN);
   return (
     <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4 sm:p-5" aria-label="Recent activity" data-testid="recent-activity">
       <div className="flex items-center justify-between gap-3">
@@ -39,7 +45,7 @@ export default function RecentActivityCard({
         </div>
       ) : (
         <ul className="mt-3 divide-y divide-white/5">
-          {items.map((a) => (
+          {shown.map((a) => (
             <li key={a.id} className="flex flex-wrap items-start gap-x-3 gap-y-1.5 py-2.5 first:pt-0 last:pb-0" data-testid="activity-row">
               <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${TONE_DOT[a.tone]}`} aria-hidden />
               <div className="min-w-0 flex-1 basis-52">
@@ -72,6 +78,16 @@ export default function RecentActivityCard({
             </li>
           ))}
         </ul>
+      )}
+      {items.length > ACTIVITY_SHOWN && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          data-testid="activity-expand"
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/10 py-2 text-xs text-zinc-300 hover:bg-white/5 hover:text-white"
+        >
+          {expanded ? <>Show fewer <ChevronUp className="h-3.5 w-3.5" /></> : <>Show all {items.length} decisions <ChevronDown className="h-3.5 w-3.5" /></>}
+        </button>
       )}
     </section>
   );

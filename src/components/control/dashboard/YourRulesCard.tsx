@@ -2,12 +2,15 @@
 // Hard rules and safety rules sit together; each row says what it is, whether it is on,
 // and has Edit / Disable / Delete. Adding a rule is the prominent action.
 import { useState } from "react";
-import { Gavel, MessageCircle, Pencil, Plus, ScanSearch, Trash2, Eye } from "lucide-react";
+import { ChevronDown, ChevronUp, Gavel, MessageCircle, Pencil, Plus, ScanSearch, Trash2, Eye } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { KIND_LABEL, type RuleCounts, type RuleItem } from "@/lib/inner-control-ui";
+
+/** How many rules show before "Show all". */
+export const RULES_SHOWN = 5;
 
 type Props = {
   rules: RuleItem[];
@@ -31,6 +34,11 @@ export default function YourRulesCard({
   onAdd, onTemplates, onEdit, onToggle, onDelete, onAsk,
 }: Props) {
   const [confirming, setConfirming] = useState<RuleItem | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  // A rule an activity row points at is always shown, even when it sits below the fold.
+  const pointedAt = highlightKey ? rules.findIndex((r) => r.key === highlightKey) >= RULES_SHOWN : false;
+  const showAll = expanded || pointedAt;
+  const visible = showAll ? rules : rules.slice(0, RULES_SHOWN);
 
   return (
     <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4 sm:p-5" aria-label="Your rules" data-testid="your-rules">
@@ -81,7 +89,7 @@ export default function YourRulesCard({
         </div>
       ) : (
         <ul className="mt-4 space-y-2">
-          {rules.map((r) => {
+          {visible.map((r) => {
             const off = r.status === "disabled";
             const busy = busyKey === r.key;
             return (
@@ -161,6 +169,16 @@ export default function YourRulesCard({
             );
           })}
         </ul>
+      )}
+      {rules.length > RULES_SHOWN && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={showAll}
+          data-testid="rules-expand"
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/10 py-2 text-xs text-zinc-300 hover:bg-white/5 hover:text-white"
+        >
+          {showAll ? <>Show fewer <ChevronUp className="h-3.5 w-3.5" /></> : <>Show all {rules.length} rules <ChevronDown className="h-3.5 w-3.5" /></>}
+        </button>
       )}
 
       <AlertDialog open={!!confirming} onOpenChange={(o) => { if (!o) setConfirming(null); }}>
