@@ -72,4 +72,13 @@ describe("Welcome screen", () => {
     expect(screen.getByText("control page")).toBeTruthy();
     expect(state.updateUser).not.toHaveBeenCalled();
   });
+
+  it("shows a preview inside each card, labelled as an illustration, for every user", () => {
+    state.user = { email: "a@b.c", created_at: ago(40), user_metadata: {} };
+    renderPage();
+    expect(screen.getByTestId("card-generator").querySelector("[data-testid=preview-generator]")).toBeTruthy();
+    expect(screen.getByTestId("card-control-system").textContent).toMatch(/Refund over \$500.*Approval/);
+    expect(screen.getByTestId("welcome-illustration-note").textContent).toMatch(/illustrations with sample content, not your data/);
+    expect(screen.getByTestId("welcome-link").textContent).toMatch(/Build → Control/);
+  });
 });
