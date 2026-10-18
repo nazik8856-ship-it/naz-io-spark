@@ -80,4 +80,24 @@ describe("ConnectToolPanel", () => {
     for (const b of screen.getAllByTestId("featured-tool")) expect(b.tagName).toBe("BUTTON");
     expect(screen.getAllByTestId("featured-tool").length).toBeGreaterThanOrEqual(8);
   });
+
+  it("every provider shows where to get a key: a link that opens its key page in a new tab and three short steps", () => {
+    setup();
+    const count = screen.getAllByTestId("featured-tool").length;
+    for (let i = 0; i < count; i++) {
+      fireEvent.click(screen.getAllByTestId("featured-tool")[i]);
+      const link = screen.getByTestId("get-key-link") as HTMLAnchorElement;
+      expect(link.getAttribute("href")).toMatch(/^https:\/\/[a-z0-9.-]+\.[a-z]+(\/|$)/);
+      expect(link.getAttribute("target")).toBe("_blank"); expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+      expect(screen.getByTestId("get-key").querySelectorAll("li").length).toBe(3);
+      fireEvent.click(screen.getByText("Back"));
+    }
+  });
+
+  it("Gemini points at Google's key page and says to sign in with a Google account", () => {
+    setup();
+    fireEvent.click(screen.getAllByTestId("featured-tool")[2]);
+    expect((screen.getByTestId("get-key-link") as HTMLAnchorElement).href).toBe("https://aistudio.google.com/apikey");
+    expect(screen.getByTestId("get-key").textContent).toMatch(/Sign in with your Google account and choose Create API key/);
+  });
 });
