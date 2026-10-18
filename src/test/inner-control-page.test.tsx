@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   tables: {} as Record<string, unknown[]>,
   invoke: vi.fn(),
   updates: [] as { table: string; patch: unknown }[],
+  approvals: [] as unknown[],
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
@@ -22,7 +23,7 @@ vi.mock("@/integrations/supabase/client", () => {
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
 vi.mock("@/hooks/useActiveAccount", () => ({ useActiveAccount: () => ({ accountId: "u1", role: "self", permissions: null }) }));
 vi.mock("@/hooks/useSpendSafetyStatus", () => ({ useSpendSafetyStatus: () => ({ loading: false, capIsCustom: true }) }));
-vi.mock("@/hooks/usePendingApprovalsFeed", () => ({ usePendingApprovalsFeed: () => ({ approvals: [], resolvingId: null, executingId: null, resolve: vi.fn(), execute: vi.fn() }) }));
+vi.mock("@/hooks/usePendingApprovalsFeed", () => ({ usePendingApprovalsFeed: () => ({ approvals: state.approvals, resolvingId: null, executingId: null, resolve: vi.fn(), execute: vi.fn() }) }));
 vi.mock("@/components/control/ProjectSwitcher", () => ({ default: () => null }));
 vi.mock("@/components/governance/GovernanceHealthDot", () => ({ default: () => null }));
 vi.mock("@/hooks/useControlDashboardData", () => ({
@@ -47,6 +48,7 @@ const decision = { id: "d1", created_at: new Date().toISOString(), decision: "bl
 describe("Inner Control page", () => {
   beforeEach(() => {
     state.updates = [];
+    state.approvals = [];
     state.invoke = vi.fn();
     state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [], agent_decisions: [decision] };
   });
@@ -89,6 +91,43 @@ describe("Inner Control page", () => {
     const box = screen.getAllByLabelText("Message AI Control System")[0] as HTMLTextAreaElement;
     await waitFor(() => expect(box.value).toBe('Why was "Send email to all customers" blocked?'));
     expect(state.invoke).not.toHaveBeenCalled();
+  });
+
+  it("shows the first 5 rules and expands to all of them", async () => {
+    state.tables = { hard_rules: Array.from({ length: 7 }, (_, i) => ({ ...hardRule, id: `h${i + 1}`, rule_text: `Rule number ${i + 1}` })), safety_rules: [], agents: [], agent_decisions: [] };
+    renderPage();
+    await screen.findByTestId("rule-row-hard:h1");
+    expect(screen.getAllByTestId(/^rule-row-/)).toHaveLength(5);
+    fireEvent.click(screen.getByTestId("rules-expand"));
+    expect(screen.getAllByTestId(/^rule-row-/)).toHaveLength(7);
+    expect(screen.getByTestId("rules-expand").textContent).toMatch(/Show fewer/);
+    fireEvent.click(screen.getByTestId("rules-expand"));
+    expect(screen.getAllByTestId(/^rule-row-/)).toHaveLength(5);
+  });
+
+  it("with 5 rules or fewer there is nothing to expand", async () => {
+    renderPage();
+    await screen.findByTestId("rule-row-hard:h1");
+    expect(screen.queryByTestId("rules-expand")).toBeNull();
+    expect(screen.queryByTestId("activity-expand")).toBeNull();
+  });
+
+  it("shows the first 5 decisions and expands to all of them", async () => {
+    state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [], agent_decisions: Array.from({ length: 8 }, (_, i) => ({ ...decision, id: `d${i}`, description: `Action ${i}` })) };
+    renderPage();
+    await screen.findAllByTestId("activity-row");
+    expect(screen.getAllByTestId("activity-row")).toHaveLength(5);
+    fireEvent.click(screen.getByTestId("activity-expand"));
+    expect(screen.getAllByTestId("activity-row")).toHaveLength(8);
+  });
+
+  it("pending approvals are not shown in the chat panel; the Approvals button carries their count", async () => {
+    state.approvals = [{ id: "a1", action_type: "send_email", description: "Refund the customer", risk_level: "high", status: "pending", created_at: new Date().toISOString() }];
+    renderPage();
+    await screen.findByTestId("rule-row-hard:h1");
+    expect(screen.queryByRole("button", { name: /Approve/ })).toBeNull();
+    expect(screen.queryByText("Refund the customer")).toBeNull();
+    expect(screen.getByTestId("approvals-count").textContent).toBe("1");
   });
 
   it("shows live status while a task runs, then the answer", async () => {

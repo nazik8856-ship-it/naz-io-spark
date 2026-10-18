@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, X, Gauge, ChevronDown, ChevronRight, MessageCircle, FlaskConical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
-import { canApprove } from "@/lib/account-switcher";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
@@ -19,7 +18,6 @@ import SpendSafetyStatusBadge from "@/components/control/SpendSafetyStatusBadge"
 import { useSpendSafetyStatus } from "@/hooks/useSpendSafetyStatus";
 import { useControlDashboardData } from "@/hooks/useControlDashboardData";
 import { usePendingApprovalsFeed } from "@/hooks/usePendingApprovalsFeed";
-import ApprovalChatCard from "@/components/control/dashboard/ApprovalChatCard";
 
 
 import DryRunToggle from "@/components/control/DryRunToggle";
@@ -55,7 +53,7 @@ const SETTINGS_OPEN_KEY = "nazai_control_settings_open";
  */
 export default function ControlSystem() {
   const navigate = useNavigate();
-  const { accountId, role } = useActiveAccount();
+  const { accountId } = useActiveAccount();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [dryRun, setDryRun] = useState(false);
@@ -76,7 +74,6 @@ export default function ControlSystem() {
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [ruleEditorOpen, setRuleEditorOpen] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const canSignOff = canApprove(role);
 
   useEffect(() => {
     if (!accountId) return;
@@ -189,28 +186,9 @@ export default function ControlSystem() {
     if (!open) { void innerRules.refetch(); dashboard.refetch(); }
   };
 
-  // Pending approvals rendered as real, actionable chat cards ahead of the
-  // actual conversation -- never persisted into `turns` itself, since that
-  // array also backs the message history sent to control-system-decide
-  // (handleSend's `history`), which must stay exactly what was said, not
-  // padded with synthetic approval cards.
-  const chatTurns: Turn[] = [
-    ...approvalsFeed.approvals.map((a): Turn => ({
-      role: "assistant",
-      content: "",
-      node: (
-        <ApprovalChatCard
-          approval={a}
-          canSignOff={canSignOff}
-          resolving={approvalsFeed.resolvingId === a.id}
-          onResolve={(vote) => approvalsFeed.resolve(a.id, vote)}
-          executing={approvalsFeed.executingId === a.id}
-          onExecute={() => approvalsFeed.execute(a.id)}
-        />
-      ),
-    })),
-    ...turns,
-  ];
+  // The chat panel shows the conversation only. Pending approvals are decided on the Approvals page,
+  // and the Approvals button above carries their count.
+  const chatTurns: Turn[] = turns;
 
   const setupChecks = [
     { label: "Hard rules", done: dashboard.setup.hardRules, onClick: () => navigate("/control-system/safety-rules") },
@@ -263,6 +241,9 @@ export default function ControlSystem() {
             className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-amber-300 hover:bg-amber-500/20"
           >
             Approvals
+            {approvalsFeed.approvals.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-amber-400 px-1.5 py-px text-[10px] font-bold text-black" data-testid="approvals-count">{approvalsFeed.approvals.length}</span>
+            )}
           </button>
           <button
             onClick={() => navigate("/control-system/incidents")}
@@ -500,20 +481,13 @@ export default function ControlSystem() {
         </DialogContent>
       </Dialog>
 
-      {/* Floating button to open the chat drawer on phone -- badged with
-          the pending-approvals count so a collapsed chat never hides
-          something that needs a decision. */}
+      {/* Floating button to open the chat drawer on phone. */}
       <button
         onClick={() => setMobileChatOpen(true)}
         aria-label="Open AI Control System chat"
         className="fixed bottom-5 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-cyan-400 text-black shadow-lg shadow-cyan-500/30 lg:hidden"
       >
         <MessageCircle className="h-6 w-6" />
-        {approvalsFeed.approvals.length > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#020617] bg-rose-500 px-1 text-[10px] font-bold text-white">
-            {approvalsFeed.approvals.length}
-          </span>
-        )}
       </button>
     </div>
   );
