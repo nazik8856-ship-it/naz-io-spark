@@ -59,4 +59,25 @@ describe("ConnectToolPanel", () => {
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
     expect(screen.getByTestId("custom-form")).toBeTruthy();
   });
+
+  it("search finds a connector by name or company and shows nothing for a miss, offering a custom connector with the typed name", () => {
+    setup();
+    const box = screen.getByLabelText("Search connectors");
+    fireEvent.change(box, { target: { value: "google" } });
+    expect(screen.getAllByTestId("featured-tool").map((b) => b.textContent)).toEqual([expect.stringMatching(/Gemini/)]);
+    expect(screen.getByTestId("search-status").textContent).toBe("1 connector found");
+    fireEvent.change(box, { target: { value: "zzz-unknown" } });
+    expect(screen.queryAllByTestId("featured-tool").length).toBe(0);
+    expect(screen.getByTestId("no-results").textContent).toMatch(/No connector matches "zzz-unknown"/);
+    expect(screen.getByTestId("custom-connector").textContent).toMatch(/Add "zzz-unknown" as a custom connector/);
+    fireEvent.click(screen.getByTestId("custom-connector"));
+    expect((screen.getByLabelText("Tool name") as HTMLInputElement).value).toBe("zzz-unknown");
+  });
+
+  it("the search box is a labelled search field and every connector is a real button reachable by keyboard", () => {
+    setup();
+    expect(screen.getByRole("searchbox", { name: "Search connectors" })).toBeTruthy();
+    for (const b of screen.getAllByTestId("featured-tool")) expect(b.tagName).toBe("BUTTON");
+    expect(screen.getAllByTestId("featured-tool").length).toBeGreaterThanOrEqual(8);
+  });
 });

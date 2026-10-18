@@ -288,7 +288,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
             );
   };
 
-  const toolName = (id: string) => tools.find((t) => t.id === id)?.name ?? "Tool";
+  const toolName = (id: string) => tools.find((t) => t.id === id)?.name ?? "Removed tool";
 
   // The report writer is part of NazAI, not a connection the person manages: it is not listed as a tool.
   const shownTools = tools.filter((t) => !isInternalTool(t.endpoint_url));

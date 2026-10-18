@@ -19,6 +19,7 @@ import { sendCriticalAlert } from "./critical-alerts.ts";
 import { buildInstruction, buildToolRequest, parseToolReply, type RuleLine, type ToolFormat, type ToolRequestInput } from "./outer-control-tool-request.ts";
 import { AGENT_FAILURE_TEXT, readAgentRun } from "./outer-control-task.ts";
 import { gatewayAi, REPORT_TOOL_URL, writeReport, type ReportResult } from "./outer-control-report.ts";
+import type { ReportDoc } from "./outer-control-report-doc.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
 import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.ts";
 import { buildWorkingMemory, decisionRecord, factsFor, guardConsistency, planNextAction, think, type MemoryRow, type RequestChanges } from "./outer-control-brain.ts";
@@ -248,6 +249,8 @@ type Accept = {
   fromPerson?: boolean;
   /** What a NazAI agent really did in this reply's run (from its recorded actions): the source of "what was done" and of links. */
   actions?: { summary: string; url: string | null }[];
+  /** A report written by the report writer: kept in the artifact so the app can show it designed. */
+  report?: ReportDoc | null;
 };
 
 /**
@@ -338,6 +341,7 @@ async function completeSession(
         changes: ((exchanges ?? []) as StepEvidence[]).reduce((n, x) => n + (x.decision?.changes?.length ?? 0), 0),
       }),
       links: (a.actions ?? []).filter((x) => x.url).map((x) => ({ url: x.url as string, label: x.summary.slice(0, 80) })),
+      report: a.report ?? null,
     });
     if (!built.ok) return finish(admin, s, "failed", `The result passed the completion check but its final artifact could not be built (${built.reason}), so it was not marked completed.`, deps);
     const note = `Final check: the result keeps every blocking rule${a.fromPerson ? "" : " and matches the goal"}.`;
@@ -734,7 +738,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           await finish(admin, s, "rejected", "The reply needed approval and this API key's policy did not approve it.", deps);
           return { status: "rejected", steps };
         }
-        await acceptReply(admin, s, tool, stepNo, { text: stored, toolStatus: reply.status, actions: agentActions }, deps);
+        await acceptReply(admin, s, tool, stepNo, { text: stored, toolStatus: reply.status, actions: agentActions, report: reportResult && reportResult.ok ? reportResult.doc : null }, deps);
         const { data: resolved } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
         const rs = (resolved as { status?: string } | null)?.status ?? "running";
         if (rs !== "running") return { status: rs, steps };
@@ -745,7 +749,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         return { status: "awaiting_human", steps };
       }
       // allow / modify: continue, finish, or ask a person a question.
-      await acceptReply(admin, s, tool, stepNo, { text: brain.output ?? content, toolStatus: reply.status, actions: agentActions }, deps);
+      await acceptReply(admin, s, tool, stepNo, { text: brain.output ?? content, toolStatus: reply.status, actions: agentActions, report: reportResult && reportResult.ok ? reportResult.doc : null }, deps);
       const { data: after } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
       const st = (after as { status?: string } | null)?.status ?? "running";
       if (st !== "running") return { status: st, steps };

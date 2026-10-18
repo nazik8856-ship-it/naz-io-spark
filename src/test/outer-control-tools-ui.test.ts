@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildActivity, checkConnector, FEATURED_TOOLS, featuredPayload, healthSummary, toolHealth } from "@/lib/outer-control-tools-ui";
+import { existsSync } from "node:fs";
+import { buildActivity, checkConnector, FEATURED_TOOLS, featuredPayload, healthSummary, searchConnectors, toolHealth } from "@/lib/outer-control-tools-ui";
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();
@@ -30,7 +31,8 @@ describe("tool health", () => {
 
 describe("featured tools and the custom connector", () => {
   it("each featured tool has an https address, a format and the right auth header for its provider", () => {
-    expect(FEATURED_TOOLS.map((f) => f.id)).toEqual(["openai", "anthropic", "gemini", "grok"]);
+    expect(FEATURED_TOOLS.slice(0, 4).map((f) => f.id)).toEqual(["openai", "anthropic", "gemini", "grok"]);
+    expect(new Set(FEATURED_TOOLS.map((f) => f.id)).size).toBe(FEATURED_TOOLS.length);
     for (const f of FEATURED_TOOLS) expect(new URL(f.endpoint_url).protocol).toBe("https:");
     const a = FEATURED_TOOLS.find((f) => f.id === "anthropic")!;
     expect(featuredPayload(a, " sk-ant-key ")).toMatchObject({ request_format: "anthropic_messages", auth_header: "x-api-key", auth_scheme: "", token: "sk-ant-key", model: "claude-sonnet-5-5" });
@@ -46,6 +48,32 @@ describe("featured tools and the custom connector", () => {
     expect(checkConnector({ ...ok, url: "https://u:p@tool.example.com" }).errors[0]).toMatch(/user name and password/);
     expect(checkConnector({ ...ok, url: "https://tool.example.com/mcp" }).notes[0]).toMatch(/not the MCP protocol/);
     expect(checkConnector({ ...ok, format: "anthropic_messages" }).notes[0]).toMatch(/need a model/);
+  });
+});
+
+describe("searching connectors", () => {
+  const names = (q: string) => searchConnectors(FEATURED_TOOLS, q).map((f) => f.id);
+  it("finds by name, company, product and what it is known for, ignoring case", () => {
+    expect(names("chatgpt")).toEqual(["openai"]);
+    expect(names("CLAUDE")).toEqual(["anthropic"]);
+    expect(names("google")).toEqual(["gemini"]);
+    expect(names("xai")).toEqual(["grok"]);
+    expect(names("llama")).toEqual(expect.arrayContaining(["groq", "fireworks"]));
+    expect(names("search")).toContain("perplexity");
+  });
+  it("every word must match; an empty search returns everything; no match returns nothing", () => {
+    expect(names("open llama")).toEqual(expect.arrayContaining(["groq", "fireworks"]));
+    expect(names("claude gemini")).toEqual([]);
+    expect(names("   ")).toHaveLength(FEATURED_TOOLS.length);
+    expect(names("zzzz")).toEqual([]);
+  });
+  it("uses each company's real name: Groq (the chip maker) and Grok (xAI) are two different tools", () => {
+    const n = Object.fromEntries(FEATURED_TOOLS.map((f) => [f.id, f.name]));
+    expect(n).toMatchObject({ openai: "ChatGPT (OpenAI)", anthropic: "Claude (Anthropic)", gemini: "Gemini (Google)", grok: "Grok (xAI)", groq: "Groq", mistral: "Mistral AI", perplexity: "Perplexity", deepseek: "DeepSeek", openrouter: "OpenRouter" });
+    expect(FEATURED_TOOLS.find((f) => f.id === "groq")!.blurb).toMatch(/Groq, not Grok/);
+  });
+  it("every connector has an https address and its own auth header", () => {
+    for (const f of FEATURED_TOOLS) { expect(existsSync(`public${f.icon}`)).toBe(true); expect(f.endpoint_url.startsWith("https://")).toBe(true); expect(f.keyLabel.length).toBeGreaterThan(3); expect(f.model.length).toBeGreaterThan(1); }
   });
 });
 

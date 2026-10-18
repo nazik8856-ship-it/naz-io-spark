@@ -5,7 +5,7 @@ import { honestStatus } from "@/lib/outer-control-status";
 import { sessionArtifact, taskArtifact } from "./artifact-fixture";
 
 describe("the app and the edge functions share one copy of the artifact and status logic", () => {
-  for (const f of ["outer-control-artifact.ts", "outer-control-status.ts"]) {
+  for (const f of ["outer-control-artifact.ts", "outer-control-status.ts", "outer-control-report-doc.ts"]) {
     it(`${f} is identical in src/lib and supabase/functions/_shared`, () => {
       expect(readFileSync(`supabase/functions/_shared/${f}`, "utf8")).toBe(readFileSync(`src/lib/${f}`, "utf8"));
     });

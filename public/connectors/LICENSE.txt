@@ -1,0 +1,3 @@
+Connector logos: icons from @lobehub/icons-static-svg (MIT License). The logos are trademarks of their owners
+(OpenAI, Anthropic, Google, xAI, Mistral AI, Perplexity, DeepSeek, Groq, OpenRouter, Fireworks AI, Cohere) and are shown
+only to identify the service a connector talks to.

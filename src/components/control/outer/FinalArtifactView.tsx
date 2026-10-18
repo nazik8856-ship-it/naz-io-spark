@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Check, Copy, Download, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { validateArtifact, type Artifact } from "@/lib/outer-control-artifact";
+import { composeReportText, isReportDoc, reportHtml } from "@/lib/outer-control-report-doc";
+import ReportView from "./ReportView";
 
 export default function FinalArtifactView({ artifact, kind }: { artifact: unknown; kind: "session" | "task" }) {
   const [view, setView] = useState<"readable" | "json">("readable");
@@ -18,16 +20,22 @@ export default function FinalArtifactView({ artifact, kind }: { artifact: unknow
     catch { toast.error("Could not copy. Select the text and copy it by hand."); }
   };
 
-  /** The result as a file: a report is Markdown; anything else is plain text. */
-  const download = () => {
+  // The designed report is shown only while the stored result is exactly that report's text; otherwise the plain result is shown.
+  const candidate = (a as { report?: unknown }).report;
+  const report = isReportDoc(candidate) && composeReportText(candidate) === a.final_output ? candidate : null;
+
+  /** The result as a file: a report is a styled page (opens in a browser or Word, prints to PDF); anything else is plain text. */
+  const save = (name: string, body: string, type: string) => {
     try {
-      const isReport = a.final_output.trimStart().startsWith("# ");
-      const url = URL.createObjectURL(new Blob([a.final_output], { type: isReport ? "text/markdown" : "text/plain" }));
+      const url = URL.createObjectURL(new Blob([body], { type }));
       const el = document.createElement("a");
-      el.href = url; el.download = `${isReport ? "report" : "result"}-${a.id.slice(0, 8)}.${isReport ? "md" : "txt"}`;
+      el.href = url; el.download = name;
       document.body.appendChild(el); el.click(); el.remove(); URL.revokeObjectURL(url);
     } catch { toast.error("Could not download. Use Copy result instead."); }
   };
+  const download = () => (report
+    ? save(`nazai-report-${a.id.slice(0, 8)}.html`, reportHtml(report), "text/html")
+    : save(`result-${a.id.slice(0, 8)}.txt`, a.final_output, "text/plain"));
 
   return (
     <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.05] px-3 py-2" data-testid="final-artifact">
@@ -37,14 +45,18 @@ export default function FinalArtifactView({ artifact, kind }: { artifact: unknow
         </div>
         <div className="flex items-center gap-1.5">
           <button type="button" onClick={download} className="flex items-center gap-1 rounded border border-white/15 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/10" data-testid="download-result">
-            <Download className="h-3 w-3" /> Download
+            <Download className="h-3 w-3" /> {report ? "Download report" : "Download"}
           </button>
           <button type="button" onClick={() => copy(a.final_output, "Result")} className="flex items-center gap-1 rounded border border-white/15 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/10">
             <Copy className="h-3 w-3" /> Copy result
           </button>
         </div>
       </div>
-      <p className="mt-1.5 whitespace-pre-wrap text-sm text-zinc-100" data-testid="final-artifact-output">{a.final_output}</p>
+      {report ? (
+        <div className="mt-2"><ReportView doc={report} /></div>
+      ) : (
+        <p className="mt-1.5 whitespace-pre-wrap text-sm text-zinc-100" data-testid="final-artifact-output">{a.final_output}</p>
+      )}
       {a.what_done && (
         <p className="mt-2 text-xs text-zinc-300" data-testid="final-artifact-what-done"><span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">What was done · </span>{a.what_done}</p>
       )}

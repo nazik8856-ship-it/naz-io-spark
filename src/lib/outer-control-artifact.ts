@@ -6,6 +6,8 @@
 // Pure and dependency-free. THIS FILE EXISTS TWICE, byte for byte: src/lib/outer-control-artifact.ts (the app) and
 // supabase/functions/_shared/outer-control-artifact.ts (the edge functions). A test fails when they differ.
 
+import { isReportDoc, type ReportDoc } from "./outer-control-report-doc.ts";
+
 export const ARTIFACT_VERSION = 1;
 
 export type ArtifactCriterion = { id: string; label: string; ok: boolean | null; detail: string };
@@ -32,6 +34,8 @@ export type SessionArtifact = {
   what_done?: string;
   /** Links to the completed work found in the controlled result. */
   links?: ArtifactLink[];
+  /** For a report: the report as a document. The app shows the designed view only while the result still equals its text. */
+  report?: ReportDoc;
   proof: {
     checklist_passed: true;
     summary: string;
@@ -59,6 +63,7 @@ export type TaskArtifact = {
   output_sha256: string;
   what_done?: string;
   links?: ArtifactLink[];
+  report?: ReportDoc;
   proof: { steps_total: number; steps_done: number; all_checklists_passed: true; steps: TaskArtifactStep[] };
   handoffs: TaskArtifactHandoff[];
   rules: ArtifactRules;
@@ -212,6 +217,7 @@ export type SessionArtifactInput = {
   rulesInForce: RuleInForce[];
   decidedBy: "tool" | "person";
   whatDone?: string;
+  report?: ReportDoc | null;
   /** Extra links known from the run (e.g. recorded by an agent); links in the final text are always added. */
   links?: ArtifactLink[];
 };
@@ -232,6 +238,7 @@ export function buildSessionArtifact(i: SessionArtifactInput): Built<SessionArti
     completed_at: i.completedAt, final_output: i.finalText as string, output_sha256: i.sha256,
     ...(i.whatDone && i.whatDone.trim() ? { what_done: clip(i.whatDone.trim().replace(/\s+/g, " "), 300) } : {}),
     ...(links.length ? { links } : {}),
+    ...(i.report ? { report: i.report } : {}),
     proof: {
       checklist_passed: true, summary: i.checklist.summary, criteria: i.checklist.criteria.map((c) => ({ id: c.id, label: c.label, ok: c.ok, detail: c.detail })),
       exchanges: new Set(i.steps.map((s) => `${s.step_no}.${s.attempt}`)).size, decided_by: i.decidedBy,
@@ -297,6 +304,7 @@ export function buildTaskArtifact(i: TaskArtifactInput): Built<TaskArtifact> {
     completed_at: i.completedAt, final_output: fin.final_output, final_step: i.finalLeg as number, output_sha256: fin.output_sha256,
     ...(taskDone ? { what_done: clip(taskDone, 600) } : {}),
     ...(taskLinks.length ? { links: taskLinks } : {}),
+    ...(fin.report ? { report: fin.report } : {}),
     proof: {
       steps_total: i.legs.length, steps_done: completed.length, all_checklists_passed: true,
       steps: i.legs.map((l) => ({ step: l.leg_no, tool: clip(l.tool, 120), status: l.status, output_sha256: parts.get(l.leg_no)?.output_sha256 ?? null })),
@@ -339,6 +347,7 @@ export function validateArtifact(a: unknown, kind?: "session" | "task"): Validit
   if (a.links !== undefined && (!Array.isArray(a.links) || a.links.some((l) => !isObj(l) || typeof l.url !== "string" || cleanUrl(l.url) === null || typeof l.label !== "string"))) {
     return { ok: false, reason: "a link to the work is not a valid http(s) link" };
   }
+  if (a.report !== undefined && !isReportDoc(a.report)) return { ok: false, reason: "the report section is not a valid report" };
   if (typeof a.human_text !== "string" || !a.human_text.trim()) return { ok: false, reason: "the readable version is missing" };
   const { human_text: _drop, ...rest } = a;
   void _drop;

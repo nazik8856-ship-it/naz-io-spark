@@ -51,15 +51,38 @@ export function healthSummary(tools: ToolHealthInput[], now = Date.now()): strin
 export type Featured = {
   id: string; name: string; blurb: string; endpoint_url: string; request_format: "openai_chat" | "anthropic_messages" | "generic_json";
   model: string; auth_header: string; auth_scheme: string; keyLabel: string; keysAt: string;
+  /** Extra words the search matches (the company, the product, what it is known for). */
+  keywords: string;
+  /** The short mark on the connector tile (shown if the logo can not be loaded). */
+  mark: string;
+  /** The service's logo, in public/connectors. */
+  icon: string;
 };
 
 /** Model names change; each is a starting value the person can edit. The connection test is what proves the choice works. */
 export const FEATURED_TOOLS: Featured[] = [
-  { id: "openai", name: "ChatGPT (OpenAI)", blurb: "OpenAI chat models through the OpenAI API.", endpoint_url: "https://api.openai.com/v1/chat/completions", request_format: "openai_chat", model: "gpt-4o", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "OpenAI API key", keysAt: "platform.openai.com/api-keys" },
-  { id: "anthropic", name: "Claude (Anthropic)", blurb: "Claude models through the Anthropic API.", endpoint_url: "https://api.anthropic.com/v1/messages", request_format: "anthropic_messages", model: "claude-sonnet-5-5", auth_header: "x-api-key", auth_scheme: "", keyLabel: "Anthropic API key", keysAt: "console.anthropic.com/settings/keys" },
-  { id: "gemini", name: "Gemini (Google)", blurb: "Gemini models through Google's OpenAI-compatible endpoint.", endpoint_url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", request_format: "openai_chat", model: "gemini-2.0-flash", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "Gemini API key", keysAt: "aistudio.google.com/apikey" },
-  { id: "grok", name: "Grok (xAI)", blurb: "Grok models through the xAI API.", endpoint_url: "https://api.x.ai/v1/chat/completions", request_format: "openai_chat", model: "grok-3", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "xAI API key", keysAt: "console.x.ai" },
+  { id: "openai", mark: "GPT", icon: "/connectors/openai.svg", name: "ChatGPT (OpenAI)", blurb: "OpenAI chat models through the OpenAI API.", endpoint_url: "https://api.openai.com/v1/chat/completions", request_format: "openai_chat", model: "gpt-4o", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "OpenAI API key", keysAt: "platform.openai.com/api-keys", keywords: "openai chatgpt gpt" },
+  { id: "anthropic", mark: "Cl", icon: "/connectors/anthropic.svg", name: "Claude (Anthropic)", blurb: "Claude models through the Anthropic API.", endpoint_url: "https://api.anthropic.com/v1/messages", request_format: "anthropic_messages", model: "claude-sonnet-5-5", auth_header: "x-api-key", auth_scheme: "", keyLabel: "Anthropic API key", keysAt: "console.anthropic.com/settings/keys", keywords: "anthropic claude sonnet opus haiku" },
+  { id: "gemini", mark: "Ge", icon: "/connectors/gemini.svg", name: "Gemini (Google)", blurb: "Gemini models through Google's OpenAI-compatible endpoint.", endpoint_url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", request_format: "openai_chat", model: "gemini-2.0-flash", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "Gemini API key", keysAt: "aistudio.google.com/apikey", keywords: "google gemini bard" },
+  { id: "grok", mark: "Gk", icon: "/connectors/grok.svg", name: "Grok (xAI)", blurb: "Grok models through the xAI API.", endpoint_url: "https://api.x.ai/v1/chat/completions", request_format: "openai_chat", model: "grok-3", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "xAI API key", keysAt: "console.x.ai", keywords: "xai grok x twitter" },
+  { id: "mistral", mark: "Mi", icon: "/connectors/mistral.svg", name: "Mistral AI", blurb: "Mistral models through the Mistral AI API.", endpoint_url: "https://api.mistral.ai/v1/chat/completions", request_format: "openai_chat", model: "mistral-large-latest", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "Mistral API key", keysAt: "console.mistral.ai/api-keys", keywords: "mistral le chat european" },
+  { id: "perplexity", mark: "Px", icon: "/connectors/perplexity.svg", name: "Perplexity", blurb: "Search-grounded answers through the Perplexity API.", endpoint_url: "https://api.perplexity.ai/chat/completions", request_format: "openai_chat", model: "sonar", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "Perplexity API key", keysAt: "perplexity.ai/settings/api", keywords: "perplexity sonar search web research" },
+  { id: "deepseek", mark: "DS", icon: "/connectors/deepseek.svg", name: "DeepSeek", blurb: "DeepSeek models through the DeepSeek API.", endpoint_url: "https://api.deepseek.com/chat/completions", request_format: "openai_chat", model: "deepseek-chat", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "DeepSeek API key", keysAt: "platform.deepseek.com/api_keys", keywords: "deepseek reasoning" },
+  { id: "groq", mark: "Gq", icon: "/connectors/groq.svg", name: "Groq", blurb: "Groq, not Grok: very fast open models such as Llama on Groq's own hardware.", endpoint_url: "https://api.groq.com/openai/v1/chat/completions", request_format: "openai_chat", model: "llama-3.3-70b-versatile", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "Groq API key", keysAt: "console.groq.com/keys", keywords: "groq llama meta fast open" },
+  { id: "openrouter", mark: "OR", icon: "/connectors/openrouter.svg", name: "OpenRouter", blurb: "One key for many models from many providers.", endpoint_url: "https://openrouter.ai/api/v1/chat/completions", request_format: "openai_chat", model: "openai/gpt-4o", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "OpenRouter API key", keysAt: "openrouter.ai/keys", keywords: "openrouter router many models" },
+  { id: "fireworks", mark: "Fw", icon: "/connectors/fireworks.svg", name: "Fireworks AI", blurb: "Open models hosted by Fireworks AI.", endpoint_url: "https://api.fireworks.ai/inference/v1/chat/completions", request_format: "openai_chat", model: "accounts/fireworks/models/llama-v3p3-70b-instruct", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "Fireworks API key", keysAt: "fireworks.ai/account/api-keys", keywords: "fireworks llama open" },
+  { id: "cohere", mark: "Co", icon: "/connectors/cohere.svg", name: "Cohere", blurb: "Command models through Cohere's OpenAI-compatible endpoint.", endpoint_url: "https://api.cohere.ai/compatibility/v1/chat/completions", request_format: "openai_chat", model: "command-r-plus", auth_header: "Authorization", auth_scheme: "Bearer ", keyLabel: "Cohere API key", keysAt: "dashboard.cohere.com/api-keys", keywords: "cohere command enterprise" },
 ];
+
+/** The connectors that match what the person typed: every word must appear in the name, description or keywords. */
+export function searchConnectors<T extends { name: string; blurb?: string; keywords?: string; id?: string }>(items: T[], query: string): T[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return items;
+  return items.filter((x) => {
+    const hay = `${x.name} ${x.blurb ?? ""} ${x.keywords ?? ""} ${x.id ?? ""}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+}
 
 /** The create_tool payload for a featured tool and the person's key. */
 export function featuredPayload(f: Featured, token: string, model?: string) {
