@@ -7,6 +7,7 @@
 //   POST { action: "start_session", tool_id, objective, context?, api_key_id?, max_steps? }   (a Task of one step)
 //   POST { action: "start_task", request, context?, steps: [{ tool_id, instruction, fallback_tool_id?, on_failure? }], api_key_id? }
 //   POST { action: "create_agent_tool", agent_id }   (one of the account's own NazAI agents as a step)
+//   POST { action: "start_report", topic, tool_ids: [2..5 tool ids], context? }   (ask each tool for its opinion, then write one report; costs one credit)
 //   POST { action: "answer", session_id, answer }
 //   POST { action: "decide", session_id, option, note? | text? }  (answers a hand-off; text = "write the reply myself")
 //   POST { action: "cancel", session_id }
@@ -25,7 +26,10 @@ import { runConnectionTest } from "../_shared/outer-control-tool-test.ts";
 import { applyEditedReply, contactRuleStopping } from "../_shared/outer-control-session.ts";
 import { cancelWorkflow, continueSession, driveSession, progressWorkflow, resumeAndDrive, startTask, startWorkflow } from "../_shared/outer-control-workflow.ts";
 import { encodeChoice, findOption, type Handoff } from "../_shared/outer-control-handoff.ts";
-import { createAgentTool, removeTool, updateToolKey } from "../_shared/outer-control-tools.ts";
+import { createAgentTool, ensureReportTool, removeTool, updateToolKey } from "../_shared/outer-control-tools.ts";
+import { MAX_REPORT_SOURCES, opinionInstruction, REPORT_TOOL_URL, reportInstruction } from "../_shared/outer-control-report.ts";
+import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
+import { pickAiGateway } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -124,6 +128,13 @@ Deno.serve(async (req) => {
         await admin.from("external_tools").update({ last_checked_at: new Date().toISOString(), last_ok_at: ok ? new Date().toISOString() : tool.last_ok_at, last_error: ok ? null : "The agent no longer exists." }).eq("id", tool.id);
         return json({ ok, error: ok ? null : "The agent no longer exists." });
       }
+      if (String(tool.endpoint_url).startsWith(REPORT_TOOL_URL)) {
+        // Internal tool: what can be checked is that the AI which analyses the answers is configured.
+        const ok = pickAiGateway() !== null;
+        const error = ok ? null : "The AI that analyses the answers is not configured.";
+        await admin.from("external_tools").update({ last_checked_at: new Date().toISOString(), last_ok_at: ok ? new Date().toISOString() : tool.last_ok_at, last_error: error }).eq("id", tool.id);
+        return json({ ok, error });
+      }
       const kill = await checkKillSwitches(admin, accountId, null);
       if (kill.killed) return json({ error: "kill_switch", message: kill.reason }, 409);
       const record = async (o: { ok: boolean; error: string | null; ms?: number | null; sample?: string | null }) => {
@@ -162,6 +173,30 @@ Deno.serve(async (req) => {
       if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, task_id: started.workflowId });
+    }
+
+    // ---- start_report: several tools give their opinion in turn (each answer checked), then one report is written ------
+    if (action === "start_report") {
+      const topic = String(body.topic ?? "").replace(/\s+/g, " ").trim();
+      if (topic.length < 5 || topic.length > 600) return json({ error: "invalid_topic", message: "Describe what the report is about (5 to 600 characters)." }, 400);
+      const ids = Array.isArray(body.tool_ids) ? [...new Set((body.tool_ids as unknown[]).map(String))] : [];
+      if (ids.length < 2 || ids.length > MAX_REPORT_SOURCES) return json({ error: "invalid_tools", message: `Choose 2 to ${MAX_REPORT_SOURCES} tools to ask.` }, 400);
+      const { data: chosen } = await admin.from("external_tools").select("id, name, enabled, endpoint_url").eq("user_id", accountId).is("removed_at", null).in("id", ids);
+      const rows = (chosen ?? []) as { id: string; name: string; enabled: boolean; endpoint_url: string }[];
+      if (rows.length !== ids.length || rows.some((r) => !r.enabled || r.endpoint_url.startsWith(REPORT_TOOL_URL))) return json({ error: "tool_unavailable", message: "One of the chosen tools was not found or is disabled." }, 404);
+      if (pickAiGateway() === null) return json({ error: "ai_unavailable", message: "The AI that analyses the answers is not configured, so a report cannot be written." }, 503);
+      const writer = await ensureReportTool(admin, accountId);
+      if (!writer.ok) return json({ error: "internal_error", message: writer.message }, 500);
+      const credit = await consumeGenerationCredit(accountId);
+      if (!credit.ok) return json({ error: "no_credits", message: NO_CREDITS_MESSAGE }, 402);
+      const steps = [
+        ...ids.map((id) => ({ tool_id: id, instruction: opinionInstruction(topic), handoff: "none" })),
+        { tool_id: writer.tool.id, instruction: reportInstruction(topic), handoff: "none" },
+      ];
+      const started = await startTask(admin, accountId, { request: `Report: ${topic}`, context: typeof body.context === "string" ? body.context : null, steps, max_steps: 3 });
+      if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+      inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
+      return json({ ok: true, task_id: started.workflowId, steps: steps.length });
     }
 
     // ---- create_agent_tool: one of the account's own NazAI agents as a step -------------------------

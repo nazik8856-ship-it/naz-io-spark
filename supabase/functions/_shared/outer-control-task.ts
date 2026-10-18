@@ -85,7 +85,7 @@ export function deriveTaskState(legs: TaskLeg[]): TaskState {
 // Building a chain
 
 export type ChainStepInput = {
-  tool_id?: unknown; instruction?: unknown; fallback_tool_id?: unknown; on_failure?: unknown;
+  tool_id?: unknown; instruction?: unknown; fallback_tool_id?: unknown; on_failure?: unknown; handoff?: unknown;
 };
 
 /**
@@ -99,7 +99,7 @@ export function chainLegs(steps: unknown): { ok: true; legs: Record<string, unkn
     const s = (raw ?? {}) as ChainStepInput;
     return {
       tool_id: s.tool_id, instruction: s.instruction, fallback_tool_id: s.fallback_tool_id,
-      depends_on: i === 0 ? [] : [i], on_failure: s.on_failure ?? "reject",
+      depends_on: i === 0 ? [] : [i], on_failure: s.on_failure ?? "reject", handoff: s.handoff,
     } as Record<string, unknown>;
   });
   return { ok: true, legs };

@@ -4,7 +4,7 @@
 // and deciding; this card only shows it and collects the few things a person must give.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
+import { Plus, FileText, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
 import { toast } from "sonner";
 import FinalArtifactView from "./FinalArtifactView";
 import { HonestStatusBadge, StatusReason } from "./HonestStatusBadge";
@@ -12,7 +12,8 @@ import { honestStatus } from "@/lib/outer-control-status";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems, type Tone } from "@/lib/outer-control-ui";
-import { healthSummary, toolHealth, type ActivityStep } from "@/lib/outer-control-tools-ui";
+import { healthSummary, isInternalTool, toolHealth, type ActivityStep } from "@/lib/outer-control-tools-ui";
+import ReportPanel from "./ReportPanel";
 import ConnectToolPanel, { type ConnectPayload } from "./ConnectToolPanel";
 import SessionActivity from "./SessionActivity";
 import { describeCompletion, describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, waitingReason, type CompletionView, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
@@ -47,6 +48,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [writing, setWriting] = useState<Record<string, string | null>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showConnect, setShowConnect] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   const [startFor, setStartFor] = useState<string | null>(null);
   const [moreFor, setMoreFor] = useState<string | null>(null);
   const [showAllPast, setShowAllPast] = useState(false);
@@ -121,6 +123,12 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     if (id) await runTest(id, p.name);
     else toast.success("Tool connected. Press Test to check it.");
     return true;
+  };
+
+  /** A report: several tools are asked in turn, then one report is written. It appears under Recent sessions as it runs. */
+  const startReport = async (topic: string, toolIds: string[]): Promise<boolean> => {
+    const r = await act("report", "start_report", { topic, tool_ids: toolIds }, "Report started. Follow it below; the finished report appears as the result.");
+    return r.ok;
   };
 
   /** The connection test: a real request to the tool. The result (or the reason it failed) is shown at once. */
@@ -282,6 +290,8 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
 
   const toolName = (id: string) => tools.find((t) => t.id === id)?.name ?? "Tool";
 
+  // The report writer is part of NazAI, not a connection the person manages: it is not listed as a tool.
+  const shownTools = tools.filter((t) => !isInternalTool(t.endpoint_url));
   const { open: openSessions, past: pastSessions } = splitSessions(sessions);
   const pastShown = visibleItems(pastSessions, DEFAULT_HISTORY, showAllPast);
 
@@ -290,16 +300,22 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-zinc-100">Connected tools</h2>
-          <p className="mt-0.5 text-xs text-zinc-500" data-testid="tools-summary">{healthSummary(tools, now)}</p>
+          <p className="mt-0.5 text-xs text-zinc-500" data-testid="tools-summary">{healthSummary(shownTools, now)}</p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        <button onClick={() => setShowReport(true)} disabled={shownTools.length < 2} title={shownTools.length < 2 ? "Connect at least two tools first" : "Ask several tools, then get one report"} className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3.5 py-2 text-sm text-zinc-100 hover:bg-white/10 disabled:opacity-40" data-testid="generate-report-button">
+          <FileText className="h-4 w-4" /> Generate report
+        </button>
         <button onClick={() => setShowConnect(true)} className="flex items-center gap-1.5 rounded-lg border border-cyan-300/60 bg-cyan-400 px-4 py-2 text-sm font-semibold text-black shadow-[0_0_18px_rgba(34,211,238,0.3)] transition hover:bg-cyan-300" data-testid="connect-tool-button">
           <Plus className="h-4 w-4" /> Connect a tool
         </button>
+        </div>
       </div>
-      <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={tools} busy={busy === "connect"} onConnect={connectTool} />
+      <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} />
+      <ReportPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startReport} />
 
       <div className="mt-4 space-y-2">
-        {tools.length === 0 && (
+        {shownTools.length === 0 && (
           <div className="rounded-xl border border-dashed border-white/15 px-4 py-6 text-center">
             <p className="text-sm text-zinc-300">No tools connected yet.</p>
             <p className="mx-auto mt-1 max-w-md text-sm text-zinc-500">
@@ -307,7 +323,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
             </p>
           </div>
         )}
-        {tools.map((t) => {
+        {shownTools.map((t) => {
           const st = toolHealth(t, now);
           const tone: Tone = st.key === "working" ? "ok" : st.key === "failed" ? "bad" : "warn";
           const more = moreFor === t.id || keyFor === t.id;

@@ -17,10 +17,12 @@ export type LegCondition = { leg: number; op: "contains" | "not_contains" | "dep
 export type LegInput = {
   tool_id?: unknown; instruction?: unknown; depends_on?: unknown; fallback_tool_id?: unknown;
   condition?: unknown; on_failure?: unknown;
+  /** "none": the step does not receive the earlier steps' results (an independent opinion). Default "pass". */
+  handoff?: unknown;
 };
 export type Leg = {
   leg_no: number; tool_id: string; instruction: string; depends_on: number[]; fallback_tool_id: string | null;
-  condition: LegCondition | null; on_failure: "handoff" | "reject" | null;
+  condition: LegCondition | null; on_failure: "handoff" | "reject" | null; handoff: "pass" | "none";
 };
 
 export type ValidatedLegs = { ok: true; legs: Leg[] } | { ok: false; message: string };
@@ -81,7 +83,8 @@ export function validateLegs(input: unknown): ValidatedLegs {
       if (raw.on_failure !== "handoff" && raw.on_failure !== "reject") return { ok: false, message: `Step ${n}: on_failure must be "handoff" or "reject".` };
       onFailure = raw.on_failure;
     }
-    legs.push({ leg_no: n, tool_id: toolId, instruction, depends_on: deps.sort((a, b) => a - b), fallback_tool_id: fallback, condition, on_failure: onFailure });
+    if (raw.handoff !== undefined && raw.handoff !== null && raw.handoff !== "pass" && raw.handoff !== "none") return { ok: false, message: `Step ${n}: handoff must be "pass" or "none".` };
+    legs.push({ leg_no: n, tool_id: toolId, instruction, depends_on: deps.sort((a, b) => a - b), fallback_tool_id: fallback, condition, on_failure: onFailure, handoff: raw.handoff === "none" ? "none" : "pass" });
   }
   return { ok: true, legs };
 }

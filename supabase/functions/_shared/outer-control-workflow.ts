@@ -21,11 +21,11 @@ type AnyAdmin = any;
 
 const iso = () => new Date().toISOString();
 
-type LegRow = LegState & { id: string; depends_on: number[]; context: string | null; tool_id: string; user_id: string; api_key_id: string | null; objective: string; final_artifact: unknown };
+type LegRow = LegState & { id: string; depends_on: number[]; context: string | null; tool_id: string; user_id: string; api_key_id: string | null; objective: string; final_artifact: unknown; handoff_mode?: string };
 
 async function loadLegs(admin: AnyAdmin, workflowId: string): Promise<LegRow[]> {
   const { data } = await admin.from("outer_control_sessions")
-    .select("id, leg_no, status, depends_on, final_output, stop_reason, context, condition, tool_id, user_id, api_key_id, objective, final_artifact").eq("workflow_id", workflowId).order("leg_no");
+    .select("id, leg_no, status, depends_on, final_output, stop_reason, context, condition, tool_id, user_id, api_key_id, objective, final_artifact, handoff_mode").eq("workflow_id", workflowId).order("leg_no");
   // Only the final artifact is a result. A leg recorded as completed without a valid one has no result and counts as failed.
   return ((data ?? []) as LegRow[]).map((l) => {
     const base = { ...l, depends_on: l.depends_on ?? [] };
@@ -96,7 +96,8 @@ export async function progressWorkflow(admin: AnyAdmin, workflowId: string): Pro
         // The hand-off step: each completed dependency's controlled result is checked for this step, then passed on.
         const receiverAgent = tools.get(leg.tool_id)?.agent_id ?? null;
         const records: HandoffRecord[] = [];
-        for (const d of deps.filter((x) => x.status === "completed" && (x.final_output ?? "").trim())) {
+        // An independent step ("none") is asked on its own: it receives the Task's request, not the earlier steps' answers.
+        for (const d of leg.handoff_mode === "none" ? [] : deps.filter((x) => x.status === "completed" && (x.final_output ?? "").trim())) {
           const check = await checkForReceiver(admin, leg.user_id, leg.api_key_id, receiverAgent, d.final_output as string);
           records.push(makeHandoff({
             from_leg: d.leg_no, from_label: tools.get(d.tool_id)?.name ?? "tool", to_leg: leg.leg_no,
@@ -111,7 +112,7 @@ export async function progressWorkflow(admin: AnyAdmin, workflowId: string): Pro
           if (moved) { await logHandoffs(admin, workflowId, leg.user_id, records); changed = true; }
           continue;
         }
-        const failedNotes = buildLegContext(null, deps.filter((d) => d.status !== "completed"));
+        const failedNotes = leg.handoff_mode === "none" ? "" : buildLegContext(null, deps.filter((d) => d.status !== "completed"));
         const context = [contextFromHandoffs(workflow.context, records), failedNotes].filter(Boolean).join("\n\n").slice(0, MAX_CONTEXT_CHARS) || null;
         const { data: moved } = await admin.from("outer_control_sessions")
           .update({ status: "running", context, updated_at: iso() })
@@ -242,7 +243,7 @@ export async function startWorkflow(
   const watched = new Set(checked.legs.filter((l) => l.condition?.op === "dep_failed").map((l) => l.condition!.leg));
   const rows = checked.legs.map((l) => ({
     user_id: userId, tool_id: l.tool_id, api_key_id: apiKeyId, workflow_id: workflowId, leg_no: l.leg_no, depends_on: l.depends_on,
-    fallback_tool_id: l.fallback_tool_id, objective: l.instruction, context: l.depends_on.length ? null : context, max_steps: maxSteps,
+    fallback_tool_id: l.fallback_tool_id, handoff_mode: l.handoff, objective: l.instruction, context: l.depends_on.length ? null : context, max_steps: maxSteps,
     status: l.depends_on.length ? "queued" : "running", condition: l.condition,
     on_failure: l.on_failure ?? (watched.has(l.leg_no) ? "reject" : "handoff"),
   }));

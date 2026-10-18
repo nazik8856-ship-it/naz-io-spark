@@ -3,6 +3,8 @@
 // the history of sessions that used it stays readable. Plain functions so they can be
 // tested without the network.
 
+import { REPORT_TOOL_URL } from "./outer-control-report.ts";
+
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
 const iso = () => new Date().toISOString();
@@ -105,4 +107,16 @@ export async function createAgentTool(admin: AnyAdmin, accountId: string, agentI
   }).select("id, name, agent_id").maybeSingle();
   if (error || !tool) return { ok: false, code: "internal_error", message: "Could not add the agent.", status: 500 };
   return { ok: true, tool: tool as { id: string; name: string; agent_id: string }, created: true };
+}
+
+/** The NazAI report writer as a step: an internal tool (no address, no key) that composes a report from earlier steps. */
+export async function ensureReportTool(admin: AnyAdmin, accountId: string): Promise<{ ok: true; tool: { id: string; name: string } } | { ok: false; message: string }> {
+  const { data: existing } = await admin.from("external_tools").select("id, name").eq("user_id", accountId).eq("endpoint_url", REPORT_TOOL_URL).is("removed_at", null).maybeSingle();
+  if (existing) return { ok: true, tool: existing as { id: string; name: string } };
+  const { data: tool, error } = await admin.from("external_tools").insert({
+    user_id: accountId, name: "NazAI report writer", endpoint_url: REPORT_TOOL_URL, request_format: "generic_json",
+    approved_at: new Date().toISOString(), enabled: true,
+  }).select("id, name").maybeSingle();
+  if (error || !tool) return { ok: false, message: "Could not set up the report writer." };
+  return { ok: true, tool: tool as { id: string; name: string } };
 }
