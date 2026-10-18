@@ -14,6 +14,8 @@ export type RuleTriggered = { rule: string; step: number; effect: string };
 export type ArtifactChange = { step: number; rule: string; what: string };
 
 export type ArtifactRules = { in_force: RuleInForce[]; triggered: RuleTriggered[] };
+/** A link to the completed work (e.g. the calendar event that was created). Only http(s) links are kept. */
+export type ArtifactLink = { url: string; label: string };
 
 export type SessionArtifact = {
   version: number;
@@ -26,6 +28,10 @@ export type SessionArtifact = {
   /** The controlled version: the only text that counts as this session's result. */
   final_output: string;
   output_sha256: string;
+  /** One line: what was done ("Created Google Calendar event", "Got an answer from Bot2"). */
+  what_done?: string;
+  /** Links to the completed work found in the controlled result. */
+  links?: ArtifactLink[];
   proof: {
     checklist_passed: true;
     summary: string;
@@ -51,6 +57,8 @@ export type TaskArtifact = {
   final_output: string;
   final_step: number;
   output_sha256: string;
+  what_done?: string;
+  links?: ArtifactLink[];
   proof: { steps_total: number; steps_done: number; all_checklists_passed: true; steps: TaskArtifactStep[] };
   handoffs: TaskArtifactHandoff[];
   rules: ArtifactRules;
@@ -63,6 +71,49 @@ export type Artifact = SessionArtifact | TaskArtifact;
 const SHA = /^[0-9a-f]{64}$/i;
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const mark = (ok: boolean | null) => (ok === true ? "✓" : ok === false ? "✗" : "–");
+
+// ---------------------------------------------------------------------------------------
+// Links to the completed work
+
+const URL_RE = /https?:\/\/[^\s<>"'`)\]]+/gi;
+
+/** A clean http(s) link, or null. No credentials in the address, no other schemes. */
+export function cleanUrl(raw: string): string | null {
+  const trimmed = raw.replace(/[.,;:!?]+$/, "");
+  try {
+    const u = new URL(trimmed);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    if (u.username || u.password) return null;
+    return u.toString().length <= 500 ? u.toString() : null;
+  } catch { return null; }
+}
+
+/** The http(s) links in a text, in order, without duplicates. Each is labelled with its host. */
+export function extractLinks(text: string | null | undefined, max = 5): ArtifactLink[] {
+  const out: ArtifactLink[] = [];
+  const seen = new Set<string>();
+  for (const m of (text ?? "").match(URL_RE) ?? []) {
+    const url = cleanUrl(m);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ url, label: new URL(url).hostname.replace(/^www\./, "") });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/** The one line that says what was done. Real actions an agent took come first; otherwise the reply that was accepted. */
+export function describeWhatDone(i: {
+  tool: string; objective: string; exchanges: number; changes: number;
+  actions?: { summary: string; ok?: boolean }[];
+}): string {
+  const done = (i.actions ?? []).filter((a) => a.ok !== false && a.summary.trim()).map((a) => a.summary.trim().replace(/\s+/g, " "));
+  if (done.length) return clip(`${i.tool} did: ${done.slice(0, 3).join("; ")}${done.length > 3 ? `; and ${done.length - 3} more` : ""}`, 300);
+  const parts = [`Got a checked reply from ${i.tool} for "${clip(i.objective.replace(/\s+/g, " ").trim(), 90)}"`];
+  if (i.changes > 0) parts.push(`${i.changes} change${i.changes === 1 ? "" : "s"} made by rules`);
+  if (i.exchanges > 1) parts.push(`asked ${i.exchanges} times`);
+  return parts.join("; ");
+}
 
 // ---------------------------------------------------------------------------------------
 // Human-readable version
@@ -81,6 +132,8 @@ function changeLines(c: ArtifactChange[]): string[] {
 export function renderArtifactText(a: Omit<SessionArtifact, "human_text"> | Omit<TaskArtifact, "human_text">): string {
   const out: string[] = [];
   out.push("FINAL RESULT (controlled version)", a.final_output.trim(), "");
+  if (a.what_done) out.push("WHAT WAS DONE", a.what_done, "");
+  if (a.links && a.links.length) out.push("LINKS TO THE WORK", ...a.links.map((l) => `- ${l.label}: ${l.url}`), "");
   out.push("PROOF");
   if (a.kind === "session") {
     out.push(`Completion check: passed (${a.proof.criteria.filter((c) => c.ok === true).length}/${a.proof.criteria.length}). ${a.proof.summary}`);
@@ -158,6 +211,9 @@ export type SessionArtifactInput = {
   steps: StepEvidence[];
   rulesInForce: RuleInForce[];
   decidedBy: "tool" | "person";
+  whatDone?: string;
+  /** Extra links known from the run (e.g. recorded by an agent); links in the final text are always added. */
+  links?: ArtifactLink[];
 };
 
 export type Built<T> = { ok: true; artifact: T } | { ok: false; reason: string };
@@ -170,9 +226,12 @@ export function buildSessionArtifact(i: SessionArtifactInput): Built<SessionArti
   if (!SHA.test(i.sha256)) return { ok: false, reason: "the result fingerprint is missing" };
   if (i.checklist.output_sha256 !== i.sha256) return { ok: false, reason: "the checked result differs from the stored result" };
   const ev = evidenceFromSteps(i.steps);
+  const links = mergeLinks(extractLinks(i.finalText), i.links ?? []);
   const base: Omit<SessionArtifact, "human_text"> = {
     version: ARTIFACT_VERSION, kind: "session", id: i.id, task_id: i.taskId, objective: clip(i.objective, 500), tool: clip(i.tool, 120),
     completed_at: i.completedAt, final_output: i.finalText as string, output_sha256: i.sha256,
+    ...(i.whatDone && i.whatDone.trim() ? { what_done: clip(i.whatDone.trim().replace(/\s+/g, " "), 300) } : {}),
+    ...(links.length ? { links } : {}),
     proof: {
       checklist_passed: true, summary: i.checklist.summary, criteria: i.checklist.criteria.map((c) => ({ id: c.id, label: c.label, ok: c.ok, detail: c.detail })),
       exchanges: new Set(i.steps.map((s) => `${s.step_no}.${s.attempt}`)).size, decided_by: i.decidedBy,
@@ -180,6 +239,19 @@ export function buildSessionArtifact(i: SessionArtifactInput): Built<SessionArti
     rules: { in_force: i.rulesInForce.slice(0, 60), triggered: ev.triggered }, changes: ev.changes,
   };
   return { ok: true, artifact: { ...base, human_text: renderArtifactText(base) } };
+}
+
+/** Merge link lists, keeping only clean http(s) links, no duplicates. */
+export function mergeLinks(...lists: ArtifactLink[][]): ArtifactLink[] {
+  const out: ArtifactLink[] = [];
+  const seen = new Set<string>();
+  for (const l of lists.flat()) {
+    const url = cleanUrl(l.url);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ url, label: clip((l.label || new URL(url).hostname).trim(), 80) });
+  }
+  return out.slice(0, 8);
 }
 
 export type TaskLegEvidence = { leg_no: number; tool: string; status: string; artifact: unknown };
@@ -217,10 +289,14 @@ export function buildTaskArtifact(i: TaskArtifactInput): Built<TaskArtifact> {
   for (const h of i.handoffs) {
     if (h.outcome === "modified") changes.push({ step: h.to, rule: h.rules.join("; ") || "a rule", what: `text removed before step ${h.to} received it` });
   }
+  const taskLinks = mergeLinks(...[...parts.entries()].sort((x, y) => x[0] - y[0]).map(([, a]) => a.links ?? []));
+  const taskDone = [...parts.entries()].sort((x, y) => x[0] - y[0]).filter(([, a]) => a.what_done).map(([n, a]) => `Step ${n}: ${a.what_done}`).join(" ");
   const base: Omit<TaskArtifact, "human_text"> = {
     version: ARTIFACT_VERSION, kind: "task", id: i.id, request: clip(i.request, 2000),
     origin: i.origin?.source_model ? { source_model: i.origin.source_model, verdict: i.origin.verdict ?? "allow" } : null,
     completed_at: i.completedAt, final_output: fin.final_output, final_step: i.finalLeg as number, output_sha256: fin.output_sha256,
+    ...(taskDone ? { what_done: clip(taskDone, 600) } : {}),
+    ...(taskLinks.length ? { links: taskLinks } : {}),
     proof: {
       steps_total: i.legs.length, steps_done: completed.length, all_checklists_passed: true,
       steps: i.legs.map((l) => ({ step: l.leg_no, tool: clip(l.tool, 120), status: l.status, output_sha256: parts.get(l.leg_no)?.output_sha256 ?? null })),
@@ -258,6 +334,10 @@ export function validateArtifact(a: unknown, kind?: "session" | "task"): Validit
   }
   if (!isObj(a.rules) || !Array.isArray(a.rules.in_force) || !Array.isArray(a.rules.triggered) || !Array.isArray(a.changes)) {
     return { ok: false, reason: "the rules or changes section is missing" };
+  }
+  if (a.what_done !== undefined && (typeof a.what_done !== "string" || !a.what_done.trim())) return { ok: false, reason: "the what-was-done line is not text" };
+  if (a.links !== undefined && (!Array.isArray(a.links) || a.links.some((l) => !isObj(l) || typeof l.url !== "string" || cleanUrl(l.url) === null || typeof l.label !== "string"))) {
+    return { ok: false, reason: "a link to the work is not a valid http(s) link" };
   }
   if (typeof a.human_text !== "string" || !a.human_text.trim()) return { ok: false, reason: "the readable version is missing" };
   const { human_text: _drop, ...rest } = a;

@@ -44,8 +44,8 @@ describe("ActiveSessionsCard", () => {
     renderCard();
     expect(await screen.findByText(/No tools connected yet/)).toBeTruthy();
     // the empty state tells the person what to do next and offers the action right there
-    expect(screen.getByText(/Then press Test, then Start session/)).toBeTruthy();
-    expect(screen.getAllByText("Connect a tool").length).toBe(2);
+    expect(screen.getByText(/Press Connect a tool to add ChatGPT, Claude, Gemini or Grok/)).toBeTruthy();
+    expect(screen.getByTestId("connect-tool-button").textContent).toMatch(/Connect a tool/);
   });
 
   it("lists a connected tool with its host and approval state", async () => {
@@ -53,7 +53,8 @@ describe("ActiveSessionsCard", () => {
     renderCard();
     expect(await screen.findByText("Support bot")).toBeTruthy();
     expect(screen.getByText("bot.example.com")).toBeTruthy();
-    expect(screen.getByText("Needs first approval")).toBeTruthy();
+    expect(screen.getByTestId("tool-status").textContent).toMatch(/Needs attention/);
+    expect(screen.getByTestId("tool-reason").textContent).toMatch(/Not tested yet/);
   });
 
   it("shows Test and Start session on every tool, and keeps Update key / Remove behind More", async () => {
@@ -68,17 +69,24 @@ describe("ActiveSessionsCard", () => {
     expect(screen.getByText("Remove")).toBeTruthy();
   });
 
-  it("says in plain words whether each tool works: failed test, working, not tested yet", async () => {
+  it("says in plain words whether each tool works: Failed with the reason, Working, Needs attention (never tested, or tested long ago)", async () => {
+    const recent = new Date(Date.now() - 5 * 60_000).toISOString();
+    const old = new Date(Date.now() - 3 * 24 * 3600_000).toISOString();
     state.tools = [
-      { ...tool, id: "a", name: "Broken", approved_at: "2026-10-01", last_checked_at: "2026-10-02", last_error: "The tool answered HTTP 401." },
-      { ...tool, id: "b", name: "Fine", approved_at: "2026-10-01", last_checked_at: "2026-10-02", last_error: null },
-      { ...tool, id: "c", name: "Fresh", approved_at: "2026-10-01", last_checked_at: null, last_error: null },
+      { ...tool, id: "a", name: "Broken", approved_at: "2026-10-01", last_checked_at: recent, last_ok_at: null, last_error: "The tool rejected the key (HTTP 401). Update the key and test again." },
+      { ...tool, id: "b", name: "Fine", approved_at: "2026-10-01", last_checked_at: recent, last_ok_at: recent, last_error: null },
+      { ...tool, id: "c", name: "Fresh", approved_at: "2026-10-01", last_checked_at: null, last_ok_at: null, last_error: null },
+      { ...tool, id: "d", name: "Stale", approved_at: "2026-10-01", last_checked_at: old, last_ok_at: old, last_error: null },
     ];
     renderCard();
-    expect(await screen.findByText("Test failed")).toBeTruthy();
-    expect(screen.getByText("Working")).toBeTruthy();
-    expect(screen.getByText("Not tested yet")).toBeTruthy();
-    expect(screen.getByText("The tool answered HTTP 401.")).toBeTruthy();
+    await screen.findByText("Broken");
+    const rows = screen.getAllByTestId("tool-row");
+    const status = (i: number) => rows[i].querySelector("[data-testid=tool-status]")!.getAttribute("data-status");
+    expect([0, 1, 2, 3].map(status)).toEqual(["failed", "working", "attention", "attention"]);
+    expect(rows[0].textContent).toMatch(/rejected the key \(HTTP 401\)/);
+    expect(rows[1].textContent).toMatch(/Test passed 5 min ago/);
+    expect(rows[3].textContent).toMatch(/Last tested 3 days ago/);
+    expect(screen.getByTestId("tools-summary").textContent).toBe("4 tools · 1 working · 1 failed · 2 need attention");
   });
 
   it("a running session is shown up front with a Stop button that needs no opening", async () => {
@@ -86,7 +94,9 @@ describe("ActiveSessionsCard", () => {
     state.sessions = [session({ status: "running" })];
     renderCard();
     expect(await screen.findByText("Running now")).toBeTruthy();
-    expect(screen.queryByText("Nothing has been exchanged yet.")).toBeNull(); // step log stays closed
+    // it opens by itself and says which tool is being used and what it waits for
+    expect((await screen.findByTestId("session-activity")).textContent).toMatch(/tool: Support bot/);
+    expect(screen.getByTestId("session-activity").textContent).toMatch(/Waiting for Support bot's reply/);
     fireEvent.click(screen.getByText("Stop session"));
     await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1));
     const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -206,7 +216,7 @@ describe("ActiveSessionsCard", () => {
     await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1));
     const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({ action: "decide", session_id: "s1", option: "stop" });
-    fireEvent.click(screen.getByText("Draft a reply"));
+    // an open session is already opened for the person
     expect(await screen.findByText(/Decisions remembered for later steps/)).toBeTruthy();
     expect(screen.getByText(/broke "No price quotes" and was rejected/)).toBeTruthy();
   });

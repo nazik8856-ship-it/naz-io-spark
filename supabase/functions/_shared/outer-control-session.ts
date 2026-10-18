@@ -18,12 +18,13 @@ import { validateOutboundUrl } from "./url-safety.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { buildInstruction, buildToolRequest, parseToolReply, type RuleLine, type ToolFormat, type ToolRequestInput } from "./outer-control-tool-request.ts";
 import { AGENT_FAILURE_TEXT, readAgentRun } from "./outer-control-task.ts";
+import { gatewayAi, REPORT_TOOL_URL, writeReport, type ReportResult } from "./outer-control-report.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
 import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.ts";
 import { buildWorkingMemory, decisionRecord, factsFor, guardConsistency, planNextAction, think, type MemoryRow, type RequestChanges } from "./outer-control-brain.ts";
 import { loadCorrections, recordCorrection } from "./outer-control-corrections.ts";
 import { checkGoal } from "./outer-control-judgement.ts";
-import { buildSessionArtifact, type StepEvidence } from "./outer-control-artifact.ts";
+import { buildSessionArtifact, describeWhatDone, type StepEvidence } from "./outer-control-artifact.ts";
 import { buildChecklist, correctionFor, passedCount, settle, type Checklist, type ChecklistInput } from "./outer-control-completion.ts";
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
@@ -67,6 +68,8 @@ export type SessionDeps = {
   /** Where a NazAI agent is run (agent-runtime) and with which key; null when this runtime cannot reach it. */
   agent: { url: string; serviceKey: string } | null;
   agentTimeoutMs: number;
+  /** Writes the report for a report Task's last step (the NazAI report writer is an internal tool, not an address). */
+  report: (admin: AnyAdmin, s: SessionRow) => Promise<ReportResult>;
 };
 
 const denoEnv = (k: string): string => {
@@ -84,6 +87,7 @@ export const defaultSessionDeps = (): SessionDeps => ({
     ? { url: `${denoEnv("SUPABASE_URL")}/functions/v1/agent-runtime`, serviceKey: denoEnv("SUPABASE_SERVICE_ROLE_KEY") }
     : null,
   agentTimeoutMs: 120_000,
+  report: (admin, s) => writeReport(admin, s, { ai: gatewayAi, now: Date.now }),
 });
 
 const LEASE_MS = 150_000;
@@ -242,6 +246,8 @@ type Accept = {
   text: string; toolStatus: "done" | "continue" | "need_info" | null;
   /** A person wrote or approved this text: the goal check is skipped (they decided), the rule check still runs. */
   fromPerson?: boolean;
+  /** What a NazAI agent really did in this reply's run (from its recorded actions): the source of "what was done" and of links. */
+  actions?: { summary: string; url: string | null }[];
 };
 
 /**
@@ -326,6 +332,12 @@ async function completeSession(
       id: s.id, taskId: s.workflow_id, objective: s.objective, tool: tool.name, completedAt: iso(deps.now()), finalText: a.text,
       sha256: input.outputSha256 ?? "", checklist: c, steps: (exchanges ?? []) as StepEvidence[],
       rulesInForce: (await loadRuleLines(admin, s.user_id, s.api_key_id, tool.name).catch(() => [])).map((r) => ({ name: r.name, action: r.action })), decidedBy: a.fromPerson ? "person" : "tool",
+      whatDone: describeWhatDone({
+        tool: tool.name, objective: s.objective, actions: a.actions,
+        exchanges: new Set(((exchanges ?? []) as StepEvidence[]).map((x) => `${x.step_no}.${x.attempt}`)).size,
+        changes: ((exchanges ?? []) as StepEvidence[]).reduce((n, x) => n + (x.decision?.changes?.length ?? 0), 0),
+      }),
+      links: (a.actions ?? []).filter((x) => x.url).map((x) => ({ url: x.url as string, label: x.summary.slice(0, 80) })),
     });
     if (!built.ok) return finish(admin, s, "failed", `The result passed the completion check but its final artifact could not be built (${built.reason}), so it was not marked completed.`, deps);
     const note = `Final check: the result keeps every blocking rule${a.fromPerson ? "" : " and matches the goal"}.`;
@@ -466,7 +478,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
 
       // 4. The destination is checked again on every call (DNS can change).
       // (A NazAI agent is run internally and has no outside address.)
-      if (!tool.agent_id) {
+      if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL)) {
         const urlCheck = await deps.validateUrl(tool.endpoint_url);
         if (!urlCheck.ok) { await finish(admin, s, "failed", `The tool's address is not allowed: ${urlCheck.reason}.`, deps); return { status: "failed", steps }; }
       }
@@ -513,6 +525,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       let retryAfterMs: number | null = null;
       let incomplete: "empty" | "truncated" | "too_long" | null = null;
       let unusableCode: string | null = null;
+      let reportResult: ReportResult | null = null;
       try {
         let res: Response;
         if (tool.agent_id) {
@@ -524,6 +537,12 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
             body: JSON.stringify({ agentId: tool.agent_id, trigger: "manual", userInstruction: buildInstruction(reqInput).slice(0, 12_000) }),
             signal: AbortSignal.timeout(deps.agentTimeoutMs),
           });
+        } else if (tool.endpoint_url.startsWith(REPORT_TOOL_URL)) {
+          // The report writer is part of NazAI: it composes the report from the earlier steps' controlled answers.
+          reportResult = await deps.report(admin, s);
+          res = reportResult.ok
+            ? new Response(JSON.stringify({ status: "done", answer: reportResult.text }), { status: 200 })
+            : new Response(JSON.stringify({ error: reportResult.code }), { status: 200 });
         } else {
           res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(request.body), signal: AbortSignal.timeout(deps.toolTimeoutMs) });
         }
@@ -539,13 +558,27 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       // 7. Read the reply.
       let content = "";
       let reply = null as ReturnType<typeof parseToolReply> | null;
+      let agentActions: { summary: string; url: string | null }[] = [];
+      if (reportResult && reportResult.ok) agentActions = [{ summary: `Wrote the report from ${reportResult.sources} controlled answer${reportResult.sources === 1 ? "" : "s"}`, url: null }];
       if (!failed) {
         let payload: unknown = rawText;
         try { payload = JSON.parse(rawText); } catch { /* plain text body */ }
         let intake: { ok: true; text: string } | { ok: false; code: string };
-        if (tool.agent_id) {
+        if (reportResult && !reportResult.ok) {
+          intake = { ok: false, code: reportResult.code };
+        } else if (tool.agent_id) {
           const run = readAgentRun(payload);
-          intake = run.ok ? { ok: true, text: run.text } : { ok: false, code: run.code };
+          if (run.ok && run.runId) {
+            // What the agent really did in this run (calendar event created, document written, ...): the proof of the work.
+            try {
+              const { data: ev } = await admin.from("agent_events").select("payload").eq("run_id", run.runId).eq("kind", "action").order("created_at");
+              agentActions = ((ev ?? []) as { payload: { ok?: boolean; summary?: string; url?: string | null } }[])
+                .map((e) => e.payload ?? {}).filter((p) => p.ok === true && typeof p.summary === "string" && p.summary.trim())
+                .map((p) => ({ summary: String(p.summary).slice(0, 200), url: typeof p.url === "string" && /^https?:\/\//i.test(p.url) ? p.url : null })).slice(0, 8);
+            } catch { /* the agent's own summary is still the result */ }
+          }
+          const delivered = agentActions.length ? `\n\nDone by the agent:\n${agentActions.map((x) => `- ${x.summary}${x.url ? ` — ${x.url}` : ""}`).join("\n")}` : "";
+          intake = run.ok ? { ok: true, text: `${run.text}${delivered}` } : { ok: false, code: run.code };
         } else {
           const generic = readGenericPayload(payload);
           intake = generic !== null ? { ok: true, text: generic } : extractExternalText(payload);
@@ -701,7 +734,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           await finish(admin, s, "rejected", "The reply needed approval and this API key's policy did not approve it.", deps);
           return { status: "rejected", steps };
         }
-        await acceptReply(admin, s, tool, stepNo, { text: stored, toolStatus: reply.status }, deps);
+        await acceptReply(admin, s, tool, stepNo, { text: stored, toolStatus: reply.status, actions: agentActions }, deps);
         const { data: resolved } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
         const rs = (resolved as { status?: string } | null)?.status ?? "running";
         if (rs !== "running") return { status: rs, steps };
@@ -712,7 +745,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         return { status: "awaiting_human", steps };
       }
       // allow / modify: continue, finish, or ask a person a question.
-      await acceptReply(admin, s, tool, stepNo, { text: brain.output ?? content, toolStatus: reply.status }, deps);
+      await acceptReply(admin, s, tool, stepNo, { text: brain.output ?? content, toolStatus: reply.status, actions: agentActions }, deps);
       const { data: after } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
       const st = (after as { status?: string } | null)?.status ?? "running";
       if (st !== "running") return { status: st, steps };

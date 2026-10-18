@@ -2,6 +2,7 @@
 // Pure: the session driver only applies the answer.
 
 import { AGENT_FAILURE_TEXT } from "./outer-control-task.ts";
+import { REPORT_FAILURE_TEXT } from "./outer-control-report.ts";
 
 export type FailureKind = "transient" | "rate_limited" | "auth" | "client" | "incomplete" | "unusable";
 
@@ -48,7 +49,7 @@ export function classifyFailure(i: FailureInput): FailureClass {
   }
   if (i.unusableCode) {
     // A reply with tool calls, or in a shape nobody agreed to, is never retried into: asking again would only repeat it.
-    const agentText = AGENT_FAILURE_TEXT[i.unusableCode];
+    const agentText = AGENT_FAILURE_TEXT[i.unusableCode] ?? REPORT_FAILURE_TEXT[i.unusableCode];
     return { kind: "unusable", retry: false, delayMs: 0, correction: null, reason: agentText ? `${agentText}.` : `The reply could not be used (${i.unusableCode}).` };
   }
   const s = i.httpStatus;

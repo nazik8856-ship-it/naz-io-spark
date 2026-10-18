@@ -150,7 +150,10 @@ Deno.test("hand-off choices round-trip and unknown options are refused", () => {
 Deno.test("validateLegs: accepts a dependency chain, rejects cycles, forward references and bad input", () => {
   const ok = validateLegs([{ tool_id: T1, instruction: "Research" }, { tool_id: T2, instruction: "Draft", depends_on: [1], fallback_tool_id: T1 }]);
   assert(ok.ok, "valid");
-  if (ok.ok) assertEquals(ok.legs[1], { leg_no: 2, tool_id: T2, instruction: "Draft", depends_on: [1], fallback_tool_id: T1, condition: null, on_failure: null });
+  if (ok.ok) assertEquals(ok.legs[1], { leg_no: 2, tool_id: T2, instruction: "Draft", depends_on: [1], fallback_tool_id: T1, condition: null, on_failure: null, handoff: "pass" });
+  const indep = validateLegs([{ tool_id: T1, instruction: "a", handoff: "none" }, { tool_id: T2, instruction: "b", depends_on: [1], handoff: "none" }]);
+  assert(indep.ok && indep.legs[1].handoff === "none", "an independent step is kept");
+  assert(!validateLegs([{ tool_id: T1, instruction: "a", handoff: "sometimes" }]).ok, "an unknown hand-off mode is refused");
   for (const bad of [
     [], "x", Array.from({ length: 7 }, () => ({ tool_id: T1, instruction: "a" })),
     [{ tool_id: T1, instruction: "a", depends_on: [1] }],

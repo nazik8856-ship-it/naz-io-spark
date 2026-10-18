@@ -2,16 +2,20 @@
 // session on every row, the sessions that are running or need you, and a short history.
 // Update key / Remove sit behind "More"; step logs open only for the session you click. Outer Control does the contacting, rule checking
 // and deciding; this card only shows it and collects the few things a person must give.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
+import { Plus, FileText, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
 import { toast } from "sonner";
 import FinalArtifactView from "./FinalArtifactView";
 import { HonestStatusBadge, StatusReason } from "./HonestStatusBadge";
 import { honestStatus } from "@/lib/outer-control-status";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
-import { DEFAULT_HISTORY, splitSessions, toolStatus, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems } from "@/lib/outer-control-ui";
+import { DEFAULT_HISTORY, splitSessions, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems, type Tone } from "@/lib/outer-control-ui";
+import { healthSummary, isInternalTool, toolHealth, type ActivityStep } from "@/lib/outer-control-tools-ui";
+import ReportPanel from "./ReportPanel";
+import ConnectToolPanel, { type ConnectPayload } from "./ConnectToolPanel";
+import SessionActivity from "./SessionActivity";
 import { describeCompletion, describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, waitingReason, type CompletionView, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
 
 // The tables are new and not in the generated Supabase types.
@@ -44,14 +48,16 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [writing, setWriting] = useState<Record<string, string | null>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showConnect, setShowConnect] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   const [startFor, setStartFor] = useState<string | null>(null);
   const [moreFor, setMoreFor] = useState<string | null>(null);
   const [showAllPast, setShowAllPast] = useState(false);
   const [keyFor, setKeyFor] = useState<string | null>(null);
   const [newKey, setNewKey] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [conn, setConn] = useState({ name: "", url: "", format: "generic_json", model: "", token: "" });
   const [job, setJob] = useState({ objective: "", context: "", keyId: "", maxSteps: "5" });
 
   const load = useCallback(async () => {
@@ -90,6 +96,14 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     return () => clearInterval(id);
   }, [anyOpen, expanded, load, loadSteps]);
   useEffect(() => { if (expanded) loadSteps(expanded); }, [expanded, loadSteps]);
+  // A session that is running opens by itself once, so the person sees which tool is used and what Outer Control does.
+  const autoOpened = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const open = sessions.find((x) => isOpen(x.status) && !autoOpened.current.has(x.id));
+    if (!open) return;
+    autoOpened.current.add(open.id);
+    setExpanded(open.id);
+  }, [sessions]);
 
   const act = async (key: string, action: string, payload: Record<string, unknown>, okMsg?: string) => {
     setBusy(key);
@@ -101,11 +115,31 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     return r;
   };
 
-  const connect = async () => {
-    const r = await act("connect", "create_tool", {
-      name: conn.name, endpoint_url: conn.url, request_format: conn.format, model: conn.model || undefined, token: conn.token || undefined,
-    }, "Tool connected. Test it, then start a session.");
-    if (r.ok) { setConn({ name: "", url: "", format: "generic_json", model: "", token: "" }); setShowConnect(false); }
+  /** Saves the tool, then tests it, so the status shown right after connecting is a real result. */
+  const connectTool = async (p: ConnectPayload): Promise<boolean> => {
+    const r = await act("connect", "create_tool", { ...p });
+    if (!r.ok) return false;
+    const id = (r.data as { tool?: { id?: string } } | undefined)?.tool?.id;
+    if (id) await runTest(id, p.name);
+    else toast.success("Tool connected. Press Test to check it.");
+    return true;
+  };
+
+  /** A report: several tools are asked in turn, then one report is written. It appears under Recent sessions as it runs. */
+  const startReport = async (topic: string, toolIds: string[]): Promise<boolean> => {
+    const r = await act("report", "start_report", { topic, tool_ids: toolIds }, "Report started. Follow it below; the finished report appears as the result.");
+    return r.ok;
+  };
+
+  /** The connection test: a real request to the tool. The result (or the reason it failed) is shown at once. */
+  const runTest = async (toolId: string, name: string) => {
+    setBusy(`test-${toolId}`);
+    const r = await callDrive("test_tool", { tool_id: toolId });
+    setBusy(null);
+    const d = (r.data ?? {}) as { ok?: boolean; error?: string | null; ms?: number | null; sample?: string | null };
+    if (r.ok && d.ok) toast.success(`${name} works${d.ms ? ` (${d.ms} ms)` : ""}${d.sample ? `. It replied: "${d.sample}"` : "."}`);
+    else toast.error(`${name} failed the test: ${d.error || r.message || "no reason given"}`);
+    await load();
   };
 
   const start = async (toolId: string) => {
@@ -206,6 +240,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                 {open && (
                   <div className="mt-2 space-y-2 rounded border border-white/10 bg-black/20 p-2.5 text-[11px]">
                     {hs.key === "completed" && <FinalArtifactView artifact={s.final_artifact} kind="session" />}
+                    <SessionActivity toolName={toolName(s.tool_id)} status={s.status} steps={(steps[s.id] ?? []) as ActivityStep[]} completion={s.completion} pendingKind={s.pending_kind} stepCount={s.step_count} maxSteps={s.max_steps} />
                     <ul className="space-y-0.5">
                       {(steps[s.id] ?? []).map((st) => (
                         <li key={st.id} className="text-zinc-300">
@@ -255,66 +290,57 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
 
   const toolName = (id: string) => tools.find((t) => t.id === id)?.name ?? "Tool";
 
+  // The report writer is part of NazAI, not a connection the person manages: it is not listed as a tool.
+  const shownTools = tools.filter((t) => !isInternalTool(t.endpoint_url));
   const { open: openSessions, past: pastSessions } = splitSessions(sessions);
   const pastShown = visibleItems(pastSessions, DEFAULT_HISTORY, showAllPast);
 
   return (
     <section className="hud-glass rounded-2xl px-6 py-5" aria-label="Connected tools" data-testid="active-sessions-card">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-zinc-100">Connected tools</h2>
-        <button onClick={() => setShowConnect((v) => !v)} className="flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3.5 py-1.5 text-sm text-cyan-100 hover:bg-cyan-500/25">
-          {showConnect ? "Close" : <><Plus className="h-3.5 w-3.5" /> Connect a tool</>}
-        </button>
-      </div>
-
-      {showConnect && (
-        <div className="mt-4 grid gap-2 rounded-xl border border-white/10 bg-black/20 p-3 sm:grid-cols-2">
-          <input className={inputCls} placeholder="Name, e.g. Support bot" aria-label="Tool name" value={conn.name} onChange={(e) => setConn({ ...conn, name: e.target.value })} />
-          <input className={inputCls} placeholder="https://… (the tool's endpoint)" aria-label="Tool address" value={conn.url} onChange={(e) => setConn({ ...conn, url: e.target.value })} />
-          <select className={inputCls} aria-label="Request format" value={conn.format} onChange={(e) => setConn({ ...conn, format: e.target.value })}>
-            <option value="generic_json">Plain JSON</option>
-            <option value="openai_chat">OpenAI-style chat</option>
-            <option value="anthropic_messages">Anthropic messages</option>
-          </select>
-          <input className={inputCls} placeholder="Model (optional)" aria-label="Model" value={conn.model} onChange={(e) => setConn({ ...conn, model: e.target.value })} />
-          <input className={`${inputCls} sm:col-span-2`} type="password" placeholder="API key or token for that tool (stored encrypted, never shown again)" aria-label="Tool credential" value={conn.token} onChange={(e) => setConn({ ...conn, token: e.target.value })} />
-          <button disabled={busy === "connect" || !conn.name || !conn.url} onClick={connect} className="rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40 sm:col-span-2">
-            {busy === "connect" ? "Connecting…" : "Connect"}
-          </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-zinc-100">Connected tools</h2>
+          <p className="mt-0.5 text-xs text-zinc-500" data-testid="tools-summary">{healthSummary(shownTools, now)}</p>
         </div>
-      )}
+        <div className="flex flex-wrap items-center gap-2">
+        <button onClick={() => setShowReport(true)} disabled={shownTools.length < 2} title={shownTools.length < 2 ? "Connect at least two tools first" : "Ask several tools, then get one report"} className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3.5 py-2 text-sm text-zinc-100 hover:bg-white/10 disabled:opacity-40" data-testid="generate-report-button">
+          <FileText className="h-4 w-4" /> Generate report
+        </button>
+        <button onClick={() => setShowConnect(true)} className="flex items-center gap-1.5 rounded-lg border border-cyan-300/60 bg-cyan-400 px-4 py-2 text-sm font-semibold text-black shadow-[0_0_18px_rgba(34,211,238,0.3)] transition hover:bg-cyan-300" data-testid="connect-tool-button">
+          <Plus className="h-4 w-4" /> Connect a tool
+        </button>
+        </div>
+      </div>
+      <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} />
+      <ReportPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startReport} />
 
       <div className="mt-4 space-y-2">
-        {tools.length === 0 && (
+        {shownTools.length === 0 && (
           <div className="rounded-xl border border-dashed border-white/15 px-4 py-6 text-center">
             <p className="text-sm text-zinc-300">No tools connected yet.</p>
             <p className="mx-auto mt-1 max-w-md text-sm text-zinc-500">
-              Connect the external AI you want Outer Control to talk to. You need its web address and, if it has one, an API key. Then press Test, then Start session.
+              Press Connect a tool to add ChatGPT, Claude, Gemini or Grok with an API key, or any tool with an HTTPS address. The connection is tested right away.
             </p>
-            {!showConnect && (
-              <button onClick={() => setShowConnect(true)} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3.5 py-1.5 text-sm text-cyan-100 hover:bg-cyan-500/25">
-                <Plus className="h-3.5 w-3.5" /> Connect a tool
-              </button>
-            )}
           </div>
         )}
-        {tools.map((t) => {
-          const st = toolStatus(t);
+        {shownTools.map((t) => {
+          const st = toolHealth(t, now);
+          const tone: Tone = st.key === "working" ? "ok" : st.key === "failed" ? "bad" : "warn";
           const more = moreFor === t.id || keyFor === t.id;
           return (
-            <div key={t.id} className={`rounded-xl border bg-white/[0.03] px-4 py-3 ${TONE_BORDER[st.tone]}`} data-testid="tool-row">
+            <div key={t.id} className={`rounded-xl border bg-white/[0.03] px-4 py-3 ${TONE_BORDER[tone]}`} data-testid="tool-row">
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                     <span className="text-sm font-medium text-zinc-100">{t.name}</span>
-                    <span className={`flex items-center gap-1.5 text-xs ${TONE_TEXT[st.tone]}`} title={st.hint}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[st.tone]}`} aria-hidden /> {st.label}
+                    <span className={`flex items-center gap-1.5 text-xs font-medium ${TONE_TEXT[tone]}`} data-testid="tool-status" data-status={st.key}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`} aria-hidden /> {st.label}
                     </span>
                   </div>
                   <div className="mt-0.5 text-xs text-zinc-500">{t.endpoint_url.startsWith("nazai-agent://") ? "Your NazAI agent" : hostOf(t.endpoint_url)}</div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button disabled={busy === `test-${t.id}`} onClick={() => act(`test-${t.id}`, "test_tool", { tool_id: t.id }, "Connection works.")} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-40">
+                  <button disabled={busy === `test-${t.id}`} onClick={() => runTest(t.id, t.name)} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-40">
                     {busy === `test-${t.id}` ? "Testing…" : "Test"}
                   </button>
                   <button onClick={() => setStartFor(startFor === t.id ? null : t.id)} className="flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-1.5 text-sm text-cyan-100 hover:bg-cyan-500/25">
@@ -325,7 +351,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                   </button>
                 </div>
               </div>
-              {t.last_error && <p className="mt-2 text-xs text-rose-300/90">{t.last_error}</p>}
+              <p className={`mt-2 text-xs ${st.key === "failed" ? "text-rose-300/90" : "text-zinc-500"}`} data-testid="tool-reason">{st.reason}</p>
               {more && (
                 <div className="mt-3 border-t border-white/5 pt-3">
                   <div className="flex flex-wrap gap-2">
