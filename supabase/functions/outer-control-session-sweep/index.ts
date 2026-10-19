@@ -8,6 +8,7 @@ import { contactRuleStopping, resumeSession } from "../_shared/outer-control-ses
 import { liveTest, runKeepAlive } from "../_shared/outer-control-keepalive.ts";
 import { checkKillSwitches } from "../_shared/control-gate.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
+import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { driveSession, progressWorkflow } from "../_shared/outer-control-workflow.ts";
 
 const corsHeaders = {
@@ -30,7 +31,7 @@ Deno.serve(async (req) => {
   if (await areConsequentialSweepsPaused(admin)) return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });
 
   const now = Date.now();
-  const out = { resumed: 0, advanced: 0, expired: 0, workflows: 0, errors: 0, keepalive: { tested: 0, failed: 0, skipped: 0 } };
+  const out = { resumed: 0, advanced: 0, expired: 0, workflows: 0, errors: 0, keepalive: { tested: 0, failed: 0, skipped: 0, broke: 0 } };
 
   // 1. Paused sessions: resume or end them if what they waited for has happened.
   const { data: waiting } = await admin.from("outer_control_sessions")
@@ -81,6 +82,9 @@ Deno.serve(async (req) => {
         const kill = await checkKillSwitches(admin as never, tool.user_id, null);
         if (kill.killed) return "skip";
         return await contactRuleStopping(admin, tool.user_id, tool.name);
+      },
+      onBroke: async (tool, reason) => {
+        await sendCriticalAlert(admin as never, tool.user_id, { event: "outer_control_tool_down", skipIncident: true, summary: `"${tool.name}" stopped working: ${reason.slice(0, 200)} Open Outer Control to test it again or update its key.` });
       },
     });
   } catch (e) { out.errors++; console.error("session-sweep keep-alive failed:", e instanceof Error ? e.message : e); }

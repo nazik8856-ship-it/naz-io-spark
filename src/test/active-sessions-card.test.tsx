@@ -4,13 +4,13 @@ vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
 import { MemoryRouter } from "react-router-dom";
 
 const state = vi.hoisted(() => ({
-  tools: [] as unknown[], sessions: [] as unknown[], steps: [] as unknown[], keys: [] as unknown[], memory: [] as unknown[],
+  tools: [] as unknown[], sessions: [] as unknown[], steps: [] as unknown[], keys: [] as unknown[], memory: [] as unknown[], usage: [] as unknown[],
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
   const result = (table: string) => {
     const data = table === "external_tools" ? state.tools : table === "outer_control_sessions" ? state.sessions
-      : table === "outer_control_session_steps" ? state.steps : table === "outer_control_memory" ? state.memory : state.keys;
+      : table === "outer_control_session_steps" ? state.steps : table === "outer_control_memory" ? state.memory : table === "outer_control_tool_usage" ? state.usage : state.keys;
     const q: Record<string, unknown> = {};
     for (const m of ["select", "eq", "is", "in", "order", "limit"]) q[m] = () => q;
     q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data, error: null }).then(res);
@@ -324,5 +324,18 @@ describe("ActiveSessionsCard", () => {
     fireEvent.click(await screen.findByText("Draft a reply"));
     expect((await screen.findByTestId("session-closure")).textContent).toMatch(/Session closed 19 Oct, 12:03 UTC \(stopped\)\. Stopped by the owner\. Nothing more is sent/);
     expect(screen.queryByTestId("follow-up")).toBeNull();
+  });
+
+  it("a tool shows how much it has been used: requests in 30 days, failures and today's count", async () => {
+    state.tools = [tool];
+    state.usage = [{ tool_id: tool.id, requests_30d: 12, failed_30d: 2, requests_today: 3 }];
+    renderCard();
+    expect((await screen.findByTestId("tool-usage")).textContent).toBe("Asked 12 times in 30 days · 2 failed · 3 today");
+  });
+  it("a tool that was never asked shows no usage line", async () => {
+    state.tools = [tool]; state.usage = [];
+    renderCard();
+    await screen.findByText(tool.name);
+    expect(screen.queryByTestId("tool-usage")).toBeNull();
   });
 });

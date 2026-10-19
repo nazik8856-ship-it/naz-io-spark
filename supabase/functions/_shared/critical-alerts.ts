@@ -139,7 +139,10 @@ export type CriticalAlertEvent =
   | "hard_rule_auto_drafted"
   // Outer Control (active): a session ended as "failed" (the tool kept erroring, was removed,
   // or its address stopped being allowed). Routine, not an incident: the person simply needs to know.
-  | "outer_control_session_failed";
+  | "outer_control_session_failed"
+  // Outer Control (active): a connected tool that was working failed its scheduled connection test (a revoked key, a moved address).
+  // Told once, when it stops working, not on every later test.
+  | "outer_control_tool_down";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -179,6 +182,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   kb_entry_auto_drafted: "📚 A new knowledge-base entry was auto-drafted for review",
   hard_rule_auto_drafted: "🕶️ A new shadow rule was auto-drafted for review",
   outer_control_session_failed: "🔌 An Outer Control session with an external tool failed",
+  outer_control_tool_down: "🔌 A connected tool stopped working",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

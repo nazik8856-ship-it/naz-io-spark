@@ -170,6 +170,16 @@ export async function loadRuleLines(admin: AnyAdmin, userId: string, apiKeyId: s
  * approval or decision record. Used by the connection test, which sends a ping outside a session.
  * Returns a sentence for the person, or null when nothing stops the contact.
  */
+/** Requests sent to this tool since midnight UTC, from the usage view; 0 when it cannot be read (the limit is a safeguard, not a gate that can lock anyone out). */
+export const DAILY_TOOL_REQUEST_CAP = 500;
+export async function requestsToday(admin: AnyAdmin, toolId: string): Promise<number> {
+  try {
+    const { data } = await admin.from("outer_control_tool_usage").select("requests_today").eq("tool_id", toolId).maybeSingle();
+    const n = Number((data as { requests_today?: unknown } | null)?.requests_today ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  } catch { return 0; }
+}
+
 export async function contactRuleStopping(admin: AnyAdmin, userId: string, toolName: string): Promise<string | null> {
   const { data } = await admin.from("hard_rules")
     .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id")
@@ -486,6 +496,12 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL)) {
         const urlCheck = await deps.validateUrl(tool.endpoint_url);
         if (!urlCheck.ok) { await finish(admin, s, "failed", `The tool's address is not allowed: ${urlCheck.reason}.`, deps); return { status: "failed", steps }; }
+        // A loop that keeps asking would spend the person's own provider key: one tool is asked at most this many times a day.
+        const today = await requestsToday(admin, tool.id);
+        if (today >= DAILY_TOOL_REQUEST_CAP) {
+          await finish(admin, s, "stopped", `${tool.name} has already been asked ${today} times today, which is the daily limit (${DAILY_TOOL_REQUEST_CAP}). Nothing was sent. Try again tomorrow.`, deps);
+          return { status: "stopped", steps };
+        }
       }
 
       // 5. Structured request: objective, masked context, active rules.

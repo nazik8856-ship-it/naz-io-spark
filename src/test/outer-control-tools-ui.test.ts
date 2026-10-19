@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { existsSync } from "node:fs";
-import { buildActivity, checkConnector, describeClosure, FEATURED_TOOLS, featuredPayload, healthSummary, keyPageUrl, searchConnectors, toolHealth } from "@/lib/outer-control-tools-ui";
+import { buildActivity, checkConnector, describeClosure, describeUsage, FEATURED_TOOLS, featuredPayload, healthSummary, keyPageUrl, searchConnectors, toolHealth } from "@/lib/outer-control-tools-ui";
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();
@@ -136,5 +136,14 @@ describe("the end of a session", () => {
   it("an open session has no closing record yet", () => {
     for (const status of ["queued", "running", "awaiting_human"]) expect(describeClosure({ ...base, status })).toBeNull();
     expect(describeClosure({ ...base, status: "completed", finished_at: null })).toBeNull();
+  });
+});
+
+describe("tool usage", () => {
+  it("says how much a tool was used, and nothing when it never was", () => {
+    expect(describeUsage({ requests_30d: 1, failed_30d: 0, requests_today: 0 })).toBe("Asked 1 time in 30 days");
+    expect(describeUsage({ requests_30d: 40, failed_30d: 3, requests_today: 5 })).toBe("Asked 40 times in 30 days · 3 failed · 5 today");
+    expect(describeUsage({ requests_30d: 0, failed_30d: 0, requests_today: 0 })).toBeNull();
+    expect(describeUsage(null)).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 // Run with: deno test supabase/functions/_shared/outer-control-keepalive_test.ts
 import { followUpContext, MAX_FOLLOW_UP_CHARS } from "./outer-control-workflow.ts";
-import { KEEPALIVE_AFTER_MS, KEEPALIVE_BATCH, pickKeepAliveCandidates, recordConnectionTest, runKeepAlive, type KeepAliveTool } from "./outer-control-keepalive.ts";
+import { justBroke, KEEPALIVE_AFTER_MS, KEEPALIVE_BATCH, pickKeepAliveCandidates, recordConnectionTest, runKeepAlive, type KeepAliveTool } from "./outer-control-keepalive.ts";
 
 function assertEquals<T>(a: T, b: T, m?: string) { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(m ?? `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); }
 function assert(c: unknown, m: string) { if (!c) throw new Error(m); }
@@ -61,7 +61,7 @@ Deno.test("keep-alive run: tests the due tools, records each result, counts fail
     test: (t) => Promise.resolve(t.id === "a" ? { ok: true, error: null, ms: 80, sample: "ok" } : { ok: false, error: "The tool rejected the key (HTTP 401). Update the key and test again.", ms: 90, sample: null }),
     gate: () => Promise.resolve(null),
   });
-  assertEquals(result, { tested: 2, failed: 1, skipped: 0 });
+  assertEquals(result, { tested: 2, failed: 1, skipped: 0, broke: 0 });
   assertEquals(updates.map((u) => [u.id, u.patch.last_error]), [["a", null], ["b", "The tool rejected the key (HTTP 401). Update the key and test again."]]);
 });
 
@@ -73,7 +73,7 @@ Deno.test("keep-alive run: a kill switch skips the tool untouched; a contact rul
     test: () => { sent++; return Promise.resolve({ ok: true, error: null, ms: 1, sample: "ok" }); },
     gate: (t) => Promise.resolve(t.id === "a" ? "skip" : "A rule forbids contacting this tool."),
   });
-  assertEquals(result, { tested: 1, failed: 1, skipped: 1 });
+  assertEquals(result, { tested: 1, failed: 1, skipped: 1, broke: 0 });
   assertEquals(sent, 0, "nothing is sent to a tool a kill switch or a contact rule forbids");
   assertEquals(updates.map((u) => u.id), ["b"]);
 });
@@ -81,7 +81,7 @@ Deno.test("keep-alive run: a kill switch skips the tool untouched; a contact rul
 Deno.test("keep-alive run: nothing due means no tests and no writes", async () => {
   const { admin, updates } = fakeAdmin([], []);
   const result = await runKeepAlive(admin, { now: () => NOW, test: () => Promise.reject(new Error("must not run")), gate: () => Promise.resolve(null) });
-  assertEquals(result, { tested: 0, failed: 0, skipped: 0 });
+  assertEquals(result, { tested: 0, failed: 0, skipped: 0, broke: 0 });
   assertEquals(updates.length, 0);
   assert(KEEPALIVE_AFTER_MS === 12 * 3_600_000, "twelve hours");
 });
@@ -93,4 +93,28 @@ Deno.test("follow-up context: carries the earlier question and the controlled an
   assert(c.includes("NazAI controls what AI may do."), "carries the controlled answer");
   const long = followUpContext({ objective: "q", answer: "x".repeat(MAX_FOLLOW_UP_CHARS + 500), toolName: "Bot2" });
   assert(long.includes("[Earlier answer shortened.]") && !long.includes("x".repeat(MAX_FOLLOW_UP_CHARS + 1)), "shortened");
+});
+
+Deno.test("keep-alive: a tool that was working and now fails is reported once; one already failing, or never working, is not reported again", async () => {
+  const fine = tool("fine", { last_ok_at: hoursAgo(30), last_error: null });
+  const alreadyDown = tool("down", { last_ok_at: hoursAgo(300), last_error: "The tool rejected the key (HTTP 401). Update the key and test again." });
+  const neverWorked = tool("never", { last_ok_at: null, last_error: null });
+  const { admin } = fakeAdmin([fine, alreadyDown, neverWorked], ["fine", "down", "never"]);
+  const told: string[] = [];
+  const result = await runKeepAlive(admin, {
+    now: () => NOW, test: () => Promise.resolve({ ok: false, error: "The tool rejected the key (HTTP 401). Update the key and test again.", ms: 5, sample: null }),
+    gate: () => Promise.resolve(null), onBroke: (t) => { told.push(t.id); return Promise.resolve(); },
+  });
+  assertEquals(told, ["fine"]);
+  assertEquals(result, { tested: 3, failed: 3, skipped: 0, broke: 1 });
+  assertEquals([justBroke(fine, true), justBroke(fine, false), justBroke(alreadyDown, false), justBroke(neverWorked, false)], [false, true, false, false]);
+});
+
+Deno.test("keep-alive: a failing alert does not stop the run", async () => {
+  const { admin, updates } = fakeAdmin([tool("a", { last_ok_at: hoursAgo(30), last_error: null }), tool("b")], ["a", "b"]);
+  const result = await runKeepAlive(admin, {
+    now: () => NOW, test: () => Promise.resolve({ ok: false, error: "down", ms: 1, sample: null }), gate: () => Promise.resolve(null),
+    onBroke: () => Promise.reject(new Error("slack is down")),
+  });
+  assertEquals(result.tested, 2); assertEquals(updates.length, 2);
 });

@@ -224,3 +224,18 @@ export function describeClosure(s: { status: string; finished_at: string | null;
   const why = s.stop_reason ? ` ${s.stop_reason.replace(/\s+/g, " ").trim().replace(/[.!?]*$/, ".")}` : "";
   return { tone: "warn", text: `Session closed${stamp} (${how}).${why} Nothing more is sent to the tool in this session.` };
 }
+
+// ---------------------------------------------------------------------------------------
+// Usage
+
+export type ToolUsage = { tool_id: string; requests_30d: number; failed_30d: number; requests_today: number };
+
+/** One line on how much a tool has been used: requests in the last 30 days, how many failed, and today's count. Null when it was never asked. */
+export function describeUsage(u: Pick<ToolUsage, "requests_30d" | "failed_30d" | "requests_today"> | null | undefined): string | null {
+  const n = Number(u?.requests_30d ?? 0);
+  if (!u || !Number.isFinite(n) || n <= 0) return null;
+  const failed = Math.max(0, Number(u.failed_30d) || 0);
+  const today = Math.max(0, Number(u.requests_today) || 0);
+  return `Asked ${n} time${n === 1 ? "" : "s"} in 30 days${failed ? ` · ${failed} failed` : ""}${today ? ` · ${today} today` : ""}`;
+}
+

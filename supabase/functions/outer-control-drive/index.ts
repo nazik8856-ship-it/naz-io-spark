@@ -204,7 +204,13 @@ Deno.serve(async (req) => {
         { tool_id: writer.tool.id, instruction: reportInstruction(topic), handoff: "none" },
       ];
       const started = await startTask(admin, accountId, { request: `Report: ${topic}`, context: typeof body.context === "string" ? body.context : null, steps, max_steps: 3 });
-      if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+      if (!started.ok) {
+        // The credit was taken before the Task could start: give it back.
+        await admin.rpc("refund_generation_credit", { p_user_id: accountId });
+        return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+      }
+      // Marks the Task as paid for, so that if it ends without a report the credit goes back (once).
+      await admin.from("outer_control_workflows").update({ credit_charged: true }).eq("id", started.workflowId);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, task_id: started.workflowId, steps: steps.length });
     }

@@ -12,7 +12,7 @@ import { honestStatus } from "@/lib/outer-control-status";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems, type Tone } from "@/lib/outer-control-ui";
-import { describeClosure, healthSummary, isInternalTool, toolHealth, type ActivityStep } from "@/lib/outer-control-tools-ui";
+import { describeClosure, describeUsage, healthSummary, isInternalTool, toolHealth, type ActivityStep, type ToolUsage } from "@/lib/outer-control-tools-ui";
 import ReportPanel from "./ReportPanel";
 import ConnectToolPanel, { type ConnectPayload } from "./ConnectToolPanel";
 import SessionActivity from "./SessionActivity";
@@ -58,16 +58,19 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
+  const [usage, setUsage] = useState<Map<string, ToolUsage>>(new Map());
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [job, setJob] = useState({ objective: "", context: "", keyId: "", maxSteps: "5" });
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const [t, s, k] = await Promise.all([
+    const [t, s, k, u] = await Promise.all([
       anyDb.from("external_tools").select("id, name, endpoint_url, request_format, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
       anyDb.from("outer_control_sessions").select("id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no, completion, final_artifact, finished_at").eq("user_id", accountId).order("started_at", { ascending: false }).limit(10),
       anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
+      anyDb.from("outer_control_tool_usage").select("tool_id, requests_30d, failed_30d, requests_today").eq("user_id", accountId),
     ]);
+    setUsage(new Map((Array.isArray(u?.data) ? (u.data as ToolUsage[]) : []).filter((x) => x && typeof x.tool_id === "string").map((x) => [x.tool_id, x])));
     setTools((t.data ?? []) as Tool[]);
     const rows = (s.data ?? []) as Session[];
     setSessions(rows);
@@ -349,6 +352,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                     </span>
                   </div>
                   <div className="mt-0.5 text-xs text-zinc-500">{t.endpoint_url.startsWith("nazai-agent://") ? "Your NazAI agent" : hostOf(t.endpoint_url)}</div>
+                  {describeUsage(usage.get(t.id)) && <div className="mt-0.5 text-[11px] text-zinc-600" data-testid="tool-usage">{describeUsage(usage.get(t.id))}</div>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button disabled={busy === `test-${t.id}`} onClick={() => runTest(t.id, t.name)} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-40">

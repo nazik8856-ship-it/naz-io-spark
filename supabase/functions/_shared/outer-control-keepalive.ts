@@ -12,7 +12,7 @@ export const KEEPALIVE_AFTER_MS = 12 * 60 * 60 * 1000;
 export const KEEPALIVE_USED_WITHIN_MS = 30 * 24 * 60 * 60 * 1000;
 export const KEEPALIVE_BATCH = 5;
 
-export type KeepAliveTool = TestableTool & { user_id: string; created_at: string; last_checked_at: string | null };
+export type KeepAliveTool = TestableTool & { user_id: string; created_at: string; last_checked_at: string | null; last_error?: string | null };
 
 /** Which of these tools are due for a test, oldest check first (never-checked first), at most `limit`. */
 export function pickKeepAliveCandidates(tools: KeepAliveTool[], usedToolIds: Set<string>, now: number, limit = KEEPALIVE_BATCH): KeepAliveTool[] {
@@ -39,17 +39,22 @@ export type KeepAliveDeps = {
   test: (tool: KeepAliveTool) => Promise<TestOutcome>;
   /** A reason not to contact this tool right now: "skip" leaves it untouched (a kill switch is on), a message records a failed check (a contact rule forbids it). */
   gate: (tool: KeepAliveTool) => Promise<"skip" | string | null>;
+  /** Called once when a tool that was working fails its test (not again while it stays broken). */
+  onBroke?: (tool: KeepAliveTool, reason: string) => Promise<void>;
 };
 
-export type KeepAliveResult = { tested: number; failed: number; skipped: number };
+export type KeepAliveResult = { tested: number; failed: number; skipped: number; broke: number };
+
+/** A tool broke if it was fine at its last check (it had worked and showed no error) and fails now. */
+export const justBroke = (tool: { last_ok_at: string | null; last_error?: string | null }, ok: boolean) => !ok && tool.last_ok_at !== null && !tool.last_error;
 
 export async function runKeepAlive(admin: AnyAdmin, deps: KeepAliveDeps): Promise<KeepAliveResult> {
   const now = deps.now();
-  const out: KeepAliveResult = { tested: 0, failed: 0, skipped: 0 };
+  const out: KeepAliveResult = { tested: 0, failed: 0, skipped: 0, broke: 0 };
   const cutoff = new Date(now - KEEPALIVE_AFTER_MS).toISOString();
   // Real outside tools only: agents and the report writer are internal and are checked when they are used.
   const { data } = await admin.from("external_tools")
-    .select("id, user_id, name, endpoint_url, request_format, model, auth_header, auth_scheme, credentials_secret_id, last_ok_at, last_checked_at, created_at")
+    .select("id, user_id, name, endpoint_url, request_format, model, auth_header, auth_scheme, credentials_secret_id, last_ok_at, last_checked_at, last_error, created_at")
     .eq("enabled", true).is("removed_at", null).is("agent_id", null).not("approved_at", "is", null)
     .not("endpoint_url", "like", "nazai-internal://%")
     .or(`last_checked_at.is.null,last_checked_at.lt.${cutoff}`)
@@ -68,6 +73,10 @@ export async function runKeepAlive(admin: AnyAdmin, deps: KeepAliveDeps): Promis
     await recordConnectionTest(admin, tool, outcome, deps.now());
     out.tested++;
     if (!outcome.ok) out.failed++;
+    if (justBroke(tool, outcome.ok) && deps.onBroke) {
+      out.broke++;
+      try { await deps.onBroke(tool, outcome.error ?? "It did not answer."); } catch { /* the tool shows as Failed in the dashboard either way */ }
+    }
   }
   return out;
 }

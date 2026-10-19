@@ -21,6 +21,14 @@ type AnyAdmin = any;
 
 const iso = () => new Date().toISOString();
 
+/** A report that was paid for with a credit and did not get delivered gives the credit back, once (the database makes it once). */
+export async function refundWorkflowCredit(admin: AnyAdmin, workflowId: string): Promise<boolean> {
+  try {
+    const { data } = await admin.rpc("refund_workflow_credit", { p_workflow_id: workflowId });
+    return data === true;
+  } catch { return false; }
+}
+
 type LegRow = LegState & { id: string; depends_on: number[]; context: string | null; tool_id: string; user_id: string; api_key_id: string | null; objective: string; final_artifact: unknown; handoff_mode?: string };
 
 async function loadLegs(admin: AnyAdmin, workflowId: string): Promise<LegRow[]> {
@@ -159,6 +167,7 @@ export async function progressWorkflow(admin: AnyAdmin, workflowId: string): Pro
         updated_at: iso(), ...(terminal ? { finished_at: iso() } : {}),
       })
       .eq("id", workflowId).in("status", ["running", "awaiting_human"]).select("id").maybeSingle();
+    if (wrote && (state.status === "failed" || state.status === "cancelled")) await refundWorkflowCredit(admin, workflowId);
     // A chain that stopped on a failure or a rule tells the owner once, and says which step and why.
     if (wrote && state.status === "failed" && workflow.kind === "chain") {
       try {
@@ -284,6 +293,7 @@ export async function cancelWorkflow(admin: AnyAdmin, workflowId: string, userId
   await admin.from("outer_control_workflows")
     .update({ status: "cancelled", summary: "Cancelled by the owner.", finished_at: iso(), updated_at: iso() })
     .eq("id", workflowId).eq("user_id", userId).in("status", ["running", "awaiting_human"]);
+  await refundWorkflowCredit(admin, workflowId);
 }
 
 export const MAX_FOLLOW_UP_CHARS = 5000;
