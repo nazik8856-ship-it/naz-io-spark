@@ -4,7 +4,7 @@
 // and deciding; this card only shows it and collects the few things a person must give.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, FileText, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
+import { Activity, Plus, FileText, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
 import { toast } from "sonner";
 import FinalArtifactView from "./FinalArtifactView";
 import { HonestStatusBadge, StatusReason } from "./HonestStatusBadge";
@@ -390,7 +390,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                     </span>
                   </div>
                   <div className="mt-0.5 text-xs text-zinc-500">{t.endpoint_url.startsWith("nazai-agent://") ? "Your NazAI agent" : hostOf(t.endpoint_url)}</div>
-                  {describeUsage(usage.get(t.id)) && <div className="mt-0.5 text-[11px] text-zinc-600" data-testid="tool-usage">{describeUsage(usage.get(t.id))}</div>}
+                  {describeUsage(usage.get(t.id)) && <div className="mt-1.5 flex items-center gap-1.5 text-xs text-zinc-300" data-testid="tool-usage"><Activity className="h-3 w-3 text-cyan-300/80" aria-hidden />{describeUsage(usage.get(t.id))}</div>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button disabled={busy === `test-${t.id}`} onClick={() => runTest(t.id, t.name)} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-40">
