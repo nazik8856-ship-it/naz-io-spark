@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findCoverageGaps } from "@/lib/coverage-gaps";
+import { coverageSummary, findCoverageGaps } from "@/lib/coverage-gaps";
 
 describe("findCoverageGaps", () => {
   it("a capability with no hard rules at all is a gap", () => {
@@ -95,5 +95,19 @@ describe("findCoverageGaps", () => {
       null,
     );
     expect(gaps).toEqual([{ kind: "send_email", provider: "Gmail" }]);
+  });
+});
+
+describe("coverageSummary", () => {
+  it("nothing connected is an empty state, never 'no gaps'", () => {
+    expect(coverageSummary(0, 0)).toEqual({ kind: "empty", covered: 0, total: 0 });
+  });
+  it("some gaps, or all covered", () => {
+    expect(coverageSummary(5, 2)).toEqual({ kind: "gaps", covered: 3, total: 5 });
+    expect(coverageSummary(5, 0)).toEqual({ kind: "covered", covered: 5, total: 5 });
+  });
+  it("odd numbers are kept in range", () => {
+    expect(coverageSummary(3, 9)).toEqual({ kind: "gaps", covered: 0, total: 3 });
+    expect(coverageSummary(-1, 0).kind).toBe("empty");
   });
 });

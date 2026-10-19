@@ -17,6 +17,7 @@ import ReportPanel from "./ReportPanel";
 import ConnectToolPanel, { type ConnectPayload } from "./ConnectToolPanel";
 import SessionActivity from "./SessionActivity";
 import FollowUpBox from "./FollowUpBox";
+import { saveTextFile, sessionsToCsv, type ExportSession } from "@/lib/outer-control-export";
 import { describeCompletion, describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, waitingReason, type CompletionView, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
 
 // The tables are new and not in the generated Supabase types.
@@ -27,7 +28,7 @@ type Tool = { id: string; name: string; endpoint_url: string; request_format: st
 type Session = {
   id: string; tool_id: string; objective: string; status: SessionStatus; step_count: number; max_steps: number;
   final_output: string | null; stop_reason: string | null; pending_kind: PendingKind | null; pending_question: string | null; started_at: string;
-  handoff: HandoffView | null; workflow_id: string | null; leg_no: number | null; completion?: CompletionView | null; final_artifact?: unknown; finished_at?: string | null;
+  handoff: HandoffView | null; workflow_id: string | null; leg_no: number | null; completion?: CompletionView | null; final_artifact?: unknown; finished_at?: string | null; archived_at?: string | null;
 };
 type MemoryRow = { id: string; kind: string; summary: string };
 type Step = StepLike & { id: string; reply_text: string | null; decision?: import("@/lib/outer-control-sessions").DecisionView | null };
@@ -59,18 +60,32 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
   const [usage, setUsage] = useState<Map<string, ToolUsage>>(new Map());
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedCount, setArchivedCount] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [job, setJob] = useState({ objective: "", context: "", keyId: "", maxSteps: "5" });
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const [t, s, k, u] = await Promise.all([
+    const SESSION_COLS = "id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no, completion, final_artifact, finished_at";
+    // Archived items are left out unless asked for. Before the archive column exists the plain query still works.
+    const sessionsQuery = (withArchive: boolean) => {
+      let q = anyDb.from("outer_control_sessions").select(withArchive ? `${SESSION_COLS}, archived_at` : SESSION_COLS).eq("user_id", accountId);
+      if (withArchive && !showArchived) q = q.is("archived_at", null);
+      return q.order("started_at", { ascending: false }).limit(10);
+    };
+    const [t, s0, k, u] = await Promise.all([
       anyDb.from("external_tools").select("id, name, endpoint_url, request_format, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
-      anyDb.from("outer_control_sessions").select("id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no, completion, final_artifact, finished_at").eq("user_id", accountId).order("started_at", { ascending: false }).limit(10),
+      sessionsQuery(true),
       anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
       anyDb.from("outer_control_tool_usage").select("tool_id, requests_30d, failed_30d, requests_today").eq("user_id", accountId),
     ]);
     setUsage(new Map((Array.isArray(u?.data) ? (u.data as ToolUsage[]) : []).filter((x) => x && typeof x.tool_id === "string").map((x) => [x.tool_id, x])));
+    const s = s0?.error ? await sessionsQuery(false) : s0;
+    try {
+      const c = await anyDb.from("outer_control_sessions").select("id", { count: "exact", head: true }).eq("user_id", accountId).not("archived_at", "is", null);
+      setArchivedCount(Number(c?.count ?? 0) || 0);
+    } catch { setArchivedCount(0); }
     setTools((t.data ?? []) as Tool[]);
     const rows = (s.data ?? []) as Session[];
     setSessions(rows);
@@ -81,7 +96,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       const w = await anyDb.from("outer_control_workflows").select("id, kind").in("id", wfIds);
       setSingles(new Set(((Array.isArray(w.data) ? w.data : []) as { id: string; kind?: string }[]).filter((x) => x?.kind === "single").map((x) => x.id)));
     } else setSingles(new Set());
-  }, [accountId]);
+  }, [accountId, showArchived]);
 
   const loadSteps = useCallback(async (sessionId: string) => {
     const { data } = await anyDb.from("outer_control_session_steps")
@@ -117,6 +132,22 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     if (okMsg) toast.success(okMsg);
     await load();
     return r;
+  };
+
+  /** The whole history as a CSV: every session (archived ones too), with the honest status and reason beside each. */
+  const exportHistory = async () => {
+    setBusy("export");
+    const cols = "id, tool_id, objective, status, step_count, max_steps, stop_reason, started_at, finished_at, workflow_id, leg_no, final_artifact";
+    const q = (withArchive: boolean) => anyDb.from("outer_control_sessions").select(withArchive ? `${cols}, archived_at` : cols).eq("user_id", accountId).order("started_at", { ascending: false }).limit(1000);
+    let r = await q(true);
+    if (r?.error) r = await q(false);
+    setBusy(null);
+    const rows = (Array.isArray(r?.data) ? r.data : []) as ExportSession[];
+    if (!rows.length) { toast.info("There is no history to export yet."); return; }
+    const name = (id: string) => tools.find((x) => x.id === id)?.name ?? "Removed tool";
+    const stamp = new Date().toISOString().slice(0, 10);
+    if (saveTextFile(`outer-control-history-${stamp}.csv`, sessionsToCsv(rows, name), "text/csv")) toast.success(`Exported ${rows.length} session${rows.length === 1 ? "" : "s"}.`);
+    else toast.error("Could not download the file.");
   };
 
   /** Saves the tool, then tests it, so the status shown right after connecting is a real result. */
@@ -292,6 +323,13 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                         </details>
                       );
                     })()}
+                    {!isOpen(s.status) && (
+                      <button type="button" disabled={busy === `archive-${s.id}`}
+                        onClick={() => void act(`archive-${s.id}`, "archive", { kind: "session", id: s.id, archived: !s.archived_at }, s.archived_at ? "Restored to the list." : "Archived. It is hidden from the list, not deleted.")}
+                        className="rounded border border-white/15 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-400 hover:bg-white/10 hover:text-zinc-200 disabled:opacity-50" data-testid="archive-session">
+                        {s.archived_at ? "Restore" : "Archive"}
+                      </button>
+                    )}
                     {(() => {
                       const end = describeClosure({ status: s.status, finished_at: s.finished_at ?? null, step_count: s.step_count, stop_reason: s.stop_reason, toolName: toolName(s.tool_id) });
                       return end ? <p className={`border-t border-white/10 pt-2 ${end.tone === "ok" ? "text-zinc-400" : "text-zinc-500"}`} data-testid="session-closure">{end.text}</p> : null;
@@ -415,7 +453,19 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
 
       {pastSessions.length > 0 && (
         <div className="mt-5 space-y-2" data-testid="past-sessions">
-          <h3 className="text-sm font-medium text-zinc-400">Recent sessions</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-medium text-zinc-400">Recent sessions</h3>
+            <div className="flex items-center gap-3 text-xs">
+              {archivedCount > 0 && (
+                <button type="button" onClick={() => setShowArchived((v) => !v)} className="text-zinc-400 hover:text-zinc-200" data-testid="toggle-archived">
+                  {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
+                </button>
+              )}
+              <button type="button" disabled={busy === "export"} onClick={exportHistory} className="text-cyan-300 hover:text-cyan-200 disabled:opacity-50" data-testid="export-history">
+                {busy === "export" ? "Preparing…" : "Export history (CSV)"}
+              </button>
+            </div>
+          </div>
           {pastShown.map(renderSession)}
           {pastSessions.length > DEFAULT_HISTORY && (
             <button type="button" onClick={() => setShowAllPast((v) => !v)} className="text-sm text-cyan-300 hover:text-cyan-200">

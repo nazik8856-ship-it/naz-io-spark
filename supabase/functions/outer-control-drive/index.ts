@@ -9,6 +9,7 @@
 //   POST { action: "create_agent_tool", agent_id }   (one of the account's own NazAI agents as a step)
 //   POST { action: "start_report", topic, tool_ids: [2..5 tool ids], context? }   (ask each tool for its opinion, then write one report; costs one credit)
 //   POST { action: "follow_up", session_id, instruction }   (a new request to the same tool, based on the controlled answer of a completed session)
+//   POST { action: "archive", kind: "session" | "workflow", id, archived?: boolean }   (leaves a finished item out of the default list, or brings it back; nothing is deleted)
 //   POST { action: "answer", session_id, answer }
 //   POST { action: "decide", session_id, option, note? | text? }  (answers a hand-off; text = "write the reply myself")
 //   POST { action: "cancel", session_id }
@@ -167,6 +168,18 @@ Deno.serve(async (req) => {
       if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, session_id: started.legIds[0], task_id: started.workflowId, status: "running" });
+    }
+
+    // ---- archive: a finished session or Task is left out of the default list; it is never deleted ----------
+    if (action === "archive") {
+      const table = body.kind === "workflow" ? "outer_control_workflows" : body.kind === "session" ? "outer_control_sessions" : null;
+      if (!table) return json({ error: "invalid_kind", message: "kind must be session or workflow." }, 400);
+      const { data: row } = await admin.from(table).select("id, status").eq("id", String(body.id ?? "")).eq("user_id", accountId).maybeSingle();
+      if (!row) return json({ error: "not_found", message: "Not found." }, 404);
+      if (["queued", "running", "awaiting_human"].includes(String((row as { status: string }).status))) return json({ error: "still_open", message: "Only a finished item can be archived. Cancel it first." }, 409);
+      const archived = body.archived !== false;
+      await admin.from(table).update({ archived_at: archived ? new Date().toISOString() : null }).eq("id", row.id);
+      return json({ ok: true, archived });
     }
 
     // ---- follow_up: a next request to the same tool, based on the controlled answer of a finished session ----

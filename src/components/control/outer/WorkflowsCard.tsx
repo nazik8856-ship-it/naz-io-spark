@@ -46,12 +46,20 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const [t, w, a] = await Promise.all([
+    const WF_COLS = "id, objective, status, summary, started_at, kind, current_leg, steps_total, steps_done, final_output, final_leg, failed_leg, stop_reason, final_artifact, origin";
+    // Archived Tasks are left out of the list (nothing is deleted). Before the archive column exists the plain query still works.
+    const wfQuery = (withArchive: boolean) => {
+      let q = anyDb.from("outer_control_workflows").select(withArchive ? `${WF_COLS}, archived_at` : WF_COLS).eq("user_id", accountId).neq("kind", "single");
+      if (withArchive) q = q.is("archived_at", null);
+      return q.order("started_at", { ascending: false }).limit(8);
+    };
+    const [t, w0, a] = await Promise.all([
       anyDb.from("external_tools").select("id, name").eq("user_id", accountId).eq("enabled", true).is("removed_at", null).order("created_at", { ascending: false }),
       // One-tool runs are Tasks too, but they are shown as sessions: this list is for several steps.
-      anyDb.from("outer_control_workflows").select("id, objective, status, summary, started_at, kind, current_leg, steps_total, steps_done, final_output, final_leg, failed_leg, stop_reason, final_artifact, origin").eq("user_id", accountId).neq("kind", "single").order("started_at", { ascending: false }).limit(8),
+      wfQuery(true),
       anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
     ]);
+    const w = w0?.error ? await wfQuery(false) : w0;
     setTools((t.data ?? []) as ToolOpt[]);
     setAgents((a.data ?? []) as AgentOpt[]);
     const rows = (w.data ?? []) as WorkflowRow[];
@@ -95,6 +103,11 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
     if (!r.ok) { toast.error(r.message || "That did not work."); return; }
     toast.success(r.data?.created === false ? "That agent can already be chosen as a step." : "Agent added: choose it as a step's tool.");
     setAgentChoice(""); await load();
+  };
+
+  const archive = async (id: string) => {
+    const r = await callDrive("archive", { kind: "workflow", id });
+    if (!r.ok) toast.error(r.message || "That did not work."); else { toast.success("Archived. It is hidden from the list, not deleted."); await load(); }
   };
 
   const cancel = async (id: string) => {
@@ -208,8 +221,10 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <HonestStatusBadge status={hs} />
-                {(w.status === "running" || w.status === "awaiting_human") && (
+                {(w.status === "running" || w.status === "awaiting_human") ? (
                   <button onClick={() => cancel(w.id)} className="rounded border border-white/15 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/10">Cancel</button>
+                ) : (
+                  <button onClick={() => archive(w.id)} className="rounded border border-white/15 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-500 hover:bg-white/10 hover:text-zinc-300" data-testid="archive-task">Archive</button>
                 )}
               </div>
             </div>

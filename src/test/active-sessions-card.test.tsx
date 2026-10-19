@@ -4,7 +4,7 @@ vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
 import { MemoryRouter } from "react-router-dom";
 
 const state = vi.hoisted(() => ({
-  tools: [] as unknown[], sessions: [] as unknown[], steps: [] as unknown[], keys: [] as unknown[], memory: [] as unknown[], usage: [] as unknown[],
+  tools: [] as unknown[], sessions: [] as unknown[], steps: [] as unknown[], keys: [] as unknown[], memory: [] as unknown[], usage: [] as unknown[], archivedCount: 0,
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
@@ -12,8 +12,8 @@ vi.mock("@/integrations/supabase/client", () => {
     const data = table === "external_tools" ? state.tools : table === "outer_control_sessions" ? state.sessions
       : table === "outer_control_session_steps" ? state.steps : table === "outer_control_memory" ? state.memory : table === "outer_control_tool_usage" ? state.usage : state.keys;
     const q: Record<string, unknown> = {};
-    for (const m of ["select", "eq", "is", "in", "order", "limit"]) q[m] = () => q;
-    q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data, error: null }).then(res);
+    for (const m of ["select", "eq", "is", "not", "in", "order", "limit"]) q[m] = () => q;
+    q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data, error: null, count: state.archivedCount }).then(res);
     return q;
   };
   return {
@@ -337,5 +337,43 @@ describe("ActiveSessionsCard", () => {
     renderCard();
     await screen.findByText(tool.name);
     expect(screen.queryByTestId("tool-usage")).toBeNull();
+  });
+
+  it("a finished session can be archived (never deleted), and an open one cannot", async () => {
+    state.tools = [tool];
+    state.sessions = [session({ status: "completed", final_output: "Done.", final_artifact: sessionArtifact("Done.") })];
+    renderCard();
+    fireEvent.click(await screen.findByText("Draft a reply"));
+    fireEvent.click(await screen.findByTestId("archive-session"));
+    await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1));
+    const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ action: "archive", kind: "session", id: "s1", archived: true });
+  });
+  it("an archived item can be restored, and the archived toggle shows only when something is archived", async () => {
+    state.tools = [tool]; state.archivedCount = 0;
+    state.sessions = [session({ status: "completed", final_output: "Done.", final_artifact: sessionArtifact("Done."), archived_at: "2026-10-20T00:00:00Z" })];
+    const { unmount } = renderCard();
+    await screen.findByText("Draft a reply");
+    expect(screen.queryByTestId("toggle-archived")).toBeNull();
+    unmount();
+    state.archivedCount = 4;
+    renderCard();
+    expect((await screen.findByTestId("toggle-archived")).textContent).toBe("Show archived (4)");
+    fireEvent.click(screen.getByText("Draft a reply"));
+    expect((await screen.findByTestId("archive-session")).textContent).toBe("Restore");
+  });
+  it("Export history downloads a CSV of the sessions with their honest status", async () => {
+    state.tools = [tool];
+    state.sessions = [session({ status: "stopped", stop_reason: "Stopped by the owner", started_at: "2026-10-19T09:00:00Z" })];
+    let blob: Blob | null = null;
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: (b: Blob) => { blob = b; return "blob:x"; }, revokeObjectURL: () => {} }));
+    renderCard();
+    fireEvent.click(await screen.findByTestId("export-history"));
+    await waitFor(() => expect(blob).not.toBeNull());
+    const text = await new Promise<string>((resolve) => { const fr = new FileReader(); fr.onload = () => resolve(String(fr.result)); fr.readAsText(blob!); });
+    expect(text.split("\r\n")[0]).toContain("Started (UTC),Finished (UTC)");
+    expect(text).toContain("Stopped,Stopped by the owner.");
+    expect(text).toContain("Support bot");
   });
 });
