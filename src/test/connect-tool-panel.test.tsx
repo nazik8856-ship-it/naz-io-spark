@@ -50,10 +50,22 @@ describe("ConnectToolPanel", () => {
     expect(screen.getByText(/must start with https/)).toBeTruthy();
     expect(connect.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Tool address"), { target: { value: "https://docs.example.com/mcp" } });
-    expect(screen.getByTestId("connector-note").textContent).toMatch(/not the MCP protocol/);
+    expect(screen.getByTestId("connector-note").textContent).toMatch(/Choose "MCP server" as the format/);
     expect(connect.disabled).toBe(false);
     fireEvent.click(connect);
     await waitFor(() => expect(onConnect).toHaveBeenCalledWith({ name: "Docs server", endpoint_url: "https://docs.example.com/mcp", request_format: "generic_json", model: undefined, token: undefined }));
+  });
+
+  it("an MCP connector: choose the MCP format, name the tool, and it is saved as an MCP connector", async () => {
+    const { onConnect } = setup();
+    fireEvent.click(screen.getByTestId("custom-connector"));
+    fireEvent.change(screen.getByLabelText("Tool name"), { target: { value: "Docs server" } });
+    fireEvent.change(screen.getByLabelText("Tool address"), { target: { value: "https://docs.example.com/mcp" } });
+    fireEvent.change(screen.getByLabelText("Request format"), { target: { value: "mcp" } });
+    expect(screen.getAllByTestId("connector-note")[0].textContent).toMatch(/speak the MCP protocol/);
+    fireEvent.change(screen.getByLabelText("MCP tool name"), { target: { value: "search_docs" } });
+    fireEvent.click(screen.getByText("Connect and test"));
+    await waitFor(() => expect(onConnect).toHaveBeenCalledWith({ name: "Docs server", endpoint_url: "https://docs.example.com/mcp", request_format: "mcp", model: "search_docs", token: undefined }));
   });
 
   it("stays open when the server did not save the tool", async () => {

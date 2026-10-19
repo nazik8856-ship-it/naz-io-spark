@@ -6,7 +6,7 @@
 // contract, and the session/step identifiers. Later steps also carry what was
 // accepted before and, after a rejection, which rules the previous reply broke.
 
-export type ToolFormat = "openai_chat" | "anthropic_messages" | "generic_json";
+export type ToolFormat = "openai_chat" | "anthropic_messages" | "generic_json" | "mcp";
 
 /** A rule as shown to the tool: its name and what a match does to the reply. */
 export type RuleLine = { name: string; action: "block" | "approval" | "remove_text"; /** Already triggered by an earlier reply in this run. */ matchedBefore?: boolean };

@@ -109,8 +109,12 @@ export function checkConnector(d: ConnectorDraft): { errors: string[]; notes: st
   else if (!u) errors.push("That is not a web address. It must start with https://");
   else if (u.protocol !== "https:") errors.push("The address must start with https://");
   else if (u.username || u.password) errors.push("Leave the user name and password out of the address; use the key field.");
-  if (u && /\/(mcp|sse)\/?$/i.test(u.pathname)) {
-    notes.push("This looks like an MCP server address. Outer Control sends plain HTTPS requests, not the MCP protocol, so it works only if the server also accepts them. The Test button shows whether it does.");
+  const looksMcp = !!u && /\/(mcp|sse)\/?$/i.test(u.pathname);
+  if (d.format === "mcp") {
+    notes.push("Outer Control will speak the MCP protocol (Streamable HTTP) to this server. The Test button lists its tools. Put the name of the tool to use in the Tool name field; it can stay empty when the server offers just one.");
+    if (u && /\/sse\/?$/i.test(u.pathname)) notes.push("An address ending in /sse is the older MCP transport, which is not supported. Use the server's Streamable HTTP address (usually ending in /mcp).");
+  } else if (looksMcp) {
+    notes.push("This looks like an MCP server address. Choose \"MCP server\" as the format so Outer Control speaks the MCP protocol; with another format it sends plain HTTPS requests, which an MCP server usually rejects.");
   }
   if (d.format === "anthropic_messages" && !d.model.trim()) notes.push("Anthropic-style endpoints need a model name.");
   return { errors, notes };

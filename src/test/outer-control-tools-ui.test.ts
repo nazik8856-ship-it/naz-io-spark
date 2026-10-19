@@ -46,7 +46,11 @@ describe("featured tools and the custom connector", () => {
     expect(checkConnector({ ...ok, url: "tool.example.com" }).errors[0]).toMatch(/not a web address/);
     expect(checkConnector({ ...ok, url: "http://tool.example.com" }).errors[0]).toMatch(/https/);
     expect(checkConnector({ ...ok, url: "https://u:p@tool.example.com" }).errors[0]).toMatch(/user name and password/);
-    expect(checkConnector({ ...ok, url: "https://tool.example.com/mcp" }).notes[0]).toMatch(/not the MCP protocol/);
+    expect(checkConnector({ ...ok, url: "https://tool.example.com/mcp" }).notes[0]).toMatch(/Choose "MCP server" as the format/);
+    const mcp = checkConnector({ ...ok, url: "https://tool.example.com/mcp", format: "mcp" });
+    expect(mcp.errors).toEqual([]);
+    expect(mcp.notes[0]).toMatch(/speak the MCP protocol/);
+    expect(checkConnector({ ...ok, url: "https://tool.example.com/sse", format: "mcp" }).notes[1]).toMatch(/older MCP transport/);
     expect(checkConnector({ ...ok, format: "anthropic_messages" }).notes[0]).toMatch(/need a model/);
   });
 });

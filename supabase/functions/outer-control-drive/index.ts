@@ -42,7 +42,7 @@ const json = (b: unknown, status = 200) =>
 
 const RATE_LIMIT_PER_MINUTE = 30;
 const MAX_TOOLS_PER_ACCOUNT = 20;
-const FORMATS = new Set(["openai_chat", "anthropic_messages", "generic_json"]);
+const FORMATS = new Set(["openai_chat", "anthropic_messages", "generic_json", "mcp"]);
 const HEADER_NAME = /^[A-Za-z0-9-]{1,40}$/;
 
 // deno-lint-ignore no-explicit-any
@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
       const endpoint = String(body.endpoint_url ?? "").trim();
       const format = String(body.request_format ?? "generic_json");
       if (!name || name.length > 80) return json({ error: "invalid_name", message: "Give the tool a name (80 characters or fewer)." }, 400);
-      if (!FORMATS.has(format)) return json({ error: "invalid_format", message: "request_format must be openai_chat, anthropic_messages or generic_json." }, 400);
+      if (!FORMATS.has(format)) return json({ error: "invalid_format", message: "request_format must be openai_chat, anthropic_messages, generic_json or mcp." }, 400);
       const authName = String(body.auth_header ?? "Authorization").trim() || "Authorization";
       const scheme = typeof body.auth_scheme === "string" ? body.auth_scheme : "Bearer ";
       if (!HEADER_NAME.test(authName) || scheme.length > 20 || /[\r\n]/.test(scheme)) return json({ error: "invalid_auth", message: "That authentication header is not valid." }, 400);

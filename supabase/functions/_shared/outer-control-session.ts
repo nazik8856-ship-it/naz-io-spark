@@ -18,6 +18,7 @@ import { validateOutboundUrl } from "./url-safety.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { buildInstruction, buildToolRequest, parseToolReply, type RuleLine, type ToolFormat, type ToolRequestInput } from "./outer-control-tool-request.ts";
 import { AGENT_FAILURE_TEXT, readAgentRun } from "./outer-control-task.ts";
+import { mcpCall } from "./outer-control-mcp.ts";
 import { gatewayAi, REPORT_TOOL_URL, writeReport, type ReportResult } from "./outer-control-report.ts";
 import type { ReportDoc } from "./outer-control-report-doc.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
@@ -526,6 +527,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       let failed = false;
       let timedOut = false;
       let unreachable = false;
+      let mcpDetail: string | null = null;
       let retryAfterMs: number | null = null;
       let incomplete: "empty" | "truncated" | "too_long" | null = null;
       let unusableCode: string | null = null;
@@ -547,6 +549,15 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           res = reportResult.ok
             ? new Response(JSON.stringify({ status: "done", answer: reportResult.text }), { status: 200 })
             : new Response(JSON.stringify({ error: reportResult.code }), { status: 200 });
+        } else if (tool.request_format === "mcp") {
+          // An MCP server is spoken to in MCP: handshake, find the tool, call it with the step's text. What it returns is the reply.
+          const text = [reqInput.objective, reqInput.context ? `Context:\n${reqInput.context}` : "", reqInput.answer ? `Answer from a person:\n${reqInput.answer}` : ""].filter(Boolean).join("\n\n").slice(0, 12_000);
+          const r = await mcpCall({ url: tool.endpoint_url, authHeader: tool.auth_header, authScheme: tool.auth_scheme, token }, { fetchImpl: deps.fetchImpl, validateUrl: deps.validateUrl, timeoutMs: deps.toolTimeoutMs }, tool.model, text);
+          if (r.ok) res = new Response(JSON.stringify({ status: "done", answer: r.text }), { status: 200 });
+          else if (r.timedOut) throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
+          else if (r.httpStatus !== null) res = new Response("", { status: r.httpStatus });
+          else if (/could not be reached/.test(r.error)) throw new Error("unreachable");
+          else { mcpDetail = r.error; res = new Response("{}", { status: 200 }); }
         } else {
           // A redirect is never followed: the address was checked, and where it points is not.
           res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(request.body), redirect: "manual", signal: AbortSignal.timeout(deps.toolTimeoutMs) });
@@ -554,7 +565,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         httpStatus = res.status;
         retryAfterMs = parseRetryAfter(res.headers?.get?.("retry-after"), deps.now());
         rawText = await res.text();
-        if (!res.ok) failed = true;
+        if (!res.ok || mcpDetail) failed = true;
       } catch (e) {
         failed = true;
         if (e instanceof Error && e.name === "TimeoutError") timedOut = true; else unreachable = true;
@@ -602,7 +613,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         }
       }
       const failureClass = failed
-        ? classifyFailure({ httpStatus: httpStatus !== null && httpStatus < 400 ? null : httpStatus, timedOut, unreachable, retryAfterMs, incomplete, unusableCode, attempt: s.failures_used + 1 })
+        ? classifyFailure({ httpStatus: httpStatus !== null && httpStatus < 400 ? null : httpStatus, timedOut, unreachable, retryAfterMs, incomplete, unusableCode, detail: mcpDetail, attempt: s.failures_used + 1 })
         : null;
 
       const stepBase = {

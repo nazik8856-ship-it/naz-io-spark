@@ -3,6 +3,7 @@
 import { buildToolRequest, type ToolFormat } from "./outer-control-tool-request.ts";
 import { extractExternalText } from "./outer-control-intake.ts";
 import { readGenericPayload } from "./outer-control-session.ts";
+import { mcpTest } from "./outer-control-mcp.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -54,6 +55,10 @@ export async function runConnectionTest(admin: AnyAdmin, tool: TestableTool, dep
   if (tool.credentials_secret_id) {
     const { data: secret } = await admin.rpc("read_integration_secret", { sid: tool.credentials_secret_id });
     token = String((secret as { token?: string } | null)?.token ?? "");
+  }
+  if (tool.request_format === "mcp") {
+    // An MCP server is tested in MCP: the handshake works and the tool to use is there and takes text. Nothing is called.
+    return await mcpTest({ url: tool.endpoint_url, authHeader: tool.auth_header, authScheme: tool.auth_scheme, token }, { fetchImpl: deps.fetchImpl, validateUrl: deps.validateUrl, timeoutMs: deps.timeoutMs }, tool.model, deps.now);
   }
   const ping = buildToolRequest({
     format: tool.request_format as ToolFormat, model: tool.model, objective: 'Connection test. Reply with status "done" and the answer "ok".',

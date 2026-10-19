@@ -217,15 +217,16 @@ export default function ConnectToolPanel({ open, onOpenChange, tools = [], busy 
             <div className="mt-6 space-y-3" data-testid="custom-form">
               <button type="button" onClick={() => setView({ kind: "home" })} className="flex items-center gap-1 text-xs text-slate-400 hover:text-cyan-200"><ArrowLeft className="h-3 w-3" /> Back</button>
               <input className={inputCls} placeholder="Name, e.g. Support bot" aria-label="Tool name" autoFocus value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} />
-              <input className={inputCls} placeholder="https://… (MCP server URL or the tool's endpoint)" aria-label="Tool address" value={custom.url} onChange={(e) => setCustom({ ...custom, url: e.target.value })} />
+              <input className={inputCls} placeholder="https://… (the tool's endpoint, or an MCP server address)" aria-label="Tool address" value={custom.url} onChange={(e) => setCustom({ ...custom, url: e.target.value })} />
               <input className={inputCls} type="password" autoComplete="off" placeholder="API key or token (optional; stored encrypted, never shown again)" aria-label="Tool credential" value={custom.token} onChange={(e) => setCustom({ ...custom, token: e.target.value })} />
               <div className="grid gap-2 sm:grid-cols-2">
                 <select className={inputCls} aria-label="Request format" value={custom.format} onChange={(e) => setCustom({ ...custom, format: e.target.value })}>
                   <option value="generic_json">Plain JSON</option>
                   <option value="openai_chat">OpenAI-style chat</option>
                   <option value="anthropic_messages">Anthropic messages</option>
+                  <option value="mcp">MCP server</option>
                 </select>
-                <input className={inputCls} placeholder="Model (optional)" aria-label="Model" value={custom.model} onChange={(e) => setCustom({ ...custom, model: e.target.value })} />
+                <input className={inputCls} placeholder={custom.format === "mcp" ? "Tool name (optional if the server has one tool)" : "Model (optional)"} aria-label={custom.format === "mcp" ? "MCP tool name" : "Model"} value={custom.model} onChange={(e) => setCustom({ ...custom, model: e.target.value })} />
               </div>
               {(custom.name || custom.url) && checked.errors.map((m) => <p key={m} className="flex items-center gap-1.5 text-xs text-rose-300"><AlertTriangle className="h-3 w-3" />{m}</p>)}
               {checked.notes.map((m) => <p key={m} className="text-xs text-amber-200/90" data-testid="connector-note">{m}</p>)}
