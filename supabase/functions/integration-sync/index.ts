@@ -81,8 +81,8 @@ async function syncShopify(c: Credentials): Promise<SyncResult> {
   if (!shopifyCheck.ok) return { ok: false, kind: "commerce", data: {}, error: `store_url is not allowed: ${shopifyCheck.reason}` };
   const h = { "X-Shopify-Access-Token": token, "Content-Type": "application/json" };
   const [ordersR, productsR] = await Promise.all([
-    fetch(ordersUrl, { headers: h }),
-    fetch(productsUrl, { headers: h }),
+    fetch(ordersUrl, { headers: h, redirect: "manual" }),
+    fetch(productsUrl, { headers: h, redirect: "manual" }),
   ]);
   const orders = await ordersR.json().catch(() => ({}));
   const products = await productsR.json().catch(() => ({}));
@@ -111,7 +111,7 @@ async function syncWoo(c: Credentials): Promise<SyncResult> {
   const wooCheck = await validateOutboundUrl(wooUrl);
   if (!wooCheck.ok) return { ok: false, kind: "commerce", data: {}, error: `store_url is not allowed: ${wooCheck.reason}` };
   const auth = btoa(`${key}:${secret}`);
-  const r = await fetch(wooUrl, { headers: { Authorization: `Basic ${auth}` } });
+  const r = await fetch(wooUrl, { headers: { Authorization: `Basic ${auth}` }, redirect: "manual" });
   const rows = await r.json().catch(() => []);
   if (!r.ok) return { ok: false, kind: "commerce", data: {}, error: rows?.message || `Woo ${r.status}` };
   const list = (rows || []) as Array<{ total: string; currency: string; date_created: string; status: string }>;

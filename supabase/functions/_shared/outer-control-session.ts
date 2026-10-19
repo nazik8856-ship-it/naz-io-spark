@@ -548,7 +548,8 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
             ? new Response(JSON.stringify({ status: "done", answer: reportResult.text }), { status: 200 })
             : new Response(JSON.stringify({ error: reportResult.code }), { status: 200 });
         } else {
-          res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(request.body), signal: AbortSignal.timeout(deps.toolTimeoutMs) });
+          // A redirect is never followed: the address was checked, and where it points is not.
+          res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(request.body), redirect: "manual", signal: AbortSignal.timeout(deps.toolTimeoutMs) });
         }
         httpStatus = res.status;
         retryAfterMs = parseRetryAfter(res.headers?.get?.("retry-after"), deps.now());

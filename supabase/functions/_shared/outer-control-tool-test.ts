@@ -24,6 +24,7 @@ export type TestOutcome = { ok: boolean; error: string | null; ms: number | null
 /** What an HTTP failure means for the person: the cause and what to do. */
 export function describeHttpFailure(status: number): string {
   if (status === 401 || status === 403) return `The tool rejected the key (HTTP ${status}). Update the key and test again.`;
+  if (status >= 300 && status < 400) return `The tool redirected the request (HTTP ${status}). Outer Control does not follow redirects: use the final address.`;
   if (status === 404) return "Nothing answers at that address (HTTP 404). Check the address.";
   if (status === 405) return "That address does not accept requests of this kind (HTTP 405). Check the address and the request format.";
   if (status === 408 || status === 504) return `The tool took too long to answer (HTTP ${status}).`;
@@ -63,7 +64,7 @@ export async function runConnectionTest(admin: AnyAdmin, tool: TestableTool, dep
   if (tool.request_format === "anthropic_messages") headers["anthropic-version"] = "2023-06-01";
   const started = deps.now();
   try {
-    const res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(ping.body), signal: AbortSignal.timeout(deps.timeoutMs) });
+    const res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(ping.body), redirect: "manual", signal: AbortSignal.timeout(deps.timeoutMs) });
     const text = await res.text();
     const ms = Math.max(0, deps.now() - started);
     if (!res.ok) return { ok: false, error: describeHttpFailure(res.status), ms, sample: null };

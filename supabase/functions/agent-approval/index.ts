@@ -207,6 +207,7 @@ serve(async (req) => {
           method: "POST",
           headers: { "Content-Type": "application/json", "User-Agent": "NazAI-Agent/1.0" },
           body: JSON.stringify(bodyObj),
+          redirect: "manual",
           signal: ctrl.signal,
         });
         clearTimeout(t);

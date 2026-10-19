@@ -70,6 +70,7 @@ async function notifyCallback(
         "X-NazAI-Signature": signature,
       },
       body,
+      redirect: "manual",
       signal: AbortSignal.timeout(NOTIFY_TIMEOUT_MS),
     });
   } catch { /* the poll-then-fallback loop below handles a missed notification the same as a missed answer */ }
