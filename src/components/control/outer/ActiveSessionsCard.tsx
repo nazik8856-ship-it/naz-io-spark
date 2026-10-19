@@ -12,10 +12,11 @@ import { honestStatus } from "@/lib/outer-control-status";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems, type Tone } from "@/lib/outer-control-ui";
-import { healthSummary, isInternalTool, toolHealth, type ActivityStep } from "@/lib/outer-control-tools-ui";
+import { describeClosure, healthSummary, isInternalTool, toolHealth, type ActivityStep } from "@/lib/outer-control-tools-ui";
 import ReportPanel from "./ReportPanel";
 import ConnectToolPanel, { type ConnectPayload } from "./ConnectToolPanel";
 import SessionActivity from "./SessionActivity";
+import FollowUpBox from "./FollowUpBox";
 import { describeCompletion, describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, waitingReason, type CompletionView, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
 
 // The tables are new and not in the generated Supabase types.
@@ -26,7 +27,7 @@ type Tool = { id: string; name: string; endpoint_url: string; request_format: st
 type Session = {
   id: string; tool_id: string; objective: string; status: SessionStatus; step_count: number; max_steps: number;
   final_output: string | null; stop_reason: string | null; pending_kind: PendingKind | null; pending_question: string | null; started_at: string;
-  handoff: HandoffView | null; workflow_id: string | null; leg_no: number | null; completion?: CompletionView | null; final_artifact?: unknown;
+  handoff: HandoffView | null; workflow_id: string | null; leg_no: number | null; completion?: CompletionView | null; final_artifact?: unknown; finished_at?: string | null;
 };
 type MemoryRow = { id: string; kind: string; summary: string };
 type Step = StepLike & { id: string; reply_text: string | null; decision?: import("@/lib/outer-control-sessions").DecisionView | null };
@@ -64,7 +65,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     if (!accountId) return;
     const [t, s, k] = await Promise.all([
       anyDb.from("external_tools").select("id, name, endpoint_url, request_format, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
-      anyDb.from("outer_control_sessions").select("id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no, completion, final_artifact").eq("user_id", accountId).order("started_at", { ascending: false }).limit(10),
+      anyDb.from("outer_control_sessions").select("id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no, completion, final_artifact, finished_at").eq("user_id", accountId).order("started_at", { ascending: false }).limit(10),
       anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
     ]);
     setTools((t.data ?? []) as Tool[]);
@@ -241,6 +242,12 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                   <div className="mt-2 space-y-2 rounded border border-white/10 bg-black/20 p-2.5 text-[11px]">
                     {hs.key === "completed" && <FinalArtifactView artifact={s.final_artifact} kind="session" />}
                     <SessionActivity toolName={toolName(s.tool_id)} status={s.status} steps={(steps[s.id] ?? []) as ActivityStep[]} completion={s.completion} pendingKind={s.pending_kind} stepCount={s.step_count} maxSteps={s.max_steps} />
+                    {hs.key === "completed" && (
+                      <FollowUpBox
+                        toolName={toolName(s.tool_id)} busy={busy === `followup-${s.id}`}
+                        onSend={async (instruction) => (await act(`followup-${s.id}`, "follow_up", { session_id: s.id, instruction }, "Follow-up started. It appears under Recent sessions.")).ok}
+                      />
+                    )}
                     <ul className="space-y-0.5">
                       {(steps[s.id] ?? []).map((st) => (
                         <li key={st.id} className="text-zinc-300">
@@ -281,6 +288,10 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                           </ul>
                         </details>
                       );
+                    })()}
+                    {(() => {
+                      const end = describeClosure({ status: s.status, finished_at: s.finished_at ?? null, step_count: s.step_count, stop_reason: s.stop_reason, toolName: toolName(s.tool_id) });
+                      return end ? <p className={`border-t border-white/10 pt-2 ${end.tone === "ok" ? "text-zinc-400" : "text-zinc-500"}`} data-testid="session-closure">{end.text}</p> : null;
                     })()}
                   </div>
                 )}

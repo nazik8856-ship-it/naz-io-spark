@@ -194,3 +194,29 @@ export function checkReportForm(topic: string, toolIds: string[]): string | null
   if (toolIds.length > MAX_REPORT_TOOLS) return `Choose at most ${MAX_REPORT_TOOLS} tools.`;
   return null;
 }
+
+// ---------------------------------------------------------------------------------------
+// The end of a session
+
+const SHORT_MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const closedAt = (iso: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : `${d.getUTCDate()} ${SHORT_MONTH[d.getUTCMonth()]}, ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")} UTC`;
+};
+
+/**
+ * The closing record of a session, said plainly: when contact with the tool ended, how many exchanges there were, and where the
+ * result is. Null while the session is still open. A session that did not complete says why it ended and that nothing more is sent.
+ */
+export function describeClosure(s: { status: string; finished_at: string | null; step_count: number; stop_reason: string | null; toolName: string }): { text: string; tone: "ok" | "warn" } | null {
+  if (!s.finished_at || s.status === "queued" || s.status === "running" || s.status === "awaiting_human") return null;
+  const when = closedAt(s.finished_at);
+  const stamp = when ? ` ${when}` : "";
+  if (s.status === "completed") {
+    const n = Math.max(0, s.step_count);
+    return { tone: "ok", text: `Session closed${stamp}. ${n} exchange${n === 1 ? "" : "s"} with ${s.toolName}. The final controlled result is stored above, and nothing more is sent to the tool in this session.` };
+  }
+  const how = s.status === "cancelled" ? "cancelled" : s.status === "stopped" ? "stopped" : s.status === "skipped" ? "skipped" : s.status === "rejected" ? "rejected" : "failed";
+  const why = s.stop_reason ? ` ${s.stop_reason.replace(/\s+/g, " ").trim().replace(/[.!?]*$/, ".")}` : "";
+  return { tone: "warn", text: `Session closed${stamp} (${how}).${why} Nothing more is sent to the tool in this session.` };
+}

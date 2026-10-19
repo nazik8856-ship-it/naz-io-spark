@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { existsSync } from "node:fs";
-import { buildActivity, checkConnector, FEATURED_TOOLS, featuredPayload, healthSummary, keyPageUrl, searchConnectors, toolHealth } from "@/lib/outer-control-tools-ui";
+import { buildActivity, checkConnector, describeClosure, FEATURED_TOOLS, featuredPayload, healthSummary, keyPageUrl, searchConnectors, toolHealth } from "@/lib/outer-control-tools-ui";
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();
@@ -117,5 +117,20 @@ describe("session activity", () => {
     expect(done.some((l) => l.tone === "live")).toBe(false);
     expect(buildActivity({ ...base, status: "awaiting_human", pendingKind: "handoff", steps: [] }).at(-1)!.text).toBe("Waiting for your decision on how to continue.");
     expect(buildActivity({ ...base, status: "queued", steps: [] })[0].text).toMatch(/Not started/);
+  });
+});
+
+describe("the end of a session", () => {
+  const base = { finished_at: "2026-10-19T09:05:00Z", step_count: 1, stop_reason: null, toolName: "Bot2" };
+  it("a completed session says when it closed, how many exchanges, and that the result is stored", () => {
+    expect(describeClosure({ ...base, status: "completed" })).toEqual({ tone: "ok", text: "Session closed 19 Oct, 09:05 UTC. 1 exchange with Bot2. The final controlled result is stored above, and nothing more is sent to the tool in this session." });
+  });
+  it("a session that ended another way says how and why", () => {
+    expect(describeClosure({ ...base, status: "failed", stop_reason: "The tool could not be reached" })?.text).toBe("Session closed 19 Oct, 09:05 UTC (failed). The tool could not be reached. Nothing more is sent to the tool in this session.");
+    expect(describeClosure({ ...base, status: "cancelled" })?.text).toMatch(/\(cancelled\)\. Nothing more is sent/);
+  });
+  it("an open session has no closing record yet", () => {
+    for (const status of ["queued", "running", "awaiting_human"]) expect(describeClosure({ ...base, status })).toBeNull();
+    expect(describeClosure({ ...base, status: "completed", finished_at: null })).toBeNull();
   });
 });

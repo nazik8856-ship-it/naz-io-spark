@@ -286,4 +286,43 @@ export async function cancelWorkflow(admin: AnyAdmin, workflowId: string, userId
     .eq("id", workflowId).eq("user_id", userId).in("status", ["running", "awaiting_human"]);
 }
 
+export const MAX_FOLLOW_UP_CHARS = 5000;
+
+/** What the tool is told about the earlier exchange: the question and the controlled answer, never the raw reply. */
+export function followUpContext(prev: { objective: string; answer: string; toolName: string }): string {
+  const answer = prev.answer.length > MAX_FOLLOW_UP_CHARS ? `${prev.answer.slice(0, MAX_FOLLOW_UP_CHARS)}\n[Earlier answer shortened.]` : prev.answer;
+  return [
+    `Earlier in this conversation with ${prev.toolName}.`,
+    `The question was: ${prev.objective}`,
+    `The controlled answer (already checked against the account's rules) was:`,
+    answer,
+    `Answer the new request below, building on that answer.`,
+  ].join("\n");
+}
+
+export type FollowUpResult = StartWorkflowResult | { ok: false; code: "not_found" | "not_completed" | "invalid_instruction"; message: string };
+
+/**
+ * A follow-up: a new request to the same tool, based on the controlled answer of a session that finished. It starts a new
+ * one-step Task, so it goes through the same gate, rules and final artifact as any other. Only the official result of the
+ * earlier session is passed on; a session that did not complete, or whose result is not valid, cannot be followed up.
+ */
+export async function startFollowUp(admin: AnyAdmin, userId: string, input: { session_id: unknown; instruction: unknown }): Promise<FollowUpResult> {
+  const instruction = typeof input.instruction === "string" ? input.instruction.trim() : "";
+  if (!instruction || instruction.length > 2000) return { ok: false, code: "invalid_instruction", message: "Write the follow-up request (2000 characters or fewer)." };
+  const { data } = await admin.from("outer_control_sessions")
+    .select("id, status, tool_id, api_key_id, objective, final_artifact").eq("id", String(input.session_id ?? "")).eq("user_id", userId).maybeSingle();
+  const prev = data as { id: string; status: string; tool_id: string; api_key_id: string | null; objective: string; final_artifact: unknown } | null;
+  if (!prev) return { ok: false, code: "not_found", message: "Session not found." };
+  const answer = prev.status === "completed" ? officialOutput(prev.final_artifact, "session") : null;
+  if (answer === null) return { ok: false, code: "not_completed", message: "Only a completed session with a valid final result can be followed up." };
+  const { data: tool } = await admin.from("external_tools").select("id, name, enabled, removed_at").eq("id", prev.tool_id).eq("user_id", userId).maybeSingle();
+  const t = tool as { id: string; name: string; enabled: boolean; removed_at: string | null } | null;
+  if (!t || !t.enabled || t.removed_at) return { ok: false, code: "not_found", message: "That tool was removed or is switched off." };
+  return startWorkflow(admin, userId, {
+    objective: instruction, context: followUpContext({ objective: prev.objective, answer, toolName: t.name }),
+    api_key_id: prev.api_key_id, kind: "single", legs: [{ tool_id: t.id, instruction, on_failure: "handoff" }],
+  });
+}
+
 export { isLegOpen };

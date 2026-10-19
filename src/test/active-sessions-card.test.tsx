@@ -300,4 +300,29 @@ describe("ActiveSessionsCard", () => {
     expect(cc.textContent).toMatch(/Completion check passed \(2\/2\)/);
     expect(cc.textContent).toMatch(/✓ A final result exists — a result exists/);
   });
+
+  it("a completed session shows its closing record and offers a follow-up that is sent as a new request to the same session's tool", async () => {
+    state.tools = [tool];
+    state.sessions = [session({ status: "completed", step_count: 2, finished_at: "2026-10-19T12:03:00Z", final_output: "Here is the reply.", final_artifact: sessionArtifact("Here is the reply.") })];
+    state.steps = [{ id: "a", step_no: 1, attempt: 1, verdict: "allow", next_action: "finish", error: null, note: null, reply_text: "x" }];
+    renderCard();
+    fireEvent.click(await screen.findByText("Draft a reply"));
+    expect((await screen.findByTestId("session-closure")).textContent).toMatch(/Session closed 19 Oct, 12:03 UTC\. 2 exchanges with .*final controlled result is stored/);
+    const send = screen.getByTestId("follow-up-send") as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Follow-up request"), { target: { value: "Shorten it to one line." } });
+    fireEvent.click(send);
+    await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1));
+    const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ action: "follow_up", session_id: "s1", instruction: "Shorten it to one line." });
+  });
+
+  it("a session that did not complete says it was closed and why, and offers no follow-up", async () => {
+    state.tools = [tool];
+    state.sessions = [session({ status: "stopped", stop_reason: "Stopped by the owner", finished_at: "2026-10-19T12:03:00Z" })];
+    renderCard();
+    fireEvent.click(await screen.findByText("Draft a reply"));
+    expect((await screen.findByTestId("session-closure")).textContent).toMatch(/Session closed 19 Oct, 12:03 UTC \(stopped\)\. Stopped by the owner\. Nothing more is sent/);
+    expect(screen.queryByTestId("follow-up")).toBeNull();
+  });
 });
