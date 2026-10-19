@@ -31,6 +31,8 @@ export type FailureInput = {
   incomplete?: "empty" | "truncated" | "too_long" | null;
   /** Intake refusal code for a reply that could not be read at all. */
   unusableCode?: string | null;
+  /** The reason, already worded, for a failure that retrying cannot fix (an MCP server that refuses the call, a tool that is not there). */
+  detail?: string | null;
   /** 1 for the first failure on this step. */
   attempt: number;
 };
@@ -47,6 +49,7 @@ export function classifyFailure(i: FailureInput): FailureClass {
   if (i.incomplete === "too_long") {
     return { kind: "incomplete", retry: true, delayMs: 0, reason: "The tool's reply was too long.", correction: "Your previous reply was too long. Reply again with a shorter answer." };
   }
+  if (i.detail) return { kind: "unusable", retry: false, delayMs: 0, correction: null, reason: i.detail };
   if (i.unusableCode) {
     // A reply with tool calls, or in a shape nobody agreed to, is never retried into: asking again would only repeat it.
     const agentText = AGENT_FAILURE_TEXT[i.unusableCode] ?? REPORT_FAILURE_TEXT[i.unusableCode];

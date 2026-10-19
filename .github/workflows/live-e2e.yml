@@ -1,0 +1,27 @@
+name: Live end-to-end (Outer Control)
+
+# Manual only: it runs against the deployed project, signed in as a real account, and writes a few sessions to that account's history
+# (archived again at the end). Each session asks one connected tool a short question.
+#
+# Needs repository secrets: LIVE_USER_TOKEN (an access token for a signed-in user), LIVE_TOOL_ID (the id of one connected tool,
+# the stub tool is ideal) and LIVE_ANON_KEY (the project's public anon key).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    name: Outer Control live check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/live-e2e.mjs
+        env:
+          LIVE_USER_TOKEN: ${{ secrets.LIVE_USER_TOKEN }}
+          LIVE_TOOL_ID: ${{ secrets.LIVE_TOOL_ID }}
+          LIVE_ANON_KEY: ${{ secrets.LIVE_ANON_KEY }}

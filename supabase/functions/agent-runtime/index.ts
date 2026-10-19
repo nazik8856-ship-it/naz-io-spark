@@ -23,6 +23,7 @@ import { checkAgentAssembly } from "../_shared/final-assembly-check.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
+import { resolveSchedulerCaller } from "../_shared/scheduler-caller.ts";
 import { recordAiSpend, estimateCostUsd } from "../_shared/spend-guard.ts";
 import { pickAiGateway, callAiGateway, type GatewayConfig } from "../_shared/ai-gateway.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
@@ -175,8 +176,11 @@ serve(async (req) => {
     //  - webhook (public) → look up the agent's owner via service role
     //  - normal → JWT
     let userId = "";
-    if (schedulerUserId) {
-      userId = schedulerUserId;
+    const caller = resolveSchedulerCaller(authHeader, schedulerUserId, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
+    // A request that names a user in x-scheduler-user-id without the platform's own key is a forgery, not a login.
+    if (caller.kind === "forged") return json({ error: "Unauthorized" }, 401);
+    if (caller.kind === "platform") {
+      userId = caller.userId;
     } else if (trigger === "webhook") {
       const { data: ownerRow } = await adminClient
         .from("agents").select("user_id, webhook_secret_id").eq("id", agentId).maybeSingle();
@@ -3405,6 +3409,7 @@ Rules:
                 method: "POST",
                 headers: { "Content-Type": "application/json", "User-Agent": "NazAI-Agent/1.0" },
                 body: JSON.stringify(bodyObj),
+                redirect: "manual",
                 signal: ctrl.signal,
               });
               clearTimeout(to);

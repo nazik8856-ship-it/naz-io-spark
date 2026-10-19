@@ -16,14 +16,20 @@ Deno.test("buildSignaturePayload: joins timestamp and body with a dot, determini
   assertEquals(buildSignaturePayload("123", '{"a":1}'), '123.{"a":1}');
 });
 
-Deno.test("WEBHOOK_EVENTS has the 15 documented event kinds", () => {
+Deno.test("WEBHOOK_EVENTS has the 16 documented event kinds", () => {
   assertEquals([...WEBHOOK_EVENTS].sort(), [
     "api_key_auto_paused", "api_key_on_uncertain_downgraded", "approval_auto_resolved", "approval_created",
-    "approval_escalated", "automation_readiness_ready", "decision_logged", "hard_rule_auto_drafted",
+    "approval_escalated", "approval_unexecuted", "automation_readiness_ready", "decision_logged", "hard_rule_auto_drafted",
     "incident_acknowledged", "incident_assigned", "incident_escalated", "incident_opened", "incident_resolved",
     "response_grounding_failed", "shadow_policy_promotion_ready",
   ]);
 });
+
+// The delivery check resolves the hook's host before sending. These tests answer that lookup with a public address, so they do not
+// depend on DNS being reachable where they run.
+const realResolveDns = Deno.resolveDns;
+const usePublicDns = () => { (Deno as { resolveDns: unknown }).resolveDns = () => Promise.resolve(["93.184.216.34"]); };
+const restoreDns = () => { (Deno as { resolveDns: unknown }).resolveDns = realResolveDns; };
 
 type Row = { data?: unknown; error?: unknown };
 class FakeQuery implements PromiseLike<Row> {
@@ -66,6 +72,7 @@ Deno.test("no webhooks subscribed to this event: nothing delivered, nothing logg
 
 Deno.test("a subscribed webhook is delivered with signature headers and logged as ok", async () => {
   const originalFetch = globalThis.fetch;
+  usePublicDns();
   let capturedInit: RequestInit | undefined;
   // deno-lint-ignore no-explicit-any
   globalThis.fetch = ((_url: string, init?: RequestInit) => {
@@ -93,11 +100,13 @@ Deno.test("a subscribed webhook is delivered with signature headers and logged a
     assert(typeof headers["X-NazAI-Signature"] === "string" && headers["X-NazAI-Signature"].length === 64, "expected a 64-char hex HMAC-SHA256 signature");
   } finally {
     globalThis.fetch = originalFetch;
+    restoreDns();
   }
 });
 
 Deno.test("a network failure delivering a webhook is logged as not-ok, never throws", async () => {
   const originalFetch = globalThis.fetch;
+  usePublicDns();
   globalThis.fetch = (() => Promise.reject(new Error("connection refused"))) as typeof fetch;
   try {
     const { client, deliveries } = fakeSupabase([{ id: "h1", url: "https://example.com/hook", secret: "s", events: ["incident_opened"] }]);
@@ -110,6 +119,7 @@ Deno.test("a network failure delivering a webhook is logged as not-ok, never thr
     assert(typeof deliveries[0].next_retry_at === "string", "expected a scheduled retry time");
   } finally {
     globalThis.fetch = originalFetch;
+    restoreDns();
   }
 });
 
@@ -119,6 +129,7 @@ Deno.test("a webhook not subscribed to this event is skipped even if other hooks
     { id: "h2", url: "https://example.com/b", secret: "s", events: ["incident_opened"] },
   ]);
   const originalFetch = globalThis.fetch;
+  usePublicDns();
   globalThis.fetch = (() => Promise.resolve(new Response("ok", { status: 200 }))) as typeof fetch;
   try {
     await triggerWebhooks(client, "user-1", "incident_opened", {});
@@ -126,6 +137,7 @@ Deno.test("a webhook not subscribed to this event is skipped even if other hooks
     assertEquals(deliveries[0].webhook_id, "h2");
   } finally {
     globalThis.fetch = originalFetch;
+    restoreDns();
   }
 });
 

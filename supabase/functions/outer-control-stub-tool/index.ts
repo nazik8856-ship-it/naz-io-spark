@@ -16,7 +16,12 @@
 // With no marker it answers the request for real, with NazAI's own AI, so every answer is different and about the request
 // (it stands in for a real external AI such as ChatGPT). If the AI is not available it falls back to "Stub tool answer."
 // Requires "Authorization: Bearer stub-token". It holds no data and calls nothing else.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAiGateway, pickAiGateway } from "../_shared/ai-gateway.ts";
+import { checkIpRateLimit } from "../_shared/rate-limit.ts";
+
+/** Real AI answers this stand-in may give per hour in total. Its token is fixed, so the cap keeps a leaked token from spending the AI budget. */
+const AI_ANSWERS_PER_HOUR = 120;
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json" } });
 
 const textOf = (body: unknown): string => JSON.stringify(body ?? {});
@@ -82,7 +87,12 @@ Deno.serve(async (req) => {
     const req2 = requestOf(body);
     if (/^Connection test/i.test(req2.objective)) reply = { status: "done", answer: "ok, I am here and answering." };
     else {
-      const real = await answerWithAi(req2);
+      let allowed = true;
+      try {
+        const url = Deno.env.get("SUPABASE_URL"), key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        if (url && key) allowed = (await checkIpRateLimit(createClient(url, key) as never, "outer-control-stub-tool", "stub-ai-answers", AI_ANSWERS_PER_HOUR, 3600)).allowed;
+      } catch { /* the counter being unreachable must not break the stand-in; the AI answer is optional anyway */ }
+      const real = allowed ? await answerWithAi(req2) : null;
       if (real) reply = { status: "done", answer: real };
     }
   }

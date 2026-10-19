@@ -91,3 +91,15 @@ export function classifyCoverage(
     return { ...cap, status: "gap" as const };
   });
 }
+
+/**
+ * What the Coverage gaps page says. With nothing connected there is nothing to cover, which is not the same as everything being
+ * covered: "0 of 0" must never read as "no gaps".
+ */
+export function coverageSummary(totalReal: number, gapCount: number): { kind: "empty" | "gaps" | "covered"; covered: number; total: number } {
+  const total = Math.max(0, totalReal);
+  const gaps = Math.min(Math.max(0, gapCount), total);
+  if (total === 0) return { kind: "empty", covered: 0, total: 0 };
+  return { kind: gaps === 0 ? "covered" : "gaps", covered: total - gaps, total };
+}
+

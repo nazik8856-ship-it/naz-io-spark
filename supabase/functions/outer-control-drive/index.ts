@@ -8,6 +8,8 @@
 //   POST { action: "start_task", request, context?, steps: [{ tool_id, instruction, fallback_tool_id?, on_failure? }], api_key_id? }
 //   POST { action: "create_agent_tool", agent_id }   (one of the account's own NazAI agents as a step)
 //   POST { action: "start_report", topic, tool_ids: [2..5 tool ids], context? }   (ask each tool for its opinion, then write one report; costs one credit)
+//   POST { action: "follow_up", session_id, instruction }   (a new request to the same tool, based on the controlled answer of a completed session)
+//   POST { action: "archive", kind: "session" | "workflow", id, archived?: boolean }   (leaves a finished item out of the default list, or brings it back; nothing is deleted)
 //   POST { action: "answer", session_id, answer }
 //   POST { action: "decide", session_id, option, note? | text? }  (answers a hand-off; text = "write the reply myself")
 //   POST { action: "cancel", session_id }
@@ -23,8 +25,9 @@ import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { checkKillSwitches } from "../_shared/control-gate.ts";
 import { runConnectionTest } from "../_shared/outer-control-tool-test.ts";
+import { recordConnectionTest } from "../_shared/outer-control-keepalive.ts";
 import { applyEditedReply, contactRuleStopping } from "../_shared/outer-control-session.ts";
-import { cancelWorkflow, continueSession, driveSession, progressWorkflow, resumeAndDrive, startTask, startWorkflow } from "../_shared/outer-control-workflow.ts";
+import { cancelWorkflow, continueSession, driveSession, progressWorkflow, resumeAndDrive, startFollowUp, startTask, startWorkflow } from "../_shared/outer-control-workflow.ts";
 import { encodeChoice, findOption, type Handoff } from "../_shared/outer-control-handoff.ts";
 import { createAgentTool, ensureReportTool, removeTool, updateToolKey } from "../_shared/outer-control-tools.ts";
 import { MAX_REPORT_SOURCES, opinionInstruction, REPORT_TOOL_URL, reportInstruction } from "../_shared/outer-control-report.ts";
@@ -40,7 +43,7 @@ const json = (b: unknown, status = 200) =>
 
 const RATE_LIMIT_PER_MINUTE = 30;
 const MAX_TOOLS_PER_ACCOUNT = 20;
-const FORMATS = new Set(["openai_chat", "anthropic_messages", "generic_json"]);
+const FORMATS = new Set(["openai_chat", "anthropic_messages", "generic_json", "mcp"]);
 const HEADER_NAME = /^[A-Za-z0-9-]{1,40}$/;
 
 // deno-lint-ignore no-explicit-any
@@ -79,7 +82,7 @@ Deno.serve(async (req) => {
       const endpoint = String(body.endpoint_url ?? "").trim();
       const format = String(body.request_format ?? "generic_json");
       if (!name || name.length > 80) return json({ error: "invalid_name", message: "Give the tool a name (80 characters or fewer)." }, 400);
-      if (!FORMATS.has(format)) return json({ error: "invalid_format", message: "request_format must be openai_chat, anthropic_messages or generic_json." }, 400);
+      if (!FORMATS.has(format)) return json({ error: "invalid_format", message: "request_format must be openai_chat, anthropic_messages, generic_json or mcp." }, 400);
       const authName = String(body.auth_header ?? "Authorization").trim() || "Authorization";
       const scheme = typeof body.auth_scheme === "string" ? body.auth_scheme : "Bearer ";
       if (!HEADER_NAME.test(authName) || scheme.length > 20 || /[\r\n]/.test(scheme)) return json({ error: "invalid_auth", message: "That authentication header is not valid." }, 400);
@@ -138,7 +141,7 @@ Deno.serve(async (req) => {
       const kill = await checkKillSwitches(admin, accountId, null);
       if (kill.killed) return json({ error: "kill_switch", message: kill.reason }, 409);
       const record = async (o: { ok: boolean; error: string | null; ms?: number | null; sample?: string | null }) => {
-        await admin.from("external_tools").update({ last_checked_at: new Date().toISOString(), last_ok_at: o.ok ? new Date().toISOString() : tool.last_ok_at, last_error: o.error }).eq("id", tool.id);
+        await recordConnectionTest(admin, tool, o, Date.now());
         return json({ ok: o.ok, error: o.error, ms: o.ms ?? null, sample: o.sample ?? null });
       };
       const stopped = await contactRuleStopping(admin, accountId, tool.name);
@@ -163,6 +166,26 @@ Deno.serve(async (req) => {
         legs: [{ tool_id: tool.id, instruction: objective, fallback_tool_id: body.fallback_tool_id || null, on_failure: body.on_failure === "reject" ? "reject" : "handoff" }],
       });
       if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+      inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
+      return json({ ok: true, session_id: started.legIds[0], task_id: started.workflowId, status: "running" });
+    }
+
+    // ---- archive: a finished session or Task is left out of the default list; it is never deleted ----------
+    if (action === "archive") {
+      const table = body.kind === "workflow" ? "outer_control_workflows" : body.kind === "session" ? "outer_control_sessions" : null;
+      if (!table) return json({ error: "invalid_kind", message: "kind must be session or workflow." }, 400);
+      const { data: row } = await admin.from(table).select("id, status").eq("id", String(body.id ?? "")).eq("user_id", accountId).maybeSingle();
+      if (!row) return json({ error: "not_found", message: "Not found." }, 404);
+      if (["queued", "running", "awaiting_human"].includes(String((row as { status: string }).status))) return json({ error: "still_open", message: "Only a finished item can be archived. Cancel it first." }, 409);
+      const archived = body.archived !== false;
+      await admin.from(table).update({ archived_at: archived ? new Date().toISOString() : null }).eq("id", row.id);
+      return json({ ok: true, archived });
+    }
+
+    // ---- follow_up: a next request to the same tool, based on the controlled answer of a finished session ----
+    if (action === "follow_up") {
+      const started = await startFollowUp(admin, accountId, { session_id: body.session_id, instruction: body.instruction });
+      if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "not_found" ? 404 : started.code === "internal_error" ? 500 : started.code === "not_completed" ? 409 : 400);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, session_id: started.legIds[0], task_id: started.workflowId, status: "running" });
     }
@@ -194,7 +217,13 @@ Deno.serve(async (req) => {
         { tool_id: writer.tool.id, instruction: reportInstruction(topic), handoff: "none" },
       ];
       const started = await startTask(admin, accountId, { request: `Report: ${topic}`, context: typeof body.context === "string" ? body.context : null, steps, max_steps: 3 });
-      if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+      if (!started.ok) {
+        // The credit was taken before the Task could start: give it back.
+        await admin.rpc("refund_generation_credit", { p_user_id: accountId });
+        return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+      }
+      // Marks the Task as paid for, so that if it ends without a report the credit goes back (once).
+      await admin.from("outer_control_workflows").update({ credit_charged: true }).eq("id", started.workflowId);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, task_id: started.workflowId, steps: steps.length });
     }

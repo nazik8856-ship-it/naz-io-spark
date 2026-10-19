@@ -17,7 +17,9 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."  # repo root (this script lives in supabase/functions/)
 
 DENO_BIN="${DENO_BIN:-deno}"
-ARGS=(test --no-check --allow-env)
+# The repo root has a package.json, which makes Deno look for npm packages (@sentry/deno) in node_modules; the edge functions
+# resolve them from Deno's own cache, so this config says so.
+ARGS=(test --no-check --allow-env --config=supabase/functions/_test-support/deno.test.json)
 EXCLUDE=()
 
 if [ "${NAZAI_TEST_OFFLINE:-}" = "1" ]; then

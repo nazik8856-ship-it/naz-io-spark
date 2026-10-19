@@ -26,11 +26,13 @@ function wordOverlap(a: string, b: string): number {
   return shared / Math.max(wordsA.size, wordsB.size);
 }
 
-/** Pure -- decapitalizes only a genuine leading capital letter, so an acronym or a number stays untouched. */
+/** Pure -- decapitalizes only a genuine leading capital letter, so an acronym ("USB-C"), the pronoun "I" or a number stays untouched. */
 function lowerFirst(text: string): string {
   if (!text.length) return text;
   const first = text[0];
   if (first !== first.toUpperCase() || first === first.toLowerCase()) return text;
+  const word = text.split(/[\s,;:]/)[0];
+  if ((word.match(/[A-Z]/g) ?? []).length >= 2 || word === "I" || /^I['’]/.test(word)) return text;
   return first.toLowerCase() + text.slice(1);
 }
 

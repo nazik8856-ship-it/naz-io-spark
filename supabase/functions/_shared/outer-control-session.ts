@@ -18,6 +18,7 @@ import { validateOutboundUrl } from "./url-safety.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { buildInstruction, buildToolRequest, parseToolReply, type RuleLine, type ToolFormat, type ToolRequestInput } from "./outer-control-tool-request.ts";
 import { AGENT_FAILURE_TEXT, readAgentRun } from "./outer-control-task.ts";
+import { mcpCall } from "./outer-control-mcp.ts";
 import { gatewayAi, REPORT_TOOL_URL, writeReport, type ReportResult } from "./outer-control-report.ts";
 import type { ReportDoc } from "./outer-control-report-doc.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
@@ -169,6 +170,16 @@ export async function loadRuleLines(admin: AnyAdmin, userId: string, apiKeyId: s
  * approval or decision record. Used by the connection test, which sends a ping outside a session.
  * Returns a sentence for the person, or null when nothing stops the contact.
  */
+/** Requests sent to this tool since midnight UTC, from the usage view; 0 when it cannot be read (the limit is a safeguard, not a gate that can lock anyone out). */
+export const DAILY_TOOL_REQUEST_CAP = 500;
+export async function requestsToday(admin: AnyAdmin, toolId: string): Promise<number> {
+  try {
+    const { data } = await admin.from("outer_control_tool_usage").select("requests_today").eq("tool_id", toolId).maybeSingle();
+    const n = Number((data as { requests_today?: unknown } | null)?.requests_today ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  } catch { return 0; }
+}
+
 export async function contactRuleStopping(admin: AnyAdmin, userId: string, toolName: string): Promise<string | null> {
   const { data } = await admin.from("hard_rules")
     .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id")
@@ -485,6 +496,12 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL)) {
         const urlCheck = await deps.validateUrl(tool.endpoint_url);
         if (!urlCheck.ok) { await finish(admin, s, "failed", `The tool's address is not allowed: ${urlCheck.reason}.`, deps); return { status: "failed", steps }; }
+        // A loop that keeps asking would spend the person's own provider key: one tool is asked at most this many times a day.
+        const today = await requestsToday(admin, tool.id);
+        if (today >= DAILY_TOOL_REQUEST_CAP) {
+          await finish(admin, s, "stopped", `${tool.name} has already been asked ${today} times today, which is the daily limit (${DAILY_TOOL_REQUEST_CAP}). Nothing was sent. Try again tomorrow.`, deps);
+          return { status: "stopped", steps };
+        }
       }
 
       // 5. Structured request: objective, masked context, active rules.
@@ -526,6 +543,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       let failed = false;
       let timedOut = false;
       let unreachable = false;
+      let mcpDetail: string | null = null;
       let retryAfterMs: number | null = null;
       let incomplete: "empty" | "truncated" | "too_long" | null = null;
       let unusableCode: string | null = null;
@@ -547,13 +565,23 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           res = reportResult.ok
             ? new Response(JSON.stringify({ status: "done", answer: reportResult.text }), { status: 200 })
             : new Response(JSON.stringify({ error: reportResult.code }), { status: 200 });
+        } else if (tool.request_format === "mcp") {
+          // An MCP server is spoken to in MCP: handshake, find the tool, call it with the step's text. What it returns is the reply.
+          const text = [reqInput.objective, reqInput.context ? `Context:\n${reqInput.context}` : "", reqInput.answer ? `Answer from a person:\n${reqInput.answer}` : ""].filter(Boolean).join("\n\n").slice(0, 12_000);
+          const r = await mcpCall({ url: tool.endpoint_url, authHeader: tool.auth_header, authScheme: tool.auth_scheme, token }, { fetchImpl: deps.fetchImpl, validateUrl: deps.validateUrl, timeoutMs: deps.toolTimeoutMs }, tool.model, text);
+          if (r.ok) res = new Response(JSON.stringify({ status: "done", answer: r.text }), { status: 200 });
+          else if (r.timedOut) throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
+          else if (r.httpStatus !== null) res = new Response("", { status: r.httpStatus });
+          else if (/could not be reached/.test(r.error)) throw new Error("unreachable");
+          else { mcpDetail = r.error; res = new Response("{}", { status: 200 }); }
         } else {
-          res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(request.body), signal: AbortSignal.timeout(deps.toolTimeoutMs) });
+          // A redirect is never followed: the address was checked, and where it points is not.
+          res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(request.body), redirect: "manual", signal: AbortSignal.timeout(deps.toolTimeoutMs) });
         }
         httpStatus = res.status;
         retryAfterMs = parseRetryAfter(res.headers?.get?.("retry-after"), deps.now());
         rawText = await res.text();
-        if (!res.ok) failed = true;
+        if (!res.ok || mcpDetail) failed = true;
       } catch (e) {
         failed = true;
         if (e instanceof Error && e.name === "TimeoutError") timedOut = true; else unreachable = true;
@@ -601,7 +629,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         }
       }
       const failureClass = failed
-        ? classifyFailure({ httpStatus: httpStatus !== null && httpStatus < 400 ? null : httpStatus, timedOut, unreachable, retryAfterMs, incomplete, unusableCode, attempt: s.failures_used + 1 })
+        ? classifyFailure({ httpStatus: httpStatus !== null && httpStatus < 400 ? null : httpStatus, timedOut, unreachable, retryAfterMs, incomplete, unusableCode, detail: mcpDetail, attempt: s.failures_used + 1 })
         : null;
 
       const stepBase = {

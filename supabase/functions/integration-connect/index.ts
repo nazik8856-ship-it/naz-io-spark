@@ -117,6 +117,7 @@ async function verifySlack(c: Credentials) {
     if (!slackCheck.ok) return { ok: false, error: `webhook_url is not allowed: ${slackCheck.reason}` };
     const r = await fetch(c.webhook_url, {
       method: "POST",
+      redirect: "manual",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: "✅ NazAI agent connected. (test ping)" }),
     });

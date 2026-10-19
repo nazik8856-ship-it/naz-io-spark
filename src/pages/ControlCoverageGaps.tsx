@@ -7,7 +7,7 @@ const anyDb = supabase as any;
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
-import { findCoverageGaps, type CapabilityForCoverage, type HardRuleForCoverage } from "@/lib/coverage-gaps";
+import { coverageSummary, findCoverageGaps, type CapabilityForCoverage, type HardRuleForCoverage } from "@/lib/coverage-gaps";
 import { classifyAnomalyCoverage, topAgentlessActionTypes, type AgentlessActionType, type CoverageSeverity } from "@/lib/anomaly-coverage";
 import { evaluateCoarsePrecedentLookup, MIN_CONTRIBUTING_ACCOUNTS, MIN_TOTAL_SAMPLE, type CrossAccountStat } from "@/lib/cross-account-precedent";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
@@ -133,6 +133,8 @@ export default function ControlCoverageGaps() {
     }
   };
 
+  const summary = coverageSummary(totalReal, gaps.length);
+
   return (
     <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#020617" }}>
       <header className="flex items-center gap-3 border-b border-white/5 px-6 py-4">
@@ -178,12 +180,18 @@ export default function ControlCoverageGaps() {
             <div className="mt-6 rounded border border-white/10 bg-white/[0.02] p-4">
               <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Coverage</div>
               <div className="mt-1 text-2xl font-semibold">
-                {totalReal - gaps.length} / {totalReal}
-                <span className="ml-2 text-sm font-normal text-zinc-500">action kinds have at least one rule</span>
+                {summary.kind === "empty" ? "—" : `${summary.covered} / ${summary.total}`}
+                <span className="ml-2 text-sm font-normal text-zinc-500">{summary.kind === "empty" ? "nothing connected to cover yet" : "action kinds have at least one rule"}</span>
               </div>
             </div>
 
-            {gaps.length === 0 ? (
+            {summary.kind === "empty" ? (
+              <div className="mt-6 rounded border border-dashed border-white/15 bg-black/20 p-5 text-center" data-testid="coverage-gaps-empty">
+                <p className="text-sm font-medium text-zinc-200">Nothing is connected yet, so there is nothing to cover.</p>
+                <p className="mx-auto mt-1 max-w-md text-xs text-zinc-500">Connect an integration such as email, Slack or Shopify. Each action it allows then appears here, marked as covered by a rule or as a gap.</p>
+                <button onClick={() => navigate("/generator-home")} className="mt-3 rounded border border-white/15 px-3 py-1.5 text-xs text-zinc-200 hover:bg-white/5">Open the Generator to connect one</button>
+              </div>
+            ) : gaps.length === 0 ? (
               <p className="mt-6 rounded border border-emerald-500/30 bg-emerald-500/[0.04] p-4 text-sm text-emerald-300">
                 No gaps — every connected, real action kind has at least one hard rule covering it.
               </p>

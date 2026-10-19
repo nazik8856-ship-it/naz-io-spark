@@ -4,16 +4,16 @@ vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
 import { MemoryRouter } from "react-router-dom";
 
 const state = vi.hoisted(() => ({
-  tools: [] as unknown[], sessions: [] as unknown[], steps: [] as unknown[], keys: [] as unknown[], memory: [] as unknown[],
+  tools: [] as unknown[], sessions: [] as unknown[], steps: [] as unknown[], keys: [] as unknown[], memory: [] as unknown[], usage: [] as unknown[], archivedCount: 0,
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
   const result = (table: string) => {
     const data = table === "external_tools" ? state.tools : table === "outer_control_sessions" ? state.sessions
-      : table === "outer_control_session_steps" ? state.steps : table === "outer_control_memory" ? state.memory : state.keys;
+      : table === "outer_control_session_steps" ? state.steps : table === "outer_control_memory" ? state.memory : table === "outer_control_tool_usage" ? state.usage : state.keys;
     const q: Record<string, unknown> = {};
-    for (const m of ["select", "eq", "is", "in", "order", "limit"]) q[m] = () => q;
-    q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data, error: null }).then(res);
+    for (const m of ["select", "eq", "is", "not", "in", "order", "limit"]) q[m] = () => q;
+    q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data, error: null, count: state.archivedCount }).then(res);
     return q;
   };
   return {
@@ -299,5 +299,81 @@ describe("ActiveSessionsCard", () => {
     const cc = await screen.findByTestId("completion-check");
     expect(cc.textContent).toMatch(/Completion check passed \(2\/2\)/);
     expect(cc.textContent).toMatch(/✓ A final result exists — a result exists/);
+  });
+
+  it("a completed session shows its closing record and offers a follow-up that is sent as a new request to the same session's tool", async () => {
+    state.tools = [tool];
+    state.sessions = [session({ status: "completed", step_count: 2, finished_at: "2026-10-19T12:03:00Z", final_output: "Here is the reply.", final_artifact: sessionArtifact("Here is the reply.") })];
+    state.steps = [{ id: "a", step_no: 1, attempt: 1, verdict: "allow", next_action: "finish", error: null, note: null, reply_text: "x" }];
+    renderCard();
+    fireEvent.click(await screen.findByText("Draft a reply"));
+    expect((await screen.findByTestId("session-closure")).textContent).toMatch(/Session closed 19 Oct, 12:03 UTC\. 2 exchanges with .*final controlled result is stored/);
+    const send = screen.getByTestId("follow-up-send") as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Follow-up request"), { target: { value: "Shorten it to one line." } });
+    fireEvent.click(send);
+    await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1));
+    const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ action: "follow_up", session_id: "s1", instruction: "Shorten it to one line." });
+  });
+
+  it("a session that did not complete says it was closed and why, and offers no follow-up", async () => {
+    state.tools = [tool];
+    state.sessions = [session({ status: "stopped", stop_reason: "Stopped by the owner", finished_at: "2026-10-19T12:03:00Z" })];
+    renderCard();
+    fireEvent.click(await screen.findByText("Draft a reply"));
+    expect((await screen.findByTestId("session-closure")).textContent).toMatch(/Session closed 19 Oct, 12:03 UTC \(stopped\)\. Stopped by the owner\. Nothing more is sent/);
+    expect(screen.queryByTestId("follow-up")).toBeNull();
+  });
+
+  it("a tool shows how much it has been used: requests in 30 days, failures and today's count", async () => {
+    state.tools = [tool];
+    state.usage = [{ tool_id: tool.id, requests_30d: 12, failed_30d: 2, requests_today: 3 }];
+    renderCard();
+    expect((await screen.findByTestId("tool-usage")).textContent).toBe("Asked 12 times in 30 days · 2 failed · 3 today");
+  });
+  it("a tool that was never asked shows no usage line", async () => {
+    state.tools = [tool]; state.usage = [];
+    renderCard();
+    await screen.findByText(tool.name);
+    expect(screen.queryByTestId("tool-usage")).toBeNull();
+  });
+
+  it("a finished session can be archived (never deleted), and an open one cannot", async () => {
+    state.tools = [tool];
+    state.sessions = [session({ status: "completed", final_output: "Done.", final_artifact: sessionArtifact("Done.") })];
+    renderCard();
+    fireEvent.click(await screen.findByText("Draft a reply"));
+    fireEvent.click(await screen.findByTestId("archive-session"));
+    await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1));
+    const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ action: "archive", kind: "session", id: "s1", archived: true });
+  });
+  it("an archived item can be restored, and the archived toggle shows only when something is archived", async () => {
+    state.tools = [tool]; state.archivedCount = 0;
+    state.sessions = [session({ status: "completed", final_output: "Done.", final_artifact: sessionArtifact("Done."), archived_at: "2026-10-20T00:00:00Z" })];
+    const { unmount } = renderCard();
+    await screen.findByText("Draft a reply");
+    expect(screen.queryByTestId("toggle-archived")).toBeNull();
+    unmount();
+    state.archivedCount = 4;
+    renderCard();
+    expect((await screen.findByTestId("toggle-archived")).textContent).toBe("Show archived (4)");
+    fireEvent.click(screen.getByText("Draft a reply"));
+    expect((await screen.findByTestId("archive-session")).textContent).toBe("Restore");
+  });
+  it("Export history downloads a CSV of the sessions with their honest status", async () => {
+    state.tools = [tool];
+    state.sessions = [session({ status: "stopped", stop_reason: "Stopped by the owner", started_at: "2026-10-19T09:00:00Z" })];
+    let blob: Blob | null = null;
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: (b: Blob) => { blob = b; return "blob:x"; }, revokeObjectURL: () => {} }));
+    renderCard();
+    fireEvent.click(await screen.findByTestId("export-history"));
+    await waitFor(() => expect(blob).not.toBeNull());
+    const text = await new Promise<string>((resolve) => { const fr = new FileReader(); fr.onload = () => resolve(String(fr.result)); fr.readAsText(blob!); });
+    expect(text.split("\r\n")[0]).toContain("Started (UTC),Finished (UTC)");
+    expect(text).toContain("Stopped,Stopped by the owner.");
+    expect(text).toContain("Support bot");
   });
 });

@@ -322,11 +322,13 @@ function fakeSupabaseLosingClaim() {
       }
       if (table === "ai_spend_daily") {
         aiSpendDailyCallCount++;
-        // 1st call: enforceAccountSpendCap's own read -- capped_at still null.
-        // 2nd call: claimRowOnce's atomic update -- a concurrent winner
+        // 1st call: getSpendStatus's read of today's spend -- over the $5 cap.
+        // 2nd call: enforceAccountSpendCap's own read -- capped_at still null.
+        // 3rd call: claimRowOnce's atomic update -- a concurrent winner
         // already claimed it, so the UPDATE ... WHERE capped_at IS NULL
         // matches zero rows.
-        if (aiSpendDailyCallCount === 1) return new SequencedFakeQuery(() => ({ data: { id: "d1", warned_at: null, capped_at: null }, error: null }));
+        if (aiSpendDailyCallCount === 1) return new SequencedFakeQuery(() => ({ data: { cost_usd: 6, calls: 3 }, error: null }));
+        if (aiSpendDailyCallCount === 2) return new SequencedFakeQuery(() => ({ data: { id: "d1", warned_at: null, capped_at: null }, error: null }));
         return new SequencedFakeQuery(() => ({ data: null, error: null }));
       }
       return new SequencedFakeQuery(() => ({ data: null, error: null }));
@@ -350,7 +352,8 @@ function fakeSupabaseWinningClaim() {
     from(table: string) {
       calls.push({ table });
       if (table === "ai_spend_caps") return new SequencedFakeQuery(() => ({ data: { daily_cap_usd: 5, enabled: true }, error: null }));
-      if (table === "ai_spend_daily") return new SequencedFakeQuery(() => ({ data: { id: "d1", warned_at: null, capped_at: null }, error: null }));
+      // Every read of today's row sees spend over the $5 cap and capped_at unset; the claim's update returns the row, so this caller wins it.
+      if (table === "ai_spend_daily") return new SequencedFakeQuery(() => ({ data: { id: "d1", cost_usd: 6, calls: 3, warned_at: null, capped_at: null }, error: null }));
       if (table === "agent_decisions") return new SequencedFakeQuery(() => ({ data: { id: "decision-1" }, error: null }));
       return new SequencedFakeQuery(() => ({ data: null, error: null }));
     },
