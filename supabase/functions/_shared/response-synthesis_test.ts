@@ -39,7 +39,7 @@ Deno.test("synthesizeAnswer: two genuinely different entries are stitched togeth
 Deno.test("synthesizeAnswer: near-duplicate entries collapse to the higher-ranked one", () => {
   const entries: ResponseContextEntry[] = [
     { id: "e1", entry_text: "Refunds are processed within 5 to 7 business days of receipt." },
-    { id: "e2", entry_text: "Refunds are processed within 5 to 7 business days after we receive the item." },
+    { id: "e2", entry_text: "Refunds are processed within 5 to 7 business days of receipt of the item." },
   ];
   const result = synthesizeAnswer(entries);
   assertEquals(result?.usedEntries.length, 1);
@@ -66,3 +66,17 @@ Deno.test("synthesizeAnswer: connective phrasing lowercases a genuine leading ca
   const result = synthesizeAnswer(entries);
   assert(result!.text.includes("Additionally, USB-C chargers are included with every order."));
 });
+
+Deno.test("synthesizeAnswer: the pronoun I and a normal capitalised word are handled correctly in the connective phrasing", () => {
+  const withI = synthesizeAnswer([
+    { id: "e1", entry_text: "Refunds take 5-7 business days." },
+    { id: "e2", entry_text: "I can escalate any order to a person." },
+  ]);
+  assert(withI!.text.includes("Additionally, I can escalate any order to a person."));
+  const normal = synthesizeAnswer([
+    { id: "e1", entry_text: "Refunds take 5-7 business days." },
+    { id: "e2", entry_text: "Shipping is free over $50." },
+  ]);
+  assert(normal!.text.includes("Additionally, shipping is free over $50."));
+});
+

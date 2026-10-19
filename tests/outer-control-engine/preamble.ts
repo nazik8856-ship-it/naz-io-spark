@@ -1,0 +1,1 @@
+(globalThis as any).Deno = { env: { get: (k: string) => ({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "svc" } as any)[k] }, serve: (h: any) => { (globalThis as any).__handler = h; } };

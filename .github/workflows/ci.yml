@@ -29,3 +29,16 @@ jobs:
         run: npx vitest run
       - name: Build
         run: npx vite build
+      - name: Outer Control engine tests (real engine code against a fake database and a scripted tool)
+        run: npm run test:engine
+
+  functions:
+    name: Edge functions (Deno tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Backend tests (supabase/functions/**/*_test.ts)
+        run: ./supabase/functions/run-tests.sh
