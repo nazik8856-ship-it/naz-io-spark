@@ -7,6 +7,7 @@ import { GATE_ERROR_SOURCES, engineUptimeStats } from "@/lib/control-health";
 import { lastNDays, bucketCountByDay, bucketEfficiencyByDay } from "@/lib/control-dashboard";
 import { computeTrustScore, type TrustScoreReport } from "@/lib/trust-score";
 import { computeGovernanceHealth, type GovernanceHealth } from "@/lib/governance-health";
+import { rulesFor, type InnerProject } from "@/lib/inner-projects";
 
 const WINDOW_DAYS = 7;
 const DEFAULT_CAP = 5;
@@ -28,6 +29,8 @@ export type ControlDashboardData = {
   // shown on every agent's own page and every Governed Entities row.
   accountTrustScore: TrustScoreReport | null;
   accountHealth: GovernanceHealth | null;
+  /** The trust score as one number: of the project when one is shown (a website's stored score, an agent's computed one), else the account's. */
+  trustScoreValue: number | null;
   refetch: () => void;
 };
 
@@ -40,7 +43,7 @@ export type ControlDashboardData = {
  * new metric, it just aggregates the same real signals into one landing
  * view with a short trend per stat card.
  */
-export function useControlDashboardData(accountId: string | undefined): ControlDashboardData {
+export function useControlDashboardData(accountId: string | undefined, project?: InnerProject | null): ControlDashboardData {
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
   const [coveragePct, setCoveragePct] = useState<number | null>(null);
@@ -55,12 +58,32 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
   const [setup, setSetup] = useState({ hardRules: false, safetyRules: false, spendCapCustom: false, agentDeployed: false, pct: 0 });
   const [accountTrustScore, setAccountTrustScore] = useState<TrustScoreReport | null>(null);
   const [accountHealth, setAccountHealth] = useState<GovernanceHealth | null>(null);
+  const [trustScoreValue, setTrustScoreValue] = useState<number | null>(null);
+  const scopeKey = project === undefined ? "account" : project === null ? "none" : project.key;
 
   const days = lastNDays(WINDOW_DAYS);
 
   const load = useCallback(async () => {
-    if (!accountId) return;
+    // null: no project is chosen yet (or the account has none), so there is nothing to show.
+    if (!accountId || project === null) return;
     setLoading(true);
+    // With a project, every number is that project's. An agent: its own decisions, spend and incidents. A website makes no agent
+    // decisions, so those are empty (the all-zero id matches no row), and its spend is the account's.
+    const NIL = "00000000-0000-0000-0000-000000000000";
+    const agentId = project?.kind === "agent" ? project.id : null;
+    const isWebsite = project?.kind === "website";
+    const scoped = !!project;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mine = (q: any) => (agentId ? q.eq("agent_id", agentId) : isWebsite ? q.eq("agent_id", NIL) : q);
+    let decisionIds: string[] | null = null; // null = every incident of the account
+    if (agentId) {
+      const { data: ids } = await anyDb.from("agent_decisions").select("id").eq("agent_id", agentId).limit(2000);
+      decisionIds = ((ids ?? []) as { id: string }[]).map((r) => r.id);
+    }
+    const noIncidents = isWebsite || (decisionIds !== null && decisionIds.length === 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mineIncidents = (q: any) => (decisionIds ? q.in("decision_id", decisionIds) : q);
+    const none = { data: [], count: 0, error: null };
     const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const since90Days = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
     const firstDay = days[0];
@@ -82,29 +105,31 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
       decisions90Res,
       selfRepairRes,
       modifyRes,
+      agentCapRes,
     ] = await Promise.all([
       supabase.functions.invoke("capability-status", { body: { account_id: accountId } }),
       anyDb.from("hard_rules").select("action_type_pattern, provider, enabled, shadow_mode, agent_id").eq("user_id", accountId),
-      anyDb.from("safety_rules").select("id", { count: "exact", head: true }).eq("user_id", accountId),
-      anyDb.from("agent_decisions").select("source, decision, escalated, created_at").eq("user_id", accountId).gte("created_at", since),
-      anyDb.from("clean_allow_counts").select("count").eq("user_id", accountId).gte("window_start", since),
+      anyDb.from("safety_rules").select("id, agent_id, api_key_id").eq("user_id", accountId),
+      mine(anyDb.from("agent_decisions").select("source, decision, escalated, created_at").eq("user_id", accountId).gte("created_at", since)),
+      scoped ? Promise.resolve(none) : anyDb.from("clean_allow_counts").select("count").eq("user_id", accountId).gte("window_start", since),
       // api_key_id must also be excluded -- a per-key cap/spend row has
       // agent_id IS NULL too, so without it maybeSingle() errors and the
       // 30-day list double-counts per-key spend into the account-wide total.
       anyDb.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).maybeSingle(),
-      anyDb.from("ai_spend_daily").select("day, cost_usd").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).gte("day", firstDay),
-      anyDb.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("status", "open"),
-      anyDb.from("incidents").select("created_at").eq("user_id", accountId).gte("created_at", since),
+      (agentId
+        ? anyDb.from("ai_spend_daily").select("day, cost_usd").eq("user_id", accountId).eq("agent_id", agentId).is("api_key_id", null).gte("day", firstDay)
+        : anyDb.from("ai_spend_daily").select("day, cost_usd").eq("user_id", accountId).is("agent_id", null).is("api_key_id", null).gte("day", firstDay)),
+      noIncidents ? Promise.resolve(none) : mineIncidents(anyDb.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("status", "open")),
+      noIncidents ? Promise.resolve(none) : mineIncidents(anyDb.from("incidents").select("created_at").eq("user_id", accountId).gte("created_at", since)),
       anyDb.from("pending_approvals").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("status", "pending"),
       anyDb.from("agents").select("id", { count: "exact", head: true }).eq("user_id", accountId),
-      // GAP 10 (Unified UX): account-wide trust score, same 90-day lookback
-      // and inputs GAP 4's per-entity trust score uses (ControlEntities.tsx,
-      // useEntityTrustScore.ts) -- just aggregated across every agent-origin
-      // decision instead of split per entity.
-      anyDb.from("confidence_calibration").select("calibration_gap").eq("user_id", accountId).is("api_key_id", null).gte("period_end", since90Days),
-      anyDb.from("agent_decisions").select("source").eq("user_id", accountId).eq("is_test", false).gte("created_at", since90Days).limit(10000),
-      anyDb.from("agent_events").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("kind", "self_repair").gte("created_at", since90Days),
-      anyDb.from("outer_control_evaluations").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("verdict", "modify").gte("created_at", since90Days),
+      // GAP 10 (Unified UX): the trust score uses the same 90-day lookback and inputs GAP 4's per-entity trust score uses
+      // (ControlEntities.tsx, useEntityTrustScore.ts). With a project it is that project's, so the calibration (account-wide) is left out.
+      scoped ? Promise.resolve(none) : anyDb.from("confidence_calibration").select("calibration_gap").eq("user_id", accountId).is("api_key_id", null).gte("period_end", since90Days),
+      mine(anyDb.from("agent_decisions").select("source").eq("user_id", accountId).eq("is_test", false).gte("created_at", since90Days).limit(10000)),
+      mine(anyDb.from("agent_events").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("kind", "self_repair").gte("created_at", since90Days)),
+      scoped ? Promise.resolve(none) : anyDb.from("outer_control_evaluations").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("verdict", "modify").gte("created_at", since90Days),
+      agentId ? anyDb.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).eq("agent_id", agentId).is("api_key_id", null).maybeSingle() : Promise.resolve(none),
     ]);
 
     // Coverage -- same definition ControlCoverageGaps.tsx uses: real,
@@ -113,7 +138,8 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
     const capabilities = ((statusRes.data?.capabilities ?? []) as { kind: string; provider: string; status: string }[])
       .filter((c) => c.status === "real")
       .map((c) => ({ kind: c.kind, provider: c.provider })) as CapabilityForCoverage[];
-    const hardRules = (hardRulesRes.data ?? []) as HardRuleForCoverage[];
+    const hardRules = rulesFor(project, (hardRulesRes.data ?? []) as (HardRuleForCoverage & { agent_id?: string | null })[]) as HardRuleForCoverage[];
+    const safetyCount = rulesFor(project, (safetyRulesCountRes.data ?? []) as { agent_id?: string | null; api_key_id?: string | null }[]).length;
     const gaps = findCoverageGaps(capabilities, hardRules);
     setCoverageTotal(capabilities.length);
     setCoverageGapCount(gaps.length);
@@ -130,12 +156,15 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
     setHealthPct(engineUptimeStats(gateErrors, total).uptimePct);
 
     // Spend -- same fields useSpendSafetyStatus.ts exposes, plus a 7-day series.
-    const cap = Number(spendCapRes.data?.daily_cap_usd ?? DEFAULT_CAP);
+    // An agent's own cap when it has one, otherwise the account's.
+    const ownCap = agentCapRes.data?.daily_cap_usd ?? spendCapRes.data?.daily_cap_usd ?? null;
+    const cap = Number(ownCap ?? DEFAULT_CAP);
+    const capIsCustom = ownCap !== null && ownCap !== undefined;
     const spendByDay = new Map(((spendDailyRes.data ?? []) as { day: string; cost_usd: number }[]).map((r) => [r.day, Number(r.cost_usd)]));
     setSpend({
       today: spendByDay.get(today) ?? 0,
       cap,
-      capIsCustom: !!spendCapRes.data,
+      capIsCustom,
       series: days.map((d) => spendByDay.get(d) ?? 0),
     });
 
@@ -155,14 +184,14 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
 
     setPendingApprovalsCount(pendingRes.count ?? 0);
 
+    // With a project shown, it exists by definition: the last check is true.
+    const projectExists = project ? true : (agentsCountRes.count ?? 0) > 0;
     setSetup({
       hardRules: hardRules.length > 0,
-      safetyRules: (safetyRulesCountRes.count ?? 0) > 0,
-      spendCapCustom: !!spendCapRes.data,
-      agentDeployed: (agentsCountRes.count ?? 0) > 0,
-      pct: Math.round(
-        ([hardRules.length > 0, (safetyRulesCountRes.count ?? 0) > 0, !!spendCapRes.data, (agentsCountRes.count ?? 0) > 0].filter(Boolean).length / 4) * 100,
-      ),
+      safetyRules: safetyCount > 0,
+      spendCapCustom: capIsCustom,
+      agentDeployed: projectExists,
+      pct: Math.round(([hardRules.length > 0, safetyCount > 0, capIsCustom, projectExists].filter(Boolean).length / 4) * 100),
     });
 
     // GAP 10 (Unified UX): the same computeTrustScore/computeGovernanceHealth
@@ -178,16 +207,19 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
       ruleTriggeredDecisions: ruleTriggered90,
       repairInterventions: (selfRepairRes.count ?? 0) + (modifyRes.count ?? 0),
     });
-    setAccountTrustScore(trustScore);
+    // A website's trust score is the one stored with it when it was generated; an agent's and the account's are computed.
+    const shownScore = isWebsite ? (project?.website?.trustScore ?? 100) : trustScore.score;
+    setAccountTrustScore(isWebsite ? null : trustScore);
+    setTrustScoreValue(shownScore);
     setAccountHealth(computeGovernanceHealth({
-      trustScore: trustScore.score,
-      rulesApplied: hardRules.length + (safetyRulesCountRes.count ?? 0),
+      trustScore: shownScore,
+      rulesApplied: hardRules.length + safetyCount,
       spendPct: cap > 0 ? (spendByDay.get(today) ?? 0) / cap : null,
     }));
 
     setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId]);
+  }, [accountId, scopeKey]);
 
   useEffect(() => { void load(); }, [load, tick]);
 
@@ -206,6 +238,7 @@ export function useControlDashboardData(accountId: string | undefined): ControlD
     days,
     accountTrustScore,
     accountHealth,
+    trustScoreValue,
     refetch: () => setTick((t) => t + 1),
   };
 }
