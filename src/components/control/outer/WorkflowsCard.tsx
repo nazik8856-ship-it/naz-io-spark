@@ -4,23 +4,28 @@ import { useCallback, useEffect, useState } from "react";
 import { Workflow, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import FinalArtifactView from "./FinalArtifactView";
+import GoalProgress from "./GoalProgress";
+import GoalTaskForm from "./GoalTaskForm";
 import { HonestStatusBadge, StatusReason } from "./HonestStatusBadge";
 import { honestStatus } from "@/lib/outer-control-status";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, visibleItems } from "@/lib/outer-control-ui";
+import { isGoalTask, type CriterionView } from "@/lib/outer-control-goal-ui";
 import { legsPayload, type CondKind, type DraftLeg, type SessionStatus, type WorkflowStatus } from "@/lib/outer-control-sessions";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any; // the tables are new and not in the generated types
 
-type ToolOpt = { id: string; name: string };
+type ToolOpt = { id: string; name: string; endpoint_url?: string; agent_id?: string | null };
 type WorkflowRow = {
   id: string; objective: string; status: WorkflowStatus; summary: string | null; started_at: string;
   // The Task fields: where it is, what it produced, why it stopped.
   kind?: "single" | "chain"; current_leg?: number | null; steps_total?: number; steps_done?: number;
   final_output?: string | null; final_leg?: number | null; failed_leg?: number | null; stop_reason?: string | null; final_artifact?: unknown;
   origin?: { kind: string; source_model?: string } | null;
+  // Goal Tasks: the done criteria and where they stand, the rounds, and why it is blocked.
+  mode?: string | null; criteria_state?: CriterionView[] | null; max_rounds?: number | null; rounds_used?: number | null; blocked_reason?: string | null;
 };
 type HandoffRow = { id: string; task_id: string; from_leg: number | null; from_label: string; to_leg: number; outcome: "passed" | "modified" | "blocked"; rules: string[]; note: string };
 type AgentOpt = { id: string; name: string };
@@ -38,6 +43,8 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
   const [agentChoice, setAgentChoice] = useState("");
   const [legs, setLegs] = useState<LegRow[]>([]);
   const [show, setShow] = useState(false);
+  const [showGoal, setShowGoal] = useState(false);
+  const [deciding, setDeciding] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
   const [objective, setObjective] = useState("");
@@ -47,19 +54,22 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
   const load = useCallback(async () => {
     if (!accountId) return;
     const WF_COLS = "id, objective, status, summary, started_at, kind, current_leg, steps_total, steps_done, final_output, final_leg, failed_leg, stop_reason, final_artifact, origin";
-    // Archived Tasks are left out of the list (nothing is deleted). Before the archive column exists the plain query still works.
-    const wfQuery = (withArchive: boolean) => {
-      let q = anyDb.from("outer_control_workflows").select(withArchive ? `${WF_COLS}, archived_at` : WF_COLS).eq("user_id", accountId).neq("kind", "single");
+    const GOAL_COLS = "mode, criteria_state, max_rounds, rounds_used, blocked_reason";
+    // Archived Tasks are left out of the list (nothing is deleted). Before a newer column exists the older query still works.
+    const wfQuery = (withArchive: boolean, withGoal: boolean) => {
+      let q = anyDb.from("outer_control_workflows").select(`${WF_COLS}${withGoal ? `, ${GOAL_COLS}` : ""}${withArchive ? ", archived_at" : ""}`).eq("user_id", accountId).neq("kind", "single");
       if (withArchive) q = q.is("archived_at", null);
       return q.order("started_at", { ascending: false }).limit(8);
     };
     const [t, w0, a] = await Promise.all([
-      anyDb.from("external_tools").select("id, name").eq("user_id", accountId).eq("enabled", true).is("removed_at", null).order("created_at", { ascending: false }),
+      anyDb.from("external_tools").select("id, name, endpoint_url, agent_id").eq("user_id", accountId).eq("enabled", true).is("removed_at", null).order("created_at", { ascending: false }),
       // One-tool runs are Tasks too, but they are shown as sessions: this list is for several steps.
-      wfQuery(true),
+      wfQuery(true, true),
       anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
     ]);
-    const w = w0?.error ? await wfQuery(false) : w0;
+    let w = w0;
+    if (w?.error) w = await wfQuery(true, false);
+    if (w?.error) w = await wfQuery(false, false);
     setTools((t.data ?? []) as ToolOpt[]);
     setAgents((a.data ?? []) as AgentOpt[]);
     const rows = (w.data ?? []) as WorkflowRow[];
@@ -110,6 +120,14 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
     if (!r.ok) toast.error(r.message || "That did not work."); else { toast.success("Archived. It is hidden from the list, not deleted."); await load(); }
   };
 
+  const decide = async (id: string, decision: "accept" | "more" | "stop") => {
+    setDeciding(id);
+    const r = await callDrive("task_decide", { task_id: id, decision });
+    setDeciding(null);
+    if (!r.ok) toast.error(r.message || "That did not work.");
+    else { toast.success(decision === "accept" ? "Accepted as done." : decision === "more" ? "Two more rounds allowed. It is asking again." : "Stopped."); await load(); }
+  };
+
   const cancel = async (id: string) => {
     const r = await callDrive("cancel_workflow", { workflow_id: id });
     if (!r.ok) toast.error(r.message || "That did not work."); else { toast.success("Workflow cancelled."); await load(); }
@@ -121,10 +139,17 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
         <h3 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
           <Workflow className="h-4 w-4 text-cyan-300" /> Workflows — several tools, one goal
         </h3>
-        <button onClick={() => setShow((v) => !v)} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/10">
-          {show ? "Close" : "New workflow"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setShowGoal((v) => !v)} className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-200 hover:bg-cyan-500/20" data-testid="new-goal-task">
+            {showGoal ? "Close" : "New goal task"}
+          </button>
+          <button onClick={() => setShow((v) => !v)} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/10">
+            {show ? "Close" : "New workflow"}
+          </button>
+        </div>
       </div>
+
+      {showGoal && <GoalTaskForm tools={tools.filter((t) => !(t.endpoint_url ?? "").startsWith("nazai-internal://"))} onStarted={async () => { setShowGoal(false); await load(); }} />}
 
       {show && (
         <div className="mt-4 space-y-3 rounded-xl border border-white/10 bg-black/20 p-3">
@@ -208,7 +233,7 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
           const wLegs = legs.filter((l) => l.workflow_id === w.id);
           const hs = honestStatus({
             kind: "task", status: w.status, artifact: w.final_artifact, stop_reason: w.stop_reason, current_leg: w.current_leg,
-            steps_total: w.steps_total, steps_done: w.steps_done, failed_leg: w.failed_leg, waiting_for: w.summary,
+            steps_total: w.steps_total, steps_done: w.steps_done, failed_leg: w.failed_leg, waiting_for: isGoalTask(w) ? (w.blocked_reason ?? w.summary) : w.summary,
             root_status: wLegs.find((l) => l.leg_no === w.failed_leg)?.status ?? null,
           });
           return (
@@ -228,6 +253,12 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
                 )}
               </div>
             </div>
+            {wLegs.some((l) => tools.find((t) => t.id === l.tool_id)?.agent_id) && (
+              <p className="mt-2 text-[11px] text-zinc-400" data-testid="task-agent-note">
+                A NazAI agent took part. What it did is recorded in Inner Control, tagged with this Task. <a href="/control-system" className="text-cyan-300 underline-offset-2 hover:underline">See it in Inner Control</a>
+              </p>
+            )}
+            {isGoalTask(w) && <GoalProgress task={w} status={hs} busy={deciding === w.id} onDecide={(d) => decide(w.id, d)} />}
             {hs.key === "completed" && <div className="mt-2"><FinalArtifactView artifact={w.final_artifact} kind="task" /></div>}
             {handoffs.some((h) => h.task_id === w.id) && (
               <details className="mt-2 rounded border border-white/10 px-2 py-1 text-xs" data-testid="task-handoffs">

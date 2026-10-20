@@ -54,6 +54,19 @@ export default function RecentActivityCard({
                   {a.title}
                 </p>
                 {a.reason && <p className="mt-0.5 break-words text-[11px] text-zinc-500">{a.reason}</p>}
+                {a.task && (
+                  <div className="mt-1 text-[11px] text-zinc-400" data-testid="activity-task">
+                    <span className="mr-1 rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-200">Part of an Outer Control Task</span>
+                    “{a.task.goal}”{a.task.tools.length > 0 ? ` · asked ${a.task.tools.join(", ")}` : ""}
+                    {a.task.result && (
+                      <details className="mt-1 rounded border border-white/10 px-2 py-1">
+                        <summary className="cursor-pointer text-zinc-300">Task result</summary>
+                        <p className="mt-1 break-words text-zinc-400" data-testid="activity-task-result">{a.task.result}</p>
+                      </details>
+                    )}
+                    <a href="/control-system/outer" className="ml-1 text-cyan-300 underline-offset-2 hover:underline">See the Task in Outer Control</a>
+                  </div>
+                )}
                 {a.ruleId && a.ruleName && (
                   <button
                     onClick={() => onShowRule(a.ruleId as string)}

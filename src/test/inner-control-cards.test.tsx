@@ -89,6 +89,23 @@ describe("RecentActivityCard", () => {
     fireEvent.click(screen.getByRole("button", { name: /Ask the chat/ }));
     expect(onAsk).toHaveBeenCalledWith(item.question);
   });
+  it("tags an agent's action with the Outer Control Task that asked for it, and shows the Task's result", () => {
+    const task = { id: "task-1", goal: "Find the return rules", status: "completed", tools: ["ChatGPT", "Agent: Support"], result: "Premium customers can return items within thirty days." };
+    render(<RecentActivityCard items={[{ ...item, task }]} loading={false} onShowRule={() => {}} onAsk={() => {}} onViewAll={() => {}} />);
+    const tag = screen.getByTestId("activity-task");
+    expect(tag.textContent).toMatch(/Part of an Outer Control Task/);
+    expect(tag.textContent).toMatch(/Find the return rules/);
+    expect(tag.textContent).toMatch(/asked ChatGPT, Agent: Support/);
+    expect(screen.getByTestId("activity-task-result").textContent).toBe(task.result);
+    expect(tag.querySelector("a")?.getAttribute("href")).toBe("/control-system/outer");
+  });
+  it("shows no Task tag on an ordinary action, and no result for a Task that is not complete", () => {
+    const { rerender } = render(<RecentActivityCard items={[item]} loading={false} onShowRule={() => {}} onAsk={() => {}} onViewAll={() => {}} />);
+    expect(screen.queryByTestId("activity-task")).toBeNull();
+    rerender(<RecentActivityCard items={[{ ...item, task: { id: "t", goal: "g", status: "running", tools: [], result: null } }]} loading={false} onShowRule={() => {}} onAsk={() => {}} onViewAll={() => {}} />);
+    expect(screen.getByTestId("activity-task")).toBeTruthy();
+    expect(screen.queryByTestId("activity-task-result")).toBeNull();
+  });
   it("explains what will appear when there is nothing yet", () => {
     render(<RecentActivityCard items={[]} loading={false} onShowRule={() => {}} onAsk={() => {}} onViewAll={() => {}} />);
     expect(screen.getByTestId("activity-empty").textContent).toMatch(/No decisions yet/);

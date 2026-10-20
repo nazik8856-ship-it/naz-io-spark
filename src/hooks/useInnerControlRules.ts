@@ -6,11 +6,13 @@ import { hasPermission } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 import {
+  buildOuterTaskTags,
   countRules,
   toActivity,
   toRuleItems,
   type DecisionRow,
   type HardRuleRow,
+  type OuterTaskTag,
   type RuleItem,
   type SafetyRuleRow,
 } from "@/lib/inner-control-ui";
@@ -19,6 +21,31 @@ import {
 const anyDb = supabase as any;
 
 const ACTIVITY_LIMIT = 8;
+
+/**
+ * Decisions made by a NazAI agent that an Outer Control Task asked to run are tagged with that Task: its goal, the tools it asked
+ * and, once it completed, its cleaned result. Read-only. Any failure (the columns may not exist yet) just means no tags.
+ */
+async function loadOuterTaskTags(rows: DecisionRow[]): Promise<Map<string, OuterTaskTag>> {
+  try {
+    const runIds = [...new Set(rows.map((r) => r.agent_run_id).filter((x): x is string => !!x))];
+    if (!runIds.length) return new Map();
+    const runs = await anyDb.from("agent_runs").select("id, outer_task_id").in("id", runIds).not("outer_task_id", "is", null);
+    const linked = (runs.error ? [] : runs.data ?? []) as { id: string; outer_task_id: string | null }[];
+    if (!linked.length) return new Map();
+    const taskIds = [...new Set(linked.map((r) => r.outer_task_id).filter((x): x is string => !!x))];
+    const [tasks, legs] = await Promise.all([
+      anyDb.from("outer_control_workflows").select("id, objective, status, final_output").in("id", taskIds),
+      anyDb.from("outer_control_sessions").select("workflow_id, leg_no, tool_id").in("workflow_id", taskIds),
+    ]);
+    const legRows = (legs.data ?? []) as { workflow_id: string; leg_no: number; tool_id: string }[];
+    const tools = await anyDb.from("external_tools").select("id, name").in("id", [...new Set(legRows.map((l) => l.tool_id))]);
+    return buildOuterTaskTags({
+      runs: linked, tasks: (tasks.data ?? []) as { id: string; objective: string; status: string; final_output: string | null }[],
+      legs: legRows, tools: (tools.data ?? []) as { id: string; name: string }[],
+    });
+  } catch { return new Map(); }
+}
 
 /**
  * The rules list and the recent-activity list behind the Inner Control page.
@@ -35,6 +62,7 @@ export function useInnerControlRules() {
   const [safety, setSafety] = useState<SafetyRuleRow[]>([]);
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [decisions, setDecisions] = useState<DecisionRow[]>([]);
+  const [taskTags, setTaskTags] = useState<Map<string, OuterTaskTag>>(new Map());
   const [dualControl, setDualControl] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -49,7 +77,7 @@ export function useInnerControlRules() {
         .eq("user_id", accountId).order("created_at", { ascending: false }),
       anyDb.from("agents").select("id, name").eq("user_id", accountId),
       anyDb.from("agent_decisions")
-        .select("id, created_at, decision, source, action_type, description, reasoning, hard_rule_id, escalated")
+        .select("id, created_at, decision, source, action_type, description, reasoning, hard_rule_id, escalated, agent_run_id")
         .eq("user_id", accountId).eq("is_test", false)
         .order("created_at", { ascending: false }).limit(ACTIVITY_LIMIT),
       anyDb.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
@@ -57,7 +85,9 @@ export function useInnerControlRules() {
     setHard((h.data ?? []) as HardRuleRow[]);
     setSafety((s.data ?? []) as SafetyRuleRow[]);
     setAgents((a.data ?? []) as { id: string; name: string }[]);
-    setDecisions((d.data ?? []) as DecisionRow[]);
+    const decisionRows = (d.data ?? []) as DecisionRow[];
+    setDecisions(decisionRows);
+    setTaskTags(await loadOuterTaskTags(decisionRows));
     setDualControl(!!(p.data as { require_dual_control_for_policy?: boolean } | null)?.require_dual_control_for_policy);
     setLoading(false);
   }, [accountId]);
@@ -71,8 +101,8 @@ export function useInnerControlRules() {
   const rules: RuleItem[] = useMemo(() => toRuleItems(hard, safety, agentName), [hard, safety, agentName]);
   const counts = useMemo(() => countRules(rules), [rules]);
   const activity = useMemo(
-    () => toActivity(decisions, (id) => hard.find((r) => r.id === id)?.rule_text ?? null),
-    [decisions, hard],
+    () => toActivity(decisions, (id) => hard.find((r) => r.id === id)?.rule_text ?? null, (runId) => taskTags.get(runId) ?? null),
+    [decisions, hard, taskTags],
   );
 
   const table = (r: RuleItem) => (r.kind === "hard" ? "hard_rules" : "safety_rules");

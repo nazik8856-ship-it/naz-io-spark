@@ -22,8 +22,12 @@ await build({
     b.onResolve({ filter: /^https:\/\/esm\.sh\/@supabase\/supabase-js/ }, () => ({ path: path.join(here, "fake-supabase.ts") }));
   } }],
 });
-const test = await transform(await readFile(path.join(here, "session-test.mts"), "utf8"), { loader: "ts", format: "esm", target: "node20" });
-await writeFile(path.join(out, "session-test.mjs"), test.code);
-
-const run = spawnSync(process.execPath, [path.join(out, "session-test.mjs")], { stdio: "inherit" });
-process.exit(run.status ?? 1);
+// Each test file is compiled next to the bundle and run with plain node.
+let failed = false;
+for (const name of ["session-test", "goal-test"]) {
+  const test = await transform(await readFile(path.join(here, `${name}.mts`), "utf8"), { loader: "ts", format: "esm", target: "node20" });
+  await writeFile(path.join(out, `${name}.mjs`), test.code);
+  const run = spawnSync(process.execPath, [path.join(out, `${name}.mjs`)], { stdio: "inherit" });
+  if (run.status !== 0) failed = true;
+}
+process.exit(failed ? 1 : 0);

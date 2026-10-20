@@ -72,6 +72,8 @@ export type SessionDeps = {
   agentTimeoutMs: number;
   /** Writes the report for a report Task's last step (the NazAI report writer is an internal tool, not an address). */
   report: (admin: AnyAdmin, s: SessionRow) => Promise<ReportResult>;
+  /** The AI that checks a goal Task's criteria and writes its next question; absent or null answers mean "not available". */
+  goalAi?: (prompt: { system: string; user: string }) => Promise<string | null>;
 };
 
 const denoEnv = (k: string): string => {
@@ -90,6 +92,7 @@ export const defaultSessionDeps = (): SessionDeps => ({
     : null,
   agentTimeoutMs: 120_000,
   report: (admin, s) => writeReport(admin, s, { ai: gatewayAi, now: Date.now }),
+  goalAi: gatewayAi,
 });
 
 const LEASE_MS = 150_000;
@@ -556,7 +559,11 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           res = await deps.fetchImpl(deps.agent.url, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${deps.agent.serviceKey}`, "x-scheduler-user-id": s.user_id },
-            body: JSON.stringify({ agentId: tool.agent_id, trigger: "manual", userInstruction: buildInstruction(reqInput).slice(0, 12_000) }),
+            body: JSON.stringify({
+              agentId: tool.agent_id, trigger: "manual", userInstruction: buildInstruction(reqInput).slice(0, 12_000),
+              // Which Task and step asked for this run, so Inner Control can show the agent's actions as part of it.
+              outerTaskId: s.workflow_id, outerSessionId: s.id,
+            }),
             signal: AbortSignal.timeout(deps.agentTimeoutMs),
           });
         } else if (tool.endpoint_url.startsWith(REPORT_TOOL_URL)) {
