@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildOuterTaskTags, chatStepLabels, countRules, needsTemplate, statusLine, toActivity, toRuleItems,
+  buildOuterTaskTags, chatStepLabels, countRules, needsTemplate, statusLine, taskActivity, toActivity, toRuleItems,
   type DecisionRow, type HardRuleRow, type SafetyRuleRow,
 } from "@/lib/inner-control-ui";
 
@@ -135,5 +135,28 @@ describe("actions of a NazAI agent that an Outer Control Task asked to run", () 
     const out = toActivity([dec("d1", "run-1"), dec("d2", "run-2"), dec("d3", null)], () => null, (r) => tags.get(r) ?? null);
     expect(out.map((a) => a.task?.id ?? null)).toEqual(["task-1", null, null]);
     expect(toActivity([dec("d1", "run-1")], () => null)[0].task).toBeNull();
+  });
+});
+
+
+describe("a Task whose agent recorded no decision still shows in Inner Control", () => {
+  const tag = (id: string, status = "completed") => ({ id, goal: `Goal ${id}`, status, tools: ["ChatGPT", "Agent: Support"], result: status === "completed" ? "Done." : null });
+  const tags = new Map([["run-a", tag("task-a")], ["run-b", tag("task-b", "awaiting_human")], ["run-c", tag("task-c", "failed")]]);
+  const runs = [{ id: "run-a", started_at: "2026-10-20T10:00:00Z" }, { id: "run-b", started_at: "2026-10-20T11:00:00Z" }, { id: "run-c", started_at: "2026-10-20T09:00:00Z" }, { id: "run-x", started_at: "2026-10-20T12:00:00Z" }];
+  it("adds one row per Task, newest first, skipping Tasks already shown through a tagged decision and runs without a Task", () => {
+    const rows = taskActivity({ runs, tags, covered: new Set(["task-c"]) });
+    expect(rows.map((r) => r.id)).toEqual(["task:task-b", "task:task-a"]);
+    expect(rows[0]).toMatchObject({ verdict: "Task blocked", tone: "warn", title: "Outer Control Task: Goal task-b", ruleId: null });
+    expect(rows[1]).toMatchObject({ verdict: "Task completed", tone: "ok" });
+    expect(rows[1].reason).toBe("A NazAI agent took part. Asked: ChatGPT, Agent: Support.");
+    expect(rows[1].task?.result).toBe("Done.");
+  });
+  it("shows a Task once even when several of its runs are listed, and marks a failed one as stopped", () => {
+    const rows = taskActivity({ runs: [...runs, { id: "run-a2", started_at: "2026-10-20T13:00:00Z" }], tags: new Map([...tags, ["run-a2", tag("task-a")]]), covered: new Set() });
+    expect(rows.filter((r) => r.id === "task:task-a")).toHaveLength(1);
+    expect(rows.find((r) => r.id === "task:task-c")).toMatchObject({ verdict: "Task stopped", tone: "bad" });
+  });
+  it("adds nothing when there are no tagged runs", () => {
+    expect(taskActivity({ runs: [], tags: new Map(), covered: new Set() })).toEqual([]);
   });
 });

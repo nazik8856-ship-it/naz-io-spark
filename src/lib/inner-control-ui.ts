@@ -175,6 +175,39 @@ const VERDICT_TONE: Record<string, { label: string; tone: ActivityTone }> = {
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
+const TASK_TONE: Record<string, { label: string; tone: ActivityTone }> = {
+  completed: { label: "Task completed", tone: "ok" },
+  running: { label: "Task in progress", tone: "warn" },
+  awaiting_human: { label: "Task blocked", tone: "warn" },
+  failed: { label: "Task stopped", tone: "bad" },
+  cancelled: { label: "Task stopped", tone: "bad" },
+};
+
+/**
+ * A row for each recent Outer Control Task that one of the account's NazAI agents took part in, whether or not that agent made a
+ * decision the gate recorded (a run that only wrote an answer records none). Tasks already shown through a tagged decision are left out.
+ */
+export function taskActivity(i: {
+  runs: { id: string; started_at: string }[];
+  tags: Map<string, OuterTaskTag>;
+  covered: Set<string>;
+}): ActivityItem[] {
+  const out: ActivityItem[] = [];
+  const seen = new Set(i.covered);
+  for (const r of [...i.runs].sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))) {
+    const tag = i.tags.get(r.id);
+    if (!tag || seen.has(tag.id)) continue;
+    seen.add(tag.id);
+    const v = TASK_TONE[tag.status] ?? { label: "Task", tone: "warn" as ActivityTone };
+    out.push({
+      id: `task:${tag.id}`, at: r.started_at, verdict: v.label, tone: v.tone, title: `Outer Control Task: ${tag.goal}`,
+      reason: tag.tools.length ? `A NazAI agent took part. Asked: ${tag.tools.join(", ")}.` : "A NazAI agent took part.",
+      ruleId: null, ruleName: null, question: `What did the Outer Control Task "${clip(tag.goal, 60)}" do?`, task: tag,
+    });
+  }
+  return out;
+}
+
 const TASK_RESULT_CHARS = 400;
 
 /**
