@@ -207,7 +207,7 @@ describe("Inner Control always shows one existing project", () => {
     state.tables.project_time = [{ kind: "website", project_id: "w1", seconds: 4000 }, { kind: "agent", project_id: "a1", seconds: 60 }];
     renderPage();
     expect((await screen.findByTestId("project-heading")).textContent).toMatch(/Lisbon Yoga Studio.*website/);
-    expect((screen.getByLabelText("Choose the project Inner Control shows") as HTMLSelectElement).value).toBe("website:w1");
+    expect(screen.getByLabelText("Choose the project Inner Control shows").getAttribute("data-value")).toBe("website:w1");
   });
 
   it("with no time recorded opens on the newest project", async () => {
@@ -218,7 +218,8 @@ describe("Inner Control always shows one existing project", () => {
   it("changing the project changes what the page is about", async () => {
     renderPage();
     await screen.findByTestId("project-heading");
-    fireEvent.change(screen.getByLabelText("Choose the project Inner Control shows"), { target: { value: "website:w1" } });
+    fireEvent.click(screen.getByLabelText("Choose the project Inner Control shows"));
+    fireEvent.click(screen.getByTestId("project-option-website:w1"));
     await waitFor(() => expect(screen.getByTestId("project-heading").textContent).toMatch(/Lisbon Yoga Studio/));
     expect(screen.getByTestId("website-check")).toBeTruthy();
     expect(sessionStorage.getItem("nazai_inner_project:u1")).toBe("website:w1");
