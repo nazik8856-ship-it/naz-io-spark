@@ -24,6 +24,11 @@ import DryRunToggle from "@/components/control/DryRunToggle";
 import StrictnessPanel from "@/components/control/StrictnessPanel";
 import RetentionPanel from "@/components/control/RetentionPanel";
 import ProjectSwitcher from "@/components/control/ProjectSwitcher";
+import ProjectPicker from "@/components/control/ProjectPicker";
+import WebsiteControlReport from "@/components/websites/WebsiteControlReport";
+import { useInnerProjects } from "@/hooks/useInnerProjects";
+import { useProjectTimeTracker } from "@/hooks/useProjectTimeTracker";
+import { KIND_LABEL } from "@/lib/inner-projects";
 import PolicyOverviewPanel from "@/components/control/PolicyOverviewPanel";
 import NotificationPreferencesPanel from "@/components/control/NotificationPreferencesPanel";
 import ControlPagesMenu from "@/components/control/dashboard/ControlPagesMenu";
@@ -65,9 +70,14 @@ export default function ControlSystem() {
   // away. Unused at lg+, where the chat stays a permanent sidebar.
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const spendStatus = useSpendSafetyStatus(accountId);
-  const dashboard = useControlDashboardData(accountId);
+  // Inner Control is always about one existing project (an agent or a website). It opens on the one the person has spent the most
+  // time on; until that is known, or when the account has none, nothing is loaded.
+  const projects = useInnerProjects();
+  const shown = projects.loading ? null : projects.selected;
+  useProjectTimeTracker(shown?.kind, shown?.id);
+  const dashboard = useControlDashboardData(accountId, shown);
   const approvalsFeed = usePendingApprovalsFeed(accountId);
-  const innerRules = useInnerControlRules();
+  const innerRules = useInnerControlRules(shown);
   const chatLog = useExecutionLog();
   // "Ask in chat" on a rule or activity row: text is placed in the box, not sent.
   const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(null);
@@ -194,7 +204,9 @@ export default function ControlSystem() {
     { label: "Hard rules", done: dashboard.setup.hardRules, onClick: () => navigate("/control-system/safety-rules") },
     { label: "Safety rules", done: dashboard.setup.safetyRules, onClick: () => navigate("/control-system/safety-rules") },
     { label: "Daily spend limit", done: dashboard.setup.spendCapCustom, onClick: () => navigate("/control-system/spend-safety") },
-    { label: "Agent deployed", done: dashboard.setup.agentDeployed, onClick: () => navigate("/generator-home") },
+    shown?.kind === "website"
+      ? { label: "Website generated", done: dashboard.setup.agentDeployed, onClick: () => navigate(`/generated/website/${shown.id}`) }
+      : { label: "Agent deployed", done: dashboard.setup.agentDeployed, onClick: () => navigate(shown ? `/generated/agent/${shown.id}` : "/generator-home") },
   ];
 
   return (
@@ -225,6 +237,7 @@ export default function ControlSystem() {
           </button>
         </div>
         <ProjectSwitcher />
+        <ProjectPicker projects={projects.projects} selected={projects.selected} loading={projects.loading} onSelect={projects.select} onCreate={() => navigate("/generator-home")} />
         {/* GAP 10 (Unified UX): the same traffic light shown on every agent's
             own page and every Governed Entities row, here as an account-wide
             aggregate -- trust score, rule coverage, and spend all rolled up
@@ -232,7 +245,7 @@ export default function ControlSystem() {
         {dashboard.accountHealth && (
           <GovernanceHealthDot
             health={dashboard.accountHealth}
-            label={`Account ${dashboard.accountTrustScore ? `· Trust ${dashboard.accountTrustScore.score}` : ""}`}
+            label={`${shown ? KIND_LABEL[shown.kind] : "Account"}${dashboard.trustScoreValue !== null ? ` · Trust ${dashboard.trustScoreValue}` : ""}`}
           />
         )}
         <nav className="ml-auto flex flex-wrap items-center justify-end gap-2">
@@ -286,6 +299,23 @@ export default function ControlSystem() {
         {/* Left: dashboard -- the main view on phone */}
         <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
           <div className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
+            {!projects.loading && !projects.selected ? (
+              <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-8 text-center" data-testid="no-projects">
+                <p className="text-base font-medium text-zinc-100">No projects yet</p>
+                <p className="mx-auto mt-1 max-w-md text-sm text-zinc-400">
+                  Inner Control watches the agents and websites you build, one project at a time. Create your first one in the Generator and it will show up here.
+                </p>
+                <button onClick={() => navigate("/generator-home")} className="mt-4 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-200 hover:bg-cyan-500/20">
+                  Open the Generator
+                </button>
+              </div>
+            ) : (
+              <>
+                {shown && (
+                  <p className="text-xs text-zinc-500" data-testid="project-heading">
+                    Showing <span className="font-medium text-zinc-200">{shown.name}</span> · {KIND_LABEL[shown.kind].toLowerCase()}
+                  </p>
+                )}
             {/* 1. Setup & status */}
             <SetupProgressBar
               pct={dashboard.setup.pct}
@@ -297,6 +327,13 @@ export default function ControlSystem() {
                 ? statusLine(innerRules.counts, dashboard.coveragePct)
                 : null}
             />
+
+            {/* A website is checked once, when it is generated: what that check found is its record here. */}
+            {shown?.kind === "website" && (
+              <div className="-mx-4 -mt-3 sm:-mx-6" data-testid="website-check">
+                <WebsiteControlReport notes={shown.website?.notes ?? []} trustScore={shown.website?.trustScore ?? null} />
+              </div>
+            )}
 
             {/* 2. Your rules: the centre of the page */}
             <YourRulesCard
@@ -322,6 +359,10 @@ export default function ControlSystem() {
               onShowRule={showRule}
               onAsk={askInChat}
               onViewAll={() => navigate("/control-system/decision-history")}
+              emptyTitle={shown?.kind === "website" ? "A website takes no actions of its own" : "No decisions for this agent yet"}
+              emptyText={shown?.kind === "website"
+                ? "Its text is checked against your rules once, when it is generated. What that check found is shown above."
+                : "When this agent tries to do something, the Control System checks it against your rules and the result shows up here."}
             />
 
             {/* 4. Detail, lower on the page */}
@@ -365,6 +406,9 @@ export default function ControlSystem() {
                 onClick={() => navigate("/control-system/roi")}
               />
             </div>
+
+              </>
+            )}
 
             <div className="rounded-xl border border-white/10 bg-white/[0.03]">
               <button

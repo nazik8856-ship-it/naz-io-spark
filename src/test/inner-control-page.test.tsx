@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within, configure } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+
+// The page loads the project list first and then that project's data, so a slow runner needs longer than the 1 s default.
+configure({ asyncUtilTimeout: 5000 });
 
 const state = vi.hoisted(() => ({
   tables: {} as Record<string, unknown[]>,
@@ -32,7 +35,7 @@ vi.mock("@/hooks/useControlDashboardData", () => ({
     spend: { today: 0.5, cap: 5, capIsCustom: true, series: [] }, incidents: { openCount: 0, series: [] },
     efficiency: { autonomousPct: null, series: [] }, pendingApprovalsCount: 0,
     setup: { hardRules: true, safetyRules: false, spendCapCustom: true, agentDeployed: true, pct: 75 },
-    days: [], accountTrustScore: null, accountHealth: null, refetch: () => {},
+    days: [], accountTrustScore: null, accountHealth: null, trustScoreValue: null, refetch: () => {},
   }),
 }));
 
@@ -45,12 +48,16 @@ const renderPage = () => render(<MemoryRouter><ControlSystem /></MemoryRouter>);
 const hardRule = { id: "h1", rule_text: "Never email more than 1 person", action_type_pattern: "send_email", effect: "always_block", enabled: true, shadow_mode: false, agent_id: null, required_approvals: null, created_at: "2026-10-01T00:00:00Z" };
 const decision = { id: "d1", created_at: new Date().toISOString(), decision: "block", source: "hard_rule", action_type: "send_email", description: "Send email to all customers", reasoning: "A hard rule always blocks this.", hard_rule_id: "h1", escalated: false };
 
+const AGENT = { id: "a1", name: "Support agent", created_at: "2026-10-12T00:00:00Z" };
+const WEBSITE = { id: "w1", name: "Lisbon Yoga Studio", title: "Lisbon Yoga Studio", created_at: "2026-10-11T00:00:00Z", generation_notes: ["A price was not in your brief."], trust_score: 80 };
+
 describe("Inner Control page", () => {
   beforeEach(() => {
+    sessionStorage.clear();
     state.updates = [];
     state.approvals = [];
     state.invoke = vi.fn();
-    state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [], agent_decisions: [decision] };
+    state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [AGENT], websites: [], project_time: [], agent_decisions: [decision] };
   });
 
   it("puts setup & status first, then your rules, then recent activity, then the detail cards", async () => {
@@ -67,7 +74,7 @@ describe("Inner Control page", () => {
   });
 
   it("with no rules, shows the primary template button and the rules empty state", async () => {
-    state.tables = { hard_rules: [], safety_rules: [], agents: [], agent_decisions: [] };
+    state.tables = { hard_rules: [], safety_rules: [], agents: [AGENT], websites: [], project_time: [], agent_decisions: [] };
     renderPage();
     expect(await screen.findByRole("button", { name: /Start from a Policy Template/ })).toBeTruthy();
     expect(screen.getByTestId("rules-empty")).toBeTruthy();
@@ -94,7 +101,7 @@ describe("Inner Control page", () => {
   });
 
   it("shows the first 5 rules and expands to all of them", async () => {
-    state.tables = { hard_rules: Array.from({ length: 7 }, (_, i) => ({ ...hardRule, id: `h${i + 1}`, rule_text: `Rule number ${i + 1}` })), safety_rules: [], agents: [], agent_decisions: [] };
+    state.tables = { hard_rules: Array.from({ length: 7 }, (_, i) => ({ ...hardRule, id: `h${i + 1}`, rule_text: `Rule number ${i + 1}` })), safety_rules: [], agents: [AGENT], websites: [], project_time: [], agent_decisions: [] };
     renderPage();
     await screen.findByTestId("rule-row-hard:h1");
     expect(screen.getAllByTestId(/^rule-row-/)).toHaveLength(5);
@@ -113,7 +120,7 @@ describe("Inner Control page", () => {
   });
 
   it("shows the first 5 decisions and expands to all of them", async () => {
-    state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [], agent_decisions: Array.from({ length: 8 }, (_, i) => ({ ...decision, id: `d${i}`, description: `Action ${i}` })) };
+    state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [AGENT], websites: [], project_time: [], agent_decisions: Array.from({ length: 8 }, (_, i) => ({ ...decision, id: `d${i}`, description: `Action ${i}` })) };
     renderPage();
     await screen.findAllByTestId("activity-row");
     expect(screen.getAllByTestId("activity-row")).toHaveLength(5);
@@ -158,7 +165,7 @@ describe("Inner Control page", () => {
 
 describe("Inner Control chat extras", () => {
   it("has the + and sliders buttons in the chat box, with no tone picker", async () => {
-    state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [], agent_decisions: [] };
+    state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [AGENT], websites: [], project_time: [], agent_decisions: [] };
     renderPage();
     await screen.findByTestId("rule-row-hard:h1");
     const composer = screen.getAllByTestId("chat-composer")[0];
@@ -169,7 +176,7 @@ describe("Inner Control chat extras", () => {
   });
 
   it("sends an attached link along with the message and shows only its name in the chat", async () => {
-    state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [], agent_decisions: [] };
+    state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [AGENT], websites: [], project_time: [], agent_decisions: [] };
     state.invoke = vi.fn(() => Promise.resolve({ data: { mode: "chat", reply: "ok" }, error: null }));
     renderPage();
     await screen.findByTestId("rule-row-hard:h1");
@@ -185,5 +192,67 @@ describe("Inner Control chat extras", () => {
     expect(body.body.message).toContain("Can I act on this?");
     expect(body.body.message).toContain("https://x.test/policy");
     expect(await screen.findByText(/📎 URL · https:\/\/x.test\/policy/)).toBeTruthy();
+  });
+});
+
+
+describe("Inner Control always shows one existing project", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    state.updates = []; state.approvals = []; state.invoke = vi.fn();
+    state.tables = { hard_rules: [hardRule, { ...hardRule, id: "h2", rule_text: "Only for another agent", agent_id: "someone-else" }], safety_rules: [], agents: [AGENT], websites: [WEBSITE], project_time: [], agent_decisions: [decision] };
+  });
+
+  it("opens on the project the person has spent the most time on, and says which one it is", async () => {
+    state.tables.project_time = [{ kind: "website", project_id: "w1", seconds: 4000 }, { kind: "agent", project_id: "a1", seconds: 60 }];
+    renderPage();
+    expect((await screen.findByTestId("project-heading")).textContent).toMatch(/Lisbon Yoga Studio.*website/);
+    expect((screen.getByLabelText("Choose the project Inner Control shows") as HTMLSelectElement).value).toBe("website:w1");
+  });
+
+  it("with no time recorded opens on the newest project", async () => {
+    renderPage();
+    expect((await screen.findByTestId("project-heading")).textContent).toMatch(/Support agent.*agent/);
+  });
+
+  it("changing the project changes what the page is about", async () => {
+    renderPage();
+    await screen.findByTestId("project-heading");
+    fireEvent.change(screen.getByLabelText("Choose the project Inner Control shows"), { target: { value: "website:w1" } });
+    await waitFor(() => expect(screen.getByTestId("project-heading").textContent).toMatch(/Lisbon Yoga Studio/));
+    expect(screen.getByTestId("website-check")).toBeTruthy();
+    expect(sessionStorage.getItem("nazai_inner_project:u1")).toBe("website:w1");
+  });
+
+  it("shows only the rules that belong to the project: another agent's rule is left out", async () => {
+    renderPage();
+    await screen.findByTestId("rule-row-hard:h1");
+    expect(screen.queryByTestId("rule-row-hard:h2")).toBeNull();
+  });
+
+  it("a website shows how it was checked, no decisions of its own, and the rules for all agents", async () => {
+    state.tables.project_time = [{ kind: "website", project_id: "w1", seconds: 100 }];
+    renderPage();
+    const check = await screen.findByTestId("website-check");
+    fireEvent.click(within(check).getByRole("button"));
+    expect(check.textContent).toMatch(/price was not in your brief/);
+    expect((await screen.findByTestId("activity-empty")).textContent).toMatch(/takes no actions of its own/);
+    expect(screen.getByTestId("setup-status").textContent).toMatch(/Website generated/);
+    await screen.findByTestId("rule-row-hard:h1");
+  });
+
+  it("an account with no agent or website shows no dashboard of unrelated numbers, only how to get a project", async () => {
+    state.tables.agents = []; state.tables.websites = [];
+    renderPage();
+    expect(await screen.findByTestId("no-projects")).toBeTruthy();
+    expect(screen.queryByTestId("setup-status")).toBeNull();
+    expect(screen.queryByTestId("your-rules")).toBeNull();
+    expect(screen.getByTestId("project-picker-empty")).toBeTruthy();
+  });
+
+  it("a saved choice that no longer exists falls back to an existing project", async () => {
+    sessionStorage.setItem("nazai_inner_project:u1", "agent:deleted");
+    renderPage();
+    expect((await screen.findByTestId("project-heading")).textContent).toMatch(/Support agent/);
   });
 });

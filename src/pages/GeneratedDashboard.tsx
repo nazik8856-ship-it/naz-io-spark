@@ -1,6 +1,7 @@
 // Post-generation workspace. Websites get their own preview/code/chat surface
 // (fully separate from the AI-Agent pipeline — no agent widgets, no dashboard
 // tab, no agent-specific fields). Agents keep their cockpit workspace.
+import { useProjectTimeTracker } from "@/hooks/useProjectTimeTracker";
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
@@ -99,6 +100,8 @@ function readCachedWebsitePreview(websiteId: string) {
 
 export default function GeneratedDashboard() {
   const { kind, id } = useParams<Params>();
+  // The time spent on this agent or website decides which project Inner Control opens on.
+  useProjectTimeTracker(kind === "agent" || kind === "website" ? kind : undefined, id);
   const navigate = useNavigate();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);

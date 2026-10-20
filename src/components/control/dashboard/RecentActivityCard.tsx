@@ -15,12 +15,16 @@ export default function RecentActivityCard({
   onShowRule,
   onAsk,
   onViewAll,
+  emptyTitle = "No decisions yet",
+  emptyText = "When your AI tries to do something, the Control System checks it against your rules and the result shows up here. Try the chat: describe an action and see what it decides.",
 }: {
   items: ActivityItem[];
   loading: boolean;
   onShowRule: (hardRuleId: string) => void;
   onAsk: (question: string) => void;
   onViewAll: () => void;
+  emptyTitle?: string;
+  emptyText?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const shown = expanded ? items : items.slice(0, ACTIVITY_SHOWN);
@@ -37,11 +41,8 @@ export default function RecentActivityCard({
         <p className="mt-3 text-sm text-zinc-500">Loading…</p>
       ) : items.length === 0 ? (
         <div className="mt-3 rounded-lg border border-dashed border-white/15 bg-black/20 p-4 text-center" data-testid="activity-empty">
-          <p className="text-sm font-medium text-zinc-200">No decisions yet</p>
-          <p className="mx-auto mt-1 max-w-sm text-xs text-zinc-500">
-            When your AI tries to do something, the Control System checks it against your rules and the result shows up here.
-            Try the chat: describe an action and see what it decides.
-          </p>
+          <p className="text-sm font-medium text-zinc-200">{emptyTitle}</p>
+          <p className="mx-auto mt-1 max-w-sm text-xs text-zinc-500">{emptyText}</p>
         </div>
       ) : (
         <ul className="mt-3 divide-y divide-white/5">

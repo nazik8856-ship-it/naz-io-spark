@@ -1,4 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
+import { forgetChoices } from "@/lib/inner-projects";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, LogOut, type MessageSquare, Settings, ShieldCheck, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -100,6 +101,8 @@ export default function Dashboard() {
 
   // Choosing an interface ends the first visit; the marker lives on the account so it holds on every device.
   const choose = (route: string) => {
+    // Opening Inner Control from here starts from the project the person spends the most time on, not from an earlier pick.
+    if (route === "/control-system") forgetChoices();
     if (firstVisit) void supabase.auth.updateUser({ data: { welcome_seen: true } }).catch(() => undefined);
     navigate(route);
   };
