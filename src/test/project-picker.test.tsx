@@ -13,12 +13,37 @@ describe("ProjectPicker", () => {
   it("lists agents and websites in groups and reports the choice", () => {
     const onSelect = vi.fn();
     render(<ProjectPicker {...base} onSelect={onSelect} projects={projects} selected={projects[0]} loading={false} />);
-    const select = screen.getByLabelText("Choose the project Inner Control shows") as HTMLSelectElement;
-    expect(select.value).toBe("agent:a1");
-    expect([...select.querySelectorAll("optgroup")].map((g) => g.label)).toEqual(["Agents", "Websites"]);
-    expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Support agent", "Lisbon Yoga Studio", "Bakery"]);
-    fireEvent.change(select, { target: { value: "website:w2" } });
+    const trigger = screen.getByLabelText("Choose the project Inner Control shows");
+    expect(trigger.getAttribute("data-value")).toBe("agent:a1");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("listbox")).toBeTruthy();
+    expect(screen.getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["Agents", "Websites"]);
+    const options = screen.getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["Support agent", "Lisbon Yoga Studio", "Bakery"]);
+    expect(options.map((o) => o.getAttribute("aria-selected"))).toEqual(["true", "false", "false"]);
+    fireEvent.click(options[2]);
     expect(onSelect).toHaveBeenCalledWith("website:w2");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+  it("choosing the project that is already shown just closes the list", () => {
+    const onSelect = vi.fn();
+    render(<ProjectPicker {...base} onSelect={onSelect} projects={projects} selected={projects[0]} loading={false} />);
+    fireEvent.click(screen.getByLabelText("Choose the project Inner Control shows"));
+    fireEvent.click(screen.getAllByRole("option")[0]);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+  it("closes on Escape and when the person clicks elsewhere", () => {
+    render(<div><span data-testid="elsewhere">x</span><ProjectPicker {...base} projects={projects} selected={projects[0]} loading={false} /></div>);
+    const trigger = screen.getByLabelText("Choose the project Inner Control shows");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("listbox")).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.click(trigger);
+    fireEvent.mouseDown(screen.getByTestId("elsewhere"));
+    expect(screen.queryByRole("listbox")).toBeNull();
   });
   it("with one project it is a label with its type, not a dropdown", () => {
     render(<ProjectPicker {...base} projects={[projects[0]]} selected={projects[0]} loading={false} />);
