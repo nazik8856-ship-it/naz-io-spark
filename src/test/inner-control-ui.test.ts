@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  chatStepLabels, countRules, needsTemplate, statusLine, toActivity, toRuleItems,
+  buildOuterTaskTags, chatStepLabels, countRules, needsTemplate, statusLine, toActivity, toRuleItems,
   type DecisionRow, type HardRuleRow, type SafetyRuleRow,
 } from "@/lib/inner-control-ui";
 
@@ -107,5 +107,33 @@ describe("chat attachments", () => {
     const out = buildControlMessage("go", [{ label: "File · a.txt", kind: "file", contextText: `Attached file.\n\n${big}` }]);
     expect(out.length).toBeLessThan(2000);
     expect(out).toContain("(excerpt)");
+  });
+});
+
+
+describe("actions of a NazAI agent that an Outer Control Task asked to run", () => {
+  const dec = (id: string, run: string | null) => ({ id, created_at: "2026-10-20T10:00:00Z", decision: "allow", source: "gate", action_type: "send_email", description: "Email the customer", reasoning: "", hard_rule_id: null, escalated: false, agent_run_id: run });
+  const input = {
+    runs: [{ id: "run-1", outer_task_id: "task-1" }, { id: "run-2", outer_task_id: null }, { id: "run-3", outer_task_id: "task-gone" }],
+    tasks: [{ id: "task-1", objective: "Find the return rules   and email the customer", status: "completed", final_output: "Premium customers can return items within thirty days." }],
+    legs: [{ workflow_id: "task-1", leg_no: 2, tool_id: "ag" }, { workflow_id: "task-1", leg_no: 1, tool_id: "ext" }, { workflow_id: "other", leg_no: 1, tool_id: "zz" }],
+    tools: [{ id: "ext", name: "ChatGPT" }, { id: "ag", name: "Agent: Support" }, { id: "zz", name: "Not this one" }],
+  };
+  it("tags a run with its Task: goal, tools in step order, and the cleaned result of a completed Task", () => {
+    const tags = buildOuterTaskTags(input);
+    expect([...tags.keys()]).toEqual(["run-1"]);
+    expect(tags.get("run-1")).toEqual({ id: "task-1", goal: "Find the return rules and email the customer", status: "completed", tools: ["ChatGPT", "Agent: Support"], result: "Premium customers can return items within thirty days." });
+  });
+  it("shows no result until the Task completed, and shortens a long one", () => {
+    expect(buildOuterTaskTags({ ...input, tasks: [{ ...input.tasks[0], status: "running" }] }).get("run-1")!.result).toBeNull();
+    const long = buildOuterTaskTags({ ...input, tasks: [{ ...input.tasks[0], final_output: "word ".repeat(200) }] }).get("run-1")!.result!;
+    expect(long.length).toBeLessThanOrEqual(400);
+    expect(long.endsWith("…")).toBe(true);
+  });
+  it("puts the tag on the activity row of that run only", () => {
+    const tags = buildOuterTaskTags(input);
+    const out = toActivity([dec("d1", "run-1"), dec("d2", "run-2"), dec("d3", null)], () => null, (r) => tags.get(r) ?? null);
+    expect(out.map((a) => a.task?.id ?? null)).toEqual(["task-1", null, null]);
+    expect(toActivity([dec("d1", "run-1")], () => null)[0].task).toBeNull();
   });
 });

@@ -133,6 +133,19 @@ export type DecisionRow = {
   reasoning: string | null;
   hard_rule_id: string | null;
   escalated: boolean;
+  /** The agent run this decision belongs to, when it came from one. */
+  agent_run_id?: string | null;
+};
+
+/** The Outer Control Task a NazAI agent's run was started by, as Inner Control shows it next to the agent's actions. */
+export type OuterTaskTag = {
+  id: string;
+  goal: string;
+  status: string;
+  /** Names of the tools the Task asked (external tools and NazAI agents), in step order. */
+  tools: string[];
+  /** The Task's cleaned final result, only once the Task completed. */
+  result: string | null;
 };
 
 export type ActivityTone = "ok" | "warn" | "bad";
@@ -148,6 +161,8 @@ export type ActivityItem = {
   ruleName: string | null;
   /** A ready-made question for the chat. */
   question: string;
+  /** Set when the action was done by a NazAI agent that an Outer Control Task asked to run. */
+  task?: OuterTaskTag | null;
 };
 
 const VERDICT_TONE: Record<string, { label: string; tone: ActivityTone }> = {
@@ -160,7 +175,32 @@ const VERDICT_TONE: Record<string, { label: string; tone: ActivityTone }> = {
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
-export function toActivity(rows: DecisionRow[], hardRuleName: (id: string) => string | null): ActivityItem[] {
+const TASK_RESULT_CHARS = 400;
+
+/**
+ * Which runs belong to which Outer Control Task, from what the page loaded: the runs that carry a Task id, the Tasks, their steps
+ * and the tools' names. The result is shown only for a Task that completed (its cleaned final output, never a raw reply).
+ */
+export function buildOuterTaskTags(i: {
+  runs: { id: string; outer_task_id: string | null }[];
+  tasks: { id: string; objective: string; status: string; final_output: string | null }[];
+  legs: { workflow_id: string; leg_no: number; tool_id: string }[];
+  tools: { id: string; name: string }[];
+}): Map<string, OuterTaskTag> {
+  const out = new Map<string, OuterTaskTag>();
+  const taskById = new Map(i.tasks.map((t) => [t.id, t]));
+  const toolName = new Map(i.tools.map((t) => [t.id, t.name]));
+  for (const r of i.runs) {
+    const t = r.outer_task_id ? taskById.get(r.outer_task_id) : undefined;
+    if (!t) continue;
+    const names = [...new Set(i.legs.filter((l) => l.workflow_id === t.id).sort((a, b) => a.leg_no - b.leg_no).map((l) => toolName.get(l.tool_id)).filter((n): n is string => !!n))];
+    const result = t.status === "completed" && (t.final_output ?? "").trim() ? clip((t.final_output as string).replace(/\s+/g, " ").trim(), TASK_RESULT_CHARS) : null;
+    out.set(r.id, { id: t.id, goal: clip(t.objective.replace(/\s+/g, " ").trim(), 140), status: t.status, tools: names, result });
+  }
+  return out;
+}
+
+export function toActivity(rows: DecisionRow[], hardRuleName: (id: string) => string | null, taskOfRun?: (runId: string) => OuterTaskTag | null): ActivityItem[] {
   return rows.map((d) => {
     const v = VERDICT_TONE[d.decision] ?? { label: d.decision, tone: "warn" as ActivityTone };
     const what = clip((d.description || d.action_type || "An action").replace(/\s+/g, " ").trim(), 90);
@@ -175,6 +215,7 @@ export function toActivity(rows: DecisionRow[], hardRuleName: (id: string) => st
       ruleId: ruleName ? d.hard_rule_id : null,
       ruleName,
       question: `Why was "${clip(what, 60)}" ${v.label.toLowerCase()}?`,
+      task: d.agent_run_id && taskOfRun ? taskOfRun(d.agent_run_id) : null,
     };
   });
 }

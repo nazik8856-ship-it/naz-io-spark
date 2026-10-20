@@ -130,6 +130,8 @@ serve(async (req) => {
     let bodyAgentId = "";
     let bodyTrigger = "";
     let bodyUserInstruction: string | undefined = undefined;
+    let bodyOuterTaskId = "";
+    let bodyOuterSessionId = "";
     let rawBody: unknown = undefined;
     if (req.method === "POST") {
       const text = await req.text();
@@ -141,6 +143,8 @@ serve(async (req) => {
             bodyAgentId = typeof parsed.agentId === "string" ? parsed.agentId : "";
             bodyTrigger = typeof parsed.trigger === "string" ? parsed.trigger : "";
             bodyUserInstruction = typeof parsed.userInstruction === "string" ? parsed.userInstruction : undefined;
+            bodyOuterTaskId = typeof parsed.outerTaskId === "string" ? parsed.outerTaskId : "";
+            bodyOuterSessionId = typeof parsed.outerSessionId === "string" ? parsed.outerSessionId : "";
           }
         } catch {
           rawBody = text;
@@ -179,6 +183,11 @@ serve(async (req) => {
     const caller = resolveSchedulerCaller(authHeader, schedulerUserId, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
     // A request that names a user in x-scheduler-user-id without the platform's own key is a forgery, not a login.
     if (caller.kind === "forged") return json({ error: "Unauthorized" }, 401);
+    // Outer Control says which Task and step asked for this run. Only the platform itself is believed, and only real ids.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const outerLink: { outer_task_id?: string; outer_session_id?: string } = caller.kind === "platform" && UUID_RE.test(bodyOuterTaskId)
+      ? { outer_task_id: bodyOuterTaskId, ...(UUID_RE.test(bodyOuterSessionId) ? { outer_session_id: bodyOuterSessionId } : {}) }
+      : {};
     if (caller.kind === "platform") {
       userId = caller.userId;
     } else if (trigger === "webhook") {
@@ -458,7 +467,7 @@ serve(async (req) => {
 
     const { data: run, error: runErr } = await supabase
       .from("agent_runs")
-      .insert({ agent_id: agentId, user_id: userId, trigger, status: "running" })
+      .insert({ agent_id: agentId, user_id: userId, trigger, status: "running", ...outerLink })
       .select("id").single();
     if (runErr || !run) return json({ error: "Could not start run" }, 500);
     const runId = run.id as string;

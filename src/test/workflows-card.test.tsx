@@ -130,3 +130,109 @@ describe("WorkflowsCard", () => {
   });
 });
 
+
+
+describe("WorkflowsCard: goal Tasks", () => {
+  const goalTask = (over: Record<string, unknown> = {}) => ({
+    id: "g1", objective: "Find the return rules", status: "running", summary: "1 of 2 criteria met; round 1 of 4.", started_at: "2026-10-20T00:00:00Z", kind: "chain",
+    mode: "goal", max_rounds: 4, rounds_used: 1, blocked_reason: null, final_artifact: null,
+    criteria_state: [
+      { id: "c1", text: "States the return window", met: true, evidence: "within thirty days of purchase", round: 1 },
+      { id: "c2", text: "States the refund time", met: false, evidence: null, round: null },
+    ], ...over,
+  });
+  beforeEach(() => {
+    state.tools = [T1, T2, { id: "rw", name: "NazAI report writer", endpoint_url: "nazai-internal://report" }]; state.workflows = []; state.legs = [];
+    vi.clearAllMocks();
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, task_id: "g1" }) })));
+  });
+
+  it("shows a running goal Task as In progress with its criteria, the evidence and the round", async () => {
+    state.workflows = [goalTask()];
+    render(<WorkflowsCard accountId="u1" />);
+    expect((await screen.findByTestId("goal-headline")).textContent).toBe("In progress");
+    expect(screen.getByTestId("goal-rounds").textContent).toBe("Round 1 of 4");
+    expect(screen.getByTestId("goal-met").textContent).toMatch(/1 of 2 done criteria met/);
+    const rows = screen.getAllByTestId("goal-criterion");
+    expect(rows.map((r) => r.getAttribute("data-met"))).toEqual(["true", "false"]);
+    expect(rows[0].textContent).toMatch(/within thirty days of purchase/);
+    expect(screen.queryByTestId("goal-blocked")).toBeNull();
+  });
+
+  it("shows a blocked goal Task with the reason and three ways out, and sends the owner's choice", async () => {
+    state.workflows = [goalTask({ status: "awaiting_human", blocked_reason: "4 rounds were used and these criteria are still not met: \"States the refund time\". Accept the result as it is, allow more rounds, or stop." })];
+    render(<WorkflowsCard accountId="u1" />);
+    expect((await screen.findByTestId("goal-headline")).textContent).toBe("Blocked");
+    expect(screen.getByTestId("goal-blocked").textContent).toMatch(/4 rounds were used/);
+    fireEvent.click(screen.getByText("Allow 2 more rounds"));
+    await waitFor(() => expect(calls().length).toBe(1));
+    expect(JSON.parse((calls()[0][1] as RequestInit).body as string)).toEqual({ action: "task_decide", task_id: "g1", decision: "more" });
+    fireEvent.click(screen.getByText("Accept as done"));
+    await waitFor(() => expect(calls().length).toBe(2));
+    expect(JSON.parse((calls()[1][1] as RequestInit).body as string).decision).toBe("accept");
+    fireEvent.click(screen.getByText("Stop"));
+    await waitFor(() => expect(calls().length).toBe(3));
+    expect(JSON.parse((calls()[2][1] as RequestInit).body as string).decision).toBe("stop");
+  });
+
+  it("does not offer more rounds at the maximum", async () => {
+    state.workflows = [goalTask({ status: "awaiting_human", blocked_reason: "Rounds used up.", max_rounds: 10, rounds_used: 10 })];
+    render(<WorkflowsCard accountId="u1" />);
+    const more = await screen.findByText("Allow 2 more rounds");
+    expect((more as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("points to Inner Control when a NazAI agent took part in the Task, and not otherwise", async () => {
+    state.tools = [T1, { id: "ag1", name: "Agent: Support", agent_id: "a-1" }];
+    state.workflows = [goalTask({ status: "completed", blocked_reason: null })];
+    state.legs = [{ id: "l1", workflow_id: "g1", leg_no: 1, tool_id: "t1", objective: "x", status: "completed", stop_reason: null, final_output: "x", depends_on: [], final_artifact: null },
+      { id: "l2", workflow_id: "g1", leg_no: 2, tool_id: "ag1", objective: "y", status: "completed", stop_reason: null, final_output: "y", depends_on: [1], final_artifact: null }];
+    const { unmount } = render(<WorkflowsCard accountId="u1" />);
+    const note = await screen.findByTestId("task-agent-note");
+    expect(note.textContent).toMatch(/recorded in Inner Control/);
+    expect(note.querySelector("a")?.getAttribute("href")).toBe("/control-system");
+    unmount();
+    state.legs = [state.legs[0]];
+    render(<WorkflowsCard accountId="u1" />);
+    await screen.findByTestId("goal-progress");
+    expect(screen.queryByTestId("task-agent-note")).toBeNull();
+  });
+
+  it("a steps Task shows no goal panel", async () => {
+    state.workflows = [{ id: "w1", objective: "Write the brief", status: "running", summary: null, started_at: "2026-10-20T00:00:00Z", kind: "chain", mode: "steps" }];
+    render(<WorkflowsCard accountId="u1" />);
+    await screen.findByText("Write the brief");
+    expect(screen.queryByTestId("goal-progress")).toBeNull();
+  });
+
+  it("starts a goal Task: goal, criteria per line, up to three tools in order, rounds; the report writer is not offered", async () => {
+    render(<WorkflowsCard accountId="u1" />);
+    fireEvent.click(await screen.findByTestId("new-goal-task"));
+    expect(screen.queryByLabelText("Ask NazAI report writer")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "Find the return rules for premium customers" } });
+    fireEvent.change(screen.getByLabelText("Done criteria"), { target: { value: "States the return window\nStates the refund time" } });
+    fireEvent.click(screen.getByLabelText("Ask Writer Bot"));
+    fireEvent.click(screen.getByLabelText("Ask Research Bot"));
+    fireEvent.change(screen.getByLabelText("Most rounds"), { target: { value: "3" } });
+    fireEvent.click(screen.getByText("Start"));
+    await waitFor(() => expect(calls().length).toBe(1));
+    expect(JSON.parse((calls()[0][1] as RequestInit).body as string)).toEqual({
+      action: "start_goal", goal: "Find the return rules for premium customers", criteria: ["States the return window", "States the refund time"], tool_ids: ["t2", "t1"], max_rounds: 3,
+    });
+  });
+
+  it("refuses to start without a goal or a tool, and without criteria sends none", async () => {
+    render(<WorkflowsCard accountId="u1" />);
+    fireEvent.click(await screen.findByTestId("new-goal-task"));
+    fireEvent.click(screen.getByText("Start"));
+    expect((toast.error as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("Describe the goal.");
+    fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "Find it" } });
+    fireEvent.click(screen.getByText("Start"));
+    expect((toast.error as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("Choose at least one tool to ask.");
+    expect(calls().length).toBe(0);
+    fireEvent.click(screen.getByLabelText("Ask Research Bot"));
+    fireEvent.click(screen.getByText("Start"));
+    await waitFor(() => expect(calls().length).toBe(1));
+    expect(JSON.parse((calls()[0][1] as RequestInit).body as string).criteria).toBeUndefined();
+  });
+});

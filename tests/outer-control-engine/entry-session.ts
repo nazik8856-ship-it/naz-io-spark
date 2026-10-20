@@ -2,7 +2,7 @@ import "./preamble.ts";
 export * from "./fake-supabase.ts";
 export { advanceSession, resumeSession, contactRuleStopping, applyEditedReply } from "../../supabase/functions/_shared/outer-control-session.ts";
 
-export { driveSession, startFollowUp, startWorkflow, startTask, progressWorkflow, cancelWorkflow, resumeAndDrive, continueSession } from "../../supabase/functions/_shared/outer-control-workflow.ts";
+export { driveSession, startFollowUp, startWorkflow, startTask, startGoal, acceptGoal, extendGoal, progressWorkflow, cancelWorkflow, resumeAndDrive, continueSession } from "../../supabase/functions/_shared/outer-control-workflow.ts";
 
 export { updateToolKey, removeTool, createAgentTool, ensureReportTool } from "../../supabase/functions/_shared/outer-control-tools.ts";
 

@@ -7,6 +7,8 @@
 //   POST { action: "start_session", tool_id, objective, context?, api_key_id?, max_steps? }   (a Task of one step)
 //   POST { action: "start_task", request, context?, steps: [{ tool_id, instruction, fallback_tool_id?, on_failure? }], api_key_id? }
 //   POST { action: "create_agent_tool", agent_id }   (one of the account's own NazAI agents as a step)
+//   POST { action: "start_goal", goal, criteria?: [up to 5 sentences], tool_ids: [1..3], max_rounds?, context?, api_key_id? }   (a Task that goes on until its criteria are met; costs one credit)
+//   POST { action: "task_decide", task_id, decision: "accept" | "more" | "stop" }   (what to do with a goal Task that is blocked)
 //   POST { action: "start_report", topic, tool_ids: [2..5 tool ids], context? }   (ask each tool for its opinion, then write one report; costs one credit)
 //   POST { action: "follow_up", session_id, instruction }   (a new request to the same tool, based on the controlled answer of a completed session)
 //   POST { action: "archive", kind: "session" | "workflow", id, archived?: boolean }   (leaves a finished item out of the default list, or brings it back; nothing is deleted)
@@ -27,10 +29,10 @@ import { checkKillSwitches } from "../_shared/control-gate.ts";
 import { runConnectionTest } from "../_shared/outer-control-tool-test.ts";
 import { recordConnectionTest } from "../_shared/outer-control-keepalive.ts";
 import { applyEditedReply, contactRuleStopping } from "../_shared/outer-control-session.ts";
-import { cancelWorkflow, continueSession, driveSession, progressWorkflow, resumeAndDrive, startFollowUp, startTask, startWorkflow } from "../_shared/outer-control-workflow.ts";
+import { acceptGoal, cancelWorkflow, continueSession, driveSession, extendGoal, progressWorkflow, resumeAndDrive, startFollowUp, startGoal, startTask, startWorkflow } from "../_shared/outer-control-workflow.ts";
 import { encodeChoice, findOption, type Handoff } from "../_shared/outer-control-handoff.ts";
 import { createAgentTool, ensureReportTool, removeTool, updateToolKey } from "../_shared/outer-control-tools.ts";
-import { MAX_REPORT_SOURCES, opinionInstruction, REPORT_TOOL_URL, reportInstruction } from "../_shared/outer-control-report.ts";
+import { gatewayAi, MAX_REPORT_SOURCES, opinionInstruction, REPORT_TOOL_URL, reportInstruction } from "../_shared/outer-control-report.ts";
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
 
@@ -228,6 +230,44 @@ Deno.serve(async (req) => {
       return json({ ok: true, task_id: started.workflowId, steps: steps.length });
     }
 
+    // ---- start_goal: a Task from a goal and done criteria; it goes on, round by round, until they are met or it is blocked ----
+    if (action === "start_goal") {
+      const credit = await consumeGenerationCredit(accountId);
+      if (!credit.ok) return json({ error: "no_credits", message: NO_CREDITS_MESSAGE }, 402);
+      const started = await startGoal(admin, accountId, body, { aiAvailable: pickAiGateway() !== null });
+      if (!started.ok) {
+        // The credit was taken before the Task could start: give it back.
+        await admin.rpc("refund_generation_credit", { p_user_id: accountId });
+        return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : started.code === "ai_unavailable" ? 503 : 400);
+      }
+      // Marks the Task as paid for, so that if it ends without a result the credit goes back (once).
+      await admin.from("outer_control_workflows").update({ credit_charged: true }).eq("id", started.workflowId);
+      inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
+      return json({ ok: true, task_id: started.workflowId });
+    }
+
+    // ---- task_decide: what to do with a blocked goal Task ----------------------------------------------------
+    if (action === "task_decide") {
+      const taskId = String(body.task_id ?? "");
+      const decision = String(body.decision ?? "");
+      if (decision !== "accept" && decision !== "more" && decision !== "stop") return json({ error: "invalid_decision", message: "decision must be accept, more or stop." }, 400);
+      const { data: wf } = await admin.from("outer_control_workflows").select("id, status").eq("id", taskId).eq("user_id", accountId).maybeSingle();
+      if (!wf) return json({ error: "not_found", message: "Task not found." }, 404);
+      if (decision === "stop") {
+        if (wf.status !== "running" && wf.status !== "awaiting_human") return json({ ok: true, already: wf.status });
+        await cancelWorkflow(admin, wf.id, accountId);
+        return json({ ok: true, status: "cancelled" });
+      }
+      if (decision === "accept") {
+        const done = await acceptGoal(admin, wf.id, accountId);
+        return done.ok ? json({ ok: true }) : json({ error: "not_blocked", message: done.message }, 409);
+      }
+      const more = await extendGoal(admin, wf.id, accountId, gatewayAi);
+      if (!more.ok) return json({ error: "not_blocked", message: more.message }, 409);
+      inBackground(Promise.all(more.started.map((id) => driveSession(admin, id))));
+      return json({ ok: true });
+    }
+
     // ---- create_agent_tool: one of the account's own NazAI agents as a step -------------------------
     if (action === "create_agent_tool") {
       const made = await createAgentTool(admin, accountId, body.agent_id, MAX_TOOLS_PER_ACCOUNT);
@@ -289,7 +329,7 @@ Deno.serve(async (req) => {
       return json({ ok: true, status: "cancelled" });
     }
 
-    return json({ error: "unknown_action", message: "action must be create_tool, create_agent_tool, update_key, remove_tool, test_tool, start_session, start_task, answer, decide, cancel, start_workflow or cancel_workflow." }, 400);
+    return json({ error: "unknown_action", message: "action must be create_tool, create_agent_tool, update_key, remove_tool, test_tool, start_session, start_task, start_goal, task_decide, answer, decide, cancel, start_workflow or cancel_workflow." }, 400);
   } catch (e) {
     return json({ error: "internal_error", message: e instanceof Error ? e.message : "Unknown error" }, 500);
   }
