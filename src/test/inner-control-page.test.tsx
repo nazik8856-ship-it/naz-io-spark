@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within, configure } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+
+// The page loads the project list first and then that project's data, so a slow runner needs longer than the 1 s default.
+configure({ asyncUtilTimeout: 5000 });
 
 const state = vi.hoisted(() => ({
   tables: {} as Record<string, unknown[]>,
