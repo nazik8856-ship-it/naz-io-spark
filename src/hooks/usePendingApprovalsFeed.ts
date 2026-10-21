@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 import { approvalRunMode, nothingToRunMessage, PROVIDER_WRITE_KINDS } from "@/lib/approval-run";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
@@ -90,9 +91,9 @@ export function usePendingApprovalsFeed(accountId: string | undefined) {
     setExecutingId(id);
     const { data, error } = await supabase.functions.invoke(`control-engine/approvals/${id}/execute`, { body: {} });
     setExecutingId(null);
-    const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean; already_executed?: boolean; nothing_to_run?: boolean };
+    const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean; already_executed?: boolean; nothing_to_run?: boolean; not_carried_out?: boolean };
     if (error && !res.message) {
-      toast({ title: "Couldn't run it", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      toast({ title: "Couldn't run it", description: (await extractFunctionErrorMessage(error)) ?? friendlyErrorMessage(error.message), variant: "destructive" });
       return;
     }
     if (res.nothing_to_run) {
@@ -101,8 +102,8 @@ export function usePendingApprovalsFeed(accountId: string | undefined) {
       return;
     }
     toast({
-      title: res.executed ? "Action carried out" : res.already_executed ? "Already done" : "Nothing ran",
-      description: res.summary || res.message || "",
+      title: res.executed ? "Action carried out" : res.already_executed ? "Already done" : res.not_carried_out ? "Not carried out" : "Nothing ran",
+      description: res.not_carried_out ? res.message || res.summary || "" : res.summary || res.message || "",
       variant: res.executed || res.already_executed ? undefined : "destructive",
     });
     await load();

@@ -513,10 +513,13 @@ serve(async (req) => {
           execution_error: null,
         }).eq("id", approvalId);
       }
+      // A write that could not be carried out is an answer, not a server failure: 200 with the reason in `message`, so every
+      // page shows why (e.g. "send_email needs to, subject and body — nothing was sent.") instead of a generic non-2xx error.
       return json({
-        ok: result.ok, executed: result.ok, approvals: distinct, required: needed,
-        summary: result.summary, url: result.url ?? null, ref: result.ref ?? null,
-      }, result.ok ? 200 : 502);
+        ok: result.ok, executed: result.ok, not_carried_out: !result.ok, approvals: distinct, required: needed,
+        summary: result.summary, message: result.ok ? undefined : (result.summary || "It could not be carried out. Nothing was done."),
+        url: result.url ?? null, ref: result.ref ?? null,
+      });
     }
 
 

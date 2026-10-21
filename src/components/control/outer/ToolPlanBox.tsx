@@ -26,7 +26,7 @@ const btn = "rounded-lg border px-3 py-1 text-xs disabled:opacity-40";
 const names = (ts: { name: string }[]) => ts.map((t) => t.name).join(" and ");
 
 export default function ToolPlanBox({
-  state, mode, current, max, onUse, onFix, onConnect, fixing,
+  state, mode, current, max, onUse, onFix, onConnect, fixing, busy = false,
 }: {
   state: ToolPlanState;
   /** session: one tool, the card's own. pick: tools ticked in the form. */
@@ -39,6 +39,8 @@ export default function ToolPlanBox({
   onFix: (tool: PlanTool) => void;
   onConnect?: () => void;
   fixing?: string | null;
+  /** Something is starting: the choice buttons wait, so a second click can not start a second copy. */
+  busy?: boolean;
 }) {
   const { plan, kept, keep, acked, ack } = state;
   const named = plan.found.mentions.map((m) => m.tool as PlanTool);
@@ -60,13 +62,13 @@ export default function ToolPlanBox({
           <div className="mt-2 flex flex-wrap gap-2">
             {mode === "session" && current ? (
               named.length === 1
-                ? <button type="button" className={`${btn} border-cyan-500/50 bg-cyan-500/15 text-cyan-100`} onClick={() => onUse([plan.missing[0].id])}>Use {plan.missing[0].name} instead</button>
-                : <button type="button" className={`${btn} border-cyan-500/50 bg-cyan-500/15 text-cyan-100`} onClick={() => onUse(named.map((t) => t.id))}>Run as one Task: {named.map((t) => t.name).join(" → ")}</button>
+                ? <button type="button" className={`${btn} border-cyan-500/50 bg-cyan-500/15 text-cyan-100`} disabled={busy} onClick={() => onUse([plan.missing[0].id])}>Use {plan.missing[0].name} instead</button>
+                : <button type="button" className={`${btn} border-cyan-500/50 bg-cyan-500/15 text-cyan-100`} disabled={busy} onClick={() => onUse(named.map((t) => t.id))}>{busy ? "Starting…" : `Run as one Task: ${named.map((t) => t.name).join(" → ")}`}</button>
             ) : !plan.tooMany && (
-              <button type="button" className={`${btn} border-cyan-500/50 bg-cyan-500/15 text-cyan-100`} onClick={() => onUse(named.map((t) => t.id).slice(0, max))}>Yes, use {plan.missing.length === 1 ? "it" : "them"}</button>
+              <button type="button" className={`${btn} border-cyan-500/50 bg-cyan-500/15 text-cyan-100`} disabled={busy} onClick={() => onUse(named.map((t) => t.id).slice(0, max))}>Yes, use {plan.missing.length === 1 ? "it" : "them"}</button>
             )}
             {(mode === "pick" ? plan.steps.length > 0 : !!current) && (
-              <button type="button" className={`${btn} border-white/20 text-zinc-200 hover:bg-white/10`} onClick={keep}>
+              <button type="button" disabled={busy} className={`${btn} border-white/20 text-zinc-200 hover:bg-white/10`} onClick={keep}>
                 Keep {mode === "session" && current ? current.name : "my choice"}
               </button>
             )}

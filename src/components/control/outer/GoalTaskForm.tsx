@@ -37,6 +37,7 @@ export default function GoalTaskForm({ tools, onStarted, onRefresh }: { tools: T
   const toggle = (id: string) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : c.length >= MAX_GOAL_TOOLS ? c : [...c, id]));
 
   const start = async () => {
+    if (busy) return;
     if (!goal.trim()) { toast.error("Describe the goal."); return; }
     if (chosen.length === 0) { toast.error("Choose at least one tool to ask."); return; }
     const parsed = parseCriteriaLines(criteriaText);
@@ -71,7 +72,7 @@ export default function GoalTaskForm({ tools, onStarted, onRefresh }: { tools: T
           ))}
         </div>
       </fieldset>
-      <ToolPlanBox state={plan} mode="pick" max={MAX_GOAL_TOOLS} onUse={setChosen} onFix={fix} fixing={fixing} />
+      <ToolPlanBox state={plan} mode="pick" max={MAX_GOAL_TOOLS} busy={busy} onUse={setChosen} onFix={fix} fixing={fixing} />
       {plan.block && goal.trim() && <p className="text-xs text-zinc-500" data-testid="goal-start-blocked">{plan.block}</p>}
       <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-300">
         <label className="flex items-center gap-2">

@@ -303,7 +303,7 @@ export default function ControlApprovals() {
       { body: {} },
     );
     setBusy(null);
-    const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean; already_executed?: boolean; nothing_to_run?: boolean };
+    const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean; already_executed?: boolean; nothing_to_run?: boolean; not_carried_out?: boolean };
     if (error && !res.message) {
       const detail = (await extractFunctionErrorMessage(error)) ?? friendlyErrorMessage(error.message);
       toast({ title: "Couldn't run it", description: detail, variant: "destructive" });
@@ -315,8 +315,8 @@ export default function ControlApprovals() {
       return;
     }
     toast({
-      title: res.executed ? "Action carried out" : res.already_executed ? "Already done" : "Nothing ran",
-      description: res.summary || res.message || "",
+      title: res.executed ? "Action carried out" : res.already_executed ? "Already done" : res.not_carried_out ? "Not carried out" : "Nothing ran",
+      description: res.not_carried_out ? res.message || res.summary || "" : res.summary || res.message || "",
       variant: res.executed || res.already_executed ? undefined : "destructive",
     });
     load();
