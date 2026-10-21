@@ -40,6 +40,7 @@ const RATE_LIMIT_PER_MINUTE = 120;
 
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
+import { nothingToRunMessage } from "../_shared/approval-run.ts";
 import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
 import { replayDraft, replayRealTraffic, previewProposedHardRules, evaluateAction, asSafetyRules, type PolicySnapshot, type ProposedHardRuleInput, type GateOutcome } from "../_shared/policy-replay.ts";
 import { scanWithRules } from "../_shared/safety-scanner.ts";
@@ -475,9 +476,10 @@ serve(async (req) => {
 
       const actType = String(ap.action_type || "");
       if (!PROVIDER_WRITE_KINDS.has(actType)) {
+        // Not an error: this approval only lets something that is waiting go on, and that picks it up by itself.
         return json({
-          ok: true, executed: false, approvals: distinct, required: needed,
-          message: `Quorum met, but "${actType}" runs inside an agent run, not from the control engine.`,
+          ok: true, executed: false, nothing_to_run: true, approvals: distinct, required: needed,
+          message: nothingToRunMessage(actType),
         });
       }
 

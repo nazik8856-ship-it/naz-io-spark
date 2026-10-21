@@ -1378,29 +1378,8 @@ async function googleCreateCalendarEvent(
   };
 }
 
-export const PROVIDER_WRITE_KINDS = new Set([
-  "send_email",
-  "compose_and_deliver",
-  "create_doc",
-  "edit_doc",
-  "create_sheet",
-  "edit_sheet",
-  "create_calendar_event",
-
-  "slack_post_message",
-  "slack_upload_file",
-  "export_google_file",
-  "notion_create_page",
-  "notion_update_page",
-  "canva_create_design",
-  "canva_list_designs",
-  "canva_create_folder",
-  "canva_export_design",
-  "shopify_create_draft_order",
-  "shopify_update_product",
-  "figma_post_comment",
-  "figma_create_dev_resource",
-]);
+// The list lives in approval-run.ts, which the pages share, so "Run it" is only offered for what it can really carry out.
+export { PROVIDER_WRITE_KINDS } from "./approval-run.ts";
 
 export async function runProviderWrite(
   kind: string, admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,

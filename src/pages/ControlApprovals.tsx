@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { approvalRunMode, nothingToRunMessage } from "@/lib/approval-run";
 import { ArrowLeft, Check, X, Clock, ShieldAlert, ChevronDown, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
@@ -302,10 +303,15 @@ export default function ControlApprovals() {
       { body: {} },
     );
     setBusy(null);
-    const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean; already_executed?: boolean };
+    const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean; already_executed?: boolean; nothing_to_run?: boolean };
     if (error && !res.message) {
       const detail = (await extractFunctionErrorMessage(error)) ?? friendlyErrorMessage(error.message);
       toast({ title: "Couldn't run it", description: detail, variant: "destructive" });
+      return;
+    }
+    if (res.nothing_to_run) {
+      toast({ title: "Nothing to run", description: res.message || nothingToRunMessage(row.action_type) });
+      load();
       return;
     }
     toast({
@@ -524,7 +530,17 @@ export default function ControlApprovals() {
           {!row.executed_at && row.execution_error && (
             <span className="text-rose-300/90">· last attempt failed: {row.execution_error}</span>
           )}
-          {row.status === "approved" && !row.executed_at && (
+          {row.status === "approved" && !row.executed_at && approvalRunMode(row.action_type) !== "run" && (
+            <span className="ml-auto flex flex-wrap items-center gap-2 normal-case text-zinc-400" data-testid="nothing-to-run">
+              {nothingToRunMessage(row.action_type)}
+              {approvalRunMode(row.action_type) === "outer_control" ? (
+                <button onClick={() => navigate("/control-system/outer")} className="text-cyan-300 underline-offset-2 hover:underline">Open Outer Control</button>
+              ) : row.agent_id ? (
+                <button onClick={() => navigate(`/generated/agent/${row.agent_id}`)} className="text-cyan-300 underline-offset-2 hover:underline">Open the agent</button>
+              ) : null}
+            </span>
+          )}
+          {row.status === "approved" && !row.executed_at && approvalRunMode(row.action_type) === "run" && (
             <button
               disabled={busy === row.id}
               onClick={() => execute(row)}
