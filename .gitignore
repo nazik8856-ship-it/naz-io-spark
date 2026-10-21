@@ -29,3 +29,6 @@ supabase/.temp/
 
 # Outer Control engine test build output
 tests/outer-control-engine/.out
+
+# Deno writes these when tests run locally
+deno.lock

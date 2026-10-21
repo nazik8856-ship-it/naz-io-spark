@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
+import { approvalRunMode, nothingToRunMessage, PROVIDER_WRITE_KINDS } from "@/lib/approval-run";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
 
@@ -34,6 +35,8 @@ export type PendingApprovalFeedItem = {
  * visible (and counted in the mobile badge) until they're actually carried
  * out, instead of silently dropping that second step on the floor.
  */
+const RUNNABLE = [...PROVIDER_WRITE_KINDS].join(",");
+
 export function usePendingApprovalsFeed(accountId: string | undefined) {
   const [approvals, setApprovals] = useState<PendingApprovalFeedItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -48,7 +51,9 @@ export function usePendingApprovalsFeed(accountId: string | undefined) {
       .from("pending_approvals")
       .select("id, description, action_type, risk_tier, created_at, status, executed_at", { count: "exact" })
       .eq("user_id", accountId)
-      .or("status.eq.pending,and(status.eq.approved,executed_at.is.null)")
+      // An approved item stays only while "Run it" still has something to carry out; the others (an Outer Control first contact,
+      // an approval an agent run waits on) are picked up by what was waiting, so they are done for the person once approved.
+      .or(`status.eq.pending,and(status.eq.approved,executed_at.is.null,action_type.in.(${RUNNABLE}))`)
       .order("created_at", { ascending: false })
       .limit(8);
     setApprovals((data ?? []) as PendingApprovalFeedItem[]);
@@ -73,9 +78,9 @@ export function usePendingApprovalsFeed(accountId: string | undefined) {
     const res = (data ?? {}) as { status?: string; approvals?: number; required?: number; remaining?: number };
     const met = res.status === "approved" || res.status === "rejected";
     toast({
-      title: met ? (res.status === "approved" ? "Approved — ready to run" : "Rejected") : "Sign-off recorded",
+      title: met ? (res.status === "approved" ? (approvalRunMode(approvals.find((a) => a.id === id)?.action_type) === "run" ? "Approved — ready to run" : "Approved") : "Rejected") : "Sign-off recorded",
       description: met
-        ? (res.status === "approved" ? "Quorum met. Click Run it to carry the action out." : undefined)
+        ? (res.status === "approved" ? (approvalRunMode(approvals.find((a) => a.id === id)?.action_type) === "run" ? "Quorum met. Click Run it to carry the action out." : nothingToRunMessage(approvals.find((a) => a.id === id)?.action_type)) : undefined)
         : `${res.approvals ?? 0} of ${res.required ?? 1} approvals — still needs ${res.remaining ?? 1} more.`,
     });
     await load();
@@ -85,9 +90,14 @@ export function usePendingApprovalsFeed(accountId: string | undefined) {
     setExecutingId(id);
     const { data, error } = await supabase.functions.invoke(`control-engine/approvals/${id}/execute`, { body: {} });
     setExecutingId(null);
-    const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean; already_executed?: boolean };
+    const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean; already_executed?: boolean; nothing_to_run?: boolean };
     if (error && !res.message) {
       toast({ title: "Couldn't run it", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      return;
+    }
+    if (res.nothing_to_run) {
+      toast({ title: "Nothing to run", description: res.message || "" });
+      await load();
       return;
     }
     toast({

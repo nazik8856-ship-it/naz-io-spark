@@ -2,7 +2,7 @@
 // session on every row, the sessions that are running or need you, and a short history.
 // Update key / Remove sit behind "More"; step logs open only for the session you click. Outer Control does the contacting, rule checking
 // and deciding; this card only shows it and collects the few things a person must give.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Activity, Plus, FileText, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ import ReportPanel from "./ReportPanel";
 import ConnectToolPanel, { type ConnectPayload } from "./ConnectToolPanel";
 import SessionActivity from "./SessionActivity";
 import FollowUpBox from "./FollowUpBox";
+import ToolPlanBox, { useToolPlan } from "./ToolPlanBox";
 import { saveTextFile, sessionsToCsv, type ExportSession } from "@/lib/outer-control-export";
 import { describeCompletion, describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, waitingReason, type CompletionView, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
 
@@ -24,7 +25,7 @@ import { describeCompletion, describeDecision, riskConfidenceBadges, describeSte
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any;
 
-type Tool = { id: string; name: string; endpoint_url: string; request_format: string; approved_at: string | null; last_ok_at: string | null; last_error: string | null; last_checked_at: string | null };
+type Tool = { id: string; name: string; endpoint_url: string; request_format: string; model?: string | null; approved_at: string | null; last_ok_at: string | null; last_error: string | null; last_checked_at: string | null };
 type Session = {
   id: string; tool_id: string; objective: string; status: SessionStatus; step_count: number; max_steps: number;
   final_output: string | null; stop_reason: string | null; pending_kind: PendingKind | null; pending_question: string | null; started_at: string;
@@ -75,7 +76,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       return q.order("started_at", { ascending: false }).limit(10);
     };
     const [t, s0, k, u] = await Promise.all([
-      anyDb.from("external_tools").select("id, name, endpoint_url, request_format, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
+      anyDb.from("external_tools").select("id, name, endpoint_url, request_format, model, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
       sessionsQuery(true),
       anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
       anyDb.from("outer_control_tool_usage").select("tool_id, requests_30d, failed_30d, requests_today").eq("user_id", accountId),
@@ -161,8 +162,9 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   };
 
   /** A report: several tools are asked in turn, then one report is written. It appears under Recent sessions as it runs. */
-  const startReport = async (topic: string, toolIds: string[]): Promise<boolean> => {
-    const r = await act("report", "start_report", { topic, tool_ids: toolIds }, "Report started. Follow it below; the finished report appears as the result.");
+  const startReport = async (topic: string, toolIds: string[], keepChoice: boolean): Promise<boolean> => {
+    const label = toolIds.map((id) => tools.find((x) => x.id === id)?.name ?? "tool").join(" → ");
+    const r = await act("report", "start_report", { topic, tool_ids: toolIds, confirm_override: keepChoice || undefined }, `Report started: asking ${label}. Follow it below; the finished report appears as the result.`);
     return r.ok;
   };
 
@@ -177,11 +179,23 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     await load();
   };
 
-  const start = async (toolId: string) => {
+  const start = async (toolId: string, keepChoice: boolean) => {
+    const name = tools.find((x) => x.id === toolId)?.name ?? "the tool";
     const r = await act(`start-${toolId}`, "start_session", {
       tool_id: toolId, objective: job.objective, context: job.context || undefined, api_key_id: job.keyId || undefined, max_steps: Number(job.maxSteps) || 5,
-    }, "Session started.");
+      confirm_override: keepChoice || undefined,
+    }, `Session started with ${name}.`);
     if (r.ok) { setJob({ objective: "", context: "", keyId: "", maxSteps: "5" }); setStartFor(null); setExpanded(r.data?.session_id ?? null); }
+  };
+
+  /** Several tools named in one request: they are asked in that order as one Task, each step getting the previous answer. */
+  const startAsTask = async (ids: string[]) => {
+    const label = ids.map((id) => tools.find((x) => x.id === id)?.name ?? "tool").join(" → ");
+    const r = await act("start-task", "start_task", {
+      request: job.objective, context: job.context || undefined, api_key_id: job.keyId || undefined, max_steps: Number(job.maxSteps) || 5,
+      steps: ids.map((id) => ({ tool_id: id, instruction: job.objective })),
+    }, `Task started: ${label}. Follow it under Tasks.`);
+    if (r.ok) { setJob({ objective: "", context: "", keyId: "", maxSteps: "5" }); setStartFor(null); }
   };
 
   const saveKey = async (toolId: string) => {
@@ -355,7 +369,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
           <p className="mt-0.5 text-xs text-zinc-500" data-testid="tools-summary">{healthSummary(shownTools, now)}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-        <button onClick={() => setShowReport(true)} disabled={shownTools.length < 2} title={shownTools.length < 2 ? "Connect at least two tools first" : "Ask several tools, then get one report"} className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3.5 py-2 text-sm text-zinc-100 hover:bg-white/10 disabled:opacity-40" data-testid="generate-report-button">
+        <button onClick={() => setShowReport(true)} disabled={shownTools.length < 1} title={shownTools.length < 1 ? "Connect a tool first" : "Ask one or more tools, then get one report"} className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3.5 py-2 text-sm text-zinc-100 hover:bg-white/10 disabled:opacity-40" data-testid="generate-report-button">
           <FileText className="h-4 w-4" /> Generate report
         </button>
         <button onClick={() => setShowConnect(true)} className="flex items-center gap-1.5 rounded-lg border border-cyan-300/60 bg-cyan-400 px-4 py-2 text-sm font-semibold text-black shadow-[0_0_18px_rgba(34,211,238,0.3)] transition hover:bg-cyan-300" data-testid="connect-tool-button">
@@ -364,7 +378,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
         </div>
       </div>
       <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} onTest={(t) => runTest(t.id, t.name)} testingId={busy?.startsWith("test-") ? busy.slice(5) : null} />
-      <ReportPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startReport} />
+      <ReportPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startReport} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }} />
 
       <div className="mt-4 space-y-2">
         {shownTools.length === 0 && (
@@ -426,18 +440,11 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                 </div>
               )}
               {startFor === t.id && (
-                <div className="mt-3 grid gap-2 border-t border-white/5 pt-3 sm:grid-cols-2">
-                  <textarea className={`${inputCls} sm:col-span-2`} rows={2} placeholder="Objective — what should the tool do?" aria-label="Objective" value={job.objective} onChange={(e) => setJob({ ...job, objective: e.target.value })} />
-                  <textarea className={`${inputCls} sm:col-span-2`} rows={2} placeholder="Context (optional) — secrets are masked before anything is sent" aria-label="Context" value={job.context} onChange={(e) => setJob({ ...job, context: e.target.value })} />
-                  <select className={inputCls} aria-label="Rules to apply" value={job.keyId} onChange={(e) => setJob({ ...job, keyId: e.target.value })}>
-                    <option value="">Account-wide rules</option>
-                    {keys.map((k) => <option key={k.id} value={k.id}>Rules for API key: {k.name}</option>)}
-                  </select>
-                  <input className={inputCls} type="number" min={1} max={20} aria-label="Maximum steps" value={job.maxSteps} onChange={(e) => setJob({ ...job, maxSteps: e.target.value })} />
-                  <button disabled={busy === `start-${t.id}` || !job.objective.trim()} onClick={() => start(t.id)} className="rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40 sm:col-span-2">
-                    {busy === `start-${t.id}` ? "Starting…" : "Start"}
-                  </button>
-                </div>
+                <StartSessionForm
+                  tool={t} tools={shownTools} job={job} setJob={setJob} keys={keys} busy={busy}
+                  onStart={(keep) => start(t.id, keep)} onSwitch={(id) => setStartFor(id)} onRunTask={startAsTask}
+                  onFix={(x) => runTest(x.id, x.name)} onConnect={() => setShowConnect(true)}
+                />
               )}
             </div>
           );
@@ -475,5 +482,40 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
         </div>
       )}
     </section>
+  );
+}
+
+type Job = { objective: string; context: string; keyId: string; maxSteps: string };
+
+/** The Start session form of one tool. The request is read for tool names first (see ToolPlanBox), so a named tool is never ignored. */
+function StartSessionForm({ tool, tools, job, setJob, keys, busy, onStart, onSwitch, onRunTask, onFix, onConnect }: {
+  tool: Tool; tools: Tool[]; job: Job; setJob: (j: Job) => void; keys: KeyOpt[]; busy: string | null;
+  onStart: (keepChoice: boolean) => void; onSwitch: (id: string) => void; onRunTask: (ids: string[]) => void;
+  onFix: (t: Tool) => void; onConnect: () => void;
+}) {
+  const chosen = useMemo(() => [tool.id], [tool.id]);
+  const plan = useToolPlan(job.objective, tools, chosen, 1);
+  const fixing = busy?.startsWith("test-") ? busy.slice(5) : null;
+  return (
+    <div className="mt-3 grid gap-2 border-t border-white/5 pt-3 sm:grid-cols-2">
+      <textarea className={`${inputCls} sm:col-span-2`} rows={2} placeholder="Objective — what should the tool do?" aria-label="Objective" value={job.objective} onChange={(e) => setJob({ ...job, objective: e.target.value })} />
+      <textarea className={`${inputCls} sm:col-span-2`} rows={2} placeholder="Context (optional) — secrets are masked before anything is sent" aria-label="Context" value={job.context} onChange={(e) => setJob({ ...job, context: e.target.value })} />
+      <select className={inputCls} aria-label="Rules to apply" value={job.keyId} onChange={(e) => setJob({ ...job, keyId: e.target.value })}>
+        <option value="">Account-wide rules</option>
+        {keys.map((k) => <option key={k.id} value={k.id}>Rules for API key: {k.name}</option>)}
+      </select>
+      <input className={inputCls} type="number" min={1} max={20} aria-label="Maximum steps" value={job.maxSteps} onChange={(e) => setJob({ ...job, maxSteps: e.target.value })} />
+      <div className="sm:col-span-2">
+        <ToolPlanBox
+          state={plan} mode="session" current={tool} max={1} fixing={fixing}
+          onUse={(ids) => (ids.length === 1 ? onSwitch(ids[0]) : onRunTask(ids))}
+          onFix={(x) => onFix(x as Tool)} onConnect={onConnect}
+        />
+      </div>
+      {plan.block && job.objective.trim() && <p className="text-xs text-zinc-500 sm:col-span-2" data-testid="start-blocked">{plan.block}</p>}
+      <button disabled={busy === `start-${tool.id}` || busy === "start-task" || !job.objective.trim() || !!plan.block} onClick={() => onStart(plan.kept)} className="rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40 sm:col-span-2">
+        {busy === `start-${tool.id}` ? "Starting…" : "Start"}
+      </button>
+    </div>
   );
 }

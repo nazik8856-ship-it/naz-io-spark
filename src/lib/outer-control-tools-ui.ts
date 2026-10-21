@@ -186,7 +186,7 @@ export function buildActivity(i: {
 /** Internal tools (the NazAI report writer, your agents) are not connections the person manages as tools. */
 export const isInternalTool = (endpoint: string) => endpoint.startsWith("nazai-internal://");
 
-export const MIN_REPORT_TOOLS = 2;
+export const MIN_REPORT_TOOLS = 1;
 export const MAX_REPORT_TOOLS = 5;
 
 /** What is wrong with the report form, or null when it can be started. */
@@ -194,7 +194,7 @@ export function checkReportForm(topic: string, toolIds: string[]): string | null
   const t = topic.replace(/\s+/g, " ").trim();
   if (t.length < 5) return "Say what the report is about (at least 5 characters).";
   if (t.length > 600) return "Keep the topic under 600 characters.";
-  if (toolIds.length < MIN_REPORT_TOOLS) return `Choose at least ${MIN_REPORT_TOOLS} tools to ask.`;
+  if (toolIds.length < MIN_REPORT_TOOLS) return MIN_REPORT_TOOLS === 1 ? "Choose at least one tool to ask." : `Choose at least ${MIN_REPORT_TOOLS} tools to ask.`;
   if (toolIds.length > MAX_REPORT_TOOLS) return `Choose at most ${MAX_REPORT_TOOLS} tools.`;
   return null;
 }

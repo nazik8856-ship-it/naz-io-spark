@@ -22,8 +22,10 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import WorkflowsCard from "@/components/control/outer/WorkflowsCard";
 import { toast } from "sonner";
 
-const T1 = { id: "t1", name: "Research Bot" };
-const T2 = { id: "t2", name: "Writer Bot" };
+const OK_AT = new Date().toISOString();
+const HEALTHY = { approved_at: OK_AT, last_ok_at: OK_AT, last_checked_at: OK_AT, last_error: null };
+const T1 = { id: "t1", name: "Research Bot", ...HEALTHY };
+const T2 = { id: "t2", name: "Writer Bot", ...HEALTHY };
 const calls = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
 
 describe("WorkflowsCard", () => {
@@ -234,5 +236,29 @@ describe("WorkflowsCard: goal Tasks", () => {
     fireEvent.click(screen.getByText("Start"));
     await waitFor(() => expect(calls().length).toBe(1));
     expect(JSON.parse((calls()[0][1] as RequestInit).body as string).criteria).toBeUndefined();
+  });
+
+  it("goal form: tools named in the goal are offered; Yes ticks them in the order named and they are sent in that order", async () => {
+    render(<WorkflowsCard accountId="u1" />);
+    fireEvent.click(await screen.findByTestId("new-goal-task"));
+    fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "Ask Writer Bot and Research Bot for the return rules" } });
+    expect(screen.getByTestId("tool-plan-named").textContent).toMatch(/You named Writer Bot and Research Bot/);
+    fireEvent.click(screen.getByText("Yes, use them"));
+    expect(screen.getByTestId("tool-plan-summary").textContent).toBe("Will ask: 1. Writer Bot (named in your request) → 2. Research Bot (named in your request)");
+    fireEvent.click(screen.getByText("Start"));
+    await waitFor(() => expect(calls().length).toBe(1));
+    expect(JSON.parse((calls()[0][1] as RequestInit).body as string)).toMatchObject({ tool_ids: ["t2", "t1"] });
+  });
+
+  it("goal form: a named tool that was not ticked blocks Start until the person decides; Keep sends confirm_override", async () => {
+    render(<WorkflowsCard accountId="u1" />);
+    fireEvent.click(await screen.findByTestId("new-goal-task"));
+    fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "Ask Writer Bot for the return rules" } });
+    fireEvent.click(screen.getByLabelText("Ask Research Bot"));
+    expect((screen.getByText("Start") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByText("Keep my choice"));
+    fireEvent.click(screen.getByText("Start"));
+    await waitFor(() => expect(calls().length).toBe(1));
+    expect(JSON.parse((calls()[0][1] as RequestInit).body as string)).toMatchObject({ tool_ids: ["t1"], confirm_override: true });
   });
 });

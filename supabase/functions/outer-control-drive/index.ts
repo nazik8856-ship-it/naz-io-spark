@@ -9,7 +9,7 @@
 //   POST { action: "create_agent_tool", agent_id }   (one of the account's own NazAI agents as a step)
 //   POST { action: "start_goal", goal, criteria?: [up to 5 sentences], tool_ids: [1..3], max_rounds?, context?, api_key_id? }   (a Task that goes on until its criteria are met; costs one credit)
 //   POST { action: "task_decide", task_id, decision: "accept" | "more" | "stop" }   (what to do with a goal Task that is blocked)
-//   POST { action: "start_report", topic, tool_ids: [2..5 tool ids], context? }   (ask each tool for its opinion, then write one report; costs one credit)
+//   POST { action: "start_report", topic, tool_ids: [1..5 tool ids], context? }   (ask each tool for its opinion, then write one report; costs one credit)
 //   POST { action: "follow_up", session_id, instruction }   (a new request to the same tool, based on the controlled answer of a completed session)
 //   POST { action: "archive", kind: "session" | "workflow", id, archived?: boolean }   (leaves a finished item out of the default list, or brings it back; nothing is deleted)
 //   POST { action: "answer", session_id, answer }
@@ -17,6 +17,9 @@
 //   POST { action: "cancel", session_id }
 //   POST { action: "start_workflow", objective, context?, legs[], api_key_id?, max_steps? }
 //   POST { action: "cancel_workflow", workflow_id }
+//
+// start_session, start_goal and start_report refuse (409 tool_mismatch, before any credit is used) when the request names a
+// connected tool that was not chosen, or names a word that fits several tools. confirm_override: true keeps the chosen tools.
 //
 // verify_jwt = true. Credentials go into the vault (create_integration_secret) and are
 // never returned. Sessions run in the background (EdgeRuntime.waitUntil); the dashboard
@@ -35,6 +38,7 @@ import { createAgentTool, ensureReportTool, removeTool, updateToolKey } from "..
 import { gatewayAi, MAX_REPORT_SOURCES, opinionInstruction, REPORT_TOOL_URL, reportInstruction } from "../_shared/outer-control-report.ts";
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
+import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -55,6 +59,25 @@ const inBackground = (p: Promise<unknown>) => {
   const guarded = p.catch((e) => console.error("outer-control-drive background run failed:", e instanceof Error ? e.message : e));
   if (rt?.waitUntil) rt.waitUntil(guarded);
 };
+
+/**
+ * The tools a request names must be among the chosen ones, unless the person confirmed their choice. Returns the refusal, or
+ * null when the request may go ahead.
+ */
+// deno-lint-ignore no-explicit-any
+async function namedToolGuard(admin: any, accountId: string, text: string, chosenIds: string[], override: unknown): Promise<Response | null> {
+  if (override === true) return null;
+  const { data } = await admin.from("external_tools").select("id, name, model, endpoint_url").eq("user_id", accountId).eq("enabled", true).is("removed_at", null);
+  const tools = (data ?? []) as { id: string; name: string; model: string | null; endpoint_url: string }[];
+  const { missing, ambiguous } = namedButNotChosen(detectMentions(text, tools), chosenIds);
+  if (!missing.length && !ambiguous.length) return null;
+  const pick = (t: { id: string; name: string }) => ({ id: t.id, name: t.name });
+  const chosen = tools.filter((t) => chosenIds.includes(t.id)).map(pick);
+  const message = missing.length
+    ? `Your request names ${missing.map((t) => t.name).join(" and ")}, but ${chosen.length ? chosen.map((t) => t.name).join(" and ") : "another tool"} was chosen.`
+    : `"${ambiguous[0].word}" fits more than one connected tool: ${ambiguous[0].tools.map((t) => t.name).join(", ")}. Choose which one.`;
+  return json({ error: "tool_mismatch", message, mentioned: missing.map(pick), chosen, ambiguous: ambiguous.map((a) => ({ word: a.word, tools: a.tools.map(pick) })) }, 409);
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -159,6 +182,8 @@ Deno.serve(async (req) => {
       if (context && context.length > 8000) return json({ error: "invalid_context", message: "The context is limited to 8000 characters." }, 400);
       const { data: tool } = await admin.from("external_tools").select("id, enabled").eq("id", String(body.tool_id ?? "")).eq("user_id", accountId).maybeSingle();
       if (!tool || !tool.enabled) return json({ error: "not_found", message: "Tool not found or disabled." }, 404);
+      const named = await namedToolGuard(admin, accountId, objective, [tool.id], body.confirm_override);
+      if (named) return named;
       if (body.fallback_tool_id) {
         const { data: fb } = await admin.from("external_tools").select("id, enabled").eq("id", String(body.fallback_tool_id)).eq("user_id", accountId).maybeSingle();
         if (!fb || !fb.enabled || fb.id === tool.id) return json({ error: "invalid_fallback", message: "The fallback tool must be a different, enabled tool." }, 400);
@@ -205,10 +230,12 @@ Deno.serve(async (req) => {
       const topic = String(body.topic ?? "").replace(/\s+/g, " ").trim();
       if (topic.length < 5 || topic.length > 600) return json({ error: "invalid_topic", message: "Describe what the report is about (5 to 600 characters)." }, 400);
       const ids = Array.isArray(body.tool_ids) ? [...new Set((body.tool_ids as unknown[]).map(String))] : [];
-      if (ids.length < 2 || ids.length > MAX_REPORT_SOURCES) return json({ error: "invalid_tools", message: `Choose 2 to ${MAX_REPORT_SOURCES} tools to ask.` }, 400);
+      if (ids.length < 1 || ids.length > MAX_REPORT_SOURCES) return json({ error: "invalid_tools", message: `Choose 1 to ${MAX_REPORT_SOURCES} tools to ask.` }, 400);
       const { data: chosen } = await admin.from("external_tools").select("id, name, enabled, endpoint_url").eq("user_id", accountId).is("removed_at", null).in("id", ids);
       const rows = (chosen ?? []) as { id: string; name: string; enabled: boolean; endpoint_url: string }[];
       if (rows.length !== ids.length || rows.some((r) => !r.enabled || r.endpoint_url.startsWith(REPORT_TOOL_URL))) return json({ error: "tool_unavailable", message: "One of the chosen tools was not found or is disabled." }, 404);
+      const namedR = await namedToolGuard(admin, accountId, topic, ids, body.confirm_override);
+      if (namedR) return namedR;
       if (pickAiGateway() === null) return json({ error: "ai_unavailable", message: "The AI that analyses the answers is not configured, so a report cannot be written." }, 503);
       const writer = await ensureReportTool(admin, accountId);
       if (!writer.ok) return json({ error: "internal_error", message: writer.message }, 500);
@@ -232,6 +259,9 @@ Deno.serve(async (req) => {
 
     // ---- start_goal: a Task from a goal and done criteria; it goes on, round by round, until they are met or it is blocked ----
     if (action === "start_goal") {
+      const goalIds = Array.isArray(body.tool_ids) ? (body.tool_ids as unknown[]).map(String) : [];
+      const namedG = await namedToolGuard(admin, accountId, String(body.goal ?? ""), goalIds, body.confirm_override);
+      if (namedG) return namedG;
       const credit = await consumeGenerationCredit(accountId);
       if (!credit.ok) return json({ error: "no_credits", message: NO_CREDITS_MESSAGE }, 402);
       const started = await startGoal(admin, accountId, body, { aiAvailable: pickAiGateway() !== null });
