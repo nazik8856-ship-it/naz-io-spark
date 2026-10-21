@@ -62,7 +62,7 @@ export default function ReportPanel({ open, onOpenChange, tools, busy, onStart, 
           {picked.some((id) => { const t = tools.find((x) => x.id === id); return t && toolHealth(t).key === "failed"; }) && (
             <p className="text-xs text-amber-200/90">A chosen tool failed its last test. If it fails during the report, the report stops there and says which tool.</p>
           )}
-          <ToolPlanBox state={plan} mode="pick" max={MAX_REPORT_TOOLS} onUse={setPicked} onFix={(t) => onFix?.(t as ReportTool)} fixing={fixing} onConnect={onConnect} />
+          <ToolPlanBox state={plan} mode="pick" max={MAX_REPORT_TOOLS} busy={busy} onUse={setPicked} onFix={(t) => onFix?.(t as ReportTool)} fixing={fixing} onConnect={onConnect} />
           {problem && (topic || picked.length > 0) && <p className="text-xs text-zinc-400">{problem}</p>}
           <button disabled={busy || !!problem}
             onClick={async () => { if (await onStart(topic.replace(/\s+/g, " ").trim(), picked, plan.kept)) { setTopic(""); setPicked([]); onOpenChange(false); } }}

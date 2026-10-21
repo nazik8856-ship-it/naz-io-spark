@@ -56,3 +56,13 @@ export function planBlock(plan: ToolPlan, kept: boolean, acked: Set<string>): st
 
 /** A stable key for what needs settling, so a decision is asked again when the request names something new. */
 export const settleKey = (plan: ToolPlan) => [...plan.missing.map((t) => t.id), ...plan.ambiguous.map((a) => a.word)].join(",");
+
+/**
+ * What one tool of a several-tool Task is asked. The person's words say which tools to ask, and that part is for NazAI, which
+ * does the asking: each tool is told it is one step and should answer the request itself, not try to contact the others.
+ */
+export function stepInstruction(request: string, names: string[], i: number): string {
+  const order = names.join(" → ");
+  const later = i > 0 ? " The previous step's checked answer is given to you as context; build on it." : "";
+  return `${request}\n\nNote from NazAI: NazAI passes this request to each named tool in turn (${order}). You are step ${i + 1}: ${names[i]}. Answer it yourself, directly; do not try to contact the other tools.${later}`;
+}

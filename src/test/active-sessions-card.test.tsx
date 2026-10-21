@@ -430,8 +430,18 @@ describe("Start session reads the request for tool names", () => {
     renderCard();
     await openStart("Bot2");
     fireEvent.change(screen.getByLabelText("Objective"), { target: { value: "ask Claude and then ChatGPT about our pricing" } });
-    fireEvent.click(screen.getByText("Run as one Task: Claude → ChatGPT (OpenAI)"));
+    const run = screen.getByText("Run as one Task: Claude → ChatGPT (OpenAI)");
+    fireEvent.click(run);
+    fireEvent.click(run);
+    fireEvent.click(run);
     await waitFor(() => expect(body()).toMatchObject({ action: "start_task", request: "ask Claude and then ChatGPT about our pricing", steps: [{ tool_id: "c" }, { tool_id: "g" }] }));
+    // Clicking again while it starts never starts a second copy.
+    const starts = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => JSON.parse((c[1] as RequestInit).body as string).action === "start_task");
+    expect(starts.length).toBe(1);
+    // Each tool is told it is one step and answers itself; the "ask X then Y" part is for NazAI.
+    const steps = body().steps as { instruction: string }[];
+    expect(steps[0].instruction).toMatch(/You are step 1: Claude\. Answer it yourself, directly; do not try to contact the other tools\./);
+    expect(steps[1].instruction).toMatch(/You are step 2: ChatGPT \(OpenAI\)\..*previous step's checked answer/);
   });
 
   it("a tool that needs attention warns with its reason; Proceed anyway lets it start", async () => {

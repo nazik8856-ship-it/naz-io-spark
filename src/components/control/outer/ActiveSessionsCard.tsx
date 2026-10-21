@@ -18,6 +18,7 @@ import ConnectToolPanel, { type ConnectPayload } from "./ConnectToolPanel";
 import SessionActivity from "./SessionActivity";
 import FollowUpBox from "./FollowUpBox";
 import ToolPlanBox, { useToolPlan } from "./ToolPlanBox";
+import { stepInstruction } from "@/lib/outer-control-tool-plan";
 import { saveTextFile, sessionsToCsv, type ExportSession } from "@/lib/outer-control-export";
 import { describeCompletion, describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, waitingReason, type CompletionView, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
 
@@ -190,10 +191,12 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
 
   /** Several tools named in one request: they are asked in that order as one Task, each step getting the previous answer. */
   const startAsTask = async (ids: string[]) => {
-    const label = ids.map((id) => tools.find((x) => x.id === id)?.name ?? "tool").join(" → ");
+    if (busy) return;
+    const names = ids.map((id) => tools.find((x) => x.id === id)?.name ?? "tool");
+    const label = names.join(" → ");
     const r = await act("start-task", "start_task", {
       request: job.objective, context: job.context || undefined, api_key_id: job.keyId || undefined, max_steps: Number(job.maxSteps) || 5,
-      steps: ids.map((id) => ({ tool_id: id, instruction: job.objective })),
+      steps: ids.map((id, i) => ({ tool_id: id, instruction: stepInstruction(job.objective, names, i) })),
     }, `Task started: ${label}. Follow it under Tasks.`);
     if (r.ok) { setJob({ objective: "", context: "", keyId: "", maxSteps: "5" }); setStartFor(null); }
   };
@@ -507,7 +510,7 @@ function StartSessionForm({ tool, tools, job, setJob, keys, busy, onStart, onSwi
       <input className={inputCls} type="number" min={1} max={20} aria-label="Maximum steps" value={job.maxSteps} onChange={(e) => setJob({ ...job, maxSteps: e.target.value })} />
       <div className="sm:col-span-2">
         <ToolPlanBox
-          state={plan} mode="session" current={tool} max={1} fixing={fixing}
+          state={plan} mode="session" current={tool} max={1} fixing={fixing} busy={busy === "start-task" || busy === `start-${tool.id}`}
           onUse={(ids) => (ids.length === 1 ? onSwitch(ids[0]) : onRunTask(ids))}
           onFix={(x) => onFix(x as Tool)} onConnect={onConnect}
         />

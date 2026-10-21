@@ -11,8 +11,9 @@ export async function extractFunctionErrorMessage(error: unknown): Promise<strin
   if (!(error instanceof FunctionsHttpError)) return null;
   try {
     const body = await error.context.json();
-    const message = (body as { error?: string; message?: string } | null)?.error
-      ?? (body as { error?: string; message?: string } | null)?.message;
+    const b = body as { error?: string; message?: string; summary?: string } | null;
+    // A plain-words reason wins over a short error code; some functions only put it in `summary`.
+    const message = b?.message || b?.summary || b?.error;
     return typeof message === "string" && message ? message : null;
   } catch {
     return null;

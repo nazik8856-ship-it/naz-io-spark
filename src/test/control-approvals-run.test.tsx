@@ -55,4 +55,12 @@ describe("an approved item with nothing to run never offers Run it", () => {
     fireEvent.click(await screen.findByText("Run it"));
     await waitFor(() => expect(toast).toHaveBeenCalledWith({ title: "Nothing to run", description: "Nothing to run here." }));
   });
+
+  it("a real write that can not be carried out says why in plain words, not a generic error", async () => {
+    state.approvals = [row({ action_type: "send_email" })];
+    state.invoke.mockResolvedValue({ data: { ok: false, executed: false, not_carried_out: true, message: "send_email needs to, subject and body — nothing was sent." }, error: null });
+    renderPage();
+    fireEvent.click(await screen.findByText("Run it"));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Not carried out", description: "send_email needs to, subject and body — nothing was sent.", variant: "destructive" })));
+  });
 });
