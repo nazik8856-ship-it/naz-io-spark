@@ -69,8 +69,8 @@ export function stepInstructionFor(kind: ReportKind, text: string, styles: strin
         `CLAIM:\n<<<\n${text}\n>>>`;
     case "rewrite":
       return `Rewrite the text below in each of these styles: ${styles.join("; ")}. Keep its meaning and facts; add nothing new. ` +
-        "Give each version under its own heading, exactly in this form, and nothing else:\n" +
-        styles.map((st) => `### Style: ${st}\n<the text rewritten ${st}>`).join("\n") +
+        "Put each version under its own heading line, in this order, and write nothing else:\n" +
+        styles.map((st) => `### Style: ${st}`).join("\n") +
         `\n\nTEXT:\n<<<\n${text}\n>>>`;
     default:
       return opinionInstruction(text);

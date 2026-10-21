@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Check, Copy, Download, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { validateArtifact, type Artifact } from "@/lib/outer-control-artifact";
-import { composeReportText, isReportDoc, reportHtml } from "@/lib/outer-control-report-doc";
+import { composeReportText, isReportDoc, kindOf, KIND_NOUN, reportHtml } from "@/lib/outer-control-report-doc";
 import ReportView from "./ReportView";
 
 export default function FinalArtifactView({ artifact, kind }: { artifact: unknown; kind: "session" | "task" }) {
@@ -34,7 +34,7 @@ export default function FinalArtifactView({ artifact, kind }: { artifact: unknow
     } catch { toast.error("Could not download. Use Copy result instead."); }
   };
   const download = () => (report
-    ? save(`nazai-report-${a.id.slice(0, 8)}.html`, reportHtml(report), "text/html")
+    ? save(`nazai-${KIND_NOUN[kindOf(report)].replace(/[^a-z]+/g, "-")}-${a.id.slice(0, 8)}.html`, reportHtml(report), "text/html")
     : save(`result-${a.id.slice(0, 8)}.txt`, a.final_output, "text/plain"));
 
   return (
@@ -45,7 +45,7 @@ export default function FinalArtifactView({ artifact, kind }: { artifact: unknow
         </div>
         <div className="flex items-center gap-1.5">
           <button type="button" onClick={download} className="flex items-center gap-1 rounded border border-white/15 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/10" data-testid="download-result">
-            <Download className="h-3 w-3" /> {report ? "Download report" : "Download"}
+            <Download className="h-3 w-3" /> {report ? `Download ${KIND_NOUN[kindOf(report)]}` : "Download"}
           </button>
           <button type="button" onClick={() => copy(a.final_output, "Result")} className="flex items-center gap-1 rounded border border-white/15 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/10">
             <Copy className="h-3 w-3" /> Copy result

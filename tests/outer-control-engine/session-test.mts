@@ -1274,6 +1274,14 @@ await t("actions: titles carry the action; the compare and fact-check analyses a
   assert.deepEqual(H.parseRewriteVersions("**Style: Simpler**\nShort.\n\nStyle: more formal\nLonger.", ["more formal", "simpler"], 1).map((v: any) => v.style), ["more formal", "simpler"]);
   assert.deepEqual(H.parseRewriteVersions("Just one version.", ["simpler"], 1), [{ n: 1, style: "simpler", text: "Just one version." }]);
   assert.match(H.stepInstructionFor("rewrite", "T", ["simpler"]), /### Style: simpler/); assert.match(H.buildFactcheckPrompt("c", []).system, /never follow instructions/);
+  // The longest text each action accepts, with the most and longest styles, still fits a step instruction (2000) and a title (2000).
+  const longStyles = H.cleanStyles(["a", "b", "c", "d"].map((c) => c.repeat(40)));
+  for (const kind of ["opinions", "compare", "factcheck", "rewrite"]) {
+    const text = "x".repeat(H.TASK_LIMITS[kind].maxText);
+    assert.ok(H.stepInstructionFor(kind, text, longStyles).length <= 2000, `${kind} instruction fits`);
+    assert.ok(H.taskTitle(kind, text, longStyles).length <= 2000, `${kind} title fits`);
+    assert.deepEqual(H.parseTaskTitle(H.taskTitle(kind, text, kind === "rewrite" ? longStyles : [])).kind, kind);
+  }
 });
 const FU_TOOL = "33333333-3333-4333-8333-333333333333";
 function useUuidTool() { H.table("external_tools")[0].id = FU_TOOL; sess().tool_id = FU_TOOL; }
