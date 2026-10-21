@@ -66,13 +66,13 @@ describe("connecting a tool and generating a report", () => {
     expect((toast.error as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatch(/failed the test: The tool rejected the key \(HTTP 401\)/);
   });
 
-  it("Generate report needs two tools; the internal report writer is not listed as a tool and not offered", async () => {
+  it("Generate report works with one tool; the internal report writer is not listed as a tool and not offered", async () => {
     state.tools = [good("a", "ChatGPT"), writer];
     render_();
     await screen.findByText("ChatGPT");
     expect(screen.getAllByTestId("tool-row").length).toBe(1);
     expect(screen.queryByText("NazAI report writer")).toBeNull();
-    expect((screen.getByTestId("generate-report-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("generate-report-button") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("asks the chosen tools in the chosen order and starts the report", async () => {
@@ -82,9 +82,10 @@ describe("connecting a tool and generating a report", () => {
     const start = screen.getByText("Generate report", { selector: "button:not([data-testid])" }) as HTMLButtonElement;
     expect(start.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Report topic"), { target: { value: "Should we adopt a control layer?" } });
-    fireEvent.click(screen.getByLabelText("Ask Grok"));
-    expect(screen.getByText("Choose at least 2 tools to ask.")).toBeTruthy();
+    expect(screen.getByText("Choose at least one tool to ask.")).toBeTruthy();
     expect(start.disabled).toBe(true);
+    fireEvent.click(screen.getByLabelText("Ask Grok"));
+    expect(start.disabled).toBe(false);
     fireEvent.click(screen.getByLabelText("Ask ChatGPT"));
     fireEvent.click(screen.getByLabelText("Ask Claude"));
     expect(start.disabled).toBe(false);

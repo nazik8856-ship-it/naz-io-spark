@@ -377,3 +377,79 @@ describe("ActiveSessionsCard", () => {
     expect(text).toContain("Support bot");
   });
 });
+
+describe("Start session reads the request for tool names", () => {
+  const at = new Date().toISOString();
+  const healthy = { approved_at: at, last_ok_at: at, last_checked_at: at, last_error: null };
+  const bot2 = { id: "b", name: "Bot2", endpoint_url: "https://bot.example.com/chat", request_format: "generic_json", ...healthy };
+  const gpt = { id: "g", name: "ChatGPT (OpenAI)", endpoint_url: "https://api.openai.com/v1/chat/completions", request_format: "openai_chat", model: "gpt-4o", ...healthy };
+  const claude = { id: "c", name: "Claude", endpoint_url: "https://api.anthropic.com/v1/messages", request_format: "anthropic_messages", ...healthy };
+  const body = (i = -1) => JSON.parse(((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.at(i)![1] as RequestInit).body as string);
+  const openStart = async (name: string) => {
+    await screen.findByText(name);
+    const rows = screen.getAllByTestId("tool-row");
+    const row = rows.find((r) => r.textContent?.includes(name))!;
+    fireEvent.click(row.querySelector("button:nth-of-type(2)") as HTMLButtonElement);
+  };
+  beforeEach(() => {
+    state.tools = [bot2, gpt, claude]; state.sessions = [];
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, session_id: "s9" }) })));
+  });
+
+  it("Bot2's form with ChatGPT named: asks first, and Start waits until the person decides", async () => {
+    renderCard();
+    await openStart("Bot2");
+    fireEvent.change(screen.getByLabelText("Objective"), { target: { value: "Collaborate with connected ChatGPT and generate a simple report about NazAI" } });
+    expect(screen.getByTestId("tool-plan-named").textContent).toMatch(/You named ChatGPT \(OpenAI\), but this session is for Bot2/);
+    const start = screen.getByText("Start", { selector: "button" }) as HTMLButtonElement;
+    expect(start.disabled).toBe(true);
+    expect(screen.getByTestId("start-blocked").textContent).toBe("Choose which tool to use first.");
+  });
+
+  it("Use ChatGPT instead moves the request to ChatGPT, and it starts there", async () => {
+    renderCard();
+    await openStart("Bot2");
+    fireEvent.change(screen.getByLabelText("Objective"), { target: { value: "Ask ChatGPT for a summary" } });
+    fireEvent.click(screen.getByText("Use ChatGPT (OpenAI) instead"));
+    expect(screen.getByTestId("tool-plan-summary").textContent).toBe("Will ask: ChatGPT (OpenAI) (named in your request)");
+    fireEvent.click(screen.getByText("Start", { selector: "button" }));
+    await waitFor(() => expect(body()).toMatchObject({ action: "start_session", tool_id: "g", objective: "Ask ChatGPT for a summary" }));
+    expect(body().confirm_override).toBeUndefined();
+  });
+
+  it("Keep Bot2 starts Bot2 and tells the server the choice was confirmed", async () => {
+    renderCard();
+    await openStart("Bot2");
+    fireEvent.change(screen.getByLabelText("Objective"), { target: { value: "Ask ChatGPT for a summary" } });
+    fireEvent.click(screen.getByText("Keep Bot2"));
+    fireEvent.click(screen.getByText("Start", { selector: "button" }));
+    await waitFor(() => expect(body()).toMatchObject({ action: "start_session", tool_id: "b", confirm_override: true }));
+  });
+
+  it("two tools named: runs them as one Task in the order named", async () => {
+    renderCard();
+    await openStart("Bot2");
+    fireEvent.change(screen.getByLabelText("Objective"), { target: { value: "ask Claude and then ChatGPT about our pricing" } });
+    fireEvent.click(screen.getByText("Run as one Task: Claude → ChatGPT (OpenAI)"));
+    await waitFor(() => expect(body()).toMatchObject({ action: "start_task", request: "ask Claude and then ChatGPT about our pricing", steps: [{ tool_id: "c" }, { tool_id: "g" }] }));
+  });
+
+  it("a tool that needs attention warns with its reason; Proceed anyway lets it start", async () => {
+    state.tools = [{ ...bot2, approved_at: null, last_ok_at: null, last_checked_at: null }];
+    renderCard();
+    await openStart("Bot2");
+    fireEvent.change(screen.getByLabelText("Objective"), { target: { value: "Draft a reply" } });
+    expect(screen.getByTestId("tool-plan-warning").textContent).toMatch(/Bot2 needs attention: Not tested yet/);
+    const start = screen.getByText("Start", { selector: "button" }) as HTMLButtonElement;
+    expect(start.disabled).toBe(true);
+    fireEvent.click(screen.getByText("Proceed anyway"));
+    expect(start.disabled).toBe(false);
+  });
+
+  it("a named product that is not connected is said, not silently ignored", async () => {
+    renderCard();
+    await openStart("Bot2");
+    fireEvent.change(screen.getByLabelText("Objective"), { target: { value: "ask Gemini what it thinks" } });
+    expect(screen.getByTestId("tool-plan-not-connected").textContent).toMatch(/Gemini is named but not connected/);
+  });
+});

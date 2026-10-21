@@ -17,7 +17,7 @@ import { legsPayload, type CondKind, type DraftLeg, type SessionStatus, type Wor
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any; // the tables are new and not in the generated types
 
-type ToolOpt = { id: string; name: string; endpoint_url?: string; agent_id?: string | null };
+type ToolOpt = { id: string; name: string; endpoint_url?: string; agent_id?: string | null; model?: string | null; approved_at?: string | null; last_ok_at?: string | null; last_error?: string | null; last_checked_at?: string | null };
 type WorkflowRow = {
   id: string; objective: string; status: WorkflowStatus; summary: string | null; started_at: string;
   // The Task fields: where it is, what it produced, why it stopped.
@@ -62,7 +62,7 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
       return q.order("started_at", { ascending: false }).limit(8);
     };
     const [t, w0, a] = await Promise.all([
-      anyDb.from("external_tools").select("id, name, endpoint_url, agent_id").eq("user_id", accountId).eq("enabled", true).is("removed_at", null).order("created_at", { ascending: false }),
+      anyDb.from("external_tools").select("id, name, endpoint_url, agent_id, model, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).eq("enabled", true).is("removed_at", null).order("created_at", { ascending: false }),
       // One-tool runs are Tasks too, but they are shown as sessions: this list is for several steps.
       wfQuery(true, true),
       anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
@@ -149,7 +149,7 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
         </div>
       </div>
 
-      {showGoal && <GoalTaskForm tools={tools.filter((t) => !(t.endpoint_url ?? "").startsWith("nazai-internal://"))} onStarted={async () => { setShowGoal(false); await load(); }} />}
+      {showGoal && <GoalTaskForm tools={tools.filter((t) => !(t.endpoint_url ?? "").startsWith("nazai-internal://"))} onStarted={async () => { setShowGoal(false); await load(); }} onRefresh={load} />}
 
       {show && (
         <div className="mt-4 space-y-3 rounded-xl border border-white/10 bg-black/20 p-3">
