@@ -24,7 +24,7 @@ export { runConnectionTest, describeHttpFailure, readTestReply } from "../../sup
 export { extractLinks, describeWhatDone } from "../../supabase/functions/_shared/outer-control-artifact.ts";
 export { parseToolReply } from "../../supabase/functions/_shared/outer-control-tool-request.ts";
 
-export { writeReport, parseAnalysis, composeReport, buildAnalysisPrompt, opinionInstruction, reportInstruction } from "../../supabase/functions/_shared/outer-control-report.ts";
+export { writeReport, parseAnalysis, composeReport, buildAnalysisPrompt, opinionInstruction, reportInstruction, stepInstructionFor, writerInstructionFor, taskTitle, parseTaskTitle, parseCompare, parseFactcheck, parseRewriteVersions, buildComparePrompt, buildFactcheckPrompt, cleanStyles, TASK_LIMITS } from "../../supabase/functions/_shared/outer-control-report.ts";
 
 export { composeReportText, isReportDoc, reportHtml } from "../../supabase/functions/_shared/outer-control-report-doc.ts";
 export { buildReportDoc } from "../../supabase/functions/_shared/outer-control-report.ts";

@@ -1,6 +1,7 @@
 // Outer Control: the plain wording and small decisions behind "Connected tools", the "Connect a tool" panel and the
 // live activity of a session. Pure, so the components stay layout and these rules are tested alone.
 import { NEXT_ACTION_LABEL, type CompletionView, type DecisionView, type PendingKind, type SessionStatus } from "./outer-control-sessions";
+import { TASK_LIMITS, type ReportKind } from "./outer-control-report-doc";
 
 // ---------------------------------------------------------------------------------------
 // Tool status: Working / Failed / Needs attention, each with its reason
@@ -186,16 +187,34 @@ export function buildActivity(i: {
 /** Internal tools (the NazAI report writer, your agents) are not connections the person manages as tools. */
 export const isInternalTool = (endpoint: string) => endpoint.startsWith("nazai-internal://");
 
-export const MIN_REPORT_TOOLS = 1;
-export const MAX_REPORT_TOOLS = 5;
+// ---------------------------------------------------------------------------------------
+// Start task: the four multi-tool actions (opinions, compare, fact-check, rewrite)
 
-/** What is wrong with the report form, or null when it can be started. */
-export function checkReportForm(topic: string, toolIds: string[]): string | null {
-  const t = topic.replace(/\s+/g, " ").trim();
-  if (t.length < 5) return "Say what the report is about (at least 5 characters).";
-  if (t.length > 600) return "Keep the topic under 600 characters.";
-  if (toolIds.length < MIN_REPORT_TOOLS) return MIN_REPORT_TOOLS === 1 ? "Choose at least one tool to ask." : `Choose at least ${MIN_REPORT_TOOLS} tools to ask.`;
-  if (toolIds.length > MAX_REPORT_TOOLS) return `Choose at most ${MAX_REPORT_TOOLS} tools.`;
+export const TASK_ACTIONS: { kind: ReportKind; title: string; blurb: string; field: string; placeholder: string; start: string }[] = [
+  { kind: "opinions", title: "Get multiple opinions", blurb: "Ask several tools the same question and get one summary of their views.", field: "Question", placeholder: "What do you want their opinion on? e.g. Should we adopt a control layer for our AI tools?", start: "Get opinions" },
+  { kind: "compare", title: "Compare answers", blurb: "Send the same prompt to 2–3 tools and get a side-by-side comparison.", field: "Prompt", placeholder: "The prompt every tool gets, e.g. Write a two-line product description for a smart water bottle.", start: "Compare" },
+  { kind: "factcheck", title: "Fact-check / challenge", blurb: "Have tools verify or challenge a claim and get one verdict with corrections.", field: "Claim or text to check", placeholder: "e.g. The Eiffel Tower was finished in 1889 and is 500 metres tall.", start: "Fact-check" },
+  { kind: "rewrite", title: "Rewrite in different styles", blurb: "Get your text back in the styles you choose: more formal, simpler, more persuasive…", field: "Text to rewrite", placeholder: "Paste the text to rewrite.", start: "Rewrite" },
+];
+export const STYLE_PRESETS = ["More formal", "Simpler", "More persuasive", "Shorter", "Friendlier"];
+
+const toolCount = (min: number, max: number) => (min === max ? `${min}` : min === 1 ? `up to ${max}` : `${min} or ${max}`);
+/** "Choose up to 5 tools", "Choose 2 or 3 tools". */
+export const toolsHint = (kind: ReportKind) => {
+  const l = TASK_LIMITS[kind];
+  return `Choose ${toolCount(l.minTools, l.maxTools)} tool${l.maxTools === 1 ? "" : "s"}`;
+};
+
+/** What is wrong with the Start task form, or null when it can be started. The server checks the same limits. */
+export function checkTaskForm(kind: ReportKind, text: string, toolIds: string[], styles: string[] = []): string | null {
+  const l = TASK_LIMITS[kind];
+  const field = TASK_ACTIONS.find((a) => a.kind === kind)!.field.toLowerCase();
+  const t = kind === "factcheck" || kind === "rewrite" ? text.trim() : text.replace(/\s+/g, " ").trim();
+  if (t.length < 5) return `Write the ${field} (at least 5 characters).`;
+  if (t.length > l.maxText) return `Keep the ${field} under ${l.maxText} characters.`;
+  if (kind === "rewrite" && styles.length === 0) return "Choose at least one style.";
+  if (toolIds.length < l.minTools) return l.minTools === 1 ? "Choose at least one tool to ask." : `Choose at least ${l.minTools} tools to compare.`;
+  if (toolIds.length > l.maxTools) return `Choose at most ${l.maxTools} tools.`;
   return null;
 }
 

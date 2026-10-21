@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import FinalArtifactView from "@/components/control/outer/FinalArtifactView";
 import ReportView from "@/components/control/outer/ReportView";
 import { buildSessionArtifact } from "@/lib/outer-control-artifact";
-import { composeReportText, reportHtml, type ReportDoc } from "@/lib/outer-control-report-doc";
+import { composeReportText, isReportDoc, reportHtml, type ReportDoc } from "@/lib/outer-control-report-doc";
 
 const doc: ReportDoc = {
   version: 1, topic: "Should a company put a control layer between its AI tools and its customers?", compiled_at: "2026-10-18T02:17:00Z",
@@ -80,5 +80,56 @@ describe("FinalArtifactView with a report", () => {
     const bad = { ...art(composeReportText(doc), doc), report: { version: 1, topic: 5 } };
     const { container } = render(<FinalArtifactView artifact={bad} kind="session" />);
     expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("the other multi-tool results: comparison, fact-check, rewrite", () => {
+  const compare: ReportDoc = {
+    ...doc, kind: "compare", topic: "Write a two-line description of a water bottle.", summary: "Both are short; source 2 is warmer [1][2].",
+    comparison: [{ aspect: "Tone", points: ["Neutral [1].", "Warm [2]."] }, { aspect: "Length", points: ["Two lines.", "Not covered"] }],
+  };
+  const fact: ReportDoc = {
+    ...doc, kind: "factcheck", topic: "The Eiffel Tower is in Berlin.", verdict: "not supported", summary: "It is in Paris [1].",
+    findings: ["Source 1 places it in Paris [1]."], corrections: ["The Eiffel Tower is in Paris [1]."], agreements: [], differences: [],
+  };
+  const rewrite: ReportDoc = {
+    ...doc, opinions: [doc.opinions[0]], kind: "rewrite", topic: "Rewrite in More formal, Simpler", summary: "2 versions.", agreements: [], differences: [], conclusion: "",
+    original: "Your order has shipped.", styles: ["More formal", "Simpler"],
+    versions: [{ n: 1, style: "More formal", text: "Your order has been dispatched." }, { n: 1, style: "Simpler", text: "It shipped." }],
+  };
+
+  it("each is a valid document and its text says what kind it is", () => {
+    for (const d of [compare, fact, rewrite]) expect(isReportDoc(d)).toBe(true);
+    expect(isReportDoc({ ...fact, verdict: "maybe" })).toBe(false);
+    expect(isReportDoc({ ...compare, kind: "poem" })).toBe(false);
+    expect(isReportDoc({ ...compare, comparison: [{ aspect: "x", points: [1] }] })).toBe(false);
+    expect(composeReportText(compare)).toMatch(/^NAZAI COMPARISON\n[\s\S]*SIDE BY SIDE\n\nTone\n• \[1\] ChatGPT \(OpenAI\): Neutral \[1\]\.\n• \[2\] Claude \(Anthropic\): Warm \[2\]\.[\s\S]*HOW THIS COMPARISON WAS MADE/);
+    expect(composeReportText(fact)).toMatch(/^NAZAI FACT-CHECK\n[\s\S]*VERDICT\nNot supported\. It is in Paris \[1\]\.\n\nFINDINGS\n• Source 1 places it in Paris[\s\S]*CORRECTIONS\n• The Eiffel Tower is in Paris/);
+    expect(composeReportText(rewrite)).toMatch(/^NAZAI REWRITE\n[\s\S]*ORIGINAL\nYour order has shipped\.\n\nSTYLE: MORE FORMAL — by ChatGPT \(OpenAI\) \[1\]\nYour order has been dispatched\.\n\nSTYLE: SIMPLER/);
+  });
+
+  it("the downloadable pages lay each kind out: a table, a verdict, the versions", () => {
+    expect(reportHtml(compare)).toMatch(/NAZAI COMPARISON[\s\S]*<table>[\s\S]*<th>Tone<\/th><td>Neutral \[1\]\.<\/td><td>Warm \[2\]\.<\/td>/);
+    expect(reportHtml(fact)).toMatch(/NAZAI FACT-CHECK[\s\S]*class="verdict">Not supported</);
+    expect(reportHtml(rewrite)).toMatch(/NAZAI REWRITE[\s\S]*Original[\s\S]*More formal[\s\S]*Your order has been dispatched/);
+  });
+
+  it("the app shows each kind designed", () => {
+    const { unmount } = render(<ReportView doc={compare} />);
+    expect(screen.getByTestId("report-view").getAttribute("data-kind")).toBe("compare");
+    expect(screen.getByTestId("report-comparison").textContent).toMatch(/Tone.*Neutral \[1\]\..*Warm \[2\]\./);
+    unmount();
+    const f = render(<ReportView doc={fact} />);
+    expect(screen.getByTestId("report-verdict").textContent).toMatch(/Not supported/);
+    expect(screen.getByTestId("report-corrections").textContent).toMatch(/Paris/);
+    f.unmount();
+    render(<ReportView doc={rewrite} />);
+    expect(screen.getAllByTestId("report-version").map((v) => v.textContent)).toEqual([expect.stringMatching(/More formal.*Your order has been dispatched/), expect.stringMatching(/Simpler.*It shipped/)]);
+    expect(screen.getByTestId("report-method").textContent).toMatch(/How this rewrite was made/);
+  });
+
+  it("the final result shows the designed view only when the stored text is exactly the document", () => {
+    render(<FinalArtifactView artifact={art(composeReportText(fact), fact)} kind="session" />);
+    expect(screen.getByTestId("report-verdict")).toBeTruthy();
   });
 });

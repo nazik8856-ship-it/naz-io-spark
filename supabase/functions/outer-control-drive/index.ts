@@ -9,7 +9,9 @@
 //   POST { action: "create_agent_tool", agent_id }   (one of the account's own NazAI agents as a step)
 //   POST { action: "start_goal", goal, criteria?: [up to 5 sentences], tool_ids: [1..3], max_rounds?, context?, api_key_id? }   (a Task that goes on until its criteria are met; costs one credit)
 //   POST { action: "task_decide", task_id, decision: "accept" | "more" | "stop" }   (what to do with a goal Task that is blocked)
-//   POST { action: "start_report", topic, tool_ids: [1..5 tool ids], context? }   (ask each tool for its opinion, then write one report; costs one credit)
+//   POST { action: "start_report", task?: "opinions" | "compare" | "factcheck" | "rewrite", topic, styles?: [rewrite: 1..4], tool_ids, context? }
+//        (a multi-tool action: each tool is asked on its own, every reply is checked, then one controlled result is written; costs one credit.
+//         opinions 1..5 tools, compare 2..3, factcheck 1..3, rewrite 1..3; topic is the question, prompt, claim or text)
 //   POST { action: "follow_up", session_id, instruction }   (a new request to the same tool, based on the controlled answer of a completed session)
 //   POST { action: "archive", kind: "session" | "workflow", id, archived?: boolean }   (leaves a finished item out of the default list, or brings it back; nothing is deleted)
 //   POST { action: "answer", session_id, answer }
@@ -35,7 +37,8 @@ import { applyEditedReply, contactRuleStopping } from "../_shared/outer-control-
 import { acceptGoal, cancelWorkflow, continueSession, driveSession, extendGoal, progressWorkflow, resumeAndDrive, startFollowUp, startGoal, startTask, startWorkflow } from "../_shared/outer-control-workflow.ts";
 import { encodeChoice, findOption, type Handoff } from "../_shared/outer-control-handoff.ts";
 import { createAgentTool, ensureReportTool, removeTool, updateToolKey } from "../_shared/outer-control-tools.ts";
-import { gatewayAi, MAX_REPORT_SOURCES, opinionInstruction, REPORT_TOOL_URL, reportInstruction } from "../_shared/outer-control-report.ts";
+import { cleanStyles, gatewayAi, REPORT_TOOL_URL, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
+import { REPORT_KINDS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
 import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
@@ -227,25 +230,34 @@ Deno.serve(async (req) => {
 
     // ---- start_report: several tools give their opinion in turn (each answer checked), then one report is written ------
     if (action === "start_report") {
-      const topic = String(body.topic ?? "").replace(/\s+/g, " ").trim();
-      if (topic.length < 5 || topic.length > 600) return json({ error: "invalid_topic", message: "Describe what the report is about (5 to 600 characters)." }, 400);
+      const kind = (REPORT_KINDS as string[]).includes(String(body.task ?? "opinions")) ? String(body.task ?? "opinions") as ReportKind : null;
+      if (!kind) return json({ error: "invalid_task", message: "task must be opinions, compare, factcheck or rewrite." }, 400);
+      const lim = TASK_LIMITS[kind];
+      const topic = kind === "factcheck" || kind === "rewrite" ? String(body.topic ?? "").trim() : String(body.topic ?? "").replace(/\s+/g, " ").trim();
+      if (topic.length < 5 || topic.length > lim.maxText) return json({ error: "invalid_topic", message: `Give the ${kind === "factcheck" ? "claim" : kind === "rewrite" ? "text" : kind === "compare" ? "prompt" : "question"} (5 to ${lim.maxText} characters).` }, 400);
+      const styles = kind === "rewrite" ? cleanStyles(body.styles) : [];
+      if (kind === "rewrite" && styles.length === 0) return json({ error: "invalid_styles", message: "Choose at least one style." }, 400);
       const ids = Array.isArray(body.tool_ids) ? [...new Set((body.tool_ids as unknown[]).map(String))] : [];
-      if (ids.length < 1 || ids.length > MAX_REPORT_SOURCES) return json({ error: "invalid_tools", message: `Choose 1 to ${MAX_REPORT_SOURCES} tools to ask.` }, 400);
+      if (ids.length < lim.minTools || ids.length > lim.maxTools) return json({ error: "invalid_tools", message: `Choose ${lim.minTools === lim.maxTools ? lim.minTools : `${lim.minTools} to ${lim.maxTools}`} tools to ask.` }, 400);
       const { data: chosen } = await admin.from("external_tools").select("id, name, enabled, endpoint_url").eq("user_id", accountId).is("removed_at", null).in("id", ids);
       const rows = (chosen ?? []) as { id: string; name: string; enabled: boolean; endpoint_url: string }[];
       if (rows.length !== ids.length || rows.some((r) => !r.enabled || r.endpoint_url.startsWith(REPORT_TOOL_URL))) return json({ error: "tool_unavailable", message: "One of the chosen tools was not found or is disabled." }, 404);
-      const namedR = await namedToolGuard(admin, accountId, topic, ids, body.confirm_override);
-      if (namedR) return namedR;
-      if (pickAiGateway() === null) return json({ error: "ai_unavailable", message: "The AI that analyses the answers is not configured, so a report cannot be written." }, 503);
+      // A question or prompt may name the tools to ask; a claim or a text to rewrite is content, so names in it are not a choice of tool.
+      if (kind === "opinions" || kind === "compare") {
+        const namedR = await namedToolGuard(admin, accountId, topic, ids, body.confirm_override);
+        if (namedR) return namedR;
+      }
+      // A rewrite only collects the versions word for word; the other actions need NazAI's AI to write the result.
+      if (kind !== "rewrite" && pickAiGateway() === null) return json({ error: "ai_unavailable", message: "The AI that analyses the answers is not configured, so the result cannot be written." }, 503);
       const writer = await ensureReportTool(admin, accountId);
       if (!writer.ok) return json({ error: "internal_error", message: writer.message }, 500);
       const credit = await consumeGenerationCredit(accountId);
       if (!credit.ok) return json({ error: "no_credits", message: NO_CREDITS_MESSAGE }, 402);
       const steps = [
-        ...ids.map((id) => ({ tool_id: id, instruction: opinionInstruction(topic), handoff: "none" })),
-        { tool_id: writer.tool.id, instruction: reportInstruction(topic), handoff: "none" },
+        ...ids.map((id) => ({ tool_id: id, instruction: stepInstructionFor(kind, topic, styles), handoff: "none" })),
+        { tool_id: writer.tool.id, instruction: writerInstructionFor(kind, topic), handoff: "none" },
       ];
-      const started = await startTask(admin, accountId, { request: `Report: ${topic}`, context: typeof body.context === "string" ? body.context : null, steps, max_steps: 3 });
+      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles), context: typeof body.context === "string" ? body.context : null, steps, max_steps: 3 });
       if (!started.ok) {
         // The credit was taken before the Task could start: give it back.
         await admin.rpc("refund_generation_credit", { p_user_id: accountId });
