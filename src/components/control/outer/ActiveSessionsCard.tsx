@@ -4,7 +4,7 @@
 // and deciding; this card only shows it and collects the few things a person must give.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity, Plus, FileText, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
+import { Activity, Plus, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
 import { toast } from "sonner";
 import FinalArtifactView from "./FinalArtifactView";
 import { HonestStatusBadge, StatusReason } from "./HonestStatusBadge";
@@ -13,7 +13,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems, type Tone } from "@/lib/outer-control-ui";
 import { describeClosure, describeUsage, healthSummary, isInternalTool, toolHealth, type ActivityStep, type ToolUsage } from "@/lib/outer-control-tools-ui";
-import ReportPanel from "./ReportPanel";
+import TaskPanel, { type TaskRequest } from "./TaskPanel";
+import { TASK_ACTIONS } from "@/lib/outer-control-tools-ui";
 import ConnectToolPanel, { type ConnectPayload } from "./ConnectToolPanel";
 import SessionActivity from "./SessionActivity";
 import FollowUpBox from "./FollowUpBox";
@@ -162,10 +163,13 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     return true;
   };
 
-  /** A report: several tools are asked in turn, then one report is written. It appears under Recent sessions as it runs. */
-  const startReport = async (topic: string, toolIds: string[], keepChoice: boolean): Promise<boolean> => {
-    const label = toolIds.map((id) => tools.find((x) => x.id === id)?.name ?? "tool").join(" → ");
-    const r = await act("report", "start_report", { topic, tool_ids: toolIds, confirm_override: keepChoice || undefined }, `Report started: asking ${label}. Follow it below; the finished report appears as the result.`);
+  /** Start task: one of the four multi-tool actions. Each tool is asked in turn, then one controlled result is written. */
+  const startTask = async (t: TaskRequest): Promise<boolean> => {
+    const label = t.toolIds.map((id) => tools.find((x) => x.id === id)?.name ?? "tool").join(" → ");
+    const title = TASK_ACTIONS.find((a) => a.kind === t.kind)?.title ?? "Task";
+    const r = await act("report", "start_report", {
+      task: t.kind, topic: t.text, styles: t.kind === "rewrite" ? t.styles : undefined, tool_ids: t.toolIds, confirm_override: t.keepChoice || undefined,
+    }, `${title} started: asking ${label}. Follow it below; the result appears when it is done.`);
     return r.ok;
   };
 
@@ -372,8 +376,8 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
           <p className="mt-0.5 text-xs text-zinc-500" data-testid="tools-summary">{healthSummary(shownTools, now)}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-        <button onClick={() => setShowReport(true)} disabled={shownTools.length < 1} title={shownTools.length < 1 ? "Connect a tool first" : "Ask one or more tools, then get one report"} className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3.5 py-2 text-sm text-zinc-100 hover:bg-white/10 disabled:opacity-40" data-testid="generate-report-button">
-          <FileText className="h-4 w-4" /> Generate report
+        <button onClick={() => setShowReport(true)} disabled={shownTools.length < 1} title={shownTools.length < 1 ? "Connect a tool first" : "Get opinions, compare answers, fact-check or rewrite with your tools"} className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3.5 py-2 text-sm text-zinc-100 hover:bg-white/10 disabled:opacity-40" data-testid="start-task-button">
+          <Play className="h-4 w-4" /> Start task
         </button>
         <button onClick={() => setShowConnect(true)} className="flex items-center gap-1.5 rounded-lg border border-cyan-300/60 bg-cyan-400 px-4 py-2 text-sm font-semibold text-black shadow-[0_0_18px_rgba(34,211,238,0.3)] transition hover:bg-cyan-300" data-testid="connect-tool-button">
           <Plus className="h-4 w-4" /> Connect a tool
@@ -381,7 +385,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
         </div>
       </div>
       <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} onTest={(t) => runTest(t.id, t.name)} testingId={busy?.startsWith("test-") ? busy.slice(5) : null} />
-      <ReportPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startReport} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }} />
+      <TaskPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startTask} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }} />
 
       <div className="mt-4 space-y-2">
         {shownTools.length === 0 && (

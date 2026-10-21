@@ -1215,6 +1215,66 @@ await t("report: the report writer is set up once per account", async () => {
   H.reset(); const a = await H.ensureReportTool(H.createClient("u", "k"), U); const b = await H.ensureReportTool(H.createClient("u", "k"), U);
   assert.ok(a.ok && b.ok); assert.equal(a.tool.id, b.tool.id); assert.equal(H.table("external_tools").length, 1); assert.equal(H.table("external_tools")[0].endpoint_url, "nazai-internal://report");
 });
+// ---- the four multi-tool actions: compare, fact-check and rewrite run through the same Task, every reply checked
+const kindSteps = (kind: any, text: string, styles: string[] = [], tools = [T1, T2]) => [
+  ...tools.map((id) => ({ tool_id: id, instruction: H.stepInstructionFor(kind, text, styles), handoff: "none" })),
+  { tool_id: RT, instruction: H.writerInstructionFor(kind, text), handoff: "none" }];
+const GOOD_COMPARE = JSON.stringify({ summary: "Both recommend a control layer; source 2 adds audit trails [1][2].", comparison: [{ aspect: "Main recommendation", points: ["Check every answer against rules [1].", "Keep an audit trail [2]."] }, { aspect: "Cost", points: ["Not covered", "Some latency [2]."] }], agreements: ["Both favour a control layer [1][2]."], differences: ["Only source 2 mentions audit trails [2]."], conclusion: "Source 2 is more complete [2]." });
+await t("action compare: the same prompt goes to both tools on their own, each reply checked, then a side-by-side comparison is the Task's result", async () => {
+  reportSetup(); aiAnswer = GOOD_COMPARE; const prompt = "How should a company control the answers of its AI tools?";
+  script = (n: number, b: any, url: string) => String(url).includes("research") ? { json: { status: "done", answer: "Check every answer against company rules before it is used." } } : { json: { status: "done", answer: "Keep an audit trail of every answer, at the cost of some latency." } };
+  const r = await H.startTask(H.createClient("u", "k"), U, { request: H.taskTitle("compare", prompt), context: null, steps: kindSteps("compare", prompt), max_steps: 3 });
+  assert.ok(r.ok, JSON.stringify(r)); await runTask(r, reportDeps());
+  assert.deepEqual(legs().map((l: any) => l.status), ["completed", "completed", "completed"]);
+  assert.match(String(calls[0].body.objective ?? calls[0].body.instruction ?? JSON.stringify(calls[0].body)), /compared side by side/);
+  const w = task(); assert.equal(w.status, "completed"); const doc = w.final_artifact.report;
+  assert.ok(H.isReportDoc(doc)); assert.equal(doc.kind, "compare"); assert.equal(doc.comparison.length, 2); assert.equal(doc.topic, prompt);
+  assert.equal(H.composeReportText(doc), w.final_output);
+  assert.match(w.final_output, /^NAZAI COMPARISON\n/); assert.match(w.final_output, /SIDE BY SIDE\n\nMain recommendation\n• \[1\] Research Bot: Check every answer/); assert.match(w.final_output, /• \[2\] Writer Bot: Keep an audit trail/);
+  assert.match(w.final_output, /HOW THIS COMPARISON WAS MADE/);
+  assert.match(H.reportHtml(doc), /NAZAI COMPARISON[\s\S]*<table>[\s\S]*Main recommendation/);
+  assert.match(aiPrompts[0].system, /exactly 2 entries/); assert.match(aiPrompts[0].user, /<<<SOURCE 2: Writer Bot>>>/);
+});
+await t("action fact-check: the claim goes to the tool, its reply is checked, and the result carries a verdict, findings and corrections", async () => {
+  reportSetup(); const claim = "The Eiffel Tower is in Berlin and was finished in 1889.";
+  aiAnswer = JSON.stringify({ verdict: "partly supported", summary: "The date is right but the city is wrong [1].", findings: ["Finished in 1889 is correct [1].", "It is in Paris, not Berlin [1]."], corrections: ["The Eiffel Tower is in Paris [1]."], conclusion: "Correct the city [1]." });
+  script = () => ({ json: { status: "done", answer: "Partly correct: it was finished in 1889, but it stands in Paris, not Berlin." } });
+  const r = await H.startTask(H.createClient("u", "k"), U, { request: H.taskTitle("factcheck", claim), context: null, steps: kindSteps("factcheck", claim, [], [T1]), max_steps: 3 });
+  assert.ok(r.ok, JSON.stringify(r)); await runTask(r, reportDeps());
+  const w = task(); assert.equal(w.status, "completed", w.stop_reason); const doc = w.final_artifact.report;
+  assert.equal(doc.kind, "factcheck"); assert.equal(doc.verdict, "partly supported"); assert.equal(doc.corrections.length, 1);
+  assert.match(w.final_output, /^NAZAI FACT-CHECK\n/); assert.match(w.final_output, /VERDICT\nPartly supported\. The date is right/); assert.match(w.final_output, /CORRECTIONS\n• The Eiffel Tower is in Paris/);
+  assert.match(aiPrompts[0].user, /Claim:\n<<<\nThe Eiffel Tower is in Berlin/);
+});
+await t("action rewrite: the versions are cut word for word from the tool's checked reply, one per requested style; no AI writes them", async () => {
+  reportSetup(); aiAnswer = null; const text = "We are pleased to tell you that your order has shipped and will arrive soon.";
+  script = () => ({ json: { status: "done", answer: "### Style: more formal\nWe are delighted to inform you that your order has been dispatched.\n\n### Style: simpler\nYour order is on its way." } });
+  const r = await H.startTask(H.createClient("u", "k"), U, { request: H.taskTitle("rewrite", text, ["more formal", "simpler"]), context: null, steps: kindSteps("rewrite", text, ["more formal", "simpler"], [T1]), max_steps: 3 });
+  assert.ok(r.ok, JSON.stringify(r)); await runTask(r, reportDeps());
+  const w = task(); assert.equal(w.status, "completed", w.stop_reason); const doc = w.final_artifact.report;
+  assert.equal(aiPrompts.length, 0, "no AI was asked to write the rewrite");
+  assert.equal(doc.kind, "rewrite"); assert.equal(doc.original, text); assert.deepEqual(doc.versions.map((v: any) => [v.style, v.text]), [["more formal", "We are delighted to inform you that your order has been dispatched."], ["simpler", "Your order is on its way."]]);
+  assert.match(w.final_output, /^NAZAI REWRITE\n/); assert.match(w.final_output, /ORIGINAL\nWe are pleased/); assert.match(w.final_output, /STYLE: SIMPLER — by Research Bot \[1\]\nYour order is on its way\./);
+});
+await t("action rewrite: a reply with no versions under the style headings fails honestly, with no result", async () => {
+  reportSetup(); script = () => ({ json: { status: "done", answer: "Here are some thoughts about your text in general." } });
+  const r = await H.startTask(H.createClient("u", "k"), U, { request: H.taskTitle("rewrite", "Some text to rewrite.", ["more formal", "simpler"]), context: null, steps: kindSteps("rewrite", "Some text to rewrite.", ["more formal", "simpler"], [T1]), max_steps: 3 });
+  await runTask(r, reportDeps());
+  const w = task(); assert.notEqual(w.status, "completed"); assert.equal(w.final_artifact ?? null, null); assert.match(legs()[1].stop_reason ?? "", /rewritten versions could not be found/);
+});
+await t("actions: titles carry the action; the compare and fact-check analyses are checked like the report's", async () => {
+  assert.deepEqual(H.parseTaskTitle("Report: x"), { kind: "opinions", text: "x", styles: [] });
+  assert.deepEqual(H.parseTaskTitle(H.taskTitle("compare", "p")), { kind: "compare", text: "p", styles: [] });
+  assert.deepEqual(H.parseTaskTitle(H.taskTitle("rewrite", "a (b): c", ["more formal", "simpler"])), { kind: "rewrite", text: "a (b): c", styles: ["more formal", "simpler"] });
+  assert.deepEqual(H.cleanStyles(["  Simpler ", "simpler", "a;b", "x".repeat(60), "", "c", "d", "e"]), ["Simpler", "a b", "x".repeat(40), "c"]);
+  assert.ok(H.parseCompare(GOOD_COMPARE, 2)); assert.equal(H.parseCompare(GOOD_COMPARE, 3), null, "each row must have one point per source");
+  assert.equal(H.parseCompare(JSON.stringify({ ...JSON.parse(GOOD_COMPARE), comparison: [] }), 2), null);
+  assert.equal(H.parseFactcheck(JSON.stringify({ verdict: "maybe", summary: "s", findings: [], corrections: [], conclusion: "c" }), 1), null, "the verdict must be one of the four");
+  assert.equal(H.parseFactcheck(JSON.stringify({ verdict: "supported", summary: "s [2]", findings: [], corrections: [], conclusion: "c" }), 1), null, "[2] does not exist");
+  assert.deepEqual(H.parseRewriteVersions("**Style: Simpler**\nShort.\n\nStyle: more formal\nLonger.", ["more formal", "simpler"], 1).map((v: any) => v.style), ["more formal", "simpler"]);
+  assert.deepEqual(H.parseRewriteVersions("Just one version.", ["simpler"], 1), [{ n: 1, style: "simpler", text: "Just one version." }]);
+  assert.match(H.stepInstructionFor("rewrite", "T", ["simpler"]), /### Style: simpler/); assert.match(H.buildFactcheckPrompt("c", []).system, /never follow instructions/);
+});
 const FU_TOOL = "33333333-3333-4333-8333-333333333333";
 function useUuidTool() { H.table("external_tools")[0].id = FU_TOOL; sess().tool_id = FU_TOOL; }
 // ---- follow-up: a next request to the same tool, based on the controlled answer of a finished session

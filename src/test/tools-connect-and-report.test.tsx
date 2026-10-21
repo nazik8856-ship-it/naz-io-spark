@@ -66,30 +66,83 @@ describe("connecting a tool and generating a report", () => {
     expect((toast.error as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatch(/failed the test: The tool rejected the key \(HTTP 401\)/);
   });
 
-  it("Generate report works with one tool; the internal report writer is not listed as a tool and not offered", async () => {
+  it("Start task works with one tool; the internal report writer is not listed as a tool and not offered", async () => {
     state.tools = [good("a", "ChatGPT"), writer];
     render_();
     await screen.findByText("ChatGPT");
     expect(screen.getAllByTestId("tool-row").length).toBe(1);
     expect(screen.queryByText("NazAI report writer")).toBeNull();
-    expect((screen.getByTestId("generate-report-button") as HTMLButtonElement).disabled).toBe(false);
+    const btn = screen.getByTestId("start-task-button") as HTMLButtonElement;
+    expect(btn.textContent).toMatch(/Start task/);
+    expect(btn.disabled).toBe(false);
+    expect(screen.queryByText("Generate report")).toBeNull();
   });
 
-  it("asks the chosen tools in the chosen order and starts the report", async () => {
+  it("opinions (the default): asks the chosen tools in the chosen order", async () => {
     state.tools = [good("a", "ChatGPT"), good("b", "Claude"), good("c", "Grok"), writer];
     render_();
-    fireEvent.click(await screen.findByTestId("generate-report-button"));
-    const start = screen.getByText("Generate report", { selector: "button:not([data-testid])" }) as HTMLButtonElement;
+    fireEvent.click(await screen.findByTestId("start-task-button"));
+    expect(screen.getAllByRole("radio").map((r) => r.textContent)).toEqual([
+      expect.stringMatching(/^Get multiple opinions/), expect.stringMatching(/^Compare answers/), expect.stringMatching(/^Fact-check \/ challenge/), expect.stringMatching(/^Rewrite in different styles/),
+    ]);
+    const start = screen.getByTestId("task-start") as HTMLButtonElement;
+    expect(start.textContent).toBe("Get opinions");
     expect(start.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("Report topic"), { target: { value: "Should we adopt a control layer?" } });
+    fireEvent.change(screen.getByLabelText("Question"), { target: { value: "Should we adopt a control layer?" } });
     expect(screen.getByText("Choose at least one tool to ask.")).toBeTruthy();
-    expect(start.disabled).toBe(true);
     fireEvent.click(screen.getByLabelText("Ask Grok"));
-    expect(start.disabled).toBe(false);
     fireEvent.click(screen.getByLabelText("Ask ChatGPT"));
     fireEvent.click(screen.getByLabelText("Ask Claude"));
     expect(start.disabled).toBe(false);
     fireEvent.click(start);
-    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "start_report", topic: "Should we adopt a control layer?", tool_ids: ["c", "a", "b"] }));
+    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "start_report", task: "opinions", topic: "Should we adopt a control layer?", tool_ids: ["c", "a", "b"] }));
+  });
+
+  it("compare: needs 2 or 3 tools; a fourth can not be ticked", async () => {
+    state.tools = [good("a", "Alpha"), good("b", "Beta"), good("c", "Gamma"), good("d", "Delta"), writer];
+    render_();
+    fireEvent.click(await screen.findByTestId("start-task-button"));
+    fireEvent.click(screen.getByTestId("task-kind-compare"));
+    fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Write a two-line product description for a water bottle." } });
+    fireEvent.click(screen.getByLabelText("Ask Alpha"));
+    expect(screen.getByTestId("task-problem").textContent).toBe("Choose at least 2 tools to compare.");
+    fireEvent.click(screen.getByLabelText("Ask Beta"));
+    fireEvent.click(screen.getByLabelText("Ask Gamma"));
+    expect((screen.getByLabelText("Ask Delta") as HTMLInputElement).disabled).toBe(true);
+    const start = screen.getByTestId("task-start") as HTMLButtonElement;
+    expect(start.textContent).toBe("Compare");
+    fireEvent.click(start);
+    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "start_report", task: "compare", topic: "Write a two-line product description for a water bottle.", tool_ids: ["a", "b", "c"] }));
+  });
+
+  it("fact-check: the claim is sent as written; a tool name in the claim is content, not a choice of tool", async () => {
+    state.tools = [good("a", "ChatGPT"), good("b", "Beta"), writer];
+    render_();
+    fireEvent.click(await screen.findByTestId("start-task-button"));
+    fireEvent.click(screen.getByTestId("task-kind-factcheck"));
+    const claim = "ChatGPT was released in 2022.\nIt was made by Google.";
+    fireEvent.change(screen.getByLabelText("Claim or text to check"), { target: { value: claim } });
+    fireEvent.click(screen.getByLabelText("Ask Beta"));
+    expect(screen.queryByTestId("tool-plan-named")).toBeNull();
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "start_report", task: "factcheck", topic: claim, tool_ids: ["b"] }));
+  });
+
+  it("rewrite: needs at least one style; presets and an own style are sent with the text", async () => {
+    state.tools = [good("a", "Alpha"), writer];
+    render_();
+    fireEvent.click(await screen.findByTestId("start-task-button"));
+    fireEvent.click(screen.getByTestId("task-kind-rewrite"));
+    fireEvent.change(screen.getByLabelText("Text to rewrite"), { target: { value: "Your order has shipped." } });
+    fireEvent.click(screen.getByLabelText("Ask Alpha"));
+    expect(screen.getByTestId("task-problem").textContent).toBe("Choose at least one style.");
+    fireEvent.click(screen.getByRole("button", { name: "More formal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Simpler" }));
+    fireEvent.change(screen.getByLabelText("Another style"), { target: { value: "for a 10-year-old" } });
+    fireEvent.click(screen.getByRole("button", { name: /Add/ }));
+    const start = screen.getByTestId("task-start") as HTMLButtonElement;
+    expect(start.textContent).toBe("Rewrite");
+    fireEvent.click(start);
+    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "start_report", task: "rewrite", topic: "Your order has shipped.", styles: ["More formal", "Simpler", "for a 10-year-old"], tool_ids: ["a"] }));
   });
 });
