@@ -14,7 +14,7 @@ import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems, type Tone } from "@/lib/outer-control-ui";
 import { describeClosure, describeUsage, healthSummary, isInternalTool, toolHealth, type ActivityStep, type ToolUsage } from "@/lib/outer-control-tools-ui";
 import TaskPanel, { type TaskRequest } from "./TaskPanel";
-import { TASK_ACTIONS } from "@/lib/outer-control-tools-ui";
+import { ACTION_INFO } from "@/lib/outer-control-report-doc";
 import ConnectToolPanel, { type ConnectPayload } from "./ConnectToolPanel";
 import SessionActivity from "./SessionActivity";
 import FollowUpBox from "./FollowUpBox";
@@ -163,13 +163,13 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     return true;
   };
 
-  /** Start task: one of the four multi-tool actions. Each tool is asked in turn, then one controlled result is written. */
+  /** Start task: one of the multi-tool actions. Each tool is asked (on its own or in a chain), then one controlled result is written. */
   const startTask = async (t: TaskRequest): Promise<boolean> => {
     const label = t.toolIds.map((id) => tools.find((x) => x.id === id)?.name ?? "tool").join(" → ");
-    const title = TASK_ACTIONS.find((a) => a.kind === t.kind)?.title ?? "Task";
     const r = await act("report", "start_report", {
-      task: t.kind, topic: t.text, styles: t.kind === "rewrite" ? t.styles : undefined, tool_ids: t.toolIds, confirm_override: t.keepChoice || undefined,
-    }, `${title} started: asking ${label}. Follow it below; the result appears when it is done.`);
+      task: t.kind, topic: t.text, background: t.background || undefined, styles: t.styles.length ? t.styles : undefined,
+      count: t.kind === "alternatives" ? t.count : undefined, tool_ids: t.toolIds, confirm_override: t.keepChoice || undefined,
+    }, `${ACTION_INFO[t.kind].title} started: asking ${label}. Follow it below; the result appears when it is done.`);
     return r.ok;
   };
 

@@ -8,18 +8,29 @@
 export type ReportOpinion = { n: number; tool: string; text: string; shortened: boolean; sha256: string; at: string };
 
 /**
- * The four multi-tool actions. opinions: several tools on one question, one summary of their views. compare: the same prompt to
- * 2–3 tools, a structured side-by-side. factcheck: tools challenge or verify a claim, one verdict. rewrite: a tool rewrites a text
- * in the requested styles. A document without a kind is an opinions report (the kind before the others existed).
+ * The multi-tool actions. opinions: several tools on one question, one summary of their views. compare: the same prompt to 2–3
+ * tools, a structured side-by-side. factcheck: tools challenge or verify a claim, one verdict. rewrite: a tool rewrites a text in
+ * the requested styles. research: points on a topic from several tools, one synthesis. draft: one tool drafts, another (or the same)
+ * improves it; only the improved version is the result. alternatives: several different options. explain: a simple explanation of a
+ * complex text. keypoints: the key points of a long text. roles: an answer per requested role. multistep: a goal broken into steps,
+ * each step done by a tool, then one solution. decision: options with pros and cons and a recommendation. adapt: one message adapted
+ * for each audience or platform. delegate: a task split into parts, each part done by a different tool, then combined.
+ * A document without a kind is an opinions report (the kind before the others existed).
  */
-export type ReportKind = "opinions" | "compare" | "factcheck" | "rewrite";
-export const REPORT_KINDS: ReportKind[] = ["opinions", "compare", "factcheck", "rewrite"];
+export type ReportKind =
+  | "opinions" | "compare" | "factcheck" | "rewrite"
+  | "research" | "draft" | "alternatives" | "explain" | "keypoints" | "roles" | "multistep" | "decision" | "adapt" | "delegate";
+export const REPORT_KINDS: ReportKind[] = ["opinions", "compare", "factcheck", "rewrite", "research", "draft", "alternatives", "explain", "keypoints", "roles", "multistep", "decision", "adapt", "delegate"];
 export const VERDICTS = ["supported", "partly supported", "not supported", "cannot be verified"] as const;
 export type Verdict = (typeof VERDICTS)[number];
 /** One aspect of a comparison: what each source says about it, in source order (points[0] is source [1]). */
 export type ComparisonRow = { aspect: string; points: string[] };
-/** One rewritten version: the style asked for, by which source, word for word from its controlled answer. */
+/** One version (a style, a role, an audience): by which source, word for word from its controlled answer. */
 export type RewriteVersion = { n: number; style: string; text: string };
+/** One option, step or part: its label, by which source, its text word for word from that source's controlled answer. */
+export type LabeledItem = { n: number; label: string; text: string };
+/** One option of a decision, with its pros and cons. */
+export type DecisionOption = { option: string; pros: string[]; cons: string[] };
 
 export type ReportDoc = {
   version: 1;
@@ -38,23 +49,84 @@ export type ReportDoc = {
   verdict?: Verdict;
   findings?: string[];
   corrections?: string[];
-  /** rewrite: the text that was rewritten, the styles asked for, and the versions. */
+  /** rewrite, roles, adapt: the text (or question) given, the styles / roles / audiences asked for, and one version each. explain, keypoints: the text given. */
   original?: string;
   styles?: string[];
   versions?: RewriteVersion[];
+  /** research, keypoints */
+  points?: string[];
+  /** research */
+  open_questions?: string[];
+  /** draft (the improved version), explain (the explanation), multistep (the solution), delegate (the combined result) */
+  output?: string;
+  /** alternatives (options), multistep (steps), delegate (parts) */
+  items?: LabeledItem[];
+  /** decision */
+  decision?: DecisionOption[];
+  risks?: string[];
 };
 
 export const kindOf = (d: Pick<ReportDoc, "kind">): ReportKind => d.kind ?? "opinions";
 
+export type ActionLimits = {
+  minTools: number; maxTools: number; maxText: number;
+  /** A list the action needs: styles (rewrite), roles (roles), audiences (adapt). */
+  labels?: "styles" | "roles" | "audiences";
+  /** How many options to ask for (alternatives). */
+  options?: { min: number; max: number };
+};
+
 /** How many tools each action takes and how long its text may be (the page and outer-control-drive check the same numbers). */
-export const TASK_LIMITS: Record<ReportKind, { minTools: number; maxTools: number; maxText: number }> = {
+export const TASK_LIMITS: Record<ReportKind, ActionLimits> = {
   opinions: { minTools: 1, maxTools: 5, maxText: 600 },
   compare: { minTools: 2, maxTools: 3, maxText: 600 },
   factcheck: { minTools: 1, maxTools: 3, maxText: 1500 },
-  // The text goes into the step instruction with the style headings, which must stay under 2000 characters.
-  rewrite: { minTools: 1, maxTools: 3, maxText: 1200 },
+  // A text that goes into the step instruction with one heading per label must leave room for them under 2000 characters.
+  rewrite: { minTools: 1, maxTools: 3, maxText: 1200, labels: "styles" },
+  research: { minTools: 1, maxTools: 5, maxText: 600 },
+  draft: { minTools: 1, maxTools: 2, maxText: 1200 },
+  alternatives: { minTools: 1, maxTools: 3, maxText: 600, options: { min: 2, max: 5 } },
+  explain: { minTools: 1, maxTools: 1, maxText: 1500 },
+  keypoints: { minTools: 1, maxTools: 1, maxText: 1500 },
+  roles: { minTools: 1, maxTools: 3, maxText: 600, labels: "roles" },
+  multistep: { minTools: 1, maxTools: 3, maxText: 600 },
+  decision: { minTools: 1, maxTools: 3, maxText: 600 },
+  adapt: { minTools: 1, maxTools: 3, maxText: 1200, labels: "audiences" },
+  delegate: { minTools: 2, maxTools: 4, maxText: 600 },
 };
 export const MAX_STYLES = 4;
+export const MAX_BACKGROUND = 1500;
+
+/**
+ * Credits each action uses. One setting per action, so a price can change in one place. 1 for every action during the MVP; the
+ * credits come back when the Task ends without a result (refund_workflow_credit gives back one, so a price above 1 needs that too).
+ */
+export const TASK_CREDITS: Record<ReportKind, number> = {
+  opinions: 1, compare: 1, factcheck: 1, rewrite: 1, research: 1, draft: 1, alternatives: 1, explain: 1, keypoints: 1, roles: 1, multistep: 1, decision: 1, adapt: 1, delegate: 1,
+};
+
+/** The actions whose result is written by NazAI's AI (the others are collected word for word from the checked answers). */
+export const NEEDS_AI: ReportKind[] = ["opinions", "compare", "factcheck", "research", "decision", "multistep", "delegate"];
+/** The actions whose text is a question or request (so tool names in it may choose the tools); in the others it is content. */
+export const ROUTING_TEXT: ReportKind[] = ["opinions", "compare", "research", "draft", "alternatives", "roles", "multistep", "decision", "delegate"];
+
+/** Each action's name and one line on what it does (the Change menu, the plan line, NazAI's reading of a request). */
+export const ACTION_INFO: Record<ReportKind, { title: string; blurb: string }> = {
+  opinions: { title: "Get multiple opinions", blurb: "several tools give their view on one question; one summary of their views" },
+  compare: { title: "Compare answers", blurb: "the same prompt to 2–3 tools; a side-by-side comparison of their answers" },
+  factcheck: { title: "Fact-check / challenge", blurb: "tools verify or challenge a claim or text; one verdict with corrections" },
+  rewrite: { title: "Rewrite in different styles", blurb: "a text rewritten in the styles asked for (more formal, simpler, …)" },
+  research: { title: "Research & synthesize", blurb: "tools give points on a topic; one combined synthesis" },
+  draft: { title: "Draft + improve", blurb: "one tool writes a draft, another (or the same) improves it; only the improved version is shown" },
+  alternatives: { title: "Generate alternatives", blurb: "several different approaches or options for one need" },
+  explain: { title: "Explain simply", blurb: "a complex text explained in plain words" },
+  keypoints: { title: "Extract key points", blurb: "the most important points of a long text, as a list" },
+  roles: { title: "Role-based answers", blurb: "an answer from each role asked for (lawyer, marketer, technical, …)" },
+  multistep: { title: "Multi-step problem solving", blurb: "a bigger goal broken into steps, tools do the steps, then one solution" },
+  decision: { title: "Decision support", blurb: "options with pros and cons and one recommendation" },
+  adapt: { title: "Content adaptation", blurb: "one message adapted for each audience or platform asked for" },
+  delegate: { title: "Multi-AI task delegation", blurb: "a larger task split into parts, each part done by a different tool, then combined" },
+};
 
 const isStr = (x: unknown): x is string => typeof x === "string";
 const isStrList = (x: unknown): x is string[] => Array.isArray(x) && x.every(isStr);
@@ -73,6 +145,10 @@ export function isReportDoc(x: unknown): x is ReportDoc {
   for (const k of ["findings", "corrections", "styles"]) if (d[k] !== undefined && !isStrList(d[k])) return false;
   if (d.original !== undefined && !isStr(d.original)) return false;
   if (d.versions !== undefined && !(Array.isArray(d.versions) && d.versions.every((v) => !!v && typeof v === "object" && Number.isInteger((v as RewriteVersion).n) && isStr((v as RewriteVersion).style) && isStr((v as RewriteVersion).text)))) return false;
+  for (const k of ["points", "open_questions", "risks"]) if (d[k] !== undefined && !isStrList(d[k])) return false;
+  if (d.output !== undefined && !isStr(d.output)) return false;
+  if (d.items !== undefined && !(Array.isArray(d.items) && d.items.every((v) => !!v && typeof v === "object" && Number.isInteger((v as LabeledItem).n) && isStr((v as LabeledItem).label) && isStr((v as LabeledItem).text)))) return false;
+  if (d.decision !== undefined && !(Array.isArray(d.decision) && d.decision.every((o) => !!o && typeof o === "object" && isStr((o as DecisionOption).option) && isStrList((o as DecisionOption).pros) && isStrList((o as DecisionOption).cons)))) return false;
   return true;
 }
 
@@ -97,22 +173,57 @@ export const REPORT_METHOD =
   "The summary, the agreements, the differences and the conclusion were written by NazAI's AI from those answers only. The opinions are word for word.";
 
 /** The badge at the top of each kind of result. */
-export const KIND_BADGE: Record<ReportKind, string> = { opinions: "NAZAI REPORT", compare: "NAZAI COMPARISON", factcheck: "NAZAI FACT-CHECK", rewrite: "NAZAI REWRITE" };
+export const KIND_BADGE: Record<ReportKind, string> = {
+  opinions: "NAZAI REPORT", compare: "NAZAI COMPARISON", factcheck: "NAZAI FACT-CHECK", rewrite: "NAZAI REWRITE", research: "NAZAI RESEARCH",
+  draft: "NAZAI DRAFT", alternatives: "NAZAI ALTERNATIVES", explain: "NAZAI EXPLANATION", keypoints: "NAZAI KEY POINTS", roles: "NAZAI ROLE ANSWERS",
+  multistep: "NAZAI SOLUTION", decision: "NAZAI DECISION", adapt: "NAZAI ADAPTATION", delegate: "NAZAI DELEGATED TASK",
+};
 /** What each kind is called in a sentence ("How this … was made"). */
-export const KIND_NOUN: Record<ReportKind, string> = { opinions: "report", compare: "comparison", factcheck: "fact-check", rewrite: "rewrite" };
+export const KIND_NOUN: Record<ReportKind, string> = {
+  opinions: "report", compare: "comparison", factcheck: "fact-check", rewrite: "rewrite", research: "research", draft: "draft",
+  alternatives: "set of alternatives", explain: "explanation", keypoints: "list of key points", roles: "set of role answers",
+  multistep: "solution", decision: "decision support", adapt: "adaptation", delegate: "delegated task",
+};
 export const VERDICT_LABEL: Record<Verdict, string> = { supported: "Supported", "partly supported": "Partly supported", "not supported": "Not supported", "cannot be verified": "Cannot be verified" };
+/** The heading word of a version, by kind. */
+const VERSION_WORD: Partial<Record<ReportKind, string>> = { rewrite: "Style", roles: "Role", adapt: "For" };
+/** The heading word of an item, by kind. */
+const ITEM_WORD: Partial<Record<ReportKind, string>> = { alternatives: "Option", multistep: "Step", delegate: "Part" };
+
+const CHECKED = "Each answer was checked against your rules before it was kept.";
+const WORD_FOR_WORD = "nothing was added by NazAI";
 
 export function kindMethod(d: ReportDoc): string {
   switch (kindOf(d)) {
     case "compare":
-      return "Each tool was given the same prompt on its own, in order. Each answer was checked against your rules before it was kept. " +
+      return `Each tool was given the same prompt on its own, in order. ${CHECKED} ` +
         "The summary, the side-by-side, the agreements, the differences and the conclusion were written by NazAI's AI from those answers only. The answers are word for word.";
     case "factcheck":
-      return "Each tool was asked on its own to challenge or verify the claim. Each answer was checked against your rules before it was kept. " +
+      return `Each tool was asked on its own to challenge or verify the claim. ${CHECKED} ` +
         "The verdict, the findings and the corrections were written by NazAI's AI from those answers only. The answers are word for word.";
     case "rewrite":
       return "The text was sent to the tool with the styles you asked for. Its answer was checked against your rules before it was kept. " +
-        "The versions are word for word from that checked answer; nothing was added by NazAI.";
+        `The versions are word for word from that checked answer; ${WORD_FOR_WORD}.`;
+    case "research":
+      return `Each tool was asked on its own for the key points on the topic. ${CHECKED} The summary, the key points, the open questions and the conclusion were written by NazAI's AI from those answers only. The answers are word for word.`;
+    case "draft":
+      return `One tool wrote a draft, which was checked against your rules; a tool then improved the checked draft, and that answer was checked too. The final version is word for word from the checked improvement; ${WORD_FOR_WORD}.`;
+    case "alternatives":
+      return `Each tool was asked on its own for different options. ${CHECKED} The options are word for word from the checked answers; ${WORD_FOR_WORD}.`;
+    case "explain":
+      return `The text was sent to the tool to be explained simply. Its answer was checked against your rules before it was kept. The explanation is word for word from that checked answer; ${WORD_FOR_WORD}.`;
+    case "keypoints":
+      return `The text was sent to the tool to pull out its key points. Its answer was checked against your rules before it was kept. The points are word for word from that checked answer; ${WORD_FOR_WORD}.`;
+    case "roles":
+      return `The question was sent to the tool with the roles you asked for, and your rules still applied. Its answer was checked against your rules before it was kept. The answers are word for word from that checked answer; ${WORD_FOR_WORD}.`;
+    case "multistep":
+      return `NazAI's AI broke the goal into steps. Each step was done by a tool, which received the previous step's checked result; ${CHECKED.toLowerCase()} The solution was written by NazAI's AI from the checked step results only.`;
+    case "decision":
+      return `Each tool was asked on its own for options, pros, cons and a recommendation. ${CHECKED} The options, the recommendation and the risks were written by NazAI's AI from those answers only. The answers are word for word.`;
+    case "adapt":
+      return `The message was sent to the tool with the audiences and platforms you asked for. Its answer was checked against your rules (brand and safety rules included) before it was kept. The versions are word for word from that checked answer; ${WORD_FOR_WORD}.`;
+    case "delegate":
+      return `NazAI's AI split the task into parts and gave each part to a different tool, on its own. ${CHECKED} The final result was written by NazAI's AI from the checked parts only, and it uses every part.`;
     default:
       return REPORT_METHOD;
   }
@@ -135,13 +246,52 @@ export function composeReportText(d: ReportDoc): string {
   const out: string[] = [];
   const kind = kindOf(d);
   const topic = d.topic.replace(/\s+/g, " ").trim();
-  if (kind === "rewrite") {
-    out.push(KIND_BADGE.rewrite, topic, "", REPORT_INTRO(d), "", "ORIGINAL", (d.original ?? d.topic).trim());
-    for (const v of d.versions ?? []) {
-      const tool = d.opinions.find((o) => o.n === v.n)?.tool ?? "tool";
-      out.push("", `STYLE: ${v.style.toUpperCase()} — by ${tool} [${v.n}]`, v.text.trim());
-    }
-    out.push("", `HOW THIS ${KIND_NOUN.rewrite.toUpperCase()} WAS MADE`, kindMethod(d));
+  const how = () => out.push("", `HOW THIS ${KIND_NOUN[kind].toUpperCase()} WAS MADE`, kindMethod(d));
+  const toolOf = (n: number) => d.opinions.find((o) => o.n === n)?.tool ?? "tool";
+  if (kind === "rewrite" || kind === "roles" || kind === "adapt") {
+    const lead = kind === "rewrite" ? "ORIGINAL" : kind === "roles" ? "QUESTION" : "MESSAGE";
+    out.push(KIND_BADGE[kind], topic, "", REPORT_INTRO(d), "", lead, (d.original ?? d.topic).trim());
+    for (const v of d.versions ?? []) out.push("", `${VERSION_WORD[kind]!.toUpperCase()}: ${v.style.toUpperCase()} — by ${toolOf(v.n)} [${v.n}]`, v.text.trim());
+    how();
+    return out.join("\n");
+  }
+  if (kind === "explain" || kind === "keypoints") {
+    const n = d.opinions[0]?.n ?? 1;
+    out.push(KIND_BADGE[kind], topic, "", REPORT_INTRO(d), "", "ORIGINAL", (d.original ?? d.topic).trim(), "");
+    if (kind === "explain") out.push(`SIMPLE EXPLANATION — by ${toolOf(n)} [${n}]`, (d.output ?? "").trim());
+    else out.push(`KEY POINTS — by ${toolOf(n)} [${n}]`, ...bullets(d.points ?? [], "No key points were given."));
+    how();
+    return out.join("\n");
+  }
+  if (kind === "draft") {
+    const [a, b] = [d.opinions[0], d.opinions[d.opinions.length - 1]];
+    out.push(KIND_BADGE.draft, topic, "", REPORT_INTRO(d), "", "FINAL VERSION", (d.output ?? "").trim(), "");
+    out.push(`Drafted by ${a?.tool ?? "tool"} [${a?.n ?? 1}], improved by ${b?.tool ?? "tool"} [${b?.n ?? 2}]. The draft is kept in the Task's proof.`);
+    how();
+    return out.join("\n");
+  }
+  if (kind === "alternatives" || kind === "multistep" || kind === "delegate") {
+    const word = ITEM_WORD[kind]!.toUpperCase();
+    out.push(KIND_BADGE[kind], topic, "", REPORT_INTRO(d), "");
+    if (kind !== "alternatives") out.push("SUMMARY", d.summary, "");
+    out.push(kind === "alternatives" ? "OPTIONS" : kind === "multistep" ? "STEPS" : "PARTS");
+    (d.items ?? []).forEach((it, i) => out.push("", `${word} ${i + 1}: ${it.label} — by ${toolOf(it.n)} [${it.n}]`, it.text.trim()));
+    if (kind !== "alternatives") out.push("", kind === "multistep" ? "SOLUTION" : "FINAL RESULT", (d.output ?? "").trim());
+    how();
+    return out.join("\n");
+  }
+  if (kind === "decision") {
+    out.push(KIND_BADGE.decision, topic, "", REPORT_INTRO(d), "", "SUMMARY", d.summary, "", "OPTIONS");
+    for (const o of d.decision ?? []) out.push("", o.option, "Pros:", ...bullets(o.pros, "None given."), "Cons:", ...bullets(o.cons, "None given."));
+    out.push("", "RECOMMENDATION", d.conclusion, "", "RISKS", ...bullets(d.risks ?? [], "No risks were named."), "", "ANSWERS BY SOURCE", ...sourceLines(d));
+    how();
+    return out.join("\n");
+  }
+  if (kind === "research") {
+    out.push(KIND_BADGE.research, topic, "", REPORT_INTRO(d), "", "SUMMARY", d.summary, "", "KEY POINTS", ...bullets(d.points ?? [], "No key points were given."));
+    out.push("", "OPEN QUESTIONS", ...bullets(d.open_questions ?? [], "No open questions were named."), "", "ANSWERS BY SOURCE", ...sourceLines(d));
+    out.push("", "CONCLUSION", d.conclusion);
+    how();
     return out.join("\n");
   }
   out.push(KIND_BADGE[kind], topic, "", REPORT_INTRO(d), "");
@@ -180,9 +330,40 @@ export function reportHtml(d: ReportDoc): string {
 <section class="differ"><h2>Where they differ</h2>${list(d.differences, "No differences were identified.")}</section>`;
   const conclusion = `<section class="conclusion"><h2>Conclusion</h2>${para(d.conclusion)}</section>`;
   let body: string;
-  if (kind === "rewrite") {
-    body = `<section class="summary"><h2>Original</h2>${para(d.original ?? d.topic)}</section>
-<section><h2>Rewritten versions</h2>${(d.versions ?? []).map((v) => `<div class="style"><h3>${esc(v.style)} <small>— by ${esc(d.opinions.find((o) => o.n === v.n)?.tool ?? "tool")} [${v.n}]</small></h3><div class="quote">${para(v.text)}</div></div>`).join("")}</section>`;
+  const toolOf = (n: number) => esc(d.opinions.find((o) => o.n === n)?.tool ?? "tool");
+  const block = (head: string, n: number, text: string) => `<div class="style"><h3>${head} <small>— by ${toolOf(n)} [${n}]</small></h3><div class="quote">${para(text)}</div></div>`;
+  if (kind === "rewrite" || kind === "roles" || kind === "adapt") {
+    const lead = kind === "rewrite" ? "Original" : kind === "roles" ? "Question" : "Message";
+    const title = kind === "rewrite" ? "Rewritten versions" : kind === "roles" ? "Answers by role" : "Adapted versions";
+    body = `<section class="summary"><h2>${lead}</h2>${para(d.original ?? d.topic)}</section>
+<section><h2>${title}</h2>${(d.versions ?? []).map((v) => block(`${kind === "rewrite" ? "" : `${VERSION_WORD[kind]}: `}${esc(v.style)}`, v.n, v.text)).join("")}</section>`;
+  } else if (kind === "explain" || kind === "keypoints") {
+    const n = d.opinions[0]?.n ?? 1;
+    body = `<section><h2>Original</h2>${para(d.original ?? d.topic)}</section>
+<section class="summary"><h2>${kind === "explain" ? "Simple explanation" : "Key points"} <small>— by ${toolOf(n)} [${n}]</small></h2>${kind === "explain" ? para(d.output ?? "") : list(d.points ?? [], "No key points were given.")}</section>`;
+  } else if (kind === "draft") {
+    const [a, b] = [d.opinions[0], d.opinions[d.opinions.length - 1]];
+    body = `<section class="summary"><h2>Final version</h2>${para(d.output ?? "")}</section>
+<section><p class="method">Drafted by ${esc(a?.tool ?? "tool")} [${a?.n ?? 1}], improved by ${esc(b?.tool ?? "tool")} [${b?.n ?? 2}]. The draft is kept in the Task's proof.</p></section>`;
+  } else if (kind === "alternatives" || kind === "multistep" || kind === "delegate") {
+    const word = ITEM_WORD[kind]!;
+    const items = `<section><h2>${kind === "alternatives" ? "Options" : kind === "multistep" ? "Steps" : "Parts"}</h2>${(d.items ?? []).map((it, i) => block(`${word} ${i + 1}: ${esc(it.label)}`, it.n, it.text)).join("")}</section>`;
+    body = kind === "alternatives" ? items : `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>
+${items}
+<section class="conclusion"><h2>${kind === "multistep" ? "Solution" : "Final result"}</h2>${para(d.output ?? "")}</section>`;
+  } else if (kind === "decision") {
+    const rows = (d.decision ?? []).map((o) => `<tr><th>${esc(o.option)}</th><td>${list(o.pros, "None given.")}</td><td>${list(o.cons, "None given.")}</td></tr>`).join("");
+    body = `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>
+<section><h2>Options</h2><table><tr><th>Option</th><th>Pros</th><th>Cons</th></tr>${rows}</table></section>
+<section class="conclusion"><h2>Recommendation</h2>${para(d.conclusion)}</section>
+<section class="differ"><h2>Risks</h2>${list(d.risks ?? [], "No risks were named.")}</section>
+${sources("Answers by source")}`;
+  } else if (kind === "research") {
+    body = `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>
+<section class="agree"><h2>Key points</h2>${list(d.points ?? [], "No key points were given.")}</section>
+<section class="differ"><h2>Open questions</h2>${list(d.open_questions ?? [], "No open questions were named.")}</section>
+${sources("Answers by source")}
+${conclusion}`;
   } else if (kind === "factcheck") {
     body = `<section class="summary"><h2>Verdict</h2><p class="verdict">${esc(VERDICT_LABEL[d.verdict ?? "cannot be verified"])}</p>${para(d.summary)}</section>
 <section><h2>Findings</h2>${list(d.findings ?? [], "No findings were given.")}</section>
