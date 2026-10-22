@@ -1,7 +1,7 @@
 // Outer Control: the plain wording and small decisions behind "Connected tools", the "Connect a tool" panel and the
 // live activity of a session. Pure, so the components stay layout and these rules are tested alone.
 import { NEXT_ACTION_LABEL, type CompletionView, type DecisionView, type PendingKind, type SessionStatus } from "./outer-control-sessions";
-import { TASK_LIMITS, type ReportKind } from "./outer-control-report-doc";
+import { ACTION_INFO, MAX_BACKGROUND, ROUTING_TEXT, TASK_LIMITS, type ReportKind } from "./outer-control-report-doc";
 
 // ---------------------------------------------------------------------------------------
 // Tool status: Working / Failed / Needs attention, each with its reason
@@ -188,33 +188,38 @@ export function buildActivity(i: {
 export const isInternalTool = (endpoint: string) => endpoint.startsWith("nazai-internal://");
 
 // ---------------------------------------------------------------------------------------
-// Start task: the four multi-tool actions (opinions, compare, fact-check, rewrite)
+// Start task: one blank box; NazAI reads the request and picks one of the multi-tool actions (see ReportKind)
 
-export const TASK_ACTIONS: { kind: ReportKind; title: string; blurb: string; field: string; placeholder: string; start: string }[] = [
-  { kind: "opinions", title: "Get multiple opinions", blurb: "Ask several tools the same question and get one summary of their views.", field: "Question", placeholder: "What do you want their opinion on? e.g. Should we adopt a control layer for our AI tools?", start: "Get opinions" },
-  { kind: "compare", title: "Compare answers", blurb: "Send the same prompt to 2–3 tools and get a side-by-side comparison.", field: "Prompt", placeholder: "The prompt every tool gets, e.g. Write a two-line product description for a smart water bottle.", start: "Compare" },
-  { kind: "factcheck", title: "Fact-check / challenge", blurb: "Have tools verify or challenge a claim and get one verdict with corrections.", field: "Claim or text to check", placeholder: "e.g. The Eiffel Tower was finished in 1889 and is 500 metres tall.", start: "Fact-check" },
-  { kind: "rewrite", title: "Rewrite in different styles", blurb: "Get your text back in the styles you choose: more formal, simpler, more persuasive…", field: "Text to rewrite", placeholder: "Paste the text to rewrite.", start: "Rewrite" },
-];
-export const STYLE_PRESETS = ["More formal", "Simpler", "More persuasive", "Shorter", "Friendlier"];
+/** The Start button's words, by action. */
+export const START_LABEL: Record<ReportKind, string> = {
+  opinions: "Get opinions", compare: "Compare", factcheck: "Fact-check", rewrite: "Rewrite", research: "Research", draft: "Draft and improve",
+  alternatives: "Get alternatives", explain: "Explain", keypoints: "Extract key points", roles: "Get role answers", multistep: "Solve step by step",
+  decision: "Get decision support", adapt: "Adapt", delegate: "Delegate",
+};
+/** The ready-made choices for an action that needs a list, and what the list is called. */
+export const LABEL_PRESETS: Record<"styles" | "roles" | "audiences", { name: string; presets: string[]; placeholder: string }> = {
+  styles: { name: "Styles", presets: ["More formal", "Simpler", "More persuasive", "Shorter", "Friendlier"], placeholder: "Another style, e.g. for a 10-year-old" },
+  roles: { name: "Roles", presets: ["Lawyer", "Marketer", "Technical expert", "Customer support", "Investor"], placeholder: "Another role, e.g. CFO" },
+  audiences: { name: "Audiences and platforms", presets: ["LinkedIn", "X", "Email", "Customers", "Investors"], placeholder: "Another audience or platform" },
+};
 
-const toolCount = (min: number, max: number) => (min === max ? `${min}` : min === 1 ? `up to ${max}` : `${min} or ${max}`);
-/** "Choose up to 5 tools", "Choose 2 or 3 tools". */
+const toolCount = (min: number, max: number) => (min === max ? `${min}` : min === 1 ? `up to ${max}` : `${min} to ${max}`);
+/** "Choose up to 5 tools", "Choose 2 to 3 tools", "Choose 1 tool". */
 export const toolsHint = (kind: ReportKind) => {
   const l = TASK_LIMITS[kind];
   return `Choose ${toolCount(l.minTools, l.maxTools)} tool${l.maxTools === 1 ? "" : "s"}`;
 };
 
 /** What is wrong with the Start task form, or null when it can be started. The server checks the same limits. */
-export function checkTaskForm(kind: ReportKind, text: string, toolIds: string[], styles: string[] = []): string | null {
+export function checkTaskForm(kind: ReportKind, text: string, toolIds: string[], labels: string[] = [], background = ""): string | null {
   const l = TASK_LIMITS[kind];
-  const field = TASK_ACTIONS.find((a) => a.kind === kind)!.field.toLowerCase();
-  const t = kind === "factcheck" || kind === "rewrite" ? text.trim() : text.replace(/\s+/g, " ").trim();
-  if (t.length < 5) return `Write the ${field} (at least 5 characters).`;
-  if (t.length > l.maxText) return `Keep the ${field} under ${l.maxText} characters.`;
-  if (kind === "rewrite" && styles.length === 0) return "Choose at least one style.";
-  if (toolIds.length < l.minTools) return l.minTools === 1 ? "Choose at least one tool to ask." : `Choose at least ${l.minTools} tools to compare.`;
-  if (toolIds.length > l.maxTools) return `Choose at most ${l.maxTools} tools.`;
+  const t = ROUTING_TEXT.includes(kind) ? text.replace(/\s+/g, " ").trim() : text.trim();
+  if (t.length < 5) return "Describe the task (at least 5 characters).";
+  if (t.length > l.maxText) return `${ACTION_INFO[kind].title} takes at most ${l.maxText} characters of text; shorten it.`;
+  if (background.trim().length > MAX_BACKGROUND) return `Keep the background under ${MAX_BACKGROUND} characters.`;
+  if (l.labels && labels.length === 0) return `Choose at least one ${l.labels === "styles" ? "style" : l.labels === "roles" ? "role" : "audience or platform"}.`;
+  if (toolIds.length < l.minTools) return l.minTools === 1 ? "Choose at least one tool to ask." : `Choose at least ${l.minTools} tools.`;
+  if (toolIds.length > l.maxTools) return `Choose at most ${l.maxTools} tool${l.maxTools === 1 ? "" : "s"}.`;
   return null;
 }
 

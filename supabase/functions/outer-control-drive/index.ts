@@ -9,9 +9,11 @@
 //   POST { action: "create_agent_tool", agent_id }   (one of the account's own NazAI agents as a step)
 //   POST { action: "start_goal", goal, criteria?: [up to 5 sentences], tool_ids: [1..3], max_rounds?, context?, api_key_id? }   (a Task that goes on until its criteria are met; costs one credit)
 //   POST { action: "task_decide", task_id, decision: "accept" | "more" | "stop" }   (what to do with a goal Task that is blocked)
-//   POST { action: "start_report", task?: "opinions" | "compare" | "factcheck" | "rewrite", topic, styles?: [rewrite: 1..4], tool_ids, context? }
-//        (a multi-tool action: each tool is asked on its own, every reply is checked, then one controlled result is written; costs one credit.
-//         opinions 1..5 tools, compare 2..3, factcheck 1..3, rewrite 1..3; topic is the question, prompt, claim or text)
+//   POST { action: "route_task", request }   (NazAI reads a request: which action, its text, background, labels; free, starts nothing)
+//   POST { action: "start_report", task?: <one of the 14 actions, default "opinions">, topic, background?, styles?, count?, tool_ids }
+//        (a multi-tool action: every tool reply is checked, then one controlled result is written; uses TASK_CREDITS[task].
+//         Tool counts, text lengths and labels per action: TASK_LIMITS. styles = the styles / roles / audiences of rewrite / roles / adapt;
+//         count = options for alternatives; background goes to every tool as the Task's context and to NazAI's AI)
 //   POST { action: "follow_up", session_id, instruction }   (a new request to the same tool, based on the controlled answer of a completed session)
 //   POST { action: "archive", kind: "session" | "workflow", id, archived?: boolean }   (leaves a finished item out of the default list, or brings it back; nothing is deleted)
 //   POST { action: "answer", session_id, answer }
@@ -37,8 +39,8 @@ import { applyEditedReply, contactRuleStopping } from "../_shared/outer-control-
 import { acceptGoal, cancelWorkflow, continueSession, driveSession, extendGoal, progressWorkflow, resumeAndDrive, startFollowUp, startGoal, startTask, startWorkflow } from "../_shared/outer-control-workflow.ts";
 import { encodeChoice, findOption, type Handoff } from "../_shared/outer-control-handoff.ts";
 import { createAgentTool, ensureReportTool, removeTool, updateToolKey } from "../_shared/outer-control-tools.ts";
-import { cleanStyles, gatewayAi, REPORT_TOOL_URL, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
-import { REPORT_KINDS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
+import { buildPlanPrompt, cleanCount, cleanStyles, delegateInstruction, gatewayAi, improveInstruction, multistepInstruction, NEEDS_AI, parsePlan, REPORT_TOOL_URL, routeRequest, ROUTING_TEXT, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
+import { ACTION_INFO, MAX_BACKGROUND, REPORT_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
 import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
@@ -229,41 +231,79 @@ Deno.serve(async (req) => {
     }
 
     // ---- start_report: several tools give their opinion in turn (each answer checked), then one report is written ------
+    // ---- route_task: NazAI's reading of a request (free; nothing is started) ---------------------------------------------
+    if (action === "route_task") {
+      const request = String(body.request ?? "").trim();
+      if (!request || request.length > 4000) return json({ error: "invalid_request", message: "Describe the task (4000 characters or fewer)." }, 400);
+      const route = await routeRequest(request, pickAiGateway() === null ? null : gatewayAi);
+      return json({ ok: true, ...route });
+    }
+
     if (action === "start_report") {
       const kind = (REPORT_KINDS as string[]).includes(String(body.task ?? "opinions")) ? String(body.task ?? "opinions") as ReportKind : null;
-      if (!kind) return json({ error: "invalid_task", message: "task must be opinions, compare, factcheck or rewrite." }, 400);
+      if (!kind) return json({ error: "invalid_task", message: `task must be one of: ${REPORT_KINDS.join(", ")}.` }, 400);
       const lim = TASK_LIMITS[kind];
-      const topic = kind === "factcheck" || kind === "rewrite" ? String(body.topic ?? "").trim() : String(body.topic ?? "").replace(/\s+/g, " ").trim();
-      if (topic.length < 5 || topic.length > lim.maxText) return json({ error: "invalid_topic", message: `Give the ${kind === "factcheck" ? "claim" : kind === "rewrite" ? "text" : kind === "compare" ? "prompt" : "question"} (5 to ${lim.maxText} characters).` }, 400);
-      const styles = kind === "rewrite" ? cleanStyles(body.styles) : [];
-      if (kind === "rewrite" && styles.length === 0) return json({ error: "invalid_styles", message: "Choose at least one style." }, 400);
+      // A question keeps to one line; a text to check, rewrite, explain or adapt keeps its own lines.
+      const content = !ROUTING_TEXT.includes(kind);
+      const topic = content ? String(body.topic ?? "").trim() : String(body.topic ?? "").replace(/\s+/g, " ").trim();
+      if (topic.length < 5 || topic.length > lim.maxText) return json({ error: "invalid_topic", message: `Give the text for ${ACTION_INFO[kind].title} (5 to ${lim.maxText} characters).` }, 400);
+      // "context" is what the page sent before the box read the background itself.
+      const background = typeof body.background === "string" ? body.background.trim() : typeof body.context === "string" ? body.context.trim() : "";
+      if (background.length > MAX_BACKGROUND) return json({ error: "invalid_background", message: `The background is limited to ${MAX_BACKGROUND} characters.` }, 400);
+      const styles = lim.labels ? cleanStyles(body.styles) : [];
+      if (lim.labels && styles.length === 0) return json({ error: "invalid_styles", message: `Choose at least one ${lim.labels === "styles" ? "style" : lim.labels === "roles" ? "role" : "audience or platform"}.` }, 400);
+      const count = kind === "alternatives" ? cleanCount(body.count) : 0;
       const ids = Array.isArray(body.tool_ids) ? [...new Set((body.tool_ids as unknown[]).map(String))] : [];
-      if (ids.length < lim.minTools || ids.length > lim.maxTools) return json({ error: "invalid_tools", message: `Choose ${lim.minTools === lim.maxTools ? lim.minTools : `${lim.minTools} to ${lim.maxTools}`} tools to ask.` }, 400);
+      if (ids.length < lim.minTools || ids.length > lim.maxTools) return json({ error: "invalid_tools", message: `Choose ${lim.minTools === lim.maxTools ? lim.minTools : `${lim.minTools} to ${lim.maxTools}`} tool${lim.maxTools === 1 ? "" : "s"} for ${ACTION_INFO[kind].title}.` }, 400);
       const { data: chosen } = await admin.from("external_tools").select("id, name, enabled, endpoint_url").eq("user_id", accountId).is("removed_at", null).in("id", ids);
       const rows = (chosen ?? []) as { id: string; name: string; enabled: boolean; endpoint_url: string }[];
       if (rows.length !== ids.length || rows.some((r) => !r.enabled || r.endpoint_url.startsWith(REPORT_TOOL_URL))) return json({ error: "tool_unavailable", message: "One of the chosen tools was not found or is disabled." }, 404);
-      // A question or prompt may name the tools to ask; a claim or a text to rewrite is content, so names in it are not a choice of tool.
-      if (kind === "opinions" || kind === "compare") {
+      // A question or request may name the tools to ask; a claim or a text to rewrite, explain or adapt is content, so names in it are not a choice of tool.
+      if (!content) {
         const namedR = await namedToolGuard(admin, accountId, topic, ids, body.confirm_override);
         if (namedR) return namedR;
       }
-      // A rewrite only collects the versions word for word; the other actions need NazAI's AI to write the result.
-      if (kind !== "rewrite" && pickAiGateway() === null) return json({ error: "ai_unavailable", message: "The AI that analyses the answers is not configured, so the result cannot be written." }, 503);
+      // The actions collected word for word need no AI; the others need NazAI's AI to plan or write the result.
+      if (NEEDS_AI.includes(kind) && pickAiGateway() === null) return json({ error: "ai_unavailable", message: "The AI that writes the result is not configured, so this action can not run right now." }, 503);
+      // Multi-step and delegation are planned before anything is charged or started.
+      let plan: { title: string; instruction: string }[] | null = null;
+      if (kind === "multistep" || kind === "delegate") {
+        const raw = await gatewayAi(buildPlanPrompt(kind, topic, ids.length, background));
+        plan = raw === null ? null : parsePlan(raw, kind, ids.length);
+        if (!plan) return json({ error: "plan_failed", message: `NazAI could not ${kind === "multistep" ? "break the goal into steps" : "split the task into parts"} right now. Nothing was charged. Try again or describe it differently.` }, 503);
+      }
       const writer = await ensureReportTool(admin, accountId);
       if (!writer.ok) return json({ error: "internal_error", message: writer.message }, 500);
-      const credit = await consumeGenerationCredit(accountId);
-      if (!credit.ok) return json({ error: "no_credits", message: NO_CREDITS_MESSAGE }, 402);
-      const steps = [
-        ...ids.map((id) => ({ tool_id: id, instruction: stepInstructionFor(kind, topic, styles), handoff: "none" })),
-        { tool_id: writer.tool.id, instruction: writerInstructionFor(kind, topic), handoff: "none" },
-      ];
-      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles), context: typeof body.context === "string" ? body.context : null, steps, max_steps: 3 });
+      const cost = TASK_CREDITS[kind];
+      for (let c = 0; c < cost; c++) {
+        const credit = await consumeGenerationCredit(accountId);
+        if (!credit.ok) {
+          for (let r = 0; r < c; r++) await admin.rpc("refund_generation_credit", { p_user_id: accountId });
+          return json({ error: "no_credits", message: NO_CREDITS_MESSAGE }, 402);
+        }
+      }
+      type Step = { tool_id: string; instruction: string; handoff: "none" | "pass" };
+      let toolSteps: Step[];
+      if (kind === "draft") {
+        // One tool drafts; the second (or the same one again) improves the checked draft, which it receives as context.
+        toolSteps = [{ tool_id: ids[0], instruction: stepInstructionFor("draft", topic), handoff: "none" }, { tool_id: ids[1] ?? ids[0], instruction: improveInstruction(topic), handoff: "pass" }];
+      } else if (kind === "multistep") {
+        // Steps in order, the tools taking turns; each step receives the previous step's checked result.
+        toolSteps = plan!.map((p, i) => ({ tool_id: ids[i % ids.length], instruction: multistepInstruction(i + 1, plan!.length, p.title, p.instruction, topic), handoff: i === 0 ? "none" : "pass" }));
+      } else if (kind === "delegate") {
+        // One part per tool, each done on its own.
+        toolSteps = plan!.map((p, i) => ({ tool_id: ids[i], instruction: delegateInstruction(i + 1, plan!.length, p.title, p.instruction, topic), handoff: "none" }));
+      } else {
+        toolSteps = ids.map((id) => ({ tool_id: id, instruction: stepInstructionFor(kind, topic, styles, count), handoff: "none" }));
+      }
+      const steps = [...toolSteps, { tool_id: writer.tool.id, instruction: writerInstructionFor(kind, topic), handoff: "none" }];
+      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: background || null, steps, max_steps: 3 });
       if (!started.ok) {
-        // The credit was taken before the Task could start: give it back.
-        await admin.rpc("refund_generation_credit", { p_user_id: accountId });
+        // The credits were taken before the Task could start: give them back.
+        for (let r = 0; r < cost; r++) await admin.rpc("refund_generation_credit", { p_user_id: accountId });
         return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
       }
-      // Marks the Task as paid for, so that if it ends without a report the credit goes back (once).
+      // Marks the Task as paid for, so that if it ends without a result the credit goes back (once).
       await admin.from("outer_control_workflows").update({ credit_charged: true }).eq("id", started.workflowId);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, task_id: started.workflowId, steps: steps.length });

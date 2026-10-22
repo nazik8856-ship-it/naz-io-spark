@@ -133,3 +133,99 @@ describe("the other multi-tool results: comparison, fact-check, rewrite", () => 
     expect(screen.getByTestId("report-verdict")).toBeTruthy();
   });
 });
+
+describe("the ten new results", () => {
+  const base = { ...doc, agreements: [], differences: [], conclusion: "" };
+  const one = [doc.opinions[0]];
+  const docs: Record<string, ReportDoc> = {
+    research: { ...base, kind: "research", topic: "AI safety evaluation", summary: "Two approaches dominate [1][2].", points: ["Red-teaming finds failures [1].", "Benchmarks are cheap [2]."], open_questions: ["How to compare them is unsettled."], conclusion: "Use both [1][2]." },
+    draft: { ...base, kind: "draft", topic: "A launch email", summary: "", output: "Hello! Our app is live." },
+    alternatives: { ...base, opinions: one, kind: "alternatives", topic: "Names for a budgeting app", summary: "", items: [{ n: 1, label: "Penny", text: "Short and friendly." }, { n: 1, label: "Ledgerly", text: "Sounds serious." }] },
+    explain: { ...base, opinions: one, kind: "explain", topic: "Explain simply", summary: "", original: "Entanglement links particles.", output: "Two coins that always land the same way." },
+    keypoints: { ...base, opinions: one, kind: "keypoints", topic: "Key points", summary: "", original: "A long memo.", points: ["Budget is cut.", "Launch moves to May."] },
+    roles: { ...base, opinions: one, kind: "roles", topic: "Launch without terms?", summary: "", original: "Is it safe to launch without terms of service?", styles: ["Lawyer"], versions: [{ n: 1, style: "Lawyer", text: "No; you carry the liability." }] },
+    multistep: { ...base, kind: "multistep", topic: "Open a café", summary: "Three steps [1][2].", items: [{ n: 1, label: "Find a place", text: "Rent near a station." }, { n: 2, label: "Budget", text: "About 40k." }], output: "Rent near a station with a 40k budget [1][2]." },
+    decision: { ...base, kind: "decision", topic: "Hire or ads?", summary: "Both have merit [1][2].", decision: [{ option: "Hire", pros: ["Builds product"], cons: ["Costly"] }, { option: "Ads", pros: ["Fast"], cons: [] }], conclusion: "Hire first [1].", risks: ["Runway gets shorter."] },
+    adapt: { ...base, opinions: one, kind: "adapt", topic: "Our app is live", summary: "", original: "Our app is live.", styles: ["LinkedIn"], versions: [{ n: 1, style: "LinkedIn", text: "Proud to share that our app is live." }] },
+    delegate: { ...base, kind: "delegate", topic: "Launch plan", summary: "Two parts combined [1][2].", items: [{ n: 1, label: "Copy", text: "Headline." }, { n: 2, label: "Schedule", text: "Monday." }], output: "Post the headline on Monday [1][2]." },
+  };
+
+  it("each is a valid document; a broken new field makes it invalid", () => {
+    for (const d of Object.values(docs)) expect(isReportDoc(d)).toBe(true);
+    expect(isReportDoc({ ...docs.research, points: [1] })).toBe(false);
+    expect(isReportDoc({ ...docs.alternatives, items: [{ n: "1", label: "x", text: "y" }] })).toBe(false);
+    expect(isReportDoc({ ...docs.decision, decision: [{ option: "x", pros: "y", cons: [] }] })).toBe(false);
+    expect(isReportDoc({ ...docs.explain, output: 5 })).toBe(false);
+  });
+
+  it("the text of each says what it is, with clean headings", () => {
+    const t = (k: string) => composeReportText(docs[k]);
+    expect(t("research")).toMatch(/^NAZAI RESEARCH\n[\s\S]*KEY POINTS\n• Red-teaming[\s\S]*OPEN QUESTIONS\n• How to compare[\s\S]*ANSWERS BY SOURCE/);
+    expect(t("draft")).toMatch(/^NAZAI DRAFT\n[\s\S]*FINAL VERSION\nHello! Our app is live\.[\s\S]*Drafted by ChatGPT \(OpenAI\) \[1\], improved by Claude \(Anthropic\) \[2\]/);
+    expect(t("alternatives")).toMatch(/^NAZAI ALTERNATIVES\n[\s\S]*OPTION 1: Penny — by ChatGPT \(OpenAI\) \[1\]\nShort and friendly\.[\s\S]*OPTION 2: Ledgerly/);
+    expect(t("explain")).toMatch(/^NAZAI EXPLANATION\n[\s\S]*SIMPLE EXPLANATION — by ChatGPT \(OpenAI\) \[1\]\nTwo coins/);
+    expect(t("keypoints")).toMatch(/^NAZAI KEY POINTS\n[\s\S]*KEY POINTS — by ChatGPT \(OpenAI\) \[1\]\n• Budget is cut\.\n• Launch moves to May\./);
+    expect(t("roles")).toMatch(/^NAZAI ROLE ANSWERS\n[\s\S]*QUESTION\nIs it safe[\s\S]*ROLE: LAWYER — by ChatGPT \(OpenAI\) \[1\]\nNo; you carry the liability\./);
+    expect(t("multistep")).toMatch(/^NAZAI SOLUTION\n[\s\S]*STEP 1: Find a place — by ChatGPT \(OpenAI\) \[1\][\s\S]*SOLUTION\nRent near a station with a 40k budget/);
+    expect(t("decision")).toMatch(/^NAZAI DECISION\n[\s\S]*OPTIONS\n\nHire\nPros:\n• Builds product\nCons:\n• Costly\n\nAds\nPros:\n• Fast\nCons:\n• None given\.[\s\S]*RECOMMENDATION\nHire first \[1\]\.[\s\S]*RISKS\n• Runway gets shorter\./);
+    expect(t("adapt")).toMatch(/^NAZAI ADAPTATION\n[\s\S]*MESSAGE\nOur app is live\.[\s\S]*FOR: LINKEDIN — by ChatGPT \(OpenAI\) \[1\]/);
+    expect(t("delegate")).toMatch(/^NAZAI DELEGATED TASK\n[\s\S]*PART 1: Copy — by ChatGPT \(OpenAI\) \[1\][\s\S]*PART 2: Schedule — by Claude \(Anthropic\) \[2\][\s\S]*FINAL RESULT\nPost the headline/);
+    for (const d of Object.values(docs)) expect(/^(#|>|\|)/m.test(composeReportText(d))).toBe(false);
+  });
+
+  it("each downloadable page is complete and escaped", () => {
+    for (const d of Object.values(docs)) {
+      const h = reportHtml({ ...d, topic: "<b>x</b>" });
+      expect(h.startsWith("<!doctype html>")).toBe(true);
+      expect(h).not.toMatch(/<b>x<\/b>/);
+    }
+    expect(reportHtml(docs.decision)).toMatch(/NAZAI DECISION[\s\S]*Hire[\s\S]*Builds product[\s\S]*Runway gets shorter/);
+  });
+
+  it("the app shows each one designed", () => {
+    const show = (k: string) => render(<ReportView doc={docs[k]} />);
+    let r = show("research");
+    expect(screen.getByTestId("report-view").getAttribute("data-kind")).toBe("research");
+    expect(screen.getByTestId("report-points").textContent).toMatch(/Red-teaming/);
+    expect(screen.getByTestId("report-open").textContent).toMatch(/unsettled/);
+    r.unmount();
+    r = show("draft");
+    expect(screen.getByTestId("report-output").textContent).toMatch(/Our app is live/);
+    expect(screen.getByTestId("report-draft-credit").textContent).toMatch(/Drafted by ChatGPT \(OpenAI\) \[1\], improved by Claude \(Anthropic\) \[2\]/);
+    r.unmount();
+    r = show("alternatives");
+    expect(screen.getAllByTestId("report-item").map((e) => e.textContent)).toEqual([expect.stringMatching(/Penny/), expect.stringMatching(/Ledgerly/)]);
+    expect(screen.queryByTestId("report-output")).toBeNull();
+    r.unmount();
+    r = show("explain");
+    expect(screen.getByTestId("report-output").textContent).toMatch(/Two coins/);
+    r.unmount();
+    r = show("keypoints");
+    expect(screen.getByTestId("report-output").textContent).toMatch(/Budget is cut[\s\S]*Launch moves to May/);
+    r.unmount();
+    r = show("roles");
+    expect(screen.getByTestId("report-version").textContent).toMatch(/Lawyer[\s\S]*liability/);
+    r.unmount();
+    r = show("multistep");
+    expect(screen.getAllByTestId("report-item").length).toBe(2);
+    expect(screen.getByTestId("report-output").textContent).toMatch(/40k budget/);
+    r.unmount();
+    r = show("decision");
+    expect(screen.getAllByTestId("report-option").map((e) => e.textContent)).toEqual([expect.stringMatching(/Hire[\s\S]*Builds product[\s\S]*Costly/), expect.stringMatching(/Ads[\s\S]*Fast/)]);
+    expect(screen.getByTestId("report-conclusion").textContent).toMatch(/Hire first/);
+    expect(screen.getByTestId("report-risks").textContent).toMatch(/Runway/);
+    r.unmount();
+    r = show("adapt");
+    expect(screen.getByTestId("report-version").textContent).toMatch(/LinkedIn[\s\S]*Proud to share/);
+    r.unmount();
+    show("delegate");
+    expect(screen.getAllByTestId("report-item").length).toBe(2);
+    expect(screen.getByTestId("report-output").textContent).toMatch(/Post the headline on Monday/);
+  });
+
+  it("the final result shows the designed view and names the download after the kind", () => {
+    render(<FinalArtifactView artifact={art(composeReportText(docs.decision), docs.decision)} kind="session" />);
+    expect(screen.getByTestId("report-decision")).toBeTruthy();
+    expect(screen.getByTestId("download-result").textContent).toMatch(/Download decision support/);
+  });
+});

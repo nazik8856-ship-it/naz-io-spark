@@ -1263,9 +1263,9 @@ await t("action rewrite: a reply with no versions under the style headings fails
   const w = task(); assert.notEqual(w.status, "completed"); assert.equal(w.final_artifact ?? null, null); assert.match(legs()[1].stop_reason ?? "", /rewritten versions could not be found/);
 });
 await t("actions: titles carry the action; the compare and fact-check analyses are checked like the report's", async () => {
-  assert.deepEqual(H.parseTaskTitle("Report: x"), { kind: "opinions", text: "x", styles: [] });
-  assert.deepEqual(H.parseTaskTitle(H.taskTitle("compare", "p")), { kind: "compare", text: "p", styles: [] });
-  assert.deepEqual(H.parseTaskTitle(H.taskTitle("rewrite", "a (b): c", ["more formal", "simpler"])), { kind: "rewrite", text: "a (b): c", styles: ["more formal", "simpler"] });
+  assert.deepEqual(H.parseTaskTitle("Report: x"), { kind: "opinions", text: "x", styles: [], count: 0 });
+  assert.deepEqual(H.parseTaskTitle(H.taskTitle("compare", "p")), { kind: "compare", text: "p", styles: [], count: 0 });
+  assert.deepEqual(H.parseTaskTitle(H.taskTitle("rewrite", "a (b): c", ["more formal", "simpler"])), { kind: "rewrite", text: "a (b): c", styles: ["more formal", "simpler"], count: 0 });
   assert.deepEqual(H.cleanStyles(["  Simpler ", "simpler", "a;b", "x".repeat(60), "", "c", "d", "e"]), ["Simpler", "a b", "x".repeat(40), "c"]);
   assert.ok(H.parseCompare(GOOD_COMPARE, 2)); assert.equal(H.parseCompare(GOOD_COMPARE, 3), null, "each row must have one point per source");
   assert.equal(H.parseCompare(JSON.stringify({ ...JSON.parse(GOOD_COMPARE), comparison: [] }), 2), null);
@@ -1281,6 +1281,186 @@ await t("actions: titles carry the action; the compare and fact-check analyses a
     assert.ok(H.stepInstructionFor(kind, text, longStyles).length <= 2000, `${kind} instruction fits`);
     assert.ok(H.taskTitle(kind, text, longStyles).length <= 2000, `${kind} title fits`);
     assert.deepEqual(H.parseTaskTitle(H.taskTitle(kind, text, kind === "rewrite" ? longStyles : [])).kind, kind);
+  }
+});
+// ---- the ten further actions: same Task, same control rules on every reply; only a clean final result is delivered
+const BG = "We are a 3-person startup with 8 months of runway.";
+const answerBy = (a1: string, a2: string) => (n: number, b: any, url: string) => ({ json: { status: "done", answer: String(url).includes("research") ? a1 : a2 } });
+const start10 = async (kind: any, text: string, toolSteps: any[], opts: { styles?: string[]; count?: number; background?: string | null } = {}) => {
+  const r = await H.startTask(H.createClient("u", "k"), U, { request: H.taskTitle(kind, text, opts.styles ?? [], opts.count), context: opts.background ?? null,
+    steps: [...toolSteps, { tool_id: RT, instruction: H.writerInstructionFor(kind, text), handoff: "none" }], max_steps: 3 });
+  assert.ok(r.ok, JSON.stringify(r)); await runTask(r, reportDeps()); return task();
+};
+const why = () => JSON.stringify(legs().map((l: any) => [l.status, l.pending_kind, l.stop_reason, l.handoff, l.completion]));
+const fan = (kind: any, text: string, tools: string[], styles: string[] = [], count = 3) => tools.map((id) => ({ tool_id: id, instruction: H.stepInstructionFor(kind, text, styles, count), handoff: "none" }));
+
+await t("action research: each tool gives points on its own; the background reaches every tool and NazAI's AI; the synthesis is checked", async () => {
+  reportSetup(); const topic = "Ways to evaluate the safety of AI tools";
+  aiAnswer = JSON.stringify({ summary: "Two approaches [1][2].", points: ["Red-teaming finds failures [1].", "Benchmarks are cheap [2]."], open_questions: ["The sources disagree on cost [1][2]."], conclusion: "Use both [1][2]." });
+  script = answerBy("- Red-teaming tools find safety failures (fairly sure).", "- Safety benchmarks are cheap. I do not know how they compare in cost.");
+  const w = await start10("research", topic, fan("research", topic, [T1, T2]), { background: BG });
+  assert.equal(w.status, "completed", why());
+  assert.equal(calls.length, 2); for (const c of calls) assert.match(String(c.body.context ?? ""), /3-person startup/, "the background went to each tool");
+  assert.match(String(calls[0].body.instruction ?? calls[0].body.objective), /If you do not know something, say so plainly/);
+  assert.match(aiPrompts[0].user, /^Background the person gave[\s\S]*3-person startup/); assert.ok(aiPrompts[0].system.includes(H.HONEST_ANALYST));
+  const doc = w.final_artifact.report; assert.equal(doc.kind, "research"); assert.deepEqual(doc.points, ["Red-teaming finds failures [1].", "Benchmarks are cheap [2]."]);
+  assert.equal(H.composeReportText(doc), w.final_output); assert.match(w.final_output, /^NAZAI RESEARCH\n[\s\S]*OPEN QUESTIONS\n• The sources disagree on cost/);
+});
+await t("action draft + improve: tool 1 drafts, tool 2 gets the checked draft and improves it; only the improved version is the result", async () => {
+  reportSetup(); aiAnswer = null; const req = "A two-sentence launch email for our budgeting app.";
+  script = answerBy("DRAFT: our app is out now go get it", "Our budgeting app is live today. Try it free for 30 days.");
+  const w = await start10("draft", req, [{ tool_id: T1, instruction: H.stepInstructionFor("draft", req), handoff: "none" }, { tool_id: T2, instruction: H.improveInstruction(req), handoff: "pass" }]);
+  assert.equal(w.status, "completed", w.stop_reason); assert.equal(aiPrompts.length, 0, "no AI writes the draft result");
+  assert.match(String(calls[1].body.context ?? ""), /DRAFT: our app is out now/, "the improver received the checked draft");
+  const doc = w.final_artifact.report; assert.equal(doc.kind, "draft"); assert.equal(doc.output, "Our budgeting app is live today. Try it free for 30 days.");
+  assert.ok(!w.final_output.includes("DRAFT: our app"), "the draft is not in the delivered result");
+  assert.match(w.final_output, /^NAZAI DRAFT\n[\s\S]*FINAL VERSION\nOur budgeting app is live today[\s\S]*Drafted by Research Bot \[1\], improved by Writer Bot \[2\]/);
+});
+await t("action alternatives: the number asked for is in the title and the instruction; the options are cut word for word", async () => {
+  reportSetup(); aiAnswer = null; const req = "Names for a budgeting app";
+  assert.match(H.stepInstructionFor("alternatives", req, [], 4), /Give 4 clearly different/);
+  assert.deepEqual(H.parseTaskTitle(H.taskTitle("alternatives", req, [], 4)), { kind: "alternatives", text: req, styles: [], count: 4 });
+  script = () => ({ json: { status: "done", answer: "### Option 1: Penny\nShort and friendly.\n\n### Option 2: Ledgerly\nSounds serious." } });
+  const w = await start10("alternatives", req, fan("alternatives", req, [T1], [], 2), { count: 2 });
+  assert.equal(w.status, "completed", w.stop_reason);
+  assert.deepEqual(w.final_artifact.report.items.map((i: any) => [i.label, i.text]), [["Penny", "Short and friendly."], ["Ledgerly", "Sounds serious."]]);
+  assert.match(w.final_output, /^NAZAI ALTERNATIVES\n[\s\S]*OPTION 2: Ledgerly — by Research Bot \[1\]\nSounds serious\./);
+});
+await t("action explain + key points: one tool; the explanation is its checked reply; key points are its list lines; no list fails honestly", async () => {
+  reportSetup(); aiAnswer = null; const txt = "Quantum entanglement links two particles so that measuring one tells you about the other.";
+  script = () => ({ json: { status: "done", answer: "Two entangled particles act like two coins that always land the same way, however far apart." } });
+  let w = await start10("explain", txt, fan("explain", txt, [T1]));
+  assert.equal(w.status, "completed", why()); assert.equal(w.final_artifact.report.output, "Two entangled particles act like two coins that always land the same way, however far apart.");
+  assert.match(w.final_output, /^NAZAI EXPLANATION\n[\s\S]*ORIGINAL\nQuantum entanglement[\s\S]*SIMPLE EXPLANATION — by Research Bot \[1\]\nTwo entangled particles/);
+  reportSetup(); aiAnswer = null; script = () => ({ json: { status: "done", answer: "Here are the points:\n- Budget is cut by 10%.\n- Launch moves to May.\n- Hiring is paused." } });
+  w = await start10("keypoints", "A long memo about the budget, the launch and hiring.", fan("keypoints", "A long memo about the budget, the launch and hiring.", [T1]));
+  assert.equal(w.status, "completed", w.stop_reason); assert.deepEqual(w.final_artifact.report.points, ["Budget is cut by 10%.", "Launch moves to May.", "Hiring is paused."]);
+  reportSetup(); script = () => ({ json: { status: "done", answer: "The memo is about money." } });
+  w = await start10("keypoints", "A long memo about the budget.", fan("keypoints", "A long memo about the budget.", [T1]));
+  assert.notEqual(w.status, "completed"); assert.equal(w.final_artifact ?? null, null); assert.match(legs()[1].stop_reason ?? "", /key points could not be found/i);
+});
+await t("action roles + adapt: one answer per role or audience, under its own heading, cut word for word", async () => {
+  reportSetup(); aiAnswer = null; const q = "Is it safe to launch without terms of service?";
+  assert.match(H.stepInstructionFor("roles", q, ["Lawyer", "Investor"]), /### Role: Lawyer\n### Role: Investor/);
+  script = () => ({ json: { status: "done", answer: "### Role: Lawyer\nNo; launching without terms of service leaves you carrying the liability.\n\n### Role: Investor\nA launch without terms is a risk I would ask about." } });
+  let w = await start10("roles", q, fan("roles", q, [T1], ["Lawyer", "Investor"]), { styles: ["Lawyer", "Investor"] });
+  assert.equal(w.status, "completed", why()); assert.deepEqual(w.final_artifact.report.versions.map((v: any) => v.style), ["Lawyer", "Investor"]);
+  assert.match(w.final_output, /^NAZAI ROLE ANSWERS\n[\s\S]*QUESTION\nIs it safe[\s\S]*ROLE: LAWYER — by Research Bot \[1\]\nNo; launching without terms of service/);
+  reportSetup(); aiAnswer = null; const m = "Our budgeting app is live.";
+  script = () => ({ json: { status: "done", answer: "### For: LinkedIn\nProud to share that our budgeting app is live.\n\n### For: X\nIt's live. 🚀" } });
+  w = await start10("adapt", m, fan("adapt", m, [T1], ["LinkedIn", "X"]), { styles: ["LinkedIn", "X"] });
+  assert.equal(w.status, "completed", why()); assert.match(w.final_output, /^NAZAI ADAPTATION\n[\s\S]*MESSAGE\nOur budgeting app is live\.[\s\S]*FOR: X — by Research Bot \[1\]\nIt's live\./);
+  reportSetup(); script = () => ({ json: { status: "done", answer: "Some general marketing advice." } });
+  w = await start10("adapt", m, fan("adapt", m, [T1], ["LinkedIn", "X"]), { styles: ["LinkedIn", "X"] });
+  assert.notEqual(w.status, "completed"); assert.equal(w.final_artifact ?? null, null);
+});
+await t("action multi-step: NazAI's plan becomes steps that build on each other; the solution is combined from the checked steps", async () => {
+  reportSetup(); const goal = "Open a small café near a train station";
+  const plan = H.parsePlan(JSON.stringify({ steps: [{ title: "Find a place", instruction: "List what to look for in a location." }, { title: "Budget", instruction: "Estimate the start-up budget for that place." }] }), "multistep", 0);
+  assert.ok(plan && plan.length === 2);
+  script = answerBy("Rent near a station with foot traffic.", "About 40k for a small place.");
+  aiAnswer = JSON.stringify({ summary: "Two steps [1][2].", result: "Rent near a station with foot traffic [1] and plan about 40k [2]." });
+  const steps = plan!.map((p: any, i: number) => ({ tool_id: [T1, T2][i], instruction: H.multistepInstruction(i + 1, plan!.length, p.title, p.instruction, goal), handoff: i === 0 ? "none" : "pass" }));
+  const w = await start10("multistep", goal, steps, { background: BG });
+  assert.equal(w.status, "completed", w.stop_reason);
+  assert.match(String(calls[1].body.instruction ?? calls[1].body.objective), /Objective: Step 2 of 2: Budget/); assert.match(String(calls[1].body.context ?? ""), /Rent near a station/);
+  const doc = w.final_artifact.report; assert.deepEqual(doc.items.map((i: any) => i.label), ["Find a place", "Budget"]); assert.match(doc.output, /about 40k \[2\]/);
+  assert.match(aiPrompts[0].user, /<<<SOURCE 2: Writer Bot — Budget>>>/); assert.ok(aiPrompts[0].system.includes(H.HONEST_ANALYST)); assert.match(aiPrompts[0].user, /3-person startup/);
+  assert.match(w.final_output, /^NAZAI SOLUTION\n[\s\S]*STEP 1: Find a place — by Research Bot \[1\][\s\S]*SOLUTION\nRent near a station/);
+});
+await t("action decision: options with pros and cons, a recommendation and risks, written from the checked answers only", async () => {
+  reportSetup(); const q = "Hire a second engineer or buy more ads?";
+  aiAnswer = JSON.stringify({ summary: "Both have merit [1][2].", options: [{ option: "Hire", pros: ["Builds product [1]"], cons: ["Costly [2]"] }, { option: "Ads", pros: ["Fast [2]"], cons: [] }], recommendation: "Hire first [1]; source 2 disagrees [2].", risks: ["Runway gets shorter [1]."] });
+  script = answerBy("Hire: builds product. Recommend hiring.", "Ads are fast; hiring is costly. Recommend ads.");
+  const w = await start10("decision", q, fan("decision", q, [T1, T2]), { background: BG });
+  assert.equal(w.status, "completed", w.stop_reason);
+  const doc = w.final_artifact.report; assert.equal(doc.kind, "decision"); assert.equal(doc.decision.length, 2); assert.equal(doc.conclusion, "Hire first [1]; source 2 disagrees [2].");
+  assert.match(w.final_output, /^NAZAI DECISION\n[\s\S]*RECOMMENDATION\nHire first[\s\S]*RISKS\n• Runway gets shorter/);
+  assert.equal(H.parseDecision(JSON.stringify({ ...JSON.parse(aiAnswer!), risks: ["x [3]"] }), 2), null, "[3] does not exist");
+  assert.match(aiPrompts[0].system, /if they disagree, say so/);
+});
+await t("action delegation: one part per tool, done on its own; the combined result must use every part", async () => {
+  reportSetup(); const job = "A launch plan: the headline and the posting schedule";
+  const plan = H.parsePlan(JSON.stringify({ parts: [{ title: "Headline", instruction: "Write the headline." }, { title: "Schedule", instruction: "Propose a posting schedule." }] }), "delegate", 2)!;
+  assert.equal(H.parsePlan(JSON.stringify({ parts: [plan[0]] }), "delegate", 2), null, "exactly one part per tool");
+  script = answerBy("Budgeting, finally simple.", "Post Monday 9am, then Thursday.");
+  aiAnswer = JSON.stringify({ summary: "Two parts [1][2].", result: "Post 'Budgeting, finally simple.' [1] on Monday 9am, then Thursday [2]." });
+  const w = await start10("delegate", job, plan.map((p: any, i: number) => ({ tool_id: [T1, T2][i], instruction: H.delegateInstruction(i + 1, 2, p.title, p.instruction, job), handoff: "none" })));
+  assert.equal(w.status, "completed", w.stop_reason); assert.ok(!String(calls[1].body.context ?? "").includes("Budgeting, finally simple"), "a part does not receive another part");
+  assert.match(w.final_output, /^NAZAI DELEGATED TASK\n[\s\S]*PART 2: Schedule — by Writer Bot \[2\][\s\S]*FINAL RESULT\nPost 'Budgeting/);
+  assert.equal(H.parseCombine(JSON.stringify({ summary: "s [1]", result: "Only part one [1]." }), 2, true), null, "a part left out is not a combined result");
+  assert.ok(H.parseCombine(JSON.stringify({ summary: "s [1]", result: "Only part one [1]." }), 2, false));
+});
+await t("a tool reply that breaks a rule is blocked before it reaches any result, for the new actions too", async () => {
+  reportSetup(); aiAnswer = null; H.table("hard_rules").push({ id: "h1", user_id: U, rule_text: "Never quote prices", action_type_pattern: "outer_control_text_review", effect: "always_block", provider: null, enabled: true, shadow_mode: false, agent_id: null, api_key_id: null });
+  script = () => ({ json: { status: "done", answer: "Think of it as costing $40 a month." } });
+  const w = await start10("explain", "Explain our pricing tiers in simple words please.", fan("explain", "Explain our pricing tiers in simple words please.", [T1]));
+  assert.notEqual(w.status, "completed"); assert.ok(!String(w.final_output ?? "").includes("$40"));
+});
+await t("honest-answer rule: every analysis prompt treats sources as claims, reports contradictions and does not reward length or confidence", async () => {
+  const ops = [{ n: 1, tool: "A", text: "x", shortened: false, sha256: "", at: "", links: [] }, { n: 2, tool: "B", text: "I don't know.", shortened: false, sha256: "", at: "", links: [] }] as any;
+  for (const p of [H.buildAnalysisPrompt("t", ops), H.buildComparePrompt("t", ops), H.buildFactcheckPrompt("t", ops), H.buildResearchPrompt("t", ops), H.buildDecisionPrompt("t", ops), H.buildCombinePrompt("multistep", "t", ops, ["a", "b"])]) {
+    assert.ok(p.system.includes(H.HONEST_ANALYST), p.system.slice(0, 80));
+  }
+  assert.match(H.HONEST_ANALYST, /contradict each other on a fact, say so plainly/); assert.match(H.HONEST_ANALYST, /Never prefer an answer because it is longer, more detailed or more confident/);
+  assert.match(H.HONEST_ANALYST, /does not know or is unsure is being honest/);
+  assert.ok(!/more complete|most detailed|longest/i.test(H.buildComparePrompt("t", ops).system), "the comparison does not ask for the most complete answer");
+  assert.match(H.buildComparePrompt("t", ops, BG).user, /3-person startup/); assert.match(H.buildFactcheckPrompt("t", ops, BG).user, /3-person startup/);
+});
+await t("reading a request: NazAI's AI picks the action, the text and the background, checked; unclear asks; no AI uses the rules", async () => {
+  const req = `${BG} Should we hire a second engineer or buy more ads?`;
+  const ai = (o: any) => async () => JSON.stringify(o);
+  let r = await H.routeRequest(req, ai({ kind: "decision", text: "Should we hire a second engineer or buy more ads?", background: BG, labels: ["x"], count: 9, question: "" }));
+  assert.deepEqual(r, { kind: "decision", text: "Should we hire a second engineer or buy more ads?", background: BG, labels: [], count: 0, question: "", source: "ai" });
+  r = await H.routeRequest(req, ai({ kind: "decision", text: "Hire or ads?", background: "We are a big company." }));
+  assert.equal(r.text, req, "a text the AI did not copy from the request is not used"); assert.equal(r.background, "", "nor a background it made up");
+  r = await H.routeRequest("Rewrite this more formally and simpler: hi", ai({ kind: "rewrite", text: "hi", labels: ["More formal", "simpler", "Simpler"] }));
+  assert.equal(r.text, "Rewrite this more formally and simpler: hi", "a text shorter than 5 characters is not used"); assert.deepEqual(r.labels, ["More formal", "simpler"]);
+  r = await H.routeRequest("Give me ten names for a budgeting app", ai({ kind: "alternatives", text: "names for a budgeting app", count: 10 }));
+  assert.equal(r.count, 5, "alternatives are at most 5"); assert.equal(r.text, "names for a budgeting app");
+  r = await H.routeRequest("Something about our launch", ai({ kind: "unclear", question: "Do you want ideas or a plan?" }));
+  assert.deepEqual([r.kind, r.question], ["unclear", "Do you want ideas or a plan?"]);
+  r = await H.routeRequest("Something about our launch", ai({ kind: "poem" }));
+  assert.deepEqual([r.kind, r.source], ["unclear", "rules"]);
+  r = await H.routeRequest("Please fact-check this: the moon is cheese", async () => null);
+  assert.deepEqual([r.kind, r.source, r.text], ["factcheck", "rules", "Please fact-check this: the moon is cheese"]);
+  r = await H.routeRequest("Compare answers on remote work", null); assert.equal(r.kind, "compare");
+  for (const [text, kind] of [["Explain this in simple terms: x", "explain"], ["Extract the key points of this memo", "keypoints"], ["Answer as a lawyer and as an investor", "roles"],
+    ["Break this down into steps: open a café", "multistep"], ["Split the work between the tools", "delegate"], ["Draft a post, then improve it", "draft"], ["Adapt this for LinkedIn", "adapt"],
+    ["Research the market for e-bikes", "research"], ["Give me alternatives for our logo", "alternatives"], ["What are your opinions on remote work?", "opinions"], ["hello there friend", "unclear"]]) {
+    assert.equal(H.guessKind(text), kind, text);
+  }
+});
+await t("the final check of each reply looks for the subject's key terms, not NazAI's instruction words", async () => {
+  const subj = "Quantum entanglement links two particles so that measuring one tells you about the other.";
+  const on = "Two entangled particles act like two coins that always land the same way, however far apart they are.";
+  for (const kind of ["compare", "factcheck", "research", "draft", "alternatives", "explain", "keypoints", "decision"]) {
+    assert.ok(H.checkGoal(H.stepInstructionFor(kind, subj, [], 3), on).ok, `${kind}: an on-topic reply passes`);
+  }
+  for (const kind of ["rewrite", "roles", "adapt"]) assert.ok(H.checkGoal(H.stepInstructionFor(kind, subj, ["Simpler"]), `### ${kind === "rewrite" ? "Style" : kind === "roles" ? "Role" : "For"}: Simpler\n${on}`).ok, `${kind}: passes`);
+  assert.ok(H.checkGoal(H.improveInstruction(subj), on).ok, "improve: passes");
+  assert.equal(H.checkGoal(H.stepInstructionFor("explain", subj), "Our refund policy covers thirty days from the date of delivery, with a receipt.").ok, false, "an off-topic reply is still caught");
+});
+await t("the new parsers: options need a heading mark, points are list lines, versions match their labels", async () => {
+  assert.deepEqual(H.parseOptions("Option: not a heading because nothing marks it\nmore", 1), []);
+  assert.deepEqual(H.parseOptions("**Option 1: A**\nfirst\n1. still part of A\nOption 2. B\nsecond", 1).map((o: any) => [o.label, o.text]), [["A", "first\n1. still part of A"], ["B", "second"]]);
+  assert.deepEqual(H.parsePoints("Intro\n- one\n• two\n3) three\nnot a point"), ["one", "two", "three"]);
+  assert.deepEqual(H.parseVersions("## For: linkedin\nLong.\n## For: X\nShort.", ["LinkedIn", "X"], 2, "For").map((v: any) => [v.n, v.style, v.text]), [[2, "LinkedIn", "Long."], [2, "X", "Short."]]);
+  assert.equal(H.planLabel("Part 2 of 3: Schedule\nDo it."), "Schedule"); assert.equal(H.planLabel("whatever"), "");
+  assert.equal(H.parsePlan(JSON.stringify({ steps: [{ title: "only one", instruction: "x" }] }), "multistep", 0), null, "a plan of one step is not a plan");
+  assert.equal(H.parsePlan("not json", "multistep", 0), null);
+  assert.equal(H.cleanCount(1), 2); assert.equal(H.cleanCount("x"), 3); assert.equal(H.cleanCount(4), 4);
+});
+await t("every action's longest text and labels still fit a step instruction (2000) and a title (2000), and the title gives the action back", async () => {
+  const long = H.cleanStyles(["a", "b", "c", "d"].map((c) => c.repeat(40)));
+  for (const kind of ["opinions", "compare", "factcheck", "rewrite", "research", "draft", "alternatives", "explain", "keypoints", "roles", "multistep", "decision", "adapt", "delegate"]) {
+    const lim = H.TASK_LIMITS[kind]; const text = "x".repeat(lim.maxText); const styles = lim.labels ? long : [];
+    const ins = kind === "multistep" ? H.multistepInstruction(5, 5, "t".repeat(80), "i".repeat(600), text) : kind === "delegate" ? H.delegateInstruction(4, 4, "t".repeat(80), "i".repeat(600), text) : kind === "draft" ? H.improveInstruction(text) : H.stepInstructionFor(kind, text, styles, 5);
+    assert.ok(ins.length <= 2000, `${kind} instruction fits (${ins.length})`);
+    assert.ok(H.stepInstructionFor(kind, text, styles, 5).length <= 2000, `${kind} step fits`);
+    const title = H.taskTitle(kind, text, styles, 5); assert.ok(title.length <= 2000, `${kind} title fits`);
+    const back = H.parseTaskTitle(title); assert.equal(back.kind, kind); assert.equal(back.text, text); assert.deepEqual(back.styles, styles);
+    if (kind === "alternatives") assert.equal(back.count, 5);
   }
 });
 const FU_TOOL = "33333333-3333-4333-8333-333333333333";
