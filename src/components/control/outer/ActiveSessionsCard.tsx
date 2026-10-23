@@ -390,7 +390,6 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       </div>
       <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} onTest={(t) => runTest(t.id, t.name)} testingId={busy?.startsWith("test-") ? busy.slice(5) : null} />
       <TaskPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startTask} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }} />
-      <TaskTracker accountId={accountId} refreshKey={taskStarts} />
 
       <div className="mt-4 space-y-2">
         {shownTools.length === 0 && (
@@ -462,6 +461,9 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
           );
         })}
       </div>
+
+      {/* Tasks started from Start task: after the connected tools, before the sessions. */}
+      <TaskTracker accountId={accountId} refreshKey={taskStarts} />
 
       {openSessions.length > 0 && (
         <div className="mt-5 space-y-2" data-testid="open-sessions">

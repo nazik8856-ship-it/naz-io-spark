@@ -152,8 +152,8 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
 
   if (!tasks.length) return null;
   return (
-    <section className="mt-4 space-y-2" data-testid="task-tracker">
-      <h4 className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">Your tasks</h4>
+    <section className="mt-5 space-y-2" data-testid="task-tracker">
+      <h3 className="text-sm font-medium text-zinc-300">Your tasks</h3>
       {tasks.map((t) => {
         const tLegs = legs.filter((l) => l.workflow_id === t.id);
         const p = taskProgress(t, tLegs, tools);

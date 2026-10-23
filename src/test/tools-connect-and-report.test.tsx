@@ -3,13 +3,13 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
 import { MemoryRouter } from "react-router-dom";
 
-const state = vi.hoisted(() => ({ tools: [] as unknown[], sessions: [] as unknown[], route: null as Record<string, unknown> | null, routeFails: false }));
+const state = vi.hoisted(() => ({ tools: [] as unknown[], sessions: [] as unknown[], workflows: [] as unknown[], route: null as Record<string, unknown> | null, routeFails: false }));
 
 vi.mock("@/integrations/supabase/client", () => {
   const result = (table: string) => {
-    const data = table === "external_tools" ? state.tools : table === "outer_control_sessions" ? state.sessions : [];
+    const data = table === "external_tools" ? state.tools : table === "outer_control_sessions" ? state.sessions : table === "outer_control_workflows" ? state.workflows : [];
     const q: Record<string, unknown> = {};
-    for (const m of ["select", "eq", "is", "in", "order", "limit"]) q[m] = () => q;
+    for (const m of ["select", "eq", "neq", "not", "is", "in", "order", "limit"]) q[m] = () => q;
     q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data, error: null }).then(res);
     return q;
   };
@@ -29,7 +29,7 @@ const calls = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.ma
 
 describe("connecting a tool and generating a report", () => {
   beforeEach(() => {
-    state.tools = []; state.sessions = []; state.route = null; state.routeFails = false; forgetReadings();
+    state.tools = []; state.sessions = []; state.workflows = []; state.route = null; state.routeFails = false; forgetReadings();
     vi.clearAllMocks();
     vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string);
@@ -328,5 +328,20 @@ describe("connecting a tool and generating a report", () => {
     fireEvent.click(screen.getByTestId("warning-anyway"));
     fireEvent.click(screen.getByTestId("task-start"));
     await waitFor(() => expect(lastStart()).toEqual({ action: "start_report", task: "opinions", topic: "Should we adopt a control layer?", tool_ids: ["a", "b"] }));
+  });
+
+  it("Your tasks is shown after the connected tools and before the sessions", async () => {
+    state.tools = [good("a", "ChatGPT"), writer];
+    state.workflows = [{ id: "t1", objective: "Comparison: Describe NazAI", status: "completed", started_at: ago(5), stop_reason: null, final_artifact: null, kind: "chain" }];
+    const leg = (n: number, tool: string) => ({ id: `l${n}`, workflow_id: "t1", leg_no: n, tool_id: tool, status: "completed", depends_on: n === 2 ? [1] : [], stop_reason: null, pending_kind: null,
+      objective: "o", step_count: 1, max_steps: 3, final_output: "x", started_at: ago(5), handoff: null, completion: null, final_artifact: null, finished_at: ago(4) });
+    state.sessions = [leg(1, "a"), leg(2, "rw")];
+    render_();
+    const tracker = await screen.findByTestId("task-tracker");
+    const lastTool = screen.getAllByTestId("tool-row").at(-1)!;
+    const past = screen.getByTestId("past-sessions");
+    expect(lastTool.compareDocumentPosition(tracker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tracker.compareDocumentPosition(past) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("Your tasks")).toBeTruthy();
   });
 });
