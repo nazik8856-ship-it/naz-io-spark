@@ -444,7 +444,7 @@ describe("Start session reads the request for tool names", () => {
     expect(steps[1].instruction).toMatch(/You are step 2: ChatGPT \(OpenAI\)\..*previous step's checked answer/);
   });
 
-  it("a tool that needs attention warns with its reason; Proceed anyway lets it start", async () => {
+  it("a tool that needs attention warns with its reason; Start with it anyway lets it start", async () => {
     state.tools = [{ ...bot2, approved_at: null, last_ok_at: null, last_checked_at: null }];
     renderCard();
     await openStart("Bot2");
@@ -452,7 +452,8 @@ describe("Start session reads the request for tool names", () => {
     expect(screen.getByTestId("tool-plan-warning").textContent).toMatch(/Bot2 needs attention: Not tested yet/);
     const start = screen.getByText("Start", { selector: "button" }) as HTMLButtonElement;
     expect(start.disabled).toBe(true);
-    fireEvent.click(screen.getByText("Proceed anyway"));
+    expect(screen.queryByTestId("warning-skip")).toBeNull();
+    fireEvent.click(screen.getByText("Start with it anyway"));
     expect(start.disabled).toBe(false);
   });
 

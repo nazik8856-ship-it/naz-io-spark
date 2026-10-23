@@ -95,23 +95,34 @@ export default function ToolPlanBox({
           {onConnect && <button type="button" onClick={onConnect} className="text-cyan-300 underline-offset-2 hover:underline">Connect it</button>}
         </p>
       ))}
-      {plan.warnings.filter((w) => !acked.has(w.tool.id)).map((w) => (
-        <div key={w.tool.id} className="rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2.5 text-xs text-amber-50" data-testid="tool-plan-warning">
-          <p className="flex items-start gap-1.5"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
-            <span><b>{w.tool.name}</b> {w.health.key === "failed" ? "failed its last test" : "needs attention"}: {w.health.reason}</span>
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {w.fix === "test" ? (
-              <>
-                <button type="button" disabled={fixing === w.tool.id} className={`${btn} border-amber-500/50 bg-amber-500/15 text-amber-100`} onClick={() => onFix(w.tool)}>{fixing === w.tool.id ? "Testing…" : "Fix connection first"}</button>
-                <button type="button" className={`${btn} border-white/20 text-zinc-200 hover:bg-white/10`} onClick={() => ack(w.tool.id)}>Proceed anyway</button>
-              </>
-            ) : (
-              <button type="button" className={`${btn} border-amber-500/50 bg-amber-500/15 text-amber-100`} onClick={() => ack(w.tool.id)}>Continue: I will approve the first contact</button>
-            )}
+      {plan.warnings.filter((w) => !acked.has(w.tool.id)).map((w) => {
+        // In a Task with several tools, a tool that is not working can simply be left out.
+        const others = plan.steps.map((s) => s.tool.id).filter((id) => id !== w.tool.id);
+        return (
+          <div key={w.tool.id} className="rounded-lg border border-amber-500/40 bg-amber-500/[0.08] p-2.5 text-xs text-amber-50" data-testid="tool-plan-warning">
+            <p className="flex items-start gap-1.5"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
+              <span><b>{w.tool.name}</b> {w.health.key === "failed" ? "failed its last test" : "needs attention"}: {w.health.reason}</span>
+            </p>
+            <p className="mt-1 pl-5 text-amber-100/70">{w.fix === "test"
+              ? "It may not answer. Test it now, leave it out, or start with it anyway."
+              : "It works, but you have not approved contact with it yet: the first time it is asked, the Task waits for your approval."}</p>
+            <div className="mt-2 flex flex-wrap gap-2 pl-5">
+              {w.fix === "test" ? (
+                <>
+                  <button type="button" disabled={fixing === w.tool.id} className={`${btn} border-amber-500/50 bg-amber-500/15 text-amber-100`} onClick={() => onFix(w.tool)} data-testid="warning-fix">{fixing === w.tool.id ? "Testing…" : "Fix now (test it)"}</button>
+                  {mode === "pick" && <button type="button" className={`${btn} border-white/20 text-zinc-200 hover:bg-white/10`} onClick={() => onUse(others)} data-testid="warning-skip">Skip this tool</button>}
+                  <button type="button" className={`${btn} border-white/20 text-zinc-200 hover:bg-white/10`} onClick={() => ack(w.tool.id)} data-testid="warning-anyway">Start with it anyway</button>
+                </>
+              ) : (
+                <>
+                  <button type="button" className={`${btn} border-amber-500/50 bg-amber-500/15 text-amber-100`} onClick={() => ack(w.tool.id)} data-testid="warning-anyway">Continue: I will approve the first contact</button>
+                  {mode === "pick" && <button type="button" className={`${btn} border-white/20 text-zinc-200 hover:bg-white/10`} onClick={() => onUse(others)} data-testid="warning-skip">Skip this tool</button>}
+                </>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
       {plan.summary && <p className="text-xs text-zinc-400" data-testid="tool-plan-summary">{plan.summary}</p>}
     </div>
   );

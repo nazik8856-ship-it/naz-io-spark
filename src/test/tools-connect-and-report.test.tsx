@@ -18,6 +18,7 @@ vi.mock("@/integrations/supabase/client", () => {
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import ActiveSessionsCard from "@/components/control/outer/ActiveSessionsCard";
+import { forgetReadings } from "@/components/control/outer/TaskPanel";
 import { toast } from "sonner";
 
 const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
@@ -28,7 +29,7 @@ const calls = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.ma
 
 describe("connecting a tool and generating a report", () => {
   beforeEach(() => {
-    state.tools = []; state.sessions = []; state.route = null; state.routeFails = false;
+    state.tools = []; state.sessions = []; state.route = null; state.routeFails = false; forgetReadings();
     vi.clearAllMocks();
     vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string);
@@ -273,5 +274,59 @@ describe("connecting a tool and generating a report", () => {
     await new Promise((r) => setTimeout(r, 1300));
     expect(calls().filter((c) => c.action === "route_task")).toEqual([]);
     expect(screen.queryByTestId("task-plan")).toBeNull();
+  });
+
+  it("a request NazAI already read is not read again (case, spacing and a final full stop do not matter)", async () => {
+    state.tools = [good("a", "Alpha"), writer];
+    state.route = { kind: "compare" };
+    render_();
+    await describe("Compare answers on remote work");
+    await planLine();
+    const box = screen.getByLabelText("Describe the task");
+    fireEvent.change(box, { target: { value: "Compare answers on remote" } });
+    await waitFor(() => expect(calls().filter((c) => c.action === "route_task").length).toBe(2), { timeout: 3000 });
+    fireEvent.change(box, { target: { value: "compare  answers on REMOTE work." } });
+    expect(screen.getByTestId("task-plan-line").textContent).toBe("NazAI will: Compare answers");
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(calls().filter((c) => c.action === "route_task").length).toBe(2);
+  });
+
+  it("ready-made requests fill the empty box with one press and are read like typed ones", async () => {
+    state.tools = [good("a", "Alpha"), writer];
+    state.route = { kind: "alternatives", text: "names for a budgeting app", count: 4 };
+    render_();
+    fireEvent.click(await screen.findByTestId("start-task-button"));
+    const examples = screen.getAllByTestId("task-example");
+    expect(examples.length).toBe(6);
+    fireEvent.click(screen.getByText("Give me 4 names for a budgeting app"));
+    expect((screen.getByLabelText("Describe the task") as HTMLTextAreaElement).value).toBe("Give me 4 names for a budgeting app");
+    expect(screen.queryByTestId("task-examples")).toBeNull();
+    expect((await planLine()).textContent).toBe("NazAI will: Generate alternatives");
+  });
+
+  it("a tool that needs attention: the reason is on its row with Test now; once chosen, Fix now / Skip this tool / Start with it anyway", async () => {
+    const untested = { ...good("b", "Beta"), approved_at: null, last_ok_at: null, last_checked_at: null };
+    state.tools = [good("a", "Alpha"), untested, writer];
+    state.route = { kind: "opinions" };
+    render_();
+    await describe("Should we adopt a control layer?");
+    await planLine();
+    const rows = screen.getAllByTestId("task-tool-attention");
+    expect(rows.length).toBe(1);
+    expect(rows[0].textContent).toMatch(/Not tested yet/);
+    fireEvent.click(screen.getByTestId("task-tool-test"));
+    await waitFor(() => expect(calls().some((c) => c.action === "test_tool" && c.tool_id === "b")).toBe(true));
+    fireEvent.click(screen.getByLabelText("Ask Alpha"));
+    fireEvent.click(screen.getByLabelText("Ask Beta"));
+    expect(screen.getByTestId("tool-plan-warning").textContent).toMatch(/Beta needs attention: Not tested yet/);
+    expect(screen.getByTestId("task-problem").textContent).toBe("Decide what to do about Beta first.");
+    expect(screen.getByTestId("warning-fix").textContent).toBe("Fix now (test it)");
+    fireEvent.click(screen.getByTestId("warning-skip"));
+    expect((screen.getByLabelText("Ask Beta") as HTMLInputElement).checked).toBe(false);
+    expect(screen.queryByTestId("tool-plan-warning")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Ask Beta"));
+    fireEvent.click(screen.getByTestId("warning-anyway"));
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()).toEqual({ action: "start_report", task: "opinions", topic: "Should we adopt a control layer?", tool_ids: ["a", "b"] }));
   });
 });

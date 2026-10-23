@@ -332,3 +332,26 @@
   .welcome-drift-a, .welcome-drift-b, .welcome-caret, .welcome-pulse { animation: none; }
   .welcome-type { animation: none; }
 }
+
+/* Outer Control: Start task and the Task tracker. A scan line while NazAI reads, a moving progress bar, a ring on the step that
+   is working now, a soft entrance. All of it stops for reduced-motion. */
+@keyframes oc-scan { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@keyframes oc-flow { from { background-position: 0% 50%; } to { background-position: 200% 50%; } }
+@keyframes oc-ring { 0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.55); } 70% { box-shadow: 0 0 0 9px rgba(34, 211, 238, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); } }
+@keyframes oc-in { from { opacity: 0; transform: translateY(6px) scale(0.99); } to { opacity: 1; transform: none; } }
+@keyframes oc-glow { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.9; } }
+.oc-scan { position: relative; overflow: hidden; }
+.oc-scan::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.16), rgba(212, 175, 55, 0.12), transparent);
+  animation: oc-scan 1.6s ease-in-out infinite;
+}
+.oc-flow { background-image: linear-gradient(90deg, #22d3ee, #d4af37, #22d3ee); background-size: 200% 100%; animation: oc-flow 2.2s linear infinite; }
+.oc-ring { animation: oc-ring 1.8s ease-out infinite; }
+.oc-in { animation: oc-in 0.35s ease-out both; }
+.oc-glow { animation: oc-glow 3s ease-in-out infinite; }
+.oc-box { transition: box-shadow 0.3s ease, border-color 0.3s ease; }
+.oc-box:focus-within { border-color: rgba(34, 211, 238, 0.55); box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.25), 0 0 32px -6px rgba(34, 211, 238, 0.45), 0 0 60px -20px rgba(212, 175, 55, 0.35); }
+@media (prefers-reduced-motion: reduce) {
+  .oc-scan::after, .oc-flow, .oc-ring, .oc-in, .oc-glow { animation: none; }
+}

@@ -64,7 +64,12 @@ export type ReportDoc = {
   /** decision */
   decision?: DecisionOption[];
   risks?: string[];
+  /** The tools that were asked but did not answer; the result was written from the others. */
+  missing?: MissingTool[];
+  /** The tools were asked at the same time (not one after another). */
+  parallel?: boolean;
 };
+export type MissingTool = { tool: string; reason: string };
 
 export const kindOf = (d: Pick<ReportDoc, "kind">): ReportKind => d.kind ?? "opinions";
 
@@ -96,6 +101,26 @@ export const TASK_LIMITS: Record<ReportKind, ActionLimits> = {
 };
 export const MAX_STYLES = 4;
 export const MAX_BACKGROUND = 1500;
+
+/** How a Task's title starts, by action: "Comparison: …". The Task's title carries the action, so no new column is needed. */
+export const TITLE_PREFIX: Record<ReportKind, string> = {
+  opinions: "Multiple opinions", compare: "Comparison", factcheck: "Fact-check", rewrite: "Rewrite", research: "Research", draft: "Draft",
+  alternatives: "Alternatives", explain: "Explain simply", keypoints: "Key points", roles: "Role answers", multistep: "Multi-step", decision: "Decision",
+  adapt: "Adaptation", delegate: "Delegated task",
+};
+
+/** A Task's title split into its action and its text, for showing it; null when it is not a multi-tool action's title. */
+export function splitTaskTitle(objective: string): { kind: ReportKind; text: string } | null {
+  const o = objective.trim();
+  const pairs: [ReportKind, string][] = [...REPORT_KINDS.map((k) => [k, TITLE_PREFIX[k]] as [ReportKind, string]), ["opinions", "Report"]];
+  for (const [kind, prefix] of pairs.sort((a, b) => b[1].length - a[1].length)) {
+    if (o.toLowerCase().startsWith(prefix.toLowerCase())) {
+      const m = o.slice(prefix.length).match(/^(?: \([^)]*\))?:\s*([\s\S]*)$/);
+      if (m) return { kind, text: m[1].trim() };
+    }
+  }
+  return null;
+}
 
 /**
  * Credits each action uses. One setting per action, so a price can change in one place. 1 for every action during the MVP; the
@@ -148,6 +173,8 @@ export function isReportDoc(x: unknown): x is ReportDoc {
   for (const k of ["points", "open_questions", "risks"]) if (d[k] !== undefined && !isStrList(d[k])) return false;
   if (d.output !== undefined && !isStr(d.output)) return false;
   if (d.items !== undefined && !(Array.isArray(d.items) && d.items.every((v) => !!v && typeof v === "object" && Number.isInteger((v as LabeledItem).n) && isStr((v as LabeledItem).label) && isStr((v as LabeledItem).text)))) return false;
+  if (d.missing !== undefined && !(Array.isArray(d.missing) && d.missing.every((m) => !!m && typeof m === "object" && isStr((m as MissingTool).tool) && isStr((m as MissingTool).reason)))) return false;
+  if (d.parallel !== undefined && typeof d.parallel !== "boolean") return false;
   if (d.decision !== undefined && !(Array.isArray(d.decision) && d.decision.every((o) => !!o && typeof o === "object" && isStr((o as DecisionOption).option) && isStrList((o as DecisionOption).pros) && isStrList((o as DecisionOption).cons)))) return false;
   return true;
 }
@@ -165,8 +192,13 @@ export function when(iso: string): string {
 
 export const fingerprint = (sha: string) => sha.slice(0, 16);
 
+/** The tools that did not answer, as one sentence; empty when every tool answered. */
+export const missingLine = (d: Pick<ReportDoc, "missing">) =>
+  d.missing?.length ? `Not included because ${d.missing.length === 1 ? "it" : "they"} did not answer: ${d.missing.map((m) => `${m.tool} (${m.reason.replace(/\.$/, "")})`).join("; ")}.` : "";
+
 export const REPORT_INTRO = (d: ReportDoc) =>
-  `Compiled ${when(d.compiled_at)} by NazAI Outer Control from ${d.opinions.length} external tool${d.opinions.length === 1 ? "" : "s"}. Every answer was checked against the account's rules before it was used.`;
+  `Compiled ${when(d.compiled_at)} by NazAI Outer Control from ${d.opinions.length} external tool${d.opinions.length === 1 ? "" : "s"}. Every answer was checked against the account's rules before it was used.` +
+  (d.missing?.length ? ` ${missingLine(d)}` : "");
 
 export const REPORT_METHOD =
   "Each tool was asked on its own, in order. Each answer was checked against your rules before it was kept. " +
@@ -196,7 +228,7 @@ const WORD_FOR_WORD = "nothing was added by NazAI";
 export function kindMethod(d: ReportDoc): string {
   switch (kindOf(d)) {
     case "compare":
-      return `Each tool was given the same prompt on its own, in order. ${CHECKED} ` +
+      return `Each tool was given the same prompt on its own, ${d.parallel ? "at the same time" : "in order"}. ${CHECKED} ` +
         "The summary, the side-by-side, the agreements, the differences and the conclusion were written by NazAI's AI from those answers only. The answers are word for word.";
     case "factcheck":
       return `Each tool was asked on its own to challenge or verify the claim. ${CHECKED} ` +
@@ -225,7 +257,7 @@ export function kindMethod(d: ReportDoc): string {
     case "delegate":
       return `NazAI's AI split the task into parts and gave each part to a different tool, on its own. ${CHECKED} The final result was written by NazAI's AI from the checked parts only, and it uses every part.`;
     default:
-      return REPORT_METHOD;
+      return d.parallel ? REPORT_METHOD.replace("on its own, in order.", "on its own, at the same time.") : REPORT_METHOD;
   }
 }
 

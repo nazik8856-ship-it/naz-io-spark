@@ -1,7 +1,7 @@
 // Outer Control: a finished multi-tool result, designed: an opinions report, a comparison, a fact-check or a rewrite. The words
 // are the stored result word for word; this only lays them out.
 import { ShieldCheck, Layers, Scale, Sparkles, Quote, CalendarClock, Fingerprint, Table2, ListChecks, PenLine, Wand2, ListOrdered, HelpCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
-import { fingerprint, kindMethod, kindOf, KIND_BADGE, KIND_NOUN, VERDICT_LABEL, when, type ReportDoc } from "@/lib/outer-control-report-doc";
+import { fingerprint, kindMethod, kindOf, KIND_BADGE, KIND_NOUN, missingLine, VERDICT_LABEL, when, type ReportDoc } from "@/lib/outer-control-report-doc";
 
 const Section = ({ title, icon, tone = "cyan", children, testid }: { title: string; icon: React.ReactNode; tone?: "cyan" | "emerald" | "amber"; children: React.ReactNode; testid?: string }) => {
   const color = tone === "emerald" ? "text-emerald-300" : tone === "amber" ? "text-amber-300" : "text-cyan-300";
@@ -90,6 +90,11 @@ export default function ReportView({ doc }: { doc: ReportDoc }) {
             <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1"><Layers className="h-3 w-3 text-cyan-300" />{n} source{n === 1 ? "" : "s"}</span>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-emerald-200"><ShieldCheck className="h-3 w-3" />Every answer rule-checked</span>
           </div>
+          {doc.missing?.length ? (
+            <p className="mt-3 flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/[0.07] px-3 py-2 text-xs text-amber-100" data-testid="report-missing">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />{missingLine(doc)}
+            </p>
+          ) : null}
         </header>
 
         {kind === "rewrite" || kind === "roles" || kind === "adapt" ? (

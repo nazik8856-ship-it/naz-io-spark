@@ -11,8 +11,10 @@ export const MAX_CONDITION_VALUE = 200;
  * Run a step only when an earlier step's result says so.
  *   contains / not_contains: the earlier step completed and its result does / does not contain `value`
  *   dep_failed:              the earlier step ended failed, rejected or stopped (an error branch)
+ *   any_completed:           every step it waits for has ended and at least one of them completed; the others may have
+ *                            failed (a result written from the tools that answered). `leg` is its last dependency.
  */
-export type LegCondition = { leg: number; op: "contains" | "not_contains" | "dep_failed"; value: string | null };
+export type LegCondition = { leg: number; op: "contains" | "not_contains" | "dep_failed" | "any_completed"; value: string | null };
 
 export type LegInput = {
   tool_id?: unknown; instruction?: unknown; depends_on?: unknown; fallback_tool_id?: unknown;
@@ -59,11 +61,11 @@ export function validateLegs(input: unknown): ValidatedLegs {
       if (!Number.isInteger(ref) || (ref as number) < 1 || (ref as number) >= n) {
         return { ok: false, message: `Step ${n}: a condition can only look at an earlier step (1 to ${n - 1}).` };
       }
-      if (c.op !== "contains" && c.op !== "not_contains" && c.op !== "dep_failed") {
-        return { ok: false, message: `Step ${n}: the condition must be "contains", "not_contains" or "dep_failed".` };
+      if (c.op !== "contains" && c.op !== "not_contains" && c.op !== "dep_failed" && c.op !== "any_completed") {
+        return { ok: false, message: `Step ${n}: the condition must be "contains", "not_contains", "dep_failed" or "any_completed".` };
       }
       let value: string | null = null;
-      if (c.op !== "dep_failed") {
+      if (c.op !== "dep_failed" && c.op !== "any_completed") {
         value = typeof c.value === "string" ? c.value.trim() : "";
         if (!value) return { ok: false, message: `Step ${n}: say which text the condition looks for.` };
         if (value.length > MAX_CONDITION_VALUE) return { ok: false, message: `Step ${n}: the condition text is limited to ${MAX_CONDITION_VALUE} characters.` };
@@ -91,7 +93,7 @@ export function validateLegs(input: unknown): ValidatedLegs {
 
 export type LegState = {
   leg_no: number; status: string; final_output: string | null; stop_reason?: string | null;
-  condition?: LegCondition | null;
+  condition?: LegCondition | null; depends_on?: number[];
 };
 
 export const isLegOpen = (status: string) => status === "queued" || status === "running" || status === "awaiting_human";
@@ -116,12 +118,14 @@ export function legReadiness(leg: { depends_on: number[]; condition?: LegConditi
     if (dep.status === "completed") { done.push(dep); continue; }
     if (isLegOpen(dep.status)) { waiting = true; continue; }
     if (dep.status === "skipped") { skipped++; continue; }
-    // A step that ended badly is only acceptable when this step exists to handle exactly that.
+    // A step that ended badly is only acceptable when this step exists to handle exactly that, or works with whatever answered.
     if (cond && cond.op === "dep_failed" && cond.leg === d && ERROR_ENDS.has(dep.status)) continue;
+    if (cond && cond.op === "any_completed" && ERROR_ENDS.has(dep.status)) continue;
     return "cancel";
   }
   if (waiting) return "waiting";
   if (!cond) return done.length === 0 && skipped > 0 ? "skipped" : "ready";
+  if (cond.op === "any_completed") return done.length > 0 ? "ready" : "cancel";
 
   const target = all.find((l) => l.leg_no === cond.leg);
   if (!target) return "cancel";
@@ -154,9 +158,10 @@ export function buildLegContext(workflowContext: string | null, deps: LegState[]
 
 export type Rollup = { status: "running" | "awaiting_human" | "completed" | "failed" | "cancelled"; summary: string };
 
-/** A failed step is "handled" when a step whose condition is dep_failed on it completed. */
+/** A failed step is "handled" when a step whose condition is dep_failed on it completed, or a step that works with whatever answered. */
 const handledBy = (leg: LegState, all: LegState[]) =>
-  all.find((l) => l.status === "completed" && l.condition?.op === "dep_failed" && l.condition.leg === leg.leg_no) ?? null;
+  all.find((l) => l.status === "completed" && ((l.condition?.op === "dep_failed" && l.condition.leg === leg.leg_no) ||
+    (l.condition?.op === "any_completed" && (l.depends_on ?? []).includes(leg.leg_no)))) ?? null;
 
 export function rollupStatus(legs: LegState[]): Rollup {
   const done = legs.filter((l) => l.status === "completed").length;
@@ -172,7 +177,10 @@ export function rollupStatus(legs: LegState[]): Rollup {
   }
   const unhandled = bad.filter((l) => !(ERROR_ENDS.has(l.status) && handledBy(l, legs)));
   if (unhandled.length === 0 && done > 0) {
-    const handled = bad.map((l) => `step ${l.leg_no} failed and was handled by step ${handledBy(l, legs)!.leg_no}`);
+    const handled = bad.map((l) => {
+      const by = handledBy(l, legs)!;
+      return by.condition?.op === "any_completed" ? `step ${l.leg_no} did not answer, so step ${by.leg_no} used the others` : `step ${l.leg_no} failed and was handled by step ${by.leg_no}`;
+    });
     if (bad.length === 0 && skipped === 0) return { status: "completed", summary: `All ${legs.length} steps completed.` };
     return { status: "completed", summary: `${done} of ${legs.length} steps completed${suffix}${handled.length ? `; ${handled.join("; ")}` : ""}.` };
   }

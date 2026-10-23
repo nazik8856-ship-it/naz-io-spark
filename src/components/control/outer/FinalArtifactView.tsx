@@ -1,11 +1,14 @@
 // Outer Control: the official result of a Completed session or Task. The controlled output is always visible; the
 // proof, rules and changes are one tap away, as readable text or as the structured JSON (the same record).
 import { useState } from "react";
-import { Check, Copy, Download, ExternalLink } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, ExternalLink, Fingerprint, ListChecks, ShieldCheck, Workflow } from "lucide-react";
 import { toast } from "sonner";
 import { validateArtifact, type Artifact } from "@/lib/outer-control-artifact";
 import { composeReportText, isReportDoc, kindOf, KIND_NOUN, reportHtml } from "@/lib/outer-control-report-doc";
+import { proofTiles, type ProofTile } from "@/lib/outer-control-task-progress";
 import ReportView from "./ReportView";
+
+const TILE_ICON: Record<ProofTile["key"], typeof Check> = { done: ListChecks, tools: Workflow, rules: ShieldCheck, checks: Fingerprint };
 
 export default function FinalArtifactView({ artifact, kind }: { artifact: unknown; kind: "session" | "task" }) {
   const [view, setView] = useState<"readable" | "json">("readable");
@@ -52,14 +55,27 @@ export default function FinalArtifactView({ artifact, kind }: { artifact: unknow
           </button>
         </div>
       </div>
+      {/* The proof at a glance, before the result: what was done, which tools, what the rules did, the checks. The full record is at the bottom. */}
+      <div className="mt-2 grid gap-2 sm:grid-cols-2" data-testid="proof-strip">
+        {proofTiles(a).map((t) => {
+          const Icon = t.tone === "warn" && t.key !== "rules" ? AlertTriangle : TILE_ICON[t.key];
+          return (
+            <div key={t.key} className={`rounded-lg border px-2.5 py-2 ${t.tone === "warn" ? "border-amber-400/30 bg-amber-400/[0.05]" : "border-white/10 bg-black/20"}`}
+              data-testid={t.key === "done" ? "final-artifact-what-done" : `proof-${t.key}`}>
+              <div className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.16em] ${t.tone === "warn" ? "text-amber-300" : "text-emerald-300/90"}`}>
+                <Icon className="h-3 w-3" /> {t.title}
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-200">{t.text}</p>
+            </div>
+          );
+        })}
+      </div>
       {report ? (
         <div className="mt-2"><ReportView doc={report} /></div>
       ) : (
         <p className="mt-1.5 whitespace-pre-wrap text-sm text-zinc-100" data-testid="final-artifact-output">{a.final_output}</p>
       )}
-      {a.what_done && (
-        <p className="mt-2 text-xs text-zinc-300" data-testid="final-artifact-what-done"><span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">What was done · </span>{a.what_done}</p>
-      )}
+
       {a.links && a.links.length > 0 && (
         <ul className="mt-2 flex flex-wrap gap-2" data-testid="final-artifact-links">
           {a.links.map((l) => (

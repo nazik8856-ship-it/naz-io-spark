@@ -26,8 +26,9 @@ export { parseToolReply } from "../../supabase/functions/_shared/outer-control-t
 
 export { writeReport, parseAnalysis, composeReport, buildAnalysisPrompt, opinionInstruction, reportInstruction, stepInstructionFor, writerInstructionFor, taskTitle, parseTaskTitle, parseCompare, parseFactcheck, parseRewriteVersions, buildComparePrompt, buildFactcheckPrompt, cleanStyles, TASK_LIMITS,
   parseVersions, parseOptions, parsePoints, buildResearchPrompt, parseResearch, buildDecisionPrompt, parseDecision, buildPlanPrompt, parsePlan, buildCombinePrompt, parseCombine, planLabel,
-  routeRequest, guessKind, improveInstruction, multistepInstruction, delegateInstruction, cleanCount, HONEST_ANALYST } from "../../supabase/functions/_shared/outer-control-report.ts";
+  routeRequest, guessKind, improveInstruction, multistepInstruction, delegateInstruction, cleanCount, HONEST_ANALYST, fence } from "../../supabase/functions/_shared/outer-control-report.ts";
 
 export { composeReportText, isReportDoc, reportHtml } from "../../supabase/functions/_shared/outer-control-report-doc.ts";
 export { buildReportDoc } from "../../supabase/functions/_shared/outer-control-report.ts";
 export { checkGoal } from "../../supabase/functions/_shared/outer-control-judgement.ts";
+export { validateLegs, legReadiness } from "../../supabase/functions/_shared/outer-control-workflow-plan.ts";
