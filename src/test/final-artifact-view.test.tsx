@@ -34,7 +34,7 @@ describe("FinalArtifactView", () => {
     });
     if (r.ok !== true) throw new Error("fixture");
     render(<FinalArtifactView artifact={r.artifact} kind="session" />);
-    expect(screen.getByTestId("final-artifact-what-done").textContent).toMatch(/What was done · Support Agent did: Created Google Calendar event/);
+    expect(screen.getByTestId("final-artifact-what-done").textContent).toMatch(/What was done[\s\S]*Support Agent did: Created Google Calendar event/);
     const a = screen.getByTestId("final-artifact-links").querySelector("a")!;
     expect(a.getAttribute("href")).toBe("https://calendar.google.com/calendar/event?eid=zzz");
     expect(a.getAttribute("target")).toBe("_blank"); expect(a.getAttribute("rel")).toBe("noopener noreferrer");

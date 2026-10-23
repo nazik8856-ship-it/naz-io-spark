@@ -13,6 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems, type Tone } from "@/lib/outer-control-ui";
 import { describeClosure, describeUsage, healthSummary, isInternalTool, toolHealth, type ActivityStep, type ToolUsage } from "@/lib/outer-control-tools-ui";
+import TaskTracker from "./TaskTracker";
 import TaskPanel, { type TaskRequest } from "./TaskPanel";
 import { ACTION_INFO } from "@/lib/outer-control-report-doc";
 import ConnectToolPanel, { type ConnectPayload } from "./ConnectToolPanel";
@@ -67,6 +68,8 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [archivedCount, setArchivedCount] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [job, setJob] = useState({ objective: "", context: "", keyId: "", maxSteps: "5" });
+  /** Counts the Tasks started here, so Your tasks loads the new one at once. */
+  const [taskStarts, setTaskStarts] = useState(0);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -169,7 +172,8 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     const r = await act("report", "start_report", {
       task: t.kind, topic: t.text, background: t.background || undefined, styles: t.styles.length ? t.styles : undefined,
       count: t.kind === "alternatives" ? t.count : undefined, tool_ids: t.toolIds, confirm_override: t.keepChoice || undefined,
-    }, `${ACTION_INFO[t.kind].title} started: asking ${label}. Follow it below; the result appears when it is done.`);
+    }, `${ACTION_INFO[t.kind].title} started: asking ${label}. Follow it in Your tasks below; the result appears there when it is done.`);
+    if (r.ok) setTaskStarts((n) => n + 1);
     return r.ok;
   };
 
@@ -376,7 +380,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
           <p className="mt-0.5 text-xs text-zinc-500" data-testid="tools-summary">{healthSummary(shownTools, now)}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-        <button onClick={() => setShowReport(true)} disabled={shownTools.length < 1} title={shownTools.length < 1 ? "Connect a tool first" : "Get opinions, compare answers, fact-check or rewrite with your tools"} className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3.5 py-2 text-sm text-zinc-100 hover:bg-white/10 disabled:opacity-40" data-testid="start-task-button">
+        <button onClick={() => setShowReport(true)} disabled={shownTools.length < 1} title={shownTools.length < 1 ? "Connect a tool first" : "Describe a task; NazAI picks how to do it with your tools"} className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3.5 py-2 text-sm text-zinc-100 hover:bg-white/10 disabled:opacity-40" data-testid="start-task-button">
           <Play className="h-4 w-4" /> Start task
         </button>
         <button onClick={() => setShowConnect(true)} className="flex items-center gap-1.5 rounded-lg border border-cyan-300/60 bg-cyan-400 px-4 py-2 text-sm font-semibold text-black shadow-[0_0_18px_rgba(34,211,238,0.3)] transition hover:bg-cyan-300" data-testid="connect-tool-button">
@@ -386,6 +390,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       </div>
       <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} onTest={(t) => runTest(t.id, t.name)} testingId={busy?.startsWith("test-") ? busy.slice(5) : null} />
       <TaskPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startTask} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }} />
+      <TaskTracker accountId={accountId} refreshKey={taskStarts} />
 
       <div className="mt-4 space-y-2">
         {shownTools.length === 0 && (

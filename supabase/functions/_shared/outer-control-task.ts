@@ -105,6 +105,26 @@ export function chainLegs(steps: unknown): { ok: true; legs: Record<string, unkn
   return { ok: true, legs };
 }
 
+/**
+ * Independent steps asked at the same time, then one last step that waits for all of them. Each independent step ends when it
+ * fails (it never waits for a person after repeated failures), and the last step runs with whatever answered: it needs at least
+ * one completed step. The last step is the one that writes the result.
+ */
+export function fanOutLegs(steps: unknown): { ok: true; legs: Record<string, unknown>[] } | { ok: false; message: string } {
+  if (!Array.isArray(steps) || steps.length < 2) return { ok: false, message: "Add at least one step and the step that writes the result." };
+  const n = steps.length;
+  const legs = steps.map((raw, i) => {
+    const s = (raw ?? {}) as ChainStepInput;
+    const last = i === n - 1;
+    return {
+      tool_id: s.tool_id, instruction: s.instruction, fallback_tool_id: s.fallback_tool_id, handoff: "none",
+      depends_on: last ? Array.from({ length: n - 1 }, (_, k) => k + 1) : [], on_failure: s.on_failure ?? "reject",
+      ...(last ? { condition: { leg: n - 1, op: "any_completed", value: null } } : {}),
+    } as Record<string, unknown>;
+  });
+  return { ok: true, legs };
+}
+
 // ---------------------------------------------------------------------------------------
 // Hand-off between steps
 

@@ -43,7 +43,11 @@ import { buildPlanPrompt, cleanCount, cleanStyles, delegateInstruction, gatewayA
 import { ACTION_INFO, MAX_BACKGROUND, REPORT_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
+
 import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
+
+/** How many requests NazAI's AI reads per account per day (route_task). */
+const ROUTE_DAILY_CAP = 200;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -235,8 +239,11 @@ Deno.serve(async (req) => {
     if (action === "route_task") {
       const request = String(body.request ?? "").trim();
       if (!request || request.length > 4000) return json({ error: "invalid_request", message: "Describe the task (4000 characters or fewer)." }, 400);
-      const route = await routeRequest(request, pickAiGateway() === null ? null : gatewayAi);
-      return json({ ok: true, ...route });
+      // Reading uses NazAI's AI, which costs NazAI money: at most ROUTE_DAILY_CAP readings a day per account. Past that the free
+      // keyword reading is used, so the box keeps working; the page also remembers what it has already read.
+      const cap = await checkRateLimit(admin, accountId, "outer_control_route_task", ROUTE_DAILY_CAP, 86_400);
+      const route = await routeRequest(request, cap.allowed && pickAiGateway() !== null ? gatewayAi : null);
+      return json({ ok: true, ...route, capped: !cap.allowed });
     }
 
     if (action === "start_report") {
@@ -297,7 +304,10 @@ Deno.serve(async (req) => {
         toolSteps = ids.map((id) => ({ tool_id: id, instruction: stepInstructionFor(kind, topic, styles, count), handoff: "none" }));
       }
       const steps = [...toolSteps, { tool_id: writer.tool.id, instruction: writerInstructionFor(kind, topic), handoff: "none" }];
-      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: background || null, steps, max_steps: 3 });
+      // Draft and multi-step build on the previous step, so they go one after another. Everything else asks its tools at the same
+      // time, and the result is written from the tools that answered (a tool that fails is named in the result).
+      const parallel = kind !== "draft" && kind !== "multistep";
+      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: background || null, steps, max_steps: 3, parallel });
       if (!started.ok) {
         // The credits were taken before the Task could start: give them back.
         for (let r = 0; r < cost; r++) await admin.rpc("refund_generation_credit", { p_user_id: accountId });

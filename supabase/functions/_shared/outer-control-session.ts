@@ -389,6 +389,12 @@ async function completeSession(
       }, deps);
       return;
     }
+    // In a Task whose next step works with whatever answered, this tool simply did not answer: it ends, and the others carry on
+    // instead of everyone waiting for a person.
+    if (s.on_failure === "reject" && await othersCarryOn(admin, s)) {
+      await noteOnLastStep(admin, s, stepNo, "stop", `Final check failed again: ${problems[0]} The Task goes on with the other tools.`);
+      return finish(admin, s, "failed", `No usable answer: ${problems[0]}`.slice(0, 600), deps, { completion: settled });
+    }
     await noteOnLastStep(admin, s, stepNo, "handoff", `Final check failed again: ${problems[0]}`);
     await admin.from("outer_control_sessions").update({ completion: settled }).eq("id", s.id).in("status", ["running", "awaiting_human"]);
     return pauseForHandoff(admin, s, tool, stepNo, deps, { kind: unusable ? "no_result" : "goal_unmet", ruleNames: [], failure: null, problems });
@@ -396,6 +402,14 @@ async function completeSession(
 
   // A structural criterion failed (a step with no record, an approval not granted, the result not stored): not fixable by asking again.
   return finish(admin, s, "failed", c.summary, deps, { completion: c });
+}
+
+/** True when a later step of this session's Task works with whatever answered (condition any_completed) and waits for this one. */
+async function othersCarryOn(admin: AnyAdmin, s: SessionRow): Promise<boolean> {
+  if (!s.workflow_id || !s.leg_no) return false;
+  const { data } = await admin.from("outer_control_sessions").select("condition, depends_on").eq("workflow_id", s.workflow_id);
+  return ((data ?? []) as { condition: { op?: string } | null; depends_on: number[] | null }[])
+    .some((l) => l.condition?.op === "any_completed" && (l.depends_on ?? []).includes(s.leg_no as number));
 }
 
 /** A reply that is usable (allow, cleaned modify, or human-approved) moves the session forward. */
