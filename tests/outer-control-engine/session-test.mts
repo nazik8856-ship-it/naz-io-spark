@@ -1593,6 +1593,44 @@ await t("trust: NazAI's AI can not invent a source or a citation: an analysis ci
   assert.equal(task().status, "failed", "only one source answered, so [2] does not exist");
   assert.match(legs()[2].stop_reason ?? "", /cited a source that does not exist/);
 });
+// ---- imported projects in Outer Control: the project's checked text goes to every tool; its own rules apply to the replies
+await t("project: a Task with a project sends its checked text to every tool; the project's rule cleans the replies too", async () => {
+  reportSetup();
+  const pdeps = { now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
+  const c = H.createClient("u", "k");
+  await H.handleProjectsAction(c, U, U, { action: "import_paste", name: "Launch", text: "Project Falcon launches in May with three AI tools." }, pdeps);
+  const pid = H.table("imported_projects")[0].id;
+  await H.handleProjectsAction(c, U, U, { action: "add_rule", project_id: pid, name: "Hide the codename", words: "Falcon", rule_action: "remove" }, pdeps);
+  const pc = await H.projectContextFor(c, U, pid); assert.ok(pc.ok);
+  aiAnswer = JSON.stringify({ summary: "Both favour a May launch with AI tools [1][2].", agreements: [], differences: [], conclusion: "Launch in May with the AI tools [1][2]." });
+  script = answerBy("The Falcon launch in May with AI tools looks fine.", "A May launch with three AI tools is realistic.");
+  const topic = "Is a May launch with AI tools realistic?";
+  const r = await H.startTask(c, U, { request: H.taskTitle("opinions", topic), context: pc.text, parallel: true,
+    steps: [...fan("opinions", topic, [T1, T2]), { tool_id: RT, instruction: H.writerInstructionFor("opinions", topic), handoff: "none" }], max_steps: 3 });
+  task().project_id = pid;
+  await runTask(r, reportDeps());
+  for (const call of calls) {
+    assert.match(String(call.body.context ?? ""), /Project "Launch" \(snapshot copy\), checked by NazAI/);
+    assert.ok(!String(call.body.context).includes("Falcon"), "the codename never reaches a tool");
+  }
+  const w = task(); assert.equal(w.status, "completed", why());
+  assert.ok(!w.final_output.includes("Falcon"), "the project's rule cleaned the reply that mentioned it");
+  assert.ok(w.final_artifact.rules.triggered.some((x: any) => x.rule === "Hide the codename"), "the proof names the project's rule");
+});
+await t("project: a project's rule does not apply to a Task that does not use the project", async () => {
+  reportSetup();
+  const pdeps = { now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
+  const c = H.createClient("u", "k");
+  await H.handleProjectsAction(c, U, U, { action: "import_paste", name: "Launch", text: "Project Falcon." }, pdeps);
+  await H.handleProjectsAction(c, U, U, { action: "add_rule", project_id: H.table("imported_projects")[0].id, name: "Hide the codename", words: "Falcon", rule_action: "remove" }, pdeps);
+  aiAnswer = JSON.stringify({ summary: "Both mention Falcon [1][2].", agreements: [], differences: [], conclusion: "Falcon is fine [1][2]." });
+  script = answerBy("The Falcon launch in May looks fine.", "Falcon in May is realistic.");
+  const topic = "Is the Falcon launch in May realistic?";
+  const r = await H.startTask(c, U, { request: H.taskTitle("opinions", topic), context: null, parallel: true,
+    steps: [...fan("opinions", topic, [T1, T2]), { tool_id: RT, instruction: H.writerInstructionFor("opinions", topic), handoff: "none" }], max_steps: 3 });
+  await runTask(r, reportDeps());
+  const w = task(); assert.equal(w.status, "completed", why()); assert.match(w.final_output, /Falcon/);
+});
 const FU_TOOL = "33333333-3333-4333-8333-333333333333";
 function useUuidTool() { H.table("external_tools")[0].id = FU_TOOL; sess().tool_id = FU_TOOL; }
 // ---- follow-up: a next request to the same tool, based on the controlled answer of a finished session

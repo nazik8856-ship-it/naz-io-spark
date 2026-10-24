@@ -12,6 +12,7 @@ import { checkKillSwitches, createPendingApproval, runControlGate } from "./cont
 import { extractExternalText } from "./outer-control-intake.ts";
 import { evaluateExternalText, textSafeToStore, TEXT_REVIEW_ACTION_TYPE } from "./outer-control-text-review.ts";
 import { loadSafetyRules, scanWithRules, type SafetyRule } from "./safety-scanner.ts";
+import { loadProjectRules } from "./projects.ts";
 import { ruleMatchesAction, selectRulesForEntity } from "./rule-matching.ts";
 import { sha256Hex } from "./api-key-auth.ts";
 import { validateOutboundUrl } from "./url-safety.ts";
@@ -143,6 +144,20 @@ async function finish(admin: AnyAdmin, s: SessionRow, status: string, stop_reaso
   if (status === "failed") await notifyFailure(admin, s, stop_reason);
 }
 
+/** The rules of the imported project this session's Task works with (none when it uses no project). */
+async function projectRulesOf(admin: AnyAdmin, s: { workflow_id?: string | null }): Promise<SafetyRule[]> {
+  if (!s.workflow_id) return [];
+  try {
+    const { data } = await admin.from("outer_control_workflows").select("project_id").eq("id", s.workflow_id).maybeSingle();
+    return await loadProjectRules(admin, (data as { project_id?: string | null } | null)?.project_id ?? null);
+  } catch { return []; }
+}
+
+/** The rules a session's texts are held to: the account's (and its key's), plus those of the Task's project. */
+async function sessionRules(admin: AnyAdmin, s: Pick<SessionRow, "user_id" | "api_key_id"> & { workflow_id?: string | null }): Promise<SafetyRule[]> {
+  return [...await loadSafetyRules(admin, s.user_id, null, s.api_key_id), ...await projectRulesOf(admin, s)];
+}
+
 /** Rule names and what a match does, in the same terms GET /control-api/v1/criteria uses. */
 export async function loadRuleLines(admin: AnyAdmin, userId: string, apiKeyId: string | null, toolName: string): Promise<RuleLine[]> {
   const lines: RuleLine[] = [];
@@ -217,7 +232,7 @@ async function notifyQuestion(admin: AnyAdmin, userId: string, toolName: string,
 
 /** A short piece of the objective that is safe to put in an alert (anything the rules would remove is masked). */
 export async function alertSnippet(admin: AnyAdmin, s: Pick<SessionRow, "user_id" | "api_key_id" | "objective">): Promise<string> {
-  try { return maskForSend(await loadSafetyRules(admin, s.user_id, null, s.api_key_id), s.objective).slice(0, 80); }
+  try { return maskForSend(await sessionRules(admin, s), s.objective).slice(0, 80); }
   catch { return "(objective hidden)"; }
 }
 
@@ -273,7 +288,7 @@ type Accept = {
  * anything is still open for this session.
  */
 async function gatherCompletionInput(admin: AnyAdmin, s: SessionRow, stepNo: number, a: Accept, deps: SessionDeps): Promise<ChecklistInput> {
-  const rules = (await loadSafetyRules(admin, s.user_id, null, s.api_key_id)).filter((r) => !r.shadow_mode && r.severity === "block");
+  const rules = (await sessionRules(admin, s)).filter((r) => !r.shadow_mode && r.severity === "block");
   const wm = buildWorkingMemory((await loadMemory(admin, s)) as MemoryRow[]);
   const pinned = guardConsistency({ content: a.text, contentHash: "", wm, reportedRuleIds: [] }).pinnedHits;
   const broken = [...new Set([...scanWithRules(rules, a.text, "").matches.map((m) => m.name), ...pinned.map((h) => h.name)])];
@@ -522,7 +537,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       }
 
       // 5. Structured request: objective, masked context, active rules.
-      const safetyRules = await loadSafetyRules(admin, s.user_id, null, s.api_key_id);
+      const safetyRules = await sessionRules(admin, s);
       const ruleLines = await loadRuleLines(admin, s.user_id, s.api_key_id, tool.name);
       const memory = await loadMemory(admin, s);
       // Plan first: a request that itself breaks a rule that cannot be worked around is not sent.
@@ -705,7 +720,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       const result = await evaluateExternalText(admin, {
         userId: s.user_id, agentId: null, apiKeyId: s.api_key_id, isTest: false,
         sourceModel: `tool:${tool.name}`.slice(0, 80), content, origin: "external-api",
-        externalId: `${s.id}:${stepNo}:${attempt}`, contentHash,
+        externalId: `${s.id}:${stepNo}:${attempt}`, contentHash, extraRules: await projectRulesOf(admin, s),
       });
       const matches = result.matches ?? [];
       const corrections = await loadCorrections(admin, s);
@@ -842,10 +857,11 @@ export async function applyEditedReply(admin: AnyAdmin, sessionId: string, text:
   const result = await evaluateExternalText(admin, {
     userId: s.user_id, agentId: null, apiKeyId: s.api_key_id, isTest: false, sourceModel: "person:edit",
     content: clean, origin: "external-api", externalId: `${s.id}:${stepNo}:${attempt}`, contentHash: await sha256Hex(clean),
+    extraRules: await projectRulesOf(admin, s),
   });
   const matches = result.matches ?? [];
   // The person's text is held to everything this task already decided (rules pinned earlier included).
-  const safety = await loadSafetyRules(admin, s.user_id, null, s.api_key_id);
+  const safety = await sessionRules(admin, s);
   const wm = buildWorkingMemory((await loadMemory(admin, s)) as MemoryRow[]);
   const brain = think({
     foundation: { verdict: result.verdict, output: result.output, matches, changes: result.changes ?? [], summary: result.summary },
@@ -912,7 +928,7 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
       await recordMemory(admin, s, { stepNo, kind: "human", summary: `Step ${stepNo}: a person chose to stop the session.` });
       return { status: "stopped", resumed: true };
     }
-    const note = choice.note ? maskForSend(await loadSafetyRules(admin, s.user_id, null, s.api_key_id), choice.note).slice(0, MAX_ANSWER_CHARS) : null;
+    const note = choice.note ? maskForSend(await sessionRules(admin, s), choice.note).slice(0, MAX_ANSWER_CHARS) : null;
     if (!(await claim({
       status: "running", pending_kind: null, handoff: null, pending_answer: null, pending_step_no: null, lease_until: null, resume_at: null,
       attempt_base: s.attempt_base + s.retries_used + s.failures_used + 1, retries_used: 0, failures_used: 0,
@@ -989,7 +1005,7 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
     .select("reply_text, tool_status").eq("session_id", s.id).eq("step_no", stepNo).order("attempt", { ascending: false }).limit(1).maybeSingle();
   const stepData = stepRow as { reply_text: string | null; tool_status: "done" | "continue" | "need_info" | null } | null;
   const text = stepData?.reply_text ?? "";
-  const rules = (await loadSafetyRules(admin, s.user_id, null, s.api_key_id)).filter((r) => !r.shadow_mode && r.severity === "block");
+  const rules = (await sessionRules(admin, s)).filter((r) => !r.shadow_mode && r.severity === "block");
   const stillSensitive = !text || text.startsWith(WITHHELD) || scanWithRules(rules, text, "").matched;
   if (stillSensitive) {
     if (!(await claim(ended("rejected", "Approved, but the reply could not be released safely.")))) return notResumed;

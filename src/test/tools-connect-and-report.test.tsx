@@ -3,14 +3,16 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
 import { MemoryRouter } from "react-router-dom";
 
-const state = vi.hoisted(() => ({ tools: [] as unknown[], sessions: [] as unknown[], workflows: [] as unknown[], route: null as Record<string, unknown> | null, routeFails: false }));
+const state = vi.hoisted(() => ({ tools: [] as unknown[], sessions: [] as unknown[], workflows: [] as unknown[], imported: [] as unknown[], route: null as Record<string, unknown> | null, routeFails: false }));
 
 vi.mock("@/integrations/supabase/client", () => {
   const result = (table: string) => {
-    const data = table === "external_tools" ? state.tools : table === "outer_control_sessions" ? state.sessions : table === "outer_control_workflows" ? state.workflows : [];
+    const data = table === "external_tools" ? state.tools : table === "outer_control_sessions" ? state.sessions : table === "outer_control_workflows" ? state.workflows : table === "imported_projects" ? state.imported : [];
     const q: Record<string, unknown> = {};
+    let single = false;
     for (const m of ["select", "eq", "neq", "not", "is", "in", "order", "limit"]) q[m] = () => q;
-    q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data, error: null }).then(res);
+    q.maybeSingle = () => { single = true; return q; };
+    q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: single ? (data as unknown[])[0] ?? null : data, error: null }).then(res);
     return q;
   };
   return { supabase: { from: result, auth: { getSession: async () => ({ data: { session: { access_token: "jwt" } } }) } }, SUPABASE_FUNCTIONS_URL: "https://x.test/functions/v1", SUPABASE_ANON: "anon" };
@@ -29,7 +31,7 @@ const calls = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.ma
 
 describe("connecting a tool and generating a report", () => {
   beforeEach(() => {
-    state.tools = []; state.sessions = []; state.workflows = []; state.route = null; state.routeFails = false; forgetReadings();
+    state.tools = []; state.sessions = []; state.workflows = []; state.imported = []; state.route = null; state.routeFails = false; forgetReadings();
     vi.clearAllMocks();
     vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string);
@@ -343,5 +345,34 @@ describe("connecting a tool and generating a report", () => {
     expect(lastTool.compareDocumentPosition(tracker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(tracker.compareDocumentPosition(past) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("Your tasks")).toBeTruthy();
+  });
+
+  it("Start a task with a project: Start task opens with the project attached, and the task is started with its id", async () => {
+    state.tools = [good("a", "Alpha"), writer];
+    state.imported = [{ id: "p1", name: "Brand guide", source_mode: "linked", archived_at: null }];
+    state.route = { kind: "opinions" };
+    render(<MemoryRouter initialEntries={["/control-system/outer?project=p1"]}><ActiveSessionsCard accountId="u1" /></MemoryRouter>);
+    const chip = await screen.findByTestId("task-project");
+    expect(chip.textContent).toMatch(/Project · Brand guide \(Linked\) · its checked text goes to every tool, and its own rules apply/);
+    fireEvent.change(screen.getByLabelText("Describe the task"), { target: { value: "Is our brand voice consistent?" } });
+    await planLine();
+    fireEvent.click(screen.getByLabelText("Ask Alpha"));
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()).toEqual({ action: "start_report", task: "opinions", topic: "Is our brand voice consistent?", tool_ids: ["a"], project_id: "p1" }));
+  });
+
+  it("the project can be taken off before starting; then no project is sent", async () => {
+    state.tools = [good("a", "Alpha"), writer];
+    state.imported = [{ id: "p1", name: "Brand guide", source_mode: "snapshot", archived_at: null }];
+    state.route = { kind: "opinions" };
+    render(<MemoryRouter initialEntries={["/control-system/outer?project=p1"]}><ActiveSessionsCard accountId="u1" /></MemoryRouter>);
+    await screen.findByTestId("task-project");
+    fireEvent.click(screen.getByLabelText("Remove the project"));
+    expect(screen.queryByTestId("task-project")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Describe the task"), { target: { value: "Is our brand voice consistent?" } });
+    await planLine();
+    fireEvent.click(screen.getByLabelText("Ask Alpha"));
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()).toEqual({ action: "start_report", task: "opinions", topic: "Is our brand voice consistent?", tool_ids: ["a"] }));
   });
 });

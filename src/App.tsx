@@ -57,6 +57,8 @@ const Unsubscribe = lazyWithReload(() => import("./pages/Unsubscribe"));
 const OAuthConsent = lazyWithReload(() => import("./pages/OAuthConsent"));
 const WebsitePreview = lazyWithReload(() => import("./pages/WebsitePreview"));
 const GeneratedDashboard = lazyWithReload(() => import("./pages/GeneratedDashboard"));
+const Projects = lazyWithReload(() => import("./pages/Projects"));
+const ProjectView = lazyWithReload(() => import("./pages/ProjectView"));
 const Privacy = lazyWithReload(() => import("./pages/Privacy"));
 const Terms = lazyWithReload(() => import("./pages/Terms"));
 const Insights = lazyWithReload(() => import("./pages/Insights"));
@@ -156,6 +158,8 @@ const App = () => (
                 <Route element={<AuthGuard />}>
                   <Route path="/generator-home" element={<GeneratorHome />} />
                   <Route path="/generated/:kind/:id" element={<GeneratedDashboard />} />
+                  <Route path="/projects" element={<Projects />} />
+                  <Route path="/projects/:id" element={<ProjectView />} />
                 </Route>
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
                 <Route path="/privacy" element={<Privacy />} />

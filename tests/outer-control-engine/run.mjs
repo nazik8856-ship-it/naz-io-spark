@@ -24,7 +24,7 @@ await build({
 });
 // Each test file is compiled next to the bundle and run with plain node.
 let failed = false;
-for (const name of ["session-test", "goal-test"]) {
+for (const name of ["session-test", "goal-test", "projects-test"]) {
   const test = await transform(await readFile(path.join(here, `${name}.mts`), "utf8"), { loader: "ts", format: "esm", target: "node20" });
   await writeFile(path.join(out, `${name}.mjs`), test.code);
   const run = spawnSync(process.execPath, [path.join(out, `${name}.mjs`)], { stdio: "inherit" });

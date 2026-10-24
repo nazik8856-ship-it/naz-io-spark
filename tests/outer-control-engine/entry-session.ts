@@ -32,3 +32,4 @@ export { composeReportText, isReportDoc, reportHtml } from "../../supabase/funct
 export { buildReportDoc } from "../../supabase/functions/_shared/outer-control-report.ts";
 export { checkGoal } from "../../supabase/functions/_shared/outer-control-judgement.ts";
 export { validateLegs, legReadiness } from "../../supabase/functions/_shared/outer-control-workflow-plan.ts";
+export { handleProjectsAction, htmlToText, githubRepoOf, notionBlocksToMarkdown, wordsToPattern, checkProjectText, projectContextFor, contentTypeOf, rulesForProject, cleanName, MAX_PROJECT_CHARS } from "../../supabase/functions/_shared/projects.ts";

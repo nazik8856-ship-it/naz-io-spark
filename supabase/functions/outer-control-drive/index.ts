@@ -10,10 +10,11 @@
 //   POST { action: "start_goal", goal, criteria?: [up to 5 sentences], tool_ids: [1..3], max_rounds?, context?, api_key_id? }   (a Task that goes on until its criteria are met; costs one credit)
 //   POST { action: "task_decide", task_id, decision: "accept" | "more" | "stop" }   (what to do with a goal Task that is blocked)
 //   POST { action: "route_task", request }   (NazAI reads a request: which action, its text, background, labels; free, starts nothing)
-//   POST { action: "start_report", task?: <one of the 14 actions, default "opinions">, topic, background?, styles?, count?, tool_ids }
+//   POST { action: "start_report", task?: <one of the 14 actions, default "opinions">, topic, background?, styles?, count?, tool_ids, project_id? }
 //        (a multi-tool action: every tool reply is checked, then one controlled result is written; uses TASK_CREDITS[task].
 //         Tool counts, text lengths and labels per action: TASK_LIMITS. styles = the styles / roles / audiences of rewrite / roles / adapt;
-//         count = options for alternatives; background goes to every tool as the Task's context and to NazAI's AI)
+//         count = options for alternatives; background goes to every tool as the Task's context and to NazAI's AI; project_id = an
+//         imported project whose checked text goes to every tool too, and whose own rules then apply to the Task's replies)
 //   POST { action: "follow_up", session_id, instruction }   (a new request to the same tool, based on the controlled answer of a completed session)
 //   POST { action: "archive", kind: "session" | "workflow", id, archived?: boolean }   (leaves a finished item out of the default list, or brings it back; nothing is deleted)
 //   POST { action: "answer", session_id, answer }
@@ -43,6 +44,7 @@ import { buildPlanPrompt, cleanCount, cleanStyles, delegateInstruction, gatewayA
 import { ACTION_INFO, MAX_BACKGROUND, REPORT_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
+import { projectContextFor } from "../_shared/projects.ts";
 
 import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
 
@@ -270,6 +272,13 @@ Deno.serve(async (req) => {
         const namedR = await namedToolGuard(admin, accountId, topic, ids, body.confirm_override);
         if (namedR) return namedR;
       }
+      // An imported project the Task works with: its text, checked against the account's and the project's rules, goes to every tool.
+      let project: { id: string; text: string } | null = null;
+      if (body.project_id) {
+        const pc = await projectContextFor(admin, accountId, String(body.project_id));
+        if (!pc.ok) return json({ error: "project_unavailable", message: pc.message }, 409);
+        project = { id: String(body.project_id), text: pc.text };
+      }
       // The actions collected word for word need no AI; the others need NazAI's AI to plan or write the result.
       if (NEEDS_AI.includes(kind) && pickAiGateway() === null) return json({ error: "ai_unavailable", message: "The AI that writes the result is not configured, so this action can not run right now." }, 503);
       // Multi-step and delegation are planned before anything is charged or started.
@@ -307,14 +316,18 @@ Deno.serve(async (req) => {
       // Draft and multi-step build on the previous step, so they go one after another. Everything else asks its tools at the same
       // time, and the result is written from the tools that answered (a tool that fails is named in the result).
       const parallel = kind !== "draft" && kind !== "multistep";
-      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: background || null, steps, max_steps: 3, parallel });
+      // A Task's context holds at most 8000 characters; the project's text gets what the background leaves (removed words can make
+      // the checked text longer than the original).
+      const projectText = project ? project.text.slice(0, Math.max(0, 8000 - (background ? background.length + 2 : 0))) : "";
+      const taskContext = [projectText, background].filter(Boolean).join("\n\n") || null;
+      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: taskContext, steps, max_steps: 3, parallel });
       if (!started.ok) {
         // The credits were taken before the Task could start: give them back.
         for (let r = 0; r < cost; r++) await admin.rpc("refund_generation_credit", { p_user_id: accountId });
         return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
       }
       // Marks the Task as paid for, so that if it ends without a result the credit goes back (once).
-      await admin.from("outer_control_workflows").update({ credit_charged: true }).eq("id", started.workflowId);
+      await admin.from("outer_control_workflows").update({ credit_charged: true, ...(project ? { project_id: project.id } : {}) }).eq("id", started.workflowId);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, task_id: started.workflowId, steps: steps.length });
     }
