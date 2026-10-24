@@ -187,6 +187,20 @@ await t("write-back: the text leaving NazAI is checked; a blocked text creates n
   assert.ok(!H.table("pending_approvals")[0].params.append_markdown.includes("sk-abcdefghij"), "the secret never reaches the approval or Notion");
 });
 
+await t("write-back: text that Notion would cut (too many or too long paragraphs) is refused, not sent cut", async () => {
+  setup();
+  notionPages[PAGE] = { title: "Guide", blocks: [para("Text.")] };
+  await act({ action: "import_notion", page_id: PAGE });
+  const id = projects()[0].id;
+  await act({ action: "set_write_back", project_id: id, enabled: true, confirm_name: "Guide" });
+  let r = await act({ action: "write_back", project_id: id, text: "x".repeat(1901) });
+  assert.equal(r.status, 413); assert.match(r.body.message, /at most 90 paragraphs of up to 1,900 characters/);
+  r = await act({ action: "write_back", project_id: id, text: Array.from({ length: 91 }, (_, i) => `Paragraph ${i}`).join("\n\n") });
+  assert.equal(r.status, 413);
+  assert.equal(H.table("pending_approvals").length, 0);
+  r = await act({ action: "write_back", project_id: id, text: Array.from({ length: 90 }, (_, i) => `Paragraph ${i}`).join("\n\n") });
+  assert.equal(r.status, 200);
+});
 await t("project rules: words become a rule for this project only; the check is updated; another project is not affected", async () => {
   setup();
   await act({ action: "import_paste", text: "Project Falcon launches in May." });

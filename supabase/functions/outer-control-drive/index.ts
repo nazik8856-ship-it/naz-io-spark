@@ -316,7 +316,10 @@ Deno.serve(async (req) => {
       // Draft and multi-step build on the previous step, so they go one after another. Everything else asks its tools at the same
       // time, and the result is written from the tools that answered (a tool that fails is named in the result).
       const parallel = kind !== "draft" && kind !== "multistep";
-      const taskContext = [project?.text ?? "", background].filter(Boolean).join("\n\n") || null;
+      // A Task's context holds at most 8000 characters; the project's text gets what the background leaves (removed words can make
+      // the checked text longer than the original).
+      const projectText = project ? project.text.slice(0, Math.max(0, 8000 - (background ? background.length + 2 : 0))) : "";
+      const taskContext = [projectText, background].filter(Boolean).join("\n\n") || null;
       const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: taskContext, steps, max_steps: 3, parallel });
       if (!started.ok) {
         // The credits were taken before the Task could start: give them back.

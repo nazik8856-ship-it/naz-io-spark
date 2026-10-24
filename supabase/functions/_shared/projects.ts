@@ -384,6 +384,11 @@ export async function handleProjectsAction(admin: AnyAdmin, accountId: string, u
     // The text that leaves NazAI is checked like any other: the account's rules and this project's.
     const check = checkProjectText(await rulesForProject(admin, accountId, p.id), text);
     if (check.blocked) return bad(422, "blocked", `A rule blocks this text: ${check.matches.filter((m) => m.action === "block").map((m) => m.name).join(", ")}. Nothing was sent.`);
+    // The Notion writer adds at most 90 paragraphs of 1,900 characters each; more would arrive cut, so it is refused instead.
+    const paras = check.cleaned.split(/\n{2,}/).filter((x) => x.trim());
+    if (paras.length > 90 || paras.some((x) => x.length > 1900)) {
+      return bad(413, "too_long_for_notion", "Notion takes at most 90 paragraphs of up to 1,900 characters each in one write. Split the text into smaller writes. Nothing was sent.");
+    }
     const { data, error } = await admin.from("pending_approvals").insert({
       user_id: accountId, decision_id: null, api_key_id: null, requester_id: userId, agent_id: null, run_id: null,
       action_type: "notion_update_page", provider: "Notion",
