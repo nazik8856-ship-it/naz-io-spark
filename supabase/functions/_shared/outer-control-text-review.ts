@@ -154,6 +154,8 @@ export async function evaluateExternalText(
     externalId?: string | null;
     /** sha256 of the judged text, stored so a replayed external_id can be checked against the same content. */
     contentHash?: string | null;
+    /** Rules that apply on top of the account's here only (an imported project's own rules, for a Task that uses it). */
+    extraRules?: SafetyRule[];
   },
 ): Promise<TextReviewResult> {
   const { userId, agentId, apiKeyId, isTest, sourceModel, content, origin } = params;
@@ -176,7 +178,7 @@ export async function evaluateExternalText(
   const safeText = async (): Promise<string> => {
     if (safeMemo !== null) return safeMemo;
     try {
-      safeMemo = storableText(await loadSafetyRules(admin, userId, agentId, apiKeyId), content);
+      safeMemo = storableText([...await loadSafetyRules(admin, userId, agentId, apiKeyId), ...(params.extraRules ?? [])], content);
     } catch {
       safeMemo = storableText(BUILTIN_SAFETY_RULES, content);
     }
@@ -271,7 +273,7 @@ export async function evaluateExternalText(
     };
   }
 
-  const rules = await loadSafetyRules(admin, userId, agentId, apiKeyId);
+  const rules = [...await loadSafetyRules(admin, userId, agentId, apiKeyId), ...(params.extraRules ?? [])];
   const decision = decideExternalText(rules, content);
   let { verdict, output: outputText, summary, changes, nextStep } = decision;
   const { trustScore, matches, shadowMatches } = decision;

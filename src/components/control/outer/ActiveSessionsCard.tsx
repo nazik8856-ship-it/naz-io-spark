@@ -3,7 +3,7 @@
 // Update key / Remove sit behind "More"; step logs open only for the session you click. Outer Control does the contacting, rule checking
 // and deciding; this card only shows it and collects the few things a person must give.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Activity, Plus, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
 import { toast } from "sonner";
 import FinalArtifactView from "./FinalArtifactView";
@@ -14,7 +14,7 @@ import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems, type Tone } from "@/lib/outer-control-ui";
 import { describeClosure, describeUsage, healthSummary, isInternalTool, toolHealth, type ActivityStep, type ToolUsage } from "@/lib/outer-control-tools-ui";
 import TaskTracker from "./TaskTracker";
-import TaskPanel, { type TaskRequest } from "./TaskPanel";
+import TaskPanel, { type TaskProject, type TaskRequest } from "./TaskPanel";
 import { ACTION_INFO } from "@/lib/outer-control-report-doc";
 import ConnectToolPanel, { type ConnectPayload } from "./ConnectToolPanel";
 import SessionActivity from "./SessionActivity";
@@ -55,6 +55,9 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showConnect, setShowConnect] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  // "Start a task with this project" (from a project or the import confirmation) opens Start task with that project attached.
+  const [params, setParams] = useSearchParams();
+  const [taskProject, setTaskProject] = useState<TaskProject | null>(null);
   const [startFor, setStartFor] = useState<string | null>(null);
   const [moreFor, setMoreFor] = useState<string | null>(null);
   const [showAllPast, setShowAllPast] = useState(false);
@@ -113,6 +116,17 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const pid = params.get("project");
+    if (!pid || !accountId) return;
+    void (async () => {
+      const { data } = await anyDb.from("imported_projects").select("id, name, source_mode, archived_at").eq("id", pid).eq("user_id", accountId).maybeSingle();
+      const row = data as { id: string; name: string; source_mode: "snapshot" | "linked"; archived_at: string | null } | null;
+      if (row && !row.archived_at) { setTaskProject({ id: row.id, name: row.name, mode: row.source_mode }); setShowReport(true); }
+      else toast.error("That project was not found.");
+      const next = new URLSearchParams(params); next.delete("project"); setParams(next, { replace: true });
+    })();
+  }, [params, accountId, setParams]);
   // Poll while anything is open, so a running session visibly moves and an approval resumes it on screen.
   const anyOpen = sessions.some((s) => isOpen(s.status));
   useEffect(() => {
@@ -172,8 +186,9 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     const r = await act("report", "start_report", {
       task: t.kind, topic: t.text, background: t.background || undefined, styles: t.styles.length ? t.styles : undefined,
       count: t.kind === "alternatives" ? t.count : undefined, tool_ids: t.toolIds, confirm_override: t.keepChoice || undefined,
+      project_id: taskProject?.id,
     }, `${ACTION_INFO[t.kind].title} started: asking ${label}. Follow it in Your tasks below; the result appears there when it is done.`);
-    if (r.ok) setTaskStarts((n) => n + 1);
+    if (r.ok) { setTaskStarts((n) => n + 1); setTaskProject(null); }
     return r.ok;
   };
 
@@ -389,7 +404,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
         </div>
       </div>
       <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} onTest={(t) => runTest(t.id, t.name)} testingId={busy?.startsWith("test-") ? busy.slice(5) : null} />
-      <TaskPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startTask} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }} />
+      <TaskPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startTask} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }} project={taskProject} onClearProject={() => setTaskProject(null)} />
 
       <div className="mt-4 space-y-2">
         {shownTools.length === 0 && (

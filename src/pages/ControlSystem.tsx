@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, X, Gauge, ChevronDown, ChevronRight, MessageCircle, FlaskConical } from "lucide-react";
+import { ArrowLeft, X, Gauge, ChevronDown, ChevronRight, MessageCircle, FlaskConical, FolderInput } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
@@ -24,6 +24,8 @@ import DryRunToggle from "@/components/control/DryRunToggle";
 import StrictnessPanel from "@/components/control/StrictnessPanel";
 import RetentionPanel from "@/components/control/RetentionPanel";
 import ProjectSwitcher from "@/components/control/ProjectSwitcher";
+import ImportProjectDialog from "@/components/projects/ImportProjectDialog";
+import { useProjectList } from "@/hooks/useProjectList";
 import ProjectPicker from "@/components/control/ProjectPicker";
 import WebsiteControlReport from "@/components/websites/WebsiteControlReport";
 import { useInnerProjects } from "@/hooks/useInnerProjects";
@@ -73,6 +75,9 @@ export default function ControlSystem() {
   // Inner Control is always about one existing project (an agent or a website). It opens on the one the person has spent the most
   // time on; until that is known, or when the account has none, nothing is loaded.
   const projects = useInnerProjects();
+  // Imported projects are listed in the picker and opened in their own view; Import project brings in a new one.
+  const projectList = useProjectList();
+  const [importing, setImporting] = useState(false);
   const shown = projects.loading ? null : projects.selected;
   useProjectTimeTracker(shown?.kind, shown?.id);
   const dashboard = useControlDashboardData(accountId, shown);
@@ -237,7 +242,14 @@ export default function ControlSystem() {
           </button>
         </div>
         <ProjectSwitcher />
-        <ProjectPicker projects={projects.projects} selected={projects.selected} loading={projects.loading} onSelect={projects.select} onCreate={() => navigate("/generator-home")} />
+        <ProjectPicker projects={projects.projects} selected={projects.selected} loading={projects.loading} onSelect={projects.select} onCreate={() => navigate("/generator-home")}
+          imported={projectList.items.filter((i) => i.imported).map((i) => ({ id: i.id, name: i.name, mode: i.imported!.source_mode }))}
+          onOpenImported={(pid) => navigate(pid ? `/projects/${pid}` : "/projects")} />
+        <button type="button" onClick={() => setImporting(true)} title="Bring an external project under your rules"
+          className="flex items-center gap-1.5 rounded border border-amber-300/40 bg-amber-400/[0.06] px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider text-amber-100 hover:bg-amber-400/10" data-testid="import-project-button">
+          <FolderInput className="h-3.5 w-3.5" /> Import project
+        </button>
+        <ImportProjectDialog open={importing} onOpenChange={setImporting} />
         {/* GAP 10 (Unified UX): the same traffic light shown on every agent's
             own page and every Governed Entities row, here as an account-wide
             aggregate -- trust score, rule coverage, and spend all rolled up

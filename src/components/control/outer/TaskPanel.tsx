@@ -46,7 +46,10 @@ export const forgetReadings = () => readings.clear();
 
 const clipLine = (s: string, n: number) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 
-export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, onFix, fixing, onConnect }: {
+/** The imported project a task works with: its checked text goes to every tool. */
+export type TaskProject = { id: string; name: string; mode: "snapshot" | "linked" };
+
+export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, onFix, fixing, onConnect, project, onClearProject }: {
   open: boolean; onOpenChange: (o: boolean) => void; tools: TaskTool[]; busy: boolean;
   /** Starts the task; resolves true when it was started. */
   onStart: (r: TaskRequest) => Promise<boolean>;
@@ -54,6 +57,8 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   onFix?: (tool: TaskTool) => void;
   fixing?: string | null;
   onConnect?: () => void;
+  project?: TaskProject | null;
+  onClearProject?: () => void;
 }) {
   const [request, setRequest] = useState("");
   const [route, setRoute] = useState<TaskRoute | null>(null);
@@ -153,6 +158,15 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
           </DialogDescription>
         </DialogHeader>
         <div className="relative space-y-4">
+          {project && (
+            <div className="oc-in flex items-center justify-between gap-2 rounded-xl border border-amber-300/40 bg-amber-400/[0.08] px-3 py-2 text-xs" data-testid="task-project">
+              <span className="min-w-0 text-amber-50">
+                <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-200/80">Project · </span>
+                <span className="font-medium">{project.name}</span> <span className="text-amber-100/70">({project.mode === "linked" ? "Linked" : "Snapshot"}) · its checked text goes to every tool, and its own rules apply</span>
+              </span>
+              {onClearProject && <button type="button" onClick={onClearProject} aria-label="Remove the project" className="shrink-0 text-amber-200/70 hover:text-amber-50"><X className="h-3.5 w-3.5" /></button>}
+            </div>
+          )}
           <div className={`oc-box rounded-2xl border bg-black/40 p-1 ${reading ? "oc-scan border-cyan-400/50" : "border-white/10"}`}>
             <textarea className="block w-full resize-none rounded-xl bg-transparent px-3 py-2.5 text-[15px] leading-relaxed text-zinc-100 outline-none" rows={5}
               aria-label="Describe the task" value={request} onChange={(e) => setRequest(e.target.value)} data-testid="task-request" />

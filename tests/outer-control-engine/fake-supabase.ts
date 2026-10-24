@@ -14,7 +14,8 @@ class Q {
   private inserted: any[] = [];
   constructor(private t: string) {}
   private sel = false;
-  select(_c?: string) { this.sel = true; return this; }
+  private countAsked = false;
+  select(_c?: string, o?: { count?: string; head?: boolean }) { this.sel = true; if (o?.count) this.countAsked = true; return this; }
   insert(p: any) { this.mode = "insert"; this.payload = p; return this; }
   upsert(p: any, o?: any) { this.mode = "upsert"; this.payload = p; this.opts = o; return this; }
   update(p: any) { this.mode = "update"; this.payload = p; return this; }
@@ -67,7 +68,7 @@ class Q {
     if (this.lim != null) m = m.slice(0, this.lim);
     const out = m.map((r) => JSON.parse(JSON.stringify(r)));
     if (this.single_ || this.maybe_) return { data: out[0] ?? null, error: null };
-    return { data: out, error: null };
+    return this.countAsked ? { data: out, error: null, count: out.length } as never : { data: out, error: null };
   }
   then(res: any, rej?: any) { return Promise.resolve(this.run()).then(res, rej); }
 }

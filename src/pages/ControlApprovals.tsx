@@ -366,7 +366,7 @@ export default function ControlApprovals() {
           {row.risk_tier} risk
         </span>
         <span className="rounded border border-white/10 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-400">
-          {row.origin === "agent-runtime" ? "agent run" : "chat"}
+          {row.origin === "agent-runtime" ? "agent run" : row.origin === "projects" ? "project write-back" : "chat"}
         </span>
         {row.escalated_at && (
           <span

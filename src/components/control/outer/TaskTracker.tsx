@@ -6,6 +6,7 @@ import { Ban, Check, ChevronDown, Clock, FileCheck2, Hand, Loader2, Sparkles, X 
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
+import { callProjects } from "@/lib/projects";
 import { ACTION_INFO, splitTaskTitle } from "@/lib/outer-control-report-doc";
 import { hasWriter, taskProgress, type NodeState, type ProgressLeg, type ProgressNode, type ProgressTool, type TaskProgress } from "@/lib/outer-control-task-progress";
 import FinalArtifactView from "./FinalArtifactView";
@@ -13,7 +14,8 @@ import FinalArtifactView from "./FinalArtifactView";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any; // the tables are new and not in the generated types
 
-type TaskRow = { id: string; objective: string; status: string; started_at: string; stop_reason: string | null; final_artifact: unknown };
+type TaskRow = { id: string; objective: string; status: string; started_at: string; stop_reason: string | null; final_artifact: unknown; project_id?: string | null };
+type TaskProjectInfo = { id: string; name: string; source_mode: "snapshot" | "linked"; write_back: boolean };
 type LegRow = ProgressLeg & { workflow_id: string };
 const SHOWN = 3;
 const isOpen = (s: string) => s === "running" || s === "awaiting_human";
@@ -86,6 +88,8 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
   const [tools, setTools] = useState<ProgressTool[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const seen = useRef<Map<string, string>>(new Map());
+  const [projects, setProjects] = useState<Map<string, TaskProjectInfo>>(new Map());
+  const [writing, setWriting] = useState<string | null>(null);
   const autoOpened = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
@@ -96,13 +100,15 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
 
   const loadTasks = async (accountId: string) => {
     const COLS = "id, objective, status, started_at, stop_reason, final_artifact";
-    const q = (withArchive: boolean) => {
-      let x = anyDb.from("outer_control_workflows").select(COLS).eq("user_id", accountId).neq("kind", "single");
+    // Before the project column exists the older query still works.
+    const q = (withArchive: boolean, withProject: boolean) => {
+      let x = anyDb.from("outer_control_workflows").select(withProject ? `${COLS}, project_id` : COLS).eq("user_id", accountId).neq("kind", "single");
       if (withArchive) x = x.is("archived_at", null);
       return x.order("started_at", { ascending: false }).limit(8);
     };
-    let w = await q(true);
-    if (w?.error) w = await q(false);
+    let w = await q(true, true);
+    if (w?.error) w = await q(true, false);
+    if (w?.error) w = await q(false, false);
     const rows = (Array.isArray(w?.data) ? w.data : []) as TaskRow[];
     const ids = rows.map((r) => r.id);
     const [l, t] = await Promise.all([
@@ -113,6 +119,11 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
     const allTools = (Array.isArray(t?.data) ? t.data : []) as ProgressTool[];
     // Only the Tasks started from Start task (they end with NazAI's writer); the newest few.
     const mine = rows.filter((r) => hasWriter(allLegs.filter((x) => x.workflow_id === r.id), allTools)).slice(0, SHOWN);
+    const pids = [...new Set(mine.map((m) => m.project_id).filter((x): x is string => !!x))];
+    if (pids.length) {
+      const pr = await anyDb.from("imported_projects").select("id, name, source_mode, write_back").in("id", pids);
+      setProjects(new Map(((Array.isArray(pr?.data) ? pr.data : []) as TaskProjectInfo[]).map((x) => [x.id, x])));
+    }
     setTools(allTools);
     setLegs(allLegs.filter((x) => mine.some((m) => m.id === x.workflow_id)));
     setTasks(mine);
@@ -167,6 +178,11 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
                 <div className="flex flex-wrap items-center gap-2">
                   {title && <span className="rounded-full border border-cyan-400/40 bg-cyan-400/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.16em] text-cyan-200">{ACTION_INFO[title.kind].title}</span>}
                   <span className="truncate text-sm font-medium text-zinc-100">{title?.text ?? t.objective}</span>
+                  {t.project_id && projects.get(t.project_id) && (
+                    <span className="rounded-full border border-amber-300/40 bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-100" data-testid="task-project-chip">
+                      Project: {projects.get(t.project_id)!.name} · {projects.get(t.project_id)!.source_mode === "linked" ? "Linked" : "Snapshot"}
+                    </span>
+                  )}
                 </div>
                 <p className={`mt-1 text-xs ${p.phase === "ready" ? "text-emerald-200" : p.phase === "failed" ? "text-rose-200" : p.phase === "needs_you" ? "text-amber-200" : "text-cyan-100"}`} data-testid="task-headline">{p.headline}</p>
               </div>
@@ -181,6 +197,20 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
               <div className="space-y-3 px-4 pb-4 pt-3">
                 <ProgressTrack p={p} />
                 {p.phase === "ready" && <FinalArtifactView artifact={t.final_artifact} kind="task" />}
+                {p.phase === "ready" && t.project_id && projects.get(t.project_id)?.write_back && (
+                  <button type="button" disabled={writing === t.id} data-testid="task-write-back"
+                    onClick={async () => {
+                      const text = String((t.final_artifact as { final_output?: string } | null)?.final_output ?? "");
+                      setWriting(t.id);
+                      const r = await callProjects("write_back", { project_id: t.project_id, text });
+                      setWriting(null);
+                      if (r.ok) toast.success("Waiting for your approval in Approvals. Nothing is written to the original before that.");
+                      else toast.error(r.message || "That did not work.");
+                    }}
+                    className="rounded-xl border border-amber-300/50 bg-amber-400/15 px-3 py-1.5 text-sm text-amber-50 hover:bg-amber-400/25 disabled:opacity-50">
+                    {writing === t.id ? "Asking…" : "Write this result to the original"}
+                  </button>
+                )}
                 {!isOpen(t.status) && (
                   <div className="flex justify-end">
                     <button type="button" onClick={() => hide(t.id)} className="rounded border border-white/10 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-500 hover:bg-white/10 hover:text-zinc-300" data-testid="task-hide">Hide</button>

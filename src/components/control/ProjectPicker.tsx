@@ -1,7 +1,7 @@
 // Inner Control header: which project this page is about. Lists the account's agents and websites; the choice changes everything
 // on the page. With one project it is a label, with none it points to the Generator. More than one opens a styled list, grouped by kind.
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, ChevronDown, Globe, Plus } from "lucide-react";
+import { ArrowUpRight, Bot, Check, ChevronDown, FolderKanban, Globe, Plus } from "lucide-react";
 import { KIND_LABEL, type InnerProject } from "@/lib/inner-projects";
 
 const KIND_ICON = { agent: Bot, website: Globe } as const;
@@ -31,17 +31,30 @@ function Group({ title, items, selectedKey, onPick }: { title: string; items: In
   );
 }
 
+/** An imported project: listed under "Imported" and opened in its own view (its rules and tasks live there). */
+export type ImportedEntry = { id: string; name: string; mode: "snapshot" | "linked" };
+
 export default function ProjectPicker({
-  projects, selected, loading, onSelect, onCreate,
+  projects, selected, loading, onSelect, onCreate, imported = [], onOpenImported,
 }: {
   projects: InnerProject[];
   selected: InnerProject | null;
   loading: boolean;
   onSelect: (key: string) => void;
   onCreate: () => void;
+  imported?: ImportedEntry[];
+  /** Opens an imported project (null: the Projects list). */
+  onOpenImported?: (id: string | null) => void;
 }) {
   if (loading) {
     return <div className="h-8 w-44 animate-pulse rounded border border-white/10 bg-white/[0.03]" data-testid="project-picker-loading" aria-label="Loading projects" />;
+  }
+  if ((projects.length === 0 || !selected) && imported.length > 0 && onOpenImported) {
+    return (
+      <button onClick={() => onOpenImported(null)} className="flex items-center gap-1.5 rounded border border-amber-300/40 bg-amber-400/[0.06] px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider text-amber-100 hover:bg-amber-400/10" data-testid="project-picker-imported">
+        <FolderKanban className="h-3.5 w-3.5" /> Imported projects ({imported.length})
+      </button>
+    );
   }
   if (projects.length === 0 || !selected) {
     return (
@@ -53,7 +66,7 @@ export default function ProjectPicker({
   const Icon = selected.kind === "agent" ? Bot : Globe;
   const agents = projects.filter((p) => p.kind === "agent");
   const websites = projects.filter((p) => p.kind === "website");
-  if (projects.length === 1) {
+  if (projects.length === 1 && imported.length === 0) {
     return (
       <div className="flex items-center gap-1.5 rounded border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300" data-testid="project-picker-single">
         <Icon className="h-3.5 w-3.5 text-cyan-300" />
@@ -62,11 +75,12 @@ export default function ProjectPicker({
       </div>
     );
   }
-  return <PickerMenu agents={agents} websites={websites} selected={selected} Icon={Icon} onSelect={onSelect} />;
+  return <PickerMenu agents={agents} websites={websites} selected={selected} Icon={Icon} onSelect={onSelect} imported={imported} onOpenImported={onOpenImported} />;
 }
 
-function PickerMenu({ agents, websites, selected, Icon, onSelect }: {
+function PickerMenu({ agents, websites, selected, Icon, onSelect, imported, onOpenImported }: {
   agents: InnerProject[]; websites: InnerProject[]; selected: InnerProject; Icon: typeof Bot; onSelect: (key: string) => void;
+  imported: ImportedEntry[]; onOpenImported?: (id: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -101,6 +115,21 @@ function PickerMenu({ agents, websites, selected, Icon, onSelect }: {
           <div className="max-h-[320px] divide-y divide-white/5 overflow-y-auto">
             <Group title="Agents" items={agents} selectedKey={selected.key} onPick={pick} />
             <Group title="Websites" items={websites} selectedKey={selected.key} onPick={pick} />
+            {imported.length > 0 && onOpenImported && (
+              <div role="group" aria-label="Imported" className="py-1" data-testid="picker-imported">
+                <div className="flex items-center gap-1.5 px-3 pb-1 pt-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-amber-200/70">
+                  <FolderKanban className="h-3 w-3" /> Imported <span className="text-zinc-600">{imported.length}</span>
+                </div>
+                {imported.map((p) => (
+                  <button key={p.id} type="button" onClick={() => { setOpen(false); onOpenImported(p.id); }} data-testid={`imported-option-${p.id}`}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-amber-400/[0.06]">
+                    <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                    <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-zinc-500">{p.mode === "linked" ? "Linked" : "Snapshot"}</span>
+                    <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="border-t border-white/10 bg-white/[0.02] px-3 py-2 text-[11px] text-zinc-500">Everything on this page follows the project you pick.</div>
         </div>
