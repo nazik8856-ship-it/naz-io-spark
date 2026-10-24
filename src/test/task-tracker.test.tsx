@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, configure } from "@testing-library/react";
+// The full suite runs files in parallel; a first render can take longer than the default one second under that load.
+configure({ asyncUtilTimeout: 5000 });
 
 const state = vi.hoisted(() => ({ workflows: [] as unknown[], legs: [] as unknown[], tools: [] as unknown[] }));
 vi.mock("@/integrations/supabase/client", () => {
