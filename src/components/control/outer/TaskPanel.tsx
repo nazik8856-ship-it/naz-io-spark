@@ -139,7 +139,7 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto border-cyan-400/20 bg-[#040915] text-zinc-100 shadow-[0_0_80px_-20px_rgba(34,211,238,0.35)] sm:max-w-2xl" data-testid="task-panel">
+      <DialogContent className="max-h-[90vh] overflow-y-auto overflow-x-hidden border-cyan-400/20 bg-[#040915] text-zinc-100 shadow-[0_0_80px_-20px_rgba(34,211,238,0.35)] sm:max-w-2xl" data-testid="task-panel">
         {/* Soft NazAI glows behind the panel */}
         <div className="pointer-events-none absolute -left-24 -top-28 h-64 w-64 rounded-full bg-cyan-500/15 blur-[90px] oc-glow" aria-hidden />
         <div className="pointer-events-none absolute -right-24 top-24 h-56 w-56 rounded-full bg-amber-400/10 blur-[90px] oc-glow" aria-hidden />

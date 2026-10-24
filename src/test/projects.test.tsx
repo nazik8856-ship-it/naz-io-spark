@@ -187,4 +187,14 @@ describe("Inner Control picker", () => {
     fireEvent.click(screen.getByTestId("imported-option-p1"));
     expect(onOpen).toHaveBeenCalledWith("p1");
   });
+
+  it("the Notion tab lists the shared pages at once and explains how to share more", async () => {
+    state.tables = { agent_integrations: [{ id: "n1", user_id: "acct", provider: "Notion", status: "connected" }], external_tools: [] };
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ ok: true, json: async () => ({ ok: true, pages: [{ id: "0123456789abcdef0123456789abcdef", title: "Brand guide", last_edited: "2026-10-20T00:00:00Z", icon: null }] }) }));
+    at("/projects", <ImportProjectDialog open onOpenChange={() => {}} />);
+    fireEvent.click(await screen.findByTestId("import-tab-notion"));
+    expect((await screen.findByTestId("notion-pages")).textContent).toMatch(/Brand guide/);
+    expect(calls()[0]).toEqual({ action: "notion_search", query: "" });
+    expect(screen.getByTestId("notion-help").textContent).toMatch(/only the pages you shared[\s\S]*Connections[\s\S]*add NazAI/);
+  });
 });

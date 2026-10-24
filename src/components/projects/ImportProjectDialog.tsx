@@ -79,6 +79,9 @@ export default function ImportProjectDialog({ open, onOpenChange }: { open: bool
     setPages((r.data.pages as NotionPage[]) ?? []);
   };
 
+  // Opening the Notion tab lists every page shared with NazAI right away (an empty search lists them all).
+  useEffect(() => { if (open && tab === "notion" && pages === null && !busy) void searchNotion(); }, [open, tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const tabs: { id: Tab; label: string; icon: typeof Link2; show: boolean }[] = [
     { id: "link", label: "Link", icon: Link2, show: true },
     { id: "upload", label: "Upload", icon: FileUp, show: true },
@@ -90,7 +93,7 @@ export default function ImportProjectDialog({ open, onOpenChange }: { open: bool
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto border-amber-300/20 bg-[#040915] text-zinc-100 shadow-[0_0_80px_-20px_rgba(212,175,55,0.35)] sm:max-w-xl" data-testid="import-dialog">
+      <DialogContent className="max-h-[90vh] overflow-y-auto overflow-x-hidden border-amber-300/20 bg-[#040915] text-zinc-100 shadow-[0_0_80px_-20px_rgba(212,175,55,0.35)] sm:max-w-xl" data-testid="import-dialog">
         <div className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-amber-400/15 blur-[90px] oc-glow" aria-hidden />
         <DialogHeader className="relative">
           <DialogTitle className="flex items-center gap-3 text-lg">
@@ -172,7 +175,7 @@ export default function ImportProjectDialog({ open, onOpenChange }: { open: bool
                   <input className={inputCls} aria-label="Search Notion" placeholder="Search your Notion pages" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchNotion(); } }} />
                   <button type="button" onClick={() => void searchNotion()} disabled={busy} className="flex shrink-0 items-center gap-1.5 rounded-xl border border-white/15 px-3 text-sm hover:bg-white/10 disabled:opacity-40"><Search className="h-4 w-4" /> Search</button>
                 </div>
-                {pages && pages.length === 0 && <p className="text-xs text-zinc-500">No pages found. Make sure the page is shared with NazAI's Notion connection.</p>}
+                {pages && pages.length === 0 && <p className="text-xs text-amber-100/80" data-testid="notion-empty">No pages found.</p>}
                 {pages && pages.length > 0 && (
                   <ul className="max-h-56 space-y-1.5 overflow-y-auto" data-testid="notion-pages">
                     {pages.map((p) => (
@@ -185,6 +188,9 @@ export default function ImportProjectDialog({ open, onOpenChange }: { open: bool
                     ))}
                   </ul>
                 )}
+                <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-zinc-400" data-testid="notion-help">
+                  Notion shows NazAI only the pages you shared with it when you connected. To add a page: open it in Notion → <b className="text-zinc-200">•••</b> (top right) → <b className="text-zinc-200">Connections</b> → add NazAI. Then search again.
+                </p>
                 <p className="text-[11px] text-zinc-500">Stays linked to the original: you can refresh it later. NazAI only edits the original if you turn that on.</p>
               </div>
             )}
