@@ -3,11 +3,11 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
 import { MemoryRouter } from "react-router-dom";
 
-const state = vi.hoisted(() => ({ tools: [] as unknown[], sessions: [] as unknown[], workflows: [] as unknown[], imported: [] as unknown[], route: null as Record<string, unknown> | null, routeFails: false }));
+const state = vi.hoisted(() => ({ tools: [] as unknown[], sessions: [] as unknown[], workflows: [] as unknown[], imported: [] as unknown[], records: [] as unknown[], route: null as Record<string, unknown> | null, routeFails: false }));
 
 vi.mock("@/integrations/supabase/client", () => {
   const result = (table: string) => {
-    const data = table === "external_tools" ? state.tools : table === "outer_control_sessions" ? state.sessions : table === "outer_control_workflows" ? state.workflows : table === "imported_projects" ? state.imported : [];
+    const data = table === "external_tools" ? state.tools : table === "outer_control_sessions" ? state.sessions : table === "outer_control_workflows" ? state.workflows : table === "imported_projects" ? state.imported : table === "outer_control_tool_record" ? state.records : [];
     const q: Record<string, unknown> = {};
     let single = false;
     for (const m of ["select", "eq", "neq", "not", "is", "in", "order", "limit"]) q[m] = () => q;
@@ -31,7 +31,7 @@ const calls = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.ma
 
 describe("connecting a tool and generating a report", () => {
   beforeEach(() => {
-    state.tools = []; state.sessions = []; state.workflows = []; state.imported = []; state.route = null; state.routeFails = false; forgetReadings();
+    state.tools = []; state.sessions = []; state.workflows = []; state.imported = []; state.records = []; state.route = null; state.routeFails = false; forgetReadings();
     vi.clearAllMocks();
     vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string);
@@ -119,6 +119,28 @@ describe("connecting a tool and generating a report", () => {
     expect(start.disabled).toBe(false);
     fireEvent.click(start);
     await waitFor(() => expect(lastStart()).toEqual({ action: "start_report", task: "opinions", topic: "Should we adopt a control layer?", tool_ids: ["c", "a", "b"] }));
+  });
+
+  it("track record: each tool says how it did in 30 days; NazAI suggests the most reliable ones and one press picks them", async () => {
+    state.tools = [good("a", "ChatGPT"), good("b", "Claude"), good("c", "Grok"), writer];
+    state.records = [
+      { tool_id: "a", sessions: "10", completed: "9", failed: "1", stopped: "0", replies: "12", blocked: "1", edited: "2", escalated: "0", median_seconds: "21.4", last_used_at: "x" },
+      { tool_id: "b", sessions: 8, completed: 8, failed: 0, stopped: 0, replies: 8, blocked: 0, edited: 0, escalated: 0, median_seconds: 34, last_used_at: "x" },
+      { tool_id: "c", sessions: 6, completed: 2, failed: 3, stopped: 1, replies: 5, blocked: 3, edited: 0, escalated: 0, median_seconds: 12, last_used_at: "x" },
+    ];
+    state.route = { kind: "opinions" };
+    render_();
+    await waitFor(() => expect(screen.getAllByTestId("tool-record").map((x) => x.textContent)).toEqual([
+      "Finished 9 of 10 · 1 failed · rules blocked 1 of 12 answers · 2 edited · ~21 s",
+      "Finished 8 of 8 · no answer blocked · ~34 s",
+      "Finished 2 of 6 · 3 failed · rules blocked 3 of 5 answers · ~12 s",
+    ]));
+    await describe("Should we adopt a control layer?");
+    await planLine();
+    const box = await screen.findByTestId("tool-suggestion");
+    expect(box.textContent).toMatch(/NazAI suggests Claude and ChatGPT[\s\S]*Claude: finished 8 of 8 sessions, rules never had to block an answer\.[\s\S]*ChatGPT: finished 9 of 10 sessions, rules blocked 1 of 12 answers\./);
+    fireEvent.click(screen.getByTestId("use-suggestion"));
+    expect(screen.getByTestId("task-plan-line").textContent).toBe("NazAI will: Get multiple opinions · Claude → ChatGPT");
   });
 
   it("compare: needs 2 or 3 tools; a fourth can not be ticked", async () => {

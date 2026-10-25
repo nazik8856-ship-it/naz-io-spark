@@ -4,11 +4,11 @@
 // Change to pick another action; when the request is unclear NazAI asks instead of guessing. Every tool reply is checked against
 // the person's rules, then one clean result is written. Reading the request is free; starting uses the action's credits.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Coins, FileEdit, Lightbulb, ListChecks, ListOrdered, Loader2, Megaphone, Network, PenLine, Plus, Scale, Search, ShieldCheck, Sparkles, Target, UserCog, Users, Wand2, X, type LucideIcon } from "lucide-react";
+import { BookOpen, Coins, FileEdit, Gauge, Lightbulb, ListChecks, ListOrdered, Loader2, Megaphone, Network, PenLine, Plus, Scale, Search, ShieldCheck, Sparkles, Target, UserCog, Users, Wand2, X, type LucideIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { callDrive } from "@/lib/outer-control-drive";
 import { ACTION_INFO, MAX_STYLES, REPORT_KINDS, ROUTING_TEXT, TASK_CREDITS, TASK_LIMITS, type ReportKind } from "@/lib/outer-control-report-doc";
-import { checkTaskForm, LABEL_PRESETS, START_LABEL, toolHealth, toolsHint, type ToolHealthInput } from "@/lib/outer-control-tools-ui";
+import { checkTaskForm, describeRecord, LABEL_PRESETS, START_LABEL, suggestTools, toolHealth, toolsHint, type ToolHealthInput, type ToolRecord } from "@/lib/outer-control-tools-ui";
 import ToolPlanBox, { useToolPlan } from "./ToolPlanBox";
 
 const inputCls = "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500/50";
@@ -49,7 +49,7 @@ const clipLine = (s: string, n: number) => { const t = s.replace(/\s+/g, " ").tr
 /** The imported project a task works with: its checked text goes to every tool. */
 export type TaskProject = { id: string; name: string; mode: "snapshot" | "linked" };
 
-export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, onFix, fixing, onConnect, project, onClearProject }: {
+export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, onFix, fixing, onConnect, project, onClearProject, records }: {
   open: boolean; onOpenChange: (o: boolean) => void; tools: TaskTool[]; busy: boolean;
   /** Starts the task; resolves true when it was started. */
   onStart: (r: TaskRequest) => Promise<boolean>;
@@ -59,6 +59,8 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   onConnect?: () => void;
   project?: TaskProject | null;
   onClearProject?: () => void;
+  /** Each tool's track record over the last 30 days (for the suggestion and the line under each tool). */
+  records?: Map<string, ToolRecord>;
 }) {
   const [request, setRequest] = useState("");
   const [route, setRoute] = useState<TaskRoute | null>(null);
@@ -125,6 +127,8 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
     if (l && !labels.some((x) => x.toLowerCase() === l.toLowerCase()) && labels.length < MAX_STYLES) setLabels([...labels, l]);
     setCustomLabel("");
   };
+  // NazAI's suggestion: the most reliable working tools, with the reasons.
+  const suggestion = useMemo(() => !lim || !records ? [] : suggestTools(records, tools.map((t) => ({ id: t.id, name: t.name, working: toolHealth(t).key === "working" })), Math.max(lim.minTools, Math.min(lim.maxTools, 2))), [lim, records, tools]);
   const toolsLine = useMemo(() => picked.map((id) => tools.find((t) => t.id === id)?.name ?? "tool").join(" → "), [picked, tools]);
 
   const reset = () => { setRequest(""); setRoute(null); setChosenKind(null); setLabels([]); setCount(3); setPicked([]); };
@@ -271,6 +275,17 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
           {kind && (
             <fieldset className="oc-in">
               <legend className={sectionTitle}>{toolsHint(kind)}, {kind === "draft" || kind === "multistep" ? "in this order" : "asked at the same time"} ({picked.length} chosen)</legend>
+              {suggestion.length >= (lim?.minTools ?? 1) && (
+                <div className="mt-2 flex flex-wrap items-start gap-2 rounded-xl border border-amber-300/30 bg-gradient-to-r from-amber-400/[0.08] to-cyan-400/[0.05] px-3 py-2 text-xs oc-in" data-testid="tool-suggestion">
+                  <Gauge className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-200" />
+                  <span className="min-w-0 flex-1 text-zinc-200">
+                    <span className="font-semibold text-amber-100">NazAI suggests {suggestion.map((x) => x.name).join(" and ")}</span>
+                    {suggestion.map((x) => <span key={x.id} className="block text-zinc-400">{x.name}: {x.reasons.join(", ")}.</span>)}
+                  </span>
+                  <button type="button" onClick={() => setPicked(suggestion.map((x) => x.id).slice(0, lim!.maxTools))} disabled={suggestion.every((x) => picked.includes(x.id)) && picked.length === suggestion.length}
+                    className="shrink-0 rounded-lg border border-amber-300/50 bg-amber-400/15 px-2.5 py-1 font-semibold text-amber-50 hover:bg-amber-400/25 disabled:opacity-40" data-testid="use-suggestion">Use these</button>
+                </div>
+              )}
               {tools.length === 0 ? <p className="mt-2 text-sm text-zinc-500">Connect a tool first.</p> : (
                 <ul className="mt-2 grid gap-2 sm:grid-cols-2">
                   {tools.map((t) => {
@@ -290,6 +305,7 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
                             <span className={`h-1.5 w-1.5 rounded-full ${ok ? "bg-emerald-400" : h.key === "failed" ? "bg-rose-400" : "bg-amber-400"}`} />{h.label}
                           </span>
                         </label>
+                        {describeRecord(records?.get(t.id)) && <p className="-mt-1 px-3 pb-1.5 text-[10px] text-zinc-500" data-testid="task-tool-record">{describeRecord(records?.get(t.id))}</p>}
                         {!ok && (
                           <div className="flex items-start justify-between gap-2 border-t border-amber-400/15 px-3 py-1.5 text-[11px] text-amber-100/80" data-testid="task-tool-attention">
                             <span>{h.reason}</span>

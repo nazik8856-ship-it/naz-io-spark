@@ -263,3 +263,63 @@ export function describeUsage(u: Pick<ToolUsage, "requests_30d" | "failed_30d" |
   return `Asked ${n} time${n === 1 ? "" : "s"} in 30 days${failed ? ` · ${failed} failed` : ""}${today ? ` · ${today} today` : ""}`;
 }
 
+
+// ---------------------------------------------------------------------------------------
+// Track record (last 30 days) and tool suggestions
+
+/** One row of outer_control_tool_record (counts can arrive as strings). */
+export type ToolRecordRow = {
+  tool_id: string; sessions: number | string; completed: number | string; failed: number | string; stopped: number | string;
+  replies: number | string; blocked: number | string; edited: number | string; escalated: number | string;
+  median_seconds: number | string | null; last_used_at: string | null;
+};
+export type ToolRecord = {
+  toolId: string; sessions: number; completed: number; failed: number; stopped: number;
+  replies: number; blocked: number; edited: number; escalated: number; medianSeconds: number | null;
+};
+const n = (v: number | string | null | undefined) => { const x = Number(v ?? 0); return Number.isFinite(x) ? x : 0; };
+export function toolRecord(r: ToolRecordRow): ToolRecord {
+  return {
+    toolId: r.tool_id, sessions: n(r.sessions), completed: n(r.completed), failed: n(r.failed), stopped: n(r.stopped),
+    replies: n(r.replies), blocked: n(r.blocked), edited: n(r.edited), escalated: n(r.escalated),
+    medianSeconds: r.median_seconds === null || r.median_seconds === undefined ? null : n(r.median_seconds),
+  };
+}
+export const speedText = (s: number) => (s < 60 ? `~${Math.max(1, Math.round(s))} s` : `~${Math.round(s / 60)} min`);
+
+/** "Finished 9 of 10 · rules blocked 2 of 12 answers · edited 1 · ~20 s", or null with no history. */
+export function describeRecord(r: ToolRecord | null | undefined): string | null {
+  if (!r || !r.sessions) return null;
+  const parts = [`Finished ${r.completed} of ${r.sessions}`];
+  if (r.failed) parts.push(`${r.failed} failed`);
+  if (r.replies) parts.push(r.blocked ? `rules blocked ${r.blocked} of ${r.replies} answers` : `no answer blocked`);
+  if (r.edited) parts.push(`${r.edited} edited`);
+  if (r.escalated) parts.push(`${r.escalated} sent for approval`);
+  if (r.medianSeconds !== null) parts.push(speedText(r.medianSeconds));
+  return parts.join(" · ");
+}
+
+const rate = (a: number, b: number) => (b ? a / b : 0);
+/** How much a tool can be relied on: finishing counts most; failing, blocked and edited answers count against it. */
+export function reliability(r: ToolRecord): number {
+  return rate(r.completed, r.sessions) - 0.7 * rate(r.failed, r.sessions) - 0.5 * rate(r.blocked, r.replies) - 0.2 * rate(r.edited, r.replies);
+}
+
+export type ToolSuggestion = { id: string; name: string; reasons: string[] };
+/**
+ * The tools NazAI suggests for a Task: working tools with at least 2 sessions in the last 30 days, the most reliable first
+ * (the faster one when equal), each with the reasons in plain words. Tools without enough history are never suggested.
+ */
+export function suggestTools(records: Map<string, ToolRecord>, tools: { id: string; name: string; working: boolean }[], count: number): ToolSuggestion[] {
+  const rows = tools.filter((t) => t.working).map((t) => ({ t, r: records.get(t.id) })).filter((x): x is { t: typeof x.t; r: ToolRecord } => !!x.r && x.r.sessions >= 2);
+  if (!rows.length) return [];
+  const speeds = rows.map((x) => x.r.medianSeconds).filter((s): s is number => s !== null);
+  const fastest = speeds.length > 1 ? Math.min(...speeds) : null;
+  rows.sort((a, b) => reliability(b.r) - reliability(a.r) || (a.r.medianSeconds ?? Infinity) - (b.r.medianSeconds ?? Infinity));
+  return rows.slice(0, Math.max(0, count)).filter((x) => reliability(x.r) > 0.3).map(({ t, r }) => {
+    const reasons = [`finished ${r.completed} of ${r.sessions} sessions`];
+    if (r.replies) reasons.push(r.blocked === 0 ? "rules never had to block an answer" : `rules blocked ${r.blocked} of ${r.replies} answers`);
+    if (fastest !== null && r.medianSeconds === fastest) reasons.push(`the fastest (${speedText(r.medianSeconds)})`);
+    return { id: t.id, name: t.name, reasons };
+  });
+}
