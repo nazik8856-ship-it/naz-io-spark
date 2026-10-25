@@ -16,7 +16,9 @@ const anyDb = supabase as any;
 
 type Tab = "link" | "upload" | "paste" | "notion";
 type NotionPage = { id: string; title: string; last_edited: string; icon: string | null };
-const inputCls = "w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-zinc-100 outline-none transition focus:border-amber-300/60 focus:shadow-[0_0_24px_-6px_rgba(212,175,55,0.6)]";
+/** github.com/<owner>/<repo>: offer the private repository option. */
+const isGithubRepoLink = (u: string) => /^https:\/\/(www\.)?github\.com\/[\w.-]+\/[\w.-]+/i.test(u.trim());
+const inputCls ="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-zinc-100 outline-none transition focus:border-amber-300/60 focus:shadow-[0_0_24px_-6px_rgba(212,175,55,0.6)]";
 
 export default function ImportProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const navigate = useNavigate();
@@ -34,6 +36,8 @@ export default function ImportProjectDialog({ open, onOpenChange }: { open: bool
   const [done, setDone] = useState<{ project: ImportedProject; check: ProjectCheck } | null>(null);
   const [notionConnected, setNotionConnected] = useState(false);
   const [toolsConnected, setToolsConnected] = useState<boolean | null>(null);
+  const [privateRepo, setPrivateRepo] = useState(false);
+  const [githubToken, setGithubToken] = useState("");
 
   useEffect(() => {
     if (!open || !accountId) return;
@@ -49,7 +53,7 @@ export default function ImportProjectDialog({ open, onOpenChange }: { open: bool
     })();
   }, [open, accountId]);
 
-  const reset = () => { setName(""); setUrl(""); setText(""); setFiles([]); setFileProblem(null); setQuery(""); setPages(null); setProblem(null); setDone(null); setTab("link"); };
+  const reset = () => { setPrivateRepo(false); setGithubToken(""); setName(""); setUrl(""); setText(""); setFiles([]); setFileProblem(null); setQuery(""); setPages(null); setProblem(null); setDone(null); setTab("link"); };
   const close = (o: boolean) => { if (!o) reset(); onOpenChange(o); };
 
   const finish = async (action: string, payload: Record<string, unknown>) => {
@@ -162,8 +166,22 @@ export default function ImportProjectDialog({ open, onOpenChange }: { open: bool
 
             {tab === "link" && (
               <div className="space-y-2">
-                <input className={inputCls} aria-label="Link to import" placeholder="https://… (a public page or a public GitHub repository)" value={url} onChange={(e) => setUrl(e.target.value)} />
-                <p className="text-[11px] text-zinc-500">A one-time copy of the page's text. Pages behind a login can not be imported.</p>
+                <input className={inputCls} aria-label="Link to import" placeholder="https://… (a public page, a GitHub repository or a Google Doc)" value={url} onChange={(e) => setUrl(e.target.value)} />
+                <p className="text-[11px] text-zinc-500">A one-time copy of the text. Google Docs, Sheets and Slides work when shared as "Anyone with the link". Other pages behind a login can not be imported.</p>
+                {isGithubRepoLink(url) && (
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-2.5" data-testid="github-private">
+                    <label className="flex items-center gap-2 text-xs text-zinc-200">
+                      <input type="checkbox" className="accent-amber-400" checked={privateRepo} onChange={(e) => { setPrivateRepo(e.target.checked); if (!e.target.checked) setGithubToken(""); }} aria-label="This repository is private" />
+                      This repository is private
+                    </label>
+                    {privateRepo && (
+                      <div className="mt-2 space-y-1">
+                        <input className={inputCls} type="password" autoComplete="off" aria-label="GitHub token" placeholder="github_pat_…" value={githubToken} onChange={(e) => setGithubToken(e.target.value)} />
+                        <p className="flex items-start gap-1 text-[11px] text-zinc-500"><Lock className="mt-0.5 h-3 w-3 shrink-0" /> Used once for this import and never stored. A fine-grained token with read-only access to Contents of this one repository is enough.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
             {tab === "upload" && (
@@ -213,7 +231,7 @@ export default function ImportProjectDialog({ open, onOpenChange }: { open: bool
             {problem && <p className="rounded-xl border border-amber-400/30 bg-amber-400/[0.07] px-3 py-2 text-xs text-amber-100" data-testid="import-problem">{problem}</p>}
             {tab !== "notion" && (
               <button type="button" disabled={busy || (tab === "link" ? !url.trim() : tab === "upload" ? files.length === 0 : !text.trim())} data-testid="import-submit"
-                onClick={() => void (tab === "link" ? finish("import_link", { url: url.trim() }) : tab === "upload" ? finish("import_files", { files }) : finish("import_paste", { text }))}
+                onClick={() => void (tab === "link" ? finish("import_link", { url: url.trim(), ...(privateRepo && githubToken.trim() && isGithubRepoLink(url) ? { github_token: githubToken.trim() } : {}) }) : tab === "upload" ? finish("import_files", { files }) : finish("import_paste", { text }))}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-300/50 bg-gradient-to-r from-amber-400/25 via-amber-300/15 to-cyan-400/20 px-3 py-2.5 text-sm font-semibold text-amber-50 shadow-[0_0_28px_-8px_rgba(212,175,55,0.8)] transition hover:from-amber-400/35 disabled:border-white/10 disabled:from-white/[0.04] disabled:via-white/[0.04] disabled:to-white/[0.04] disabled:text-zinc-500 disabled:shadow-none">
                 {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Importing…</> : "Import"}
               </button>

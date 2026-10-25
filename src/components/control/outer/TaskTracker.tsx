@@ -2,7 +2,7 @@
 // every tool and for NazAI's writer, and, once it is done, the one controlled result with its proof. A Task that finishes while the
 // page is open says so ("Result ready") and opens its result.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Ban, Check, ChevronDown, Clock, FileCheck2, Hand, Loader2, ShieldCheck, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Ban, Check, ChevronDown, Clock, FileCheck2, Hand, Loader2, RotateCcw, ShieldCheck, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
@@ -16,7 +16,7 @@ const anyDb = supabase as any; // the tables are new and not in the generated ty
 
 type TaskRow = { id: string; objective: string; status: string; started_at: string; stop_reason: string | null; final_artifact: unknown; project_id?: string | null };
 type TaskProjectInfo = { id: string; name: string; source_mode: "snapshot" | "linked"; write_back: boolean };
-type LegRow = ProgressLeg & { id: string; workflow_id: string };
+type LegRow = ProgressLeg & { id: string; workflow_id: string; interruptions?: number | null };
 const SHOWN = 3;
 const isOpen = (s: string) => s === "running" || s === "awaiting_human";
 
@@ -113,7 +113,7 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
     const rows = (Array.isArray(w?.data) ? w.data : []) as TaskRow[];
     const ids = rows.map((r) => r.id);
     const [l, t] = await Promise.all([
-      ids.length ? anyDb.from("outer_control_sessions").select("id, workflow_id, leg_no, tool_id, status, depends_on, stop_reason, pending_kind").in("workflow_id", ids).order("leg_no") : { data: [] },
+      ids.length ? anyDb.from("outer_control_sessions").select("id, workflow_id, leg_no, tool_id, status, depends_on, stop_reason, pending_kind, interruptions").in("workflow_id", ids).order("leg_no") : { data: [] },
       anyDb.from("external_tools").select("id, name, endpoint_url").eq("user_id", accountId),
     ]);
     const allLegs = (Array.isArray(l?.data) ? l.data : []).map((x: LegRow) => ({ ...x, depends_on: x.depends_on ?? [] })) as LegRow[];
@@ -192,6 +192,9 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
                   )}
                 </div>
                 <p className={`mt-1 text-xs ${p.phase === "ready" ? "text-emerald-200" : p.phase === "failed" ? "text-rose-200" : p.phase === "needs_you" ? "text-amber-200" : "text-cyan-100"}`} data-testid="task-headline">{p.headline}</p>
+                {tLegs.some((l) => (l.interruptions ?? 0) > 0) && (
+                  <p className="mt-0.5 flex items-center gap-1 text-[11px] text-zinc-400" data-testid="task-resumed"><RotateCcw className="h-3 w-3 text-cyan-300/80" /> Resumed after an interruption: it carried on from its last saved step.</p>
+                )}
               </div>
               <ChevronDown className={`mt-1 h-4 w-4 shrink-0 text-zinc-500 transition-transform ${expanded ? "rotate-180" : ""}`} />
             </button>

@@ -16,6 +16,8 @@ const KEY = await H.importProjectKey(Buffer.from(globalThis.crypto.getRandomValu
 const plain = (row: any) => H.decryptText(KEY, row.content_enc);
 const deps = {
   key: KEY as CryptoKey | null,
+  judge: null as any,
+  github: undefined as any,
   now: () => Date.parse("2026-10-24T10:00:00Z"),
   checkUrl: async (u: string) => (/^https:\/\//.test(u) && !/localhost|127\.0\.0\.1|10\.\d/.test(u) ? { ok: true, reason: "" } : { ok: false, reason: "blocked address" }),
   fetchUrl: async (u: string) => {
@@ -40,7 +42,7 @@ const projects = () => H.table("imported_projects");
 const PAGE = "0123456789abcdef0123456789abcdef";
 const para = (text: string, type = "paragraph") => ({ type, [type]: { rich_text: [{ plain_text: text }] } });
 function setup() {
-  H.reset(); web = {}; notionPages = {}; notionConnected = true; notionCalls.length = 0; deps.key = KEY;
+  H.reset(); web = {}; notionPages = {}; notionConnected = true; notionCalls.length = 0; deps.key = KEY; deps.judge = null;
   H.state.rpc.read_integration_secret = { access_token: "secret-token" };
 }
 
@@ -447,6 +449,76 @@ await t("live check: the test line reaches the approval exactly as sent; once in
   const ref = await act({ action: "refresh", project_id: id });
   assert.equal(ref.body.changed, true);
   assert.ok((await act({ action: "read", project_id: id })).body.content.includes(line));
+});
+
+await t("Google Docs, Sheets and Drive: imported through their export link; a file that is not shared says how to share it", async () => {
+  setup();
+  const DOC = "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+  web[`https://docs.google.com/document/d/${DOC}/export?format=txt`] = { contentType: "text/plain; charset=utf-8", text: "Brand voice\n\nShort sentences." };
+  let r = await act({ action: "import_link", url: `https://docs.google.com/document/d/${DOC}/edit?usp=sharing` });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(projects()[0].name, "Brand voice"); assert.equal(projects()[0].source_label, "Google Docs");
+  assert.equal(await plain(projects()[0]), "Brand voice\n\nShort sentences.");
+  web[`https://docs.google.com/spreadsheets/d/${DOC}/export?format=csv`] = { contentType: "text/csv", text: "plan,price\nPro,49" };
+  r = await act({ action: "import_link", url: `https://docs.google.com/spreadsheets/d/${DOC}/edit#gid=0`, name: "Prices" });
+  assert.equal(r.status, 200); assert.equal(projects()[1].source_label, "Google Sheets");
+  web[`https://docs.google.com/presentation/d/${DOC}/export/txt`] = { contentType: "text/html", text: "<html><head><title>Sign in - Google Accounts</title></head><body>Sign in</body></html>" };
+  r = await act({ action: "import_link", url: `https://docs.google.com/presentation/d/${DOC}/edit` });
+  assert.equal(r.status, 403); assert.match(r.body.message, /Google Slides file is not shared publicly[\s\S]*Anyone with the link/);
+  assert.equal(H.googleExportOf(`https://drive.google.com/file/d/${DOC}/view`)!.url, `https://drive.google.com/uc?export=download&id=${DOC}`);
+  assert.equal(H.googleExportOf(`https://drive.google.com/open?id=${DOC}`)!.label, "Google Drive");
+  assert.equal(H.googleExportOf("https://example.com/document/d/x"), null);
+  assert.equal(projects().length, 2);
+});
+
+await t("private GitHub: the token is used for the two reads only, sent only to the GitHub API, and stored nowhere", async () => {
+  setup();
+  const TOKEN = "github_pat_" + "A1b2C3d4".repeat(4);
+  const seen: { path: string; token: string; raw?: boolean }[] = [];
+  deps.github = async (path: string, token: string, raw?: boolean) => {
+    seen.push({ path, token, raw });
+    if (token !== TOKEN) return { ok: false, status: 401, text: "" };
+    return path.endsWith("/readme") ? { ok: true, status: 200, text: "# Secret app\n\nInternal." } : { ok: true, status: 200, text: JSON.stringify([{ name: "src", type: "dir" }]) };
+  };
+  let r = await act({ action: "import_link", url: "https://github.com/acme/secret-app", github_token: TOKEN });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(seen.map((s) => [s.path, s.raw ?? false]), [["/repos/acme/secret-app/readme", true], ["/repos/acme/secret-app/contents", false]]);
+  assert.equal(projects()[0].source_label, "github.com · private");
+  assert.match(await plain(projects()[0]), /^# Secret app\n\nInternal\.\n\n## Files\n\n📁 src$/);
+  const everything = JSON.stringify(H.state) + JSON.stringify(Object.fromEntries(["imported_projects", "project_events", "rate_limits"].map((t) => [t, H.table(t)])));
+  assert.ok(!everything.includes(TOKEN), "the token is stored nowhere");
+  r = await act({ action: "import_link", url: "https://github.com/acme/secret-app", github_token: "github_pat_" + "Z".repeat(30) });
+  assert.equal(r.status, 403); assert.match(r.body.message, /GitHub refused the token/);
+  r = await act({ action: "import_link", url: "https://github.com/acme/secret-app", github_token: "password123" });
+  assert.equal(r.status, 400); assert.match(r.body.message, /does not look like a GitHub token/);
+  deps.github = undefined;
+});
+
+await t("try a rule before turning it on: replayed on recent replies, with the tool and the words around each match; nothing is saved", async () => {
+  setup();
+  await act({ action: "import_paste", name: "Support", text: "Support macros." });
+  const id = projects()[0].id;
+  H.table("external_tools").push({ id: "tool-a", user_id: U, name: "ChatGPT" }, { id: "tool-b", user_id: U, name: "Claude" });
+  H.table("outer_control_sessions").push({ id: "s-a", user_id: U, tool_id: "tool-a" }, { id: "s-b", user_id: U, tool_id: "tool-b" });
+  H.table("outer_control_session_steps").push(
+    { session_id: "s-a", user_id: U, reply_text: "Your parcel ships Monday and arrives by Friday at the latest.", created_at: "2026-10-24T09:00:00Z" },
+    { session_id: "s-b", user_id: U, reply_text: "Refunds take 30 days.", created_at: "2026-10-24T08:00:00Z" },
+    { session_id: "s-b", user_id: U, reply_text: null, created_at: "2026-10-24T07:00:00Z" },
+    { session_id: "s-x", user_id: "acct-2", reply_text: "Friday for another account.", created_at: "2026-10-24T09:30:00Z" },
+  );
+  let r = await act({ action: "test_rule", project_id: id, words: "Friday, Saturday", rule_action: "block" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.kind, r.body.checked, r.body.matched], ["words", 2, 1]);
+  assert.deepEqual(r.body.hits, [{ tool: "ChatGPT", at: "2026-10-24T09:00:00Z", before: "Your parcel ships Monday and arrives by ", match: "Friday", after: " at the latest." }]);
+  assert.equal(H.table("project_rules").length, 0, "trying a rule saves nothing");
+  deps.judge = null;
+  r = await act({ action: "test_rule", project_id: id, kind: "meaning", description: "Promising a delivery date" });
+  assert.equal(r.status, 503);
+  deps.judge = async (p: any) => JSON.stringify({ violations: p.user.includes("arrives by Friday") ? [{ rule: "R1", quote: "arrives by Friday at the latest", why: "A delivery promise." }] : [] });
+  r = await act({ action: "test_rule", project_id: id, kind: "meaning", name: "No delivery promises", description: "Promising a delivery date", rule_action: "approval" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.checked, r.body.matched, r.body.unavailable, r.body.hits[0].match], [2, 1, 0, "arrives by Friday at the latest"]);
+  assert.equal(H.table("meaning_rules").length, 0);
 });
 
 await t("meaning rules for a project: plain words, limited in number, removed with the project", async () => {

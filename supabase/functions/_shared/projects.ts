@@ -15,7 +15,7 @@ import { textSafeToStore } from "./outer-control-text-review.ts";
 import { scanForInjection } from "./injection-scanner.ts";
 import { sha256Hex } from "./api-key-auth.ts";
 import { decryptText, encryptText } from "./project-crypto.ts";
-import { MAX_MEANING_RULES } from "./meaning-judge.ts";
+import { judgeMeaning, MAX_MEANING_RULES, type JudgeAi } from "./meaning-judge.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -115,6 +115,36 @@ export function githubRepoOf(url: string): { owner: string; repo: string } | nul
     if (!owner || !repo || !/^[\w.-]+$/.test(owner) || !/^[\w.-]+$/.test(repo)) return null;
     return { owner, repo: repo.replace(/\.git$/, "") };
   } catch { return null; }
+}
+
+/**
+ * A Google Docs, Sheets, Slides or Drive link as the link that downloads its text (Docs and Slides as plain text, a Sheet's first
+ * tab as CSV, a Drive file as it is). It works for a file shared as "Anyone with the link"; otherwise Google answers with its
+ * sign-in page, which is recognised and explained. null: not a Google file link.
+ */
+export function googleExportOf(url: string): { url: string; label: string } | null {
+  let u: URL;
+  try { u = new URL(url); } catch { return null; }
+  const id = (re: RegExp) => u.pathname.match(re)?.[1] ?? null;
+  if (u.hostname === "docs.google.com") {
+    const doc = id(/^\/document\/d\/([\w-]{20,})/);
+    if (doc) return { url: `https://docs.google.com/document/d/${doc}/export?format=txt`, label: "Google Docs" };
+    const sheet = id(/^\/spreadsheets\/d\/([\w-]{20,})/);
+    if (sheet) return { url: `https://docs.google.com/spreadsheets/d/${sheet}/export?format=csv`, label: "Google Sheets" };
+    const slides = id(/^\/presentation\/d\/([\w-]{20,})/);
+    if (slides) return { url: `https://docs.google.com/presentation/d/${slides}/export/txt`, label: "Google Slides" };
+  }
+  if (u.hostname === "drive.google.com") {
+    const file = id(/^\/file\/d\/([\w-]{20,})/) ?? (/^[\w-]{20,}$/.test(u.searchParams.get("id") ?? "") ? u.searchParams.get("id") : null);
+    if (file) return { url: `https://drive.google.com/uc?export=download&id=${file}`, label: "Google Drive" };
+  }
+  return null;
+}
+
+/** A GitHub token as given for a private repository import: a fine-grained or classic personal access token, or null. */
+export function githubTokenOf(v: unknown): string | null {
+  const t = typeof v === "string" ? v.trim() : "";
+  return /^(github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{30,})$/.test(t) ? t : null;
 }
 
 /** Uploaded files joined into one text, each under its own name line. */
@@ -278,7 +308,46 @@ export type ProjectDeps = {
   now: () => number;
   /** The key project text is encrypted with (PROJECTS_KEY); without it nothing new is stored. */
   key: CryptoKey | null;
+  /** The AI judge, to try a meaning rule on recent replies before it is turned on; absent: only word rules can be tried. */
+  judge?: JudgeAi | null;
+  /** The GitHub API (api.github.com only) with a token given for this one import; never stored. */
+  github?: (path: string, token: string, raw?: boolean) => Promise<{ ok: boolean; status: number; text: string }>;
 };
+
+// ---------------------------------------------------------------------------------------
+// Try a rule before turning it on: replayed against the account's most recent tool replies (as stored, already cleaned)
+
+export type ReplayReply = { text: string; tool: string; at: string };
+export type ReplayHit = { tool: string; at: string; before: string; match: string; after: string };
+export const REPLAY_WORDS_LIMIT = 100;
+export const REPLAY_MEANING_LIMIT = 8;
+
+/** Which of these replies a word rule would have caught, each with the words around the match. */
+export function replayWordRule(pattern: string, replies: ReplayReply[]): { checked: number; matched: number; hits: ReplayHit[] } {
+  let re: RegExp;
+  try { re = new RegExp(pattern, "i"); } catch { return { checked: 0, matched: 0, hits: [] }; }
+  const hits: ReplayHit[] = [];
+  let matched = 0;
+  for (const r of replies) {
+    const m = re.exec(r.text);
+    if (!m) continue;
+    matched++;
+    if (hits.length < 5) hits.push({ tool: r.tool, at: r.at, before: r.text.slice(Math.max(0, m.index - 60), m.index), match: m[0].slice(0, 120), after: r.text.slice(m.index + m[0].length, m.index + m[0].length + 60) });
+  }
+  return { checked: replies.length, matched, hits };
+}
+
+/** The account's most recent tool replies, newest first, with the tool that sent each. */
+async function recentReplies(admin: AnyAdmin, accountId: string, limit: number): Promise<ReplayReply[]> {
+  const { data } = await admin.from("outer_control_session_steps").select("session_id, reply_text, created_at").eq("user_id", accountId).order("created_at", { ascending: false }).limit(limit * 2);
+  const steps = ((data ?? []) as { session_id: string; reply_text: string | null; created_at: string }[]).filter((s) => s.reply_text && s.reply_text.trim()).slice(0, limit);
+  if (!steps.length) return [];
+  const { data: sess } = await admin.from("outer_control_sessions").select("id, tool_id").in("id", [...new Set(steps.map((s) => s.session_id))]);
+  const toolOf = new Map(((sess ?? []) as { id: string; tool_id: string }[]).map((x) => [x.id, x.tool_id]));
+  const { data: tools } = await admin.from("external_tools").select("id, name").eq("user_id", accountId);
+  const nameOf = new Map(((tools ?? []) as { id: string; name: string }[]).map((x) => [x.id, x.name]));
+  return steps.map((s) => ({ text: s.reply_text!, tool: nameOf.get(toolOf.get(s.session_id) ?? "") ?? "A tool", at: s.created_at }));
+}
 
 export type ActionResult = { status: number; body: Record<string, unknown> };
 const ok = (body: Record<string, unknown>): ActionResult => ({ status: 200, body: { ok: true, ...body } });
@@ -415,15 +484,42 @@ export async function handleProjectsAction(admin: AnyAdmin, accountId: string, u
     const allowed = await deps.checkUrl(url);
     if (!allowed.ok) return bad(400, "address_not_allowed", `That link can't be imported: ${allowed.reason}.`);
     const repo = githubRepoOf(url);
+    const google = googleExportOf(url);
+    const token = githubTokenOf(body.github_token);
+    if (body.github_token && !token) return bad(400, "invalid_token", "That does not look like a GitHub token (it starts with github_pat_ or ghp_). Nothing was stored.");
     let title = "";
     let text = "";
-    if (repo) {
+    let label = "";
+    if (repo && token) {
+      // A private repository: the token is used for these two reads only, sent only to api.github.com, and never stored.
+      if (!deps.github) return bad(503, "unavailable", "Private GitHub imports are not available right now. Nothing was stored.");
+      const base = `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`;
+      const readme = await deps.github(`${base}/readme`, token, true);
+      const listing = await deps.github(`${base}/contents`, token);
+      if (readme.status === 401 || listing.status === 401) return bad(403, "github_token_refused", "GitHub refused the token (it may have expired or been revoked). Nothing was stored.");
+      let files: string[] = [];
+      try { files = (JSON.parse(listing.text) as { name: string; type: string }[]).map((x) => `${x.type === "dir" ? "📁" : "-"} ${x.name}`); } catch { /* no listing */ }
+      if (!readme.ok && !files.length) return bad(404, "not_found", "That repository was not found, or the token can not read it. Give the token read access to Contents of this repository.");
+      title = `${repo.owner}/${repo.repo}`;
+      label = "github.com · private";
+      text = [readme.ok ? readme.text.trim() : "", files.length ? `## Files\n\n${files.join("\n")}` : ""].filter(Boolean).join("\n\n");
+    } else if (google) {
+      const page = await deps.fetchUrl(google.url);
+      let finalHost = "";
+      try { finalHost = new URL(page.finalUrl).hostname; } catch { /* none */ }
+      if (finalHost === "accounts.google.com" || (page.ok && /html/i.test(page.contentType) && /<title>[^<]*(sign in|google accounts)/i.test(page.text))) {
+        return bad(403, "login_required", `That ${google.label} file is not shared publicly. In Google, choose Share → General access → "Anyone with the link" (Viewer), then import it again.`);
+      }
+      if (!page.ok) return bad(502, "fetch_failed", page.status === 404 ? `That ${google.label} file was not found.` : page.error ?? `Google answered HTTP ${page.status}.`);
+      if (/html/i.test(page.contentType)) { const h = htmlToText(page.text); title = h.title; text = h.text; } else text = page.text;
+      label = google.label;
+    } else if (repo) {
       // A GitHub repository: its README and its top-level file list.
       const readme = await deps.fetchUrl(`https://raw.githubusercontent.com/${repo.owner}/${repo.repo}/HEAD/README.md`);
       const listing = await deps.fetchUrl(`https://api.github.com/repos/${repo.owner}/${repo.repo}/contents`);
       let files: string[] = [];
       try { files = (JSON.parse(listing.text) as { name: string; type: string }[]).map((x) => `${x.type === "dir" ? "📁" : "-"} ${x.name}`); } catch { /* no listing */ }
-      if (!readme.ok && !files.length) return bad(404, "not_found", "That GitHub repository could not be read. Only public repositories can be imported by link.");
+      if (!readme.ok && !files.length) return bad(404, "not_found", "That GitHub repository could not be read. For a private repository, add a read-only token below.");
       title = `${repo.owner}/${repo.repo}`;
       text = [readme.ok ? readme.text.trim() : "", files.length ? `## Files\n\n${files.join("\n")}` : ""].filter(Boolean).join("\n\n");
     } else {
@@ -442,7 +538,7 @@ export async function handleProjectsAction(admin: AnyAdmin, accountId: string, u
     let host = "";
     try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { /* checked above */ }
     return insertProject(admin, accountId, userId, deps, {
-      name: cleanName(body.name, title || firstLine(text) || host), source_mode: "snapshot", source_kind: "link", source_ref: url, source_label: host,
+      name: cleanName(body.name, title || firstLine(text) || host), source_mode: "snapshot", source_kind: "link", source_ref: url, source_label: label || host,
       content_type: repo ? "markdown" : contentTypeOf({ text }), content: clip(text, MAX_PROJECT_CHARS + 1), files: [],
     });
   }
@@ -567,6 +663,35 @@ export async function handleProjectsAction(admin: AnyAdmin, accountId: string, u
     const approvalId = (data as { id: string }).id;
     await event("write_back_requested", { approval_id: approvalId, chars: check.cleaned.length });
     return ok({ approval_id: approvalId, removed: check.matches.filter((m) => m.action === "remove_text").map((m) => m.name) });
+  }
+
+  if (action === "test_rule") {
+    // Nothing is saved: the rule is tried on recent replies so its owner sees what it would have caught.
+    const act = String(body.rule_action ?? (body.kind === "meaning" ? "block" : "remove")) as RuleAction;
+    if (!["remove", "block", "approval"].includes(act)) return bad(400, "invalid_action", "rule_action must be remove, block or approval.");
+    if (body.kind === "meaning") {
+      const description = clip(String(body.description ?? "").replace(/\s+/g, " ").trim(), 500);
+      if (description.length < 3) return bad(400, "invalid_description", "Say in plain words what the rule should catch.");
+      if (!deps.judge) return bad(503, "ai_unavailable", "The AI judge is not available right now, so a meaning rule can not be tried. Nothing was saved.");
+      const replies = await recentReplies(admin, accountId, REPLAY_MEANING_LIMIT);
+      const rule = { id: "trial", name: clip(String(body.name ?? "This rule").trim() || "This rule", 120), description, action: act as "remove" | "block" | "approval" };
+      const hits: ReplayHit[] = [];
+      let matched = 0, unavailable = 0;
+      for (const r of replies) {
+        const j = await judgeMeaning(deps.judge, [rule], r.text);
+        if (j.unavailable) { unavailable++; continue; }
+        const f = j.findings[0];
+        if (!f) continue;
+        matched++;
+        const m = new RegExp(f.pattern, "i").exec(r.text);
+        if (m && hits.length < 5) hits.push({ tool: r.tool, at: r.at, before: r.text.slice(Math.max(0, m.index - 60), m.index), match: m[0].slice(0, 120), after: r.text.slice(m.index + m[0].length, m.index + m[0].length + 60) });
+      }
+      return ok({ kind: "meaning", rule_action: act, checked: replies.length - unavailable, matched, hits, unavailable });
+    }
+    const pattern = wordsToPattern(String(body.words ?? ""));
+    if (!pattern) return bad(400, "invalid_words", "Say which words or phrases the rule looks for.");
+    const r = replayWordRule(pattern, await recentReplies(admin, accountId, REPLAY_WORDS_LIMIT));
+    return ok({ kind: "words", rule_action: act, ...r });
   }
 
   if (action === "add_rule" && body.kind === "meaning") {

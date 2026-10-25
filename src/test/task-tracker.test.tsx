@@ -146,6 +146,13 @@ describe("TaskTracker", () => {
     expect(JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).toEqual({ action: "archive", kind: "workflow", id: "t1" });
   });
 
+  it("a Task that was cut off and picked up again says it carried on from its last saved step", async () => {
+    state.workflows = [{ id: "t1", objective: "Research: AI safety evaluation", status: "running", started_at: "x", stop_reason: null, final_artifact: null }];
+    state.legs = [leg(1, "a", "running", [], { interruptions: 1 }), leg(2, "b", "completed"), leg(3, "w", "queued", [1, 2])];
+    render(<TaskTracker accountId="u1" />);
+    expect((await screen.findByTestId("task-resumed")).textContent).toMatch(/Resumed after an interruption/);
+  });
+
   it("a Task with a project: each tool's answer is compared with it; a contradiction is shown with both quotes", async () => {
     state.workflows = [{ id: "t1", objective: "Research: AI safety evaluation", status: "completed", started_at: "x", stop_reason: null, final_artifact: taskArt(), project_id: "p1" }];
     state.legs = [leg(1, "a", "failed"), leg(2, "b", "completed"), leg(3, "w", "completed", [1, 2])];

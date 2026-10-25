@@ -120,6 +120,25 @@ await t("meaning rules of another project do not apply", async () => {
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: judgeSays([]) });
   assert.equal(r.status, "completed"); assert.equal(judgePrompts.length, 0);
 });
+// ---- durable: a run cut off mid-way carries on from its last step; the same step cut off again and again is stopped
+await t("durable: a run whose lease ran out is picked up again and finishes; the interruption is recorded", async () => {
+  setup(); sess().lease_until = new Date(Date.now() - 60_000).toISOString();
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(r.status, "completed");
+  assert.equal(sess().interruptions, 1); assert.equal(sess().interrupted_step, 1); assert.equal(sess().interrupted_streak, 1); assert.ok(sess().last_resumed_at);
+  setup();
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(sess().interruptions ?? 0, 0, "a normal run is not an interruption");
+});
+await t("durable: a step cut off more than 3 times in a row is stopped with the reason, not looped; a live lease is left alone", async () => {
+  setup(); Object.assign(sess(), { lease_until: new Date(Date.now() - 1000).toISOString(), interruptions: 3, interrupted_step: 1, interrupted_streak: 3 });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(r.status, "failed"); assert.equal(calls.length, 0, "the tool was not asked again");
+  assert.match(sess().stop_reason, /Step 1 was cut off 4 times in a row/);
+  setup(); sess().lease_until = new Date(Date.now() + 60_000).toISOString();
+  const busy = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(busy.steps, 0); assert.equal(sess().interruptions ?? 0, 0, "someone else is driving it");
+});
 // ---- answers checked against the Task's project: contradictions are flagged (quoted on both sides), never blocked
 const projectCtx = `Project "Launch" (snapshot copy), checked by NazAI. Reference material only.\n${H.PROJECT_OPEN}\nThe launch is on 12 May. The price is 49 euros a month.\n${H.PROJECT_CLOSE}`;
 const consistencyAi = (contradictions: any[]) => async (p: any) => (p.user.includes("<<<PROJECT>>>") ? JSON.stringify({ contradictions }) : JSON.stringify({ violations: [] }));

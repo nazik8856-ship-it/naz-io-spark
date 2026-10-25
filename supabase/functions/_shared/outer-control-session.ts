@@ -103,6 +103,8 @@ export const defaultSessionDeps = (): SessionDeps => ({
 });
 
 const LEASE_MS = 150_000;
+/** A step whose runner was cut off this many times in a row is stopped instead of being tried again forever. */
+export const MAX_INTERRUPTIONS_PER_STEP = 3;
 const MAX_ANSWER_CHARS = 2000;
 const MAX_EDIT_CHARS = 8000;
 export const APPROVED_STATUSES = new Set(["approved", "auto_approved"]);
@@ -460,6 +462,8 @@ async function acceptReply(admin: AnyAdmin, s: SessionRow, tool: ToolRow, stepNo
  */
 export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: SessionDeps = defaultSessionDeps()): Promise<{ status: string; steps: number }> {
   const began = deps.now();
+  // What the last driver left: a lease that ran out without being released means it was cut off mid-run.
+  const { data: before } = await admin.from("outer_control_sessions").select("lease_until, step_count, interruptions, interrupted_step, interrupted_streak").eq("id", sessionId).maybeSingle();
   // Claim: one driver per session at a time.
   const { data: claimed } = await admin.from("outer_control_sessions")
     .update({ lease_until: iso(began + LEASE_MS) })
@@ -469,6 +473,22 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
   if (!claimed) {
     const { data: cur } = await admin.from("outer_control_sessions").select("status").eq("id", sessionId).maybeSingle();
     return { status: (cur as { status?: string } | null)?.status ?? "missing", steps: 0 };
+  }
+  // Durable: an interrupted run carries on from the last recorded step. The same step cut off again and again is stopped.
+  const prev = before as { lease_until: string | null; step_count: number; interruptions?: number; interrupted_step?: number | null; interrupted_streak?: number } | null;
+  if (prev?.lease_until) {
+    const stepNo = prev.step_count + 1;
+    const streak = prev.interrupted_step === stepNo ? (prev.interrupted_streak ?? 0) + 1 : 1;
+    await admin.from("outer_control_sessions").update({
+      interruptions: (prev.interruptions ?? 0) + 1, interrupted_step: stepNo, interrupted_streak: streak, last_resumed_at: iso(began),
+    }).eq("id", sessionId);
+    if (streak > MAX_INTERRUPTIONS_PER_STEP) {
+      const { data: row } = await admin.from("outer_control_sessions").select("*").eq("id", sessionId).maybeSingle();
+      if (row) {
+        await finish(admin, row as SessionRow, "failed", `Step ${stepNo} was cut off ${streak} times in a row before it could finish, so it was stopped instead of being tried again. Try again later or check the tool.`, deps);
+        return { status: "failed", steps: 0 };
+      }
+    }
   }
 
   let steps = 0;

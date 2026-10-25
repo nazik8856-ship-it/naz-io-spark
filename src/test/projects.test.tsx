@@ -334,6 +334,43 @@ describe("Live check (Notion import and write-back, for real)", () => {
   });
 });
 
+describe("More import sources", () => {
+  it("a GitHub repository link offers the private option; the token goes with this import only", async () => {
+    state.tables = { agent_integrations: [], external_tools: [] };
+    vi.stubGlobal("fetch", server(() => ({ ok: true, project: snapshot, check: { at: "x", rules: 7, matches: [] } })));
+    at("/projects", <ImportProjectDialog open onOpenChange={() => {}} />);
+    expect(screen.queryByTestId("github-private")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Link to import"), { target: { value: "https://github.com/acme/secret-app" } });
+    fireEvent.click(screen.getByLabelText("This repository is private"));
+    expect(screen.getByTestId("github-private").textContent).toMatch(/Used once for this import and never stored/);
+    fireEvent.change(screen.getByLabelText("GitHub token"), { target: { value: "github_pat_abc123abc123abc123abc123" } });
+    fireEvent.click(screen.getByTestId("import-submit"));
+    await screen.findByTestId("import-done");
+    expect(calls()[0]).toEqual({ action: "import_link", url: "https://github.com/acme/secret-app", github_token: "github_pat_abc123abc123abc123abc123", account_id: "acct" });
+  });
+});
+
+describe("Try a rule before turning it on", () => {
+  it("shows what the rule would have done to recent replies, with the words around each match; changing the rule clears it", async () => {
+    state.tables = { imported_projects: [base], project_rules: [], meaning_rules: [], outer_control_workflows: [], project_events: [], agents: [], websites: [] };
+    vi.stubGlobal("fetch", server((b) => (b.action === "test_rule"
+      ? { ok: true, kind: "words", rule_action: "block", checked: 40, matched: 3, hits: [{ tool: "ChatGPT", at: "2026-10-24T09:00:00Z", before: "It arrives by ", match: "Friday", after: " at noon." }] }
+      : { ok: true })));
+    at("/projects/p1", <ProjectView />);
+    await screen.findByTestId("project-control");
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "No days" } });
+    fireEvent.change(screen.getByLabelText("Words to catch"), { target: { value: "Friday" } });
+    fireEvent.change(screen.getByLabelText("What the rule does"), { target: { value: "block" } });
+    fireEvent.click(screen.getByTestId("project-try-rule"));
+    expect((await screen.findByTestId("rule-trial-summary")).textContent).toBe("It would have blocked 3 of your last 40 replies (8%).");
+    expect(screen.getByTestId("rule-trial-hit").textContent).toBe("ChatGPT · 24 Oct: …It arrives by Friday at noon.…");
+    expect(calls().at(-1)).toEqual({ action: "test_rule", project_id: "p1", account_id: "acct", words: "Friday", rule_action: "block" });
+    expect(screen.getByTestId("project-add-rule").textContent).toMatch(/Turn it on/);
+    fireEvent.change(screen.getByLabelText("Words to catch"), { target: { value: "Friday, Monday" } });
+    await waitFor(() => expect(screen.queryByTestId("rule-trial")).toBeNull());
+  });
+});
+
 describe("Meaning rules on a project", () => {
   it("a rule in plain words is added through the projects function, listed with its Meaning badge, and removed by kind", async () => {
     state.tables = { imported_projects: [base], project_rules: [], meaning_rules: [{ id: "m1", project_id: "p1", name: "No delivery promises", description: "Promising a delivery date", action: "approval", enabled: true, created_at: "x" }], outer_control_workflows: [], project_events: [], agents: [], websites: [] };

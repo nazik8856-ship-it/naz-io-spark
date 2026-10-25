@@ -2,7 +2,9 @@
 //
 //   POST { action: "import_paste", text, name? }
 //   POST { action: "import_files", files: [{ name, text }], name? }        (text files only, at most 20, 200,000 characters in all)
-//   POST { action: "import_link", url, name? }                             (a public https page, or a public GitHub repository)
+//   POST { action: "import_link", url, name?, github_token? }              (a public https page; a GitHub repository, private with a
+//                                                                          token used once and never stored; a Google Docs, Sheets,
+//                                                                          Slides or Drive file shared with "Anyone with the link")
 //   POST { action: "notion_search", query }                                (pages of the connected Notion workspace)
 //   POST { action: "import_notion", page_id, name? }                       (linked to the original page)
 //   POST { action: "refresh", project_id }                                 (a linked project, read again from its source)
@@ -13,7 +15,8 @@
 //   POST { action: "set_write_back", project_id, enabled, confirm_name? }  (linked only; turning it on needs the project's name typed)
 //   POST { action: "write_back", project_id, text }                        (creates an approval; nothing is written before it is approved)
 //   POST { action: "add_rule", project_id, name, words, rule_action: "remove" | "block" | "approval" }
-//   POST { action: "remove_rule", project_id, rule_id }
+//   POST { action: "remove_rule", project_id, rule_id, kind? }
+//   POST { action: "test_rule", project_id, kind?, words | description, rule_action }  (tried on recent replies; nothing saved)
 //
 // Project text is encrypted with PROJECTS_KEY (32 random bytes, base64), which only the edge functions have. Without it nothing
 // new is stored. Everything but "read" needs the owner of the account (or an owner-role team member with the integrations
@@ -25,6 +28,7 @@ import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { readSecret } from "../_shared/integration-secrets.ts";
 import { handleProjectsAction, IMPORT_ACTIONS, linkShapeProblem, MAX_LINK_BYTES, READ_ACTIONS, type FetchedPage, type ProjectDeps } from "../_shared/projects.ts";
 import { importProjectKey } from "../_shared/project-crypto.ts";
+import { gatewayAi } from "../_shared/outer-control-report.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -94,8 +98,24 @@ async function fetchUrl(url: string): Promise<FetchedPage> {
   return { ok: false, status: 0, contentType: "", text: "", finalUrl: current, error: "Too many redirects." };
 }
 
+/** The GitHub API with a token given for one private import: only api.github.com, 10 seconds, 2 MB, the token never logged. */
+const github: ProjectDeps["github"] = async (path, token, raw) => {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const r = await fetch(`https://api.github.com${path}`, {
+      signal: ctl.signal, redirect: "error",
+      headers: { Authorization: `Bearer ${token}`, Accept: raw ? "application/vnd.github.raw+json" : "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "NazAI-Import/1.0" },
+    });
+    const text = await r.text();
+    return { ok: r.ok, status: r.status, text: text.length > MAX_LINK_BYTES ? text.slice(0, MAX_LINK_BYTES) : text };
+  } catch {
+    return { ok: false, status: 0, text: "" };
+  } finally { clearTimeout(timer); }
+};
+
 // deno-lint-ignore no-explicit-any
-const notion: ProjectDeps["notion"] = async (admin: any, accountId, path, init) => {
+const notion: ProjectDeps["notion"] =async (admin: any, accountId, path, init) => {
   const { data } = await admin.from("agent_integrations").select("id, credentials_secret_id, agent_id").eq("user_id", accountId).eq("provider", "Notion").eq("status", "connected");
   const rows = (data ?? []) as { id: string; credentials_secret_id: string | null; agent_id: string | null }[];
   const row = rows.find((r) => !r.agent_id) ?? rows[0];
@@ -152,7 +172,7 @@ Deno.serve(async (req) => {
       if (!daily.allowed) return json({ error: "import_quota", message: `At most ${IMPORTS_PER_DAY} imports a day. Try again tomorrow.` }, 429);
     }
 
-    const r = await handleProjectsAction(admin, accountId, userData.user.id, body, { fetchUrl, checkUrl: checkLink, notion, now: Date.now, key: await keyPromise });
+    const r = await handleProjectsAction(admin, accountId, userData.user.id, body, { fetchUrl, checkUrl: checkLink, notion, now: Date.now, key: await keyPromise, judge: gatewayAi, github });
     return json(r.body, r.status);
   } catch (e) {
     console.error("projects failed:", e instanceof Error ? e.message : e);

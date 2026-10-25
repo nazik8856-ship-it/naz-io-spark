@@ -4,7 +4,7 @@
 // (it is stored encrypted); a team member who is not an owner sees everything but can change nothing ("View only").
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Copy, Download, FolderKanban, History, Loader2, Lock, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Trash2, Archive, PenLine, Fingerprint } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Copy, Download, FlaskConical, FolderKanban, History, Loader2, Lock, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Trash2, Archive, PenLine, Fingerprint } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
@@ -26,7 +26,34 @@ const ACTION_WORD: Record<string, string> = { remove_text: "removed before tools
 type TaskRow = { id: string; objective: string; status: string; started_at: string };
 type MeaningRuleRow = { id: string; name: string; description: string; action: "remove" | "block" | "approval"; enabled: boolean; created_at: string };
 const MEANING_DOES: Record<MeaningRuleRow["action"], string> = { remove: "removes the passage", block: "blocks the reply", approval: "needs approval" };
-const EMPTY_RULE = { kind: "words" as "words" | "meaning", name: "", words: "", description: "", action: "remove" };
+type RuleTrial = { kind: "words" | "meaning"; rule_action: "remove" | "block" | "approval"; checked: number; matched: number; unavailable?: number; hits: { tool: string; at: string; before: string; match: string; after: string }[] };
+const TRIAL_DOES: Record<RuleTrial["rule_action"], string> = { remove: "removed", block: "blocked", approval: "sent for approval" };
+
+/** What a rule would have done to the most recent replies, before it is turned on. */
+function RuleTrialView({ trial }: { trial: RuleTrial }) {
+  if (!trial.checked) return <p className="rounded-xl border border-white/10 bg-black/30 p-2.5 text-xs text-zinc-400" data-testid="rule-trial">There are no tool replies to try it on yet.</p>;
+  const pct = Math.round((trial.matched / trial.checked) * 100);
+  return (
+    <div className={`rounded-xl border p-2.5 text-xs oc-in ${trial.matched ? "border-cyan-400/30 bg-cyan-400/[0.06]" : "border-emerald-400/30 bg-emerald-400/[0.05]"}`} data-testid="rule-trial">
+      <p className="font-semibold text-zinc-100" data-testid="rule-trial-summary">
+        {trial.matched
+          ? `It would have ${TRIAL_DOES[trial.rule_action]} ${trial.matched} of your last ${trial.checked} replies (${pct}%).`
+          : `It would not have caught any of your last ${trial.checked} replies.`}
+      </p>
+      {!!trial.unavailable && <p className="mt-0.5 text-zinc-400">{trial.unavailable} could not be checked: the AI judge did not answer.</p>}
+      <ul className="mt-1.5 space-y-1">
+        {trial.hits.map((h, i) => (
+          <li key={i} className="break-words text-zinc-300" data-testid="rule-trial-hit">
+            <span className="text-zinc-500">{h.tool} · {shortDate(h.at)}:</span> …{h.before}<mark className={`rounded px-0.5 text-inherit ${trial.rule_action === "remove" ? "bg-rose-500/25 line-through" : trial.rule_action === "block" ? "bg-rose-500/25" : "bg-amber-400/25"}`}>{h.match}</mark>{h.after}…
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1.5 text-[10px] text-zinc-500">Nothing was saved. {trial.kind === "meaning" ? "The AI judge tried it on your most recent replies." : "Tried on your most recent tool replies."}</p>
+    </div>
+  );
+}
+
+const EMPTY_RULE ={ kind: "words" as "words" | "meaning", name: "", words: "", description: "", action: "remove" };
 
 export default function ProjectView() {
   const { id = "" } = useParams();
@@ -48,6 +75,9 @@ export default function ProjectView() {
   const [busy, setBusy] = useState<string | null>(null);
   const [rule, setRule] = useState({ kind: "words" as "words" | "meaning", name: "", words: "", description: "", action: "remove" });
   const [meaningRules, setMeaningRules] = useState<MeaningRuleRow[]>([]);
+  const [trial, setTrial] = useState<RuleTrial | null>(null);
+  // A trial belongs to the rule as it was tried: changing the rule clears it.
+  useEffect(() => { setTrial(null); }, [rule.kind, rule.words, rule.description, rule.action]);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmName, setConfirmName] = useState("");
@@ -253,7 +283,20 @@ export default function ProjectView() {
                   <option value="approval">Ask me to approve first</option>
                 </select>
                 {rule.kind === "meaning" && <p className="text-[11px] text-zinc-500" data-testid="meaning-help">Checked by NazAI's AI judge after your exact-word rules, which always apply. It must quote the words that break the rule, or nothing happens. If the judge is unavailable, a person decides.</p>}
-                <button type="submit" disabled={busy === "rule" || !rule.name.trim() || (rule.kind === "words" ? !rule.words.trim() : rule.description.trim().length < 3)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-amber-300/50 bg-amber-400/15 px-3 py-2 text-sm text-amber-50 disabled:opacity-40" data-testid="project-add-rule"><Plus className="h-4 w-4" /> Add rule</button>
+                <button type="button" disabled={busy === "trial" || (rule.kind === "words" ? !rule.words.trim() : rule.description.trim().length < 3)} data-testid="project-try-rule"
+                  onClick={async () => {
+                    setBusy("trial");
+                    const payload = rule.kind === "meaning" ? { kind: "meaning", name: rule.name, description: rule.description, rule_action: rule.action } : { words: rule.words, rule_action: rule.action };
+                    const r = await callProjects("test_rule", { project_id: id, account_id: accountId, ...payload });
+                    setBusy(null);
+                    if (!r.ok) { toast.error(r.message || "The rule could not be tried."); return; }
+                    setTrial(r.data as unknown as RuleTrial);
+                  }}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-cyan-400/40 bg-cyan-400/10 px-3 py-2 text-sm text-cyan-50 hover:bg-cyan-400/20 disabled:opacity-40">
+                  {busy === "trial" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />} Try it on recent replies first
+                </button>
+                {trial && <RuleTrialView trial={trial} />}
+                <button type="submit" disabled={busy === "rule" || !rule.name.trim() || (rule.kind === "words" ? !rule.words.trim() : rule.description.trim().length < 3)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-amber-300/50 bg-amber-400/15 px-3 py-2 text-sm text-amber-50 disabled:opacity-40" data-testid="project-add-rule"><Plus className="h-4 w-4" /> {trial ? "Turn it on" : "Add rule"}</button>
               </form>}
             </div>
 
