@@ -14,6 +14,7 @@ import { hasPermission } from "@/lib/account-switcher";
 import { useAuth } from "@/hooks/useAuth";
 import { ControlBadge, ProtectedBadge, SourceBadge, ViewOnlyBadge } from "@/components/projects/ProjectBadges";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import NotionLiveCheck from "@/components/projects/NotionLiveCheck";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any;
@@ -251,6 +252,12 @@ export default function ProjectView() {
             )}
           </section>
         </div>
+
+        {linked && p.source_kind === "notion" && canEdit && (
+          <NotionLiveCheck project={p} content={content} accountId={accountId}
+            onRefresh={async () => { const d = await run("refresh", "refresh", {}); if (d) toast.success(d.changed ? "Read again: the page changed." : "Read again: no changes."); }}
+            onEnableWriteBack={() => setConfirmOpen(true)} onChanged={load} />
+        )}
 
         {/* History: who did what, newest first */}
         <section className={card} data-testid="project-history">

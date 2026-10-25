@@ -31,7 +31,7 @@ import Projects from "@/pages/Projects";
 import ProjectView from "@/pages/ProjectView";
 import ImportProjectDialog from "@/components/projects/ImportProjectDialog";
 import ProjectPicker from "@/components/control/ProjectPicker";
-import { projectStatus, projectType, sourceBadge, type ImportedProject } from "@/lib/projects";
+import { liveCheckLine, liveCheckSteps, projectStatus, projectType, sourceBadge, type ImportedProject, type LiveApproval } from "@/lib/projects";
 import { toast } from "sonner";
 
 const base: ImportedProject = {
@@ -284,5 +284,52 @@ describe("Protection", () => {
     expect(screen.getByTestId("import-done").querySelector('[data-testid="protected-badge"]')).toBeTruthy();
     expect(screen.getByTestId("import-protected").textContent).toBe("Stored encrypted. 1 secret hidden before saving.");
     expect(screen.getByTestId("import-injection").textContent).toMatch(/tries to instruct an AI \(tries to override earlier instructions\)/);
+  });
+});
+
+describe("Live check (Notion import and write-back, for real)", () => {
+  const line = liveCheckLine(new Date("2026-10-25T10:22:00Z"));
+  const approval = (extra: Partial<LiveApproval> = {}): LiveApproval => ({ id: "ap1", status: "pending", executed_at: null, execution_error: null, params: { project_id: "p1", append_markdown: line }, created_at: "2026-10-25T10:22:00Z", ...extra });
+  const states = (r: ReturnType<typeof liveCheckSteps>) => r.steps.map((x) => `${x.key}:${x.state}`).join(" ");
+
+  it("each step is read from what happened, up to the line found in the page read back", () => {
+    expect(line).toBe("NazAI live check · 2026-10-25 10:22 UTC");
+    let r = liveCheckSteps(base, [], base.content!);
+    expect(states(r)).toBe("connected:done read:done write_back:todo sent:todo run:todo landed:todo");
+    expect(r.next!.key).toBe("write_back");
+    const on = { ...base, write_back: true };
+    r = liveCheckSteps(on, [approval()], base.content!);
+    expect(states(r)).toBe("connected:done read:done write_back:done sent:done run:waiting landed:todo");
+    r = liveCheckSteps(on, [approval({ executed_at: "2026-10-25T10:25:00Z" })], base.content!);
+    expect(r.next!.key).toBe("landed"); expect(r.next!.state).toBe("waiting");
+    r = liveCheckSteps(on, [approval({ executed_at: "2026-10-25T10:25:00Z" })], `${base.content}\n\n${line}`);
+    expect(r.next).toBeNull(); expect(r.done).toBe(6);
+  });
+
+  it("a failed run, a rejection or a sync error is a failed step with the reason; another project's approval does not count", () => {
+    const on = { ...base, write_back: true };
+    expect(liveCheckSteps(on, [approval({ execution_error: "Notion content append failed: Insufficient permissions" })], "").steps[4]).toMatchObject({ state: "failed", detail: "Notion content append failed: Insufficient permissions" });
+    expect(liveCheckSteps(on, [approval({ status: "rejected" })], "").steps[4].state).toBe("failed");
+    expect(liveCheckSteps({ ...on, sync_error: "Notion refused" }, [], "").steps[1]).toMatchObject({ state: "failed", detail: "Notion refused" });
+    expect(liveCheckSteps(on, [approval({ params: { project_id: "other", append_markdown: line } })], "").steps[3].state).toBe("todo");
+  });
+
+  it("on the project page: the next step has its button; sending the test line asks for an approval", async () => {
+    state.tables = { imported_projects: [{ ...base, write_back: true }], project_rules: [], outer_control_workflows: [], project_events: [], pending_approvals: [], agents: [], websites: [] };
+    at("/projects/p1", <ProjectView />, [<Route key="a" path="/control-system/approvals" element={<div>approvals page</div>} />]);
+    expect((await screen.findByTestId("live-check-summary")).textContent).toBe("3 of 6 steps · next: A test line waits for approval");
+    state.tables.pending_approvals = [{ ...approval(), user_id: "acct", origin: "projects" }]; // what the server stores for the write
+    fireEvent.click(screen.getByTestId("live-step-action"));
+    await waitFor(() => expect(calls().at(-1)).toMatchObject({ action: "write_back", project_id: "p1", account_id: "acct", text: expect.stringMatching(/^NazAI live check · \d{4}-\d\d-\d\d \d\d:\d\d UTC$/) }));
+    await waitFor(() => expect(screen.getByTestId("live-check-summary").textContent).toBe("4 of 6 steps · next: Approved and run"));
+    fireEvent.click(screen.getByTestId("live-step-action"));
+    expect(screen.getByText("approvals page")).toBeTruthy();
+  });
+
+  it("not shown for a snapshot or to someone who can only view", async () => {
+    state.tables = { imported_projects: [snapshot], project_rules: [], outer_control_workflows: [], project_events: [], agents: [], websites: [] };
+    at("/projects/p2", <ProjectView />);
+    await screen.findByTestId("project-identity");
+    expect(screen.queryByTestId("live-check")).toBeNull();
   });
 });

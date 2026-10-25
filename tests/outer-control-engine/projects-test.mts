@@ -433,4 +433,20 @@ await t("projects saved before encryption: readable, then encrypted by the sweep
   assert.equal(await H.sealLegacyProjects(H.createClient("u", "k"), KEY), 0);
 });
 
+await t("live check: the test line reaches the approval exactly as sent; once in the page, a refresh reads it back", async () => {
+  setup();
+  notionPages[PAGE] = { title: "Guide", blocks: [para("Text.")] };
+  await act({ action: "import_notion", page_id: PAGE });
+  const id = projects()[0].id;
+  await act({ action: "set_write_back", project_id: id, enabled: true, confirm_name: "Guide" });
+  const line = "NazAI live check · 2026-10-25 10:22 UTC";
+  const r = await act({ action: "write_back", project_id: id, text: line });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(H.table("pending_approvals")[0].params.append_markdown, line, "no rule changes the test line");
+  notionPages[PAGE].blocks.push(para(line)); // what the Notion writer adds when the approval is run
+  const ref = await act({ action: "refresh", project_id: id });
+  assert.equal(ref.body.changed, true);
+  assert.ok((await act({ action: "read", project_id: id })).body.content.includes(line));
+});
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1);

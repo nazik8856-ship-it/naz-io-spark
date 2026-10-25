@@ -116,3 +116,42 @@ export async function callProjects(action: string, payload: Record<string, unkno
 export const UPLOAD_ACCEPT = ".md,.markdown,.txt,.text,.html,.htm,.json,.csv,.tsv,.xml,.yaml,.yml,.js,.jsx,.ts,.tsx,.py,.rb,.go,.java,.kt,.rs,.c,.h,.cpp,.cs,.php,.sql,.sh,.css,.scss,.toml,.ini";
 export const MAX_FILES = 20;
 export const MAX_CHARS = 200_000;
+
+// ---------------------------------------------------------------------------------------
+// Live check: a real Notion import and write-back, step by step, each step read from what actually happened.
+
+export const LIVE_CHECK_PREFIX = "NazAI live check";
+export const liveCheckLine = (now = new Date()) => `${LIVE_CHECK_PREFIX} · ${now.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+export type LiveApproval = { id: string; status: string; executed_at: string | null; execution_error: string | null; params: { project_id?: string; append_markdown?: string } | null; created_at: string };
+export type LiveStep = { key: "connected" | "read" | "write_back" | "sent" | "run" | "landed"; label: string; state: "done" | "todo" | "waiting" | "failed"; detail: string };
+
+/** The steps of the live check for a linked Notion project, from the project, its approvals and its current text. */
+export function liveCheckSteps(p: ImportedProject, approvals: LiveApproval[], content: string | null, now = Date.now()): { steps: LiveStep[]; done: number; next: LiveStep | null; test: LiveApproval | null } {
+  const test = approvals
+    .filter((a) => a.params?.project_id === p.id && String(a.params?.append_markdown ?? "").startsWith(LIVE_CHECK_PREFIX))
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0] ?? null;
+  const line = String(test?.params?.append_markdown ?? "");
+  const steps: LiveStep[] = [
+    { key: "connected", label: "Imported from Notion", state: "done", detail: "Linked to the original page through your Notion connection." },
+    p.sync_error
+      ? { key: "read", label: "NazAI can read the page", state: "failed", detail: p.sync_error }
+      : { key: "read", label: "NazAI can read the page", state: p.last_synced_at ? "done" : "todo", detail: p.last_synced_at ? `Read ${ago(p.last_synced_at, now)}.` : "Refresh to read it from Notion." },
+    { key: "write_back", label: "Write-back is on", state: p.write_back ? "done" : "todo", detail: p.write_back ? "NazAI may add to the end of the page, each write after your approval." : "Turn it on: type the project's name to confirm." },
+    { key: "sent", label: "A test line waits for approval", state: test ? "done" : "todo", detail: test ? `“${line}”` : "Send one short test line. Nothing is written yet." },
+    !test
+      ? { key: "run", label: "Approved and run", state: "todo", detail: "In Approvals: approve it, then press Run it." }
+      : test.status === "rejected"
+        ? { key: "run", label: "Approved and run", state: "failed", detail: test.execution_error || "It was rejected, so nothing was written. Send a new test line." }
+        : test.execution_error
+          ? { key: "run", label: "Approved and run", state: "failed", detail: test.execution_error }
+          : test.executed_at
+            ? { key: "run", label: "Approved and run", state: "done", detail: `Notion confirmed the write ${ago(test.executed_at, now)}.` }
+            : { key: "run", label: "Approved and run", state: "waiting", detail: "Open Approvals, approve it, then press Run it." },
+    !test?.executed_at
+      ? { key: "landed", label: "The line is in the Notion page", state: "todo", detail: "After Run it, NazAI reads the page again to find the line." }
+      : content !== null && content.includes(line)
+        ? { key: "landed", label: "The line is in the Notion page", state: "done", detail: "Found in the page NazAI read back. The live check passed." }
+        : { key: "landed", label: "The line is in the Notion page", state: "waiting", detail: "Not seen yet: refresh to read the page again." },
+  ];
+  return { steps, done: steps.filter((s) => s.state === "done").length, next: steps.find((s) => s.state !== "done") ?? null, test };
+}
