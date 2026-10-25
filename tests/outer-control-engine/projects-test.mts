@@ -201,6 +201,17 @@ await t("write-back: text that Notion would cut (too many or too long paragraphs
   r = await act({ action: "write_back", project_id: id, text: Array.from({ length: 90 }, (_, i) => `Paragraph ${i}`).join("\n\n") });
   assert.equal(r.status, 200);
 });
+await t("the built-in secret rule catches Anthropic and OpenAI project keys (they used to slip through)", async () => {
+  setup();
+  notionPages[PAGE] = { title: "Guide", blocks: [para("Text.")] };
+  await act({ action: "import_notion", page_id: PAGE });
+  const id = projects()[0].id;
+  await act({ action: "set_write_back", project_id: id, enabled: true, confirm_name: "Guide" });
+  const r = await act({ action: "write_back", project_id: id, text: "Anthropic sk-ant-api03-Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_ and OpenAI sk-proj-Xy9-Xy9-Xy9-Xy9-Xy9-Xy9-Xy9- keys." });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const text = H.table("pending_approvals")[0].params.append_markdown;
+  assert.ok(!text.includes("sk-ant-api03") && !text.includes("sk-proj-Xy9"), text);
+});
 await t("project rules: words become a rule for this project only; the check is updated; another project is not affected", async () => {
   setup();
   await act({ action: "import_paste", text: "Project Falcon launches in May." });

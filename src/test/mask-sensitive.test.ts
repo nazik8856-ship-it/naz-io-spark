@@ -14,4 +14,13 @@ describe("maskSensitive", () => {
     const matches = [{ pattern: "zzplanzz", category: "custom", redact: true }, { pattern: "([", category: "custom", redact: true }, { pattern: "falcon", category: "custom" }];
     expect(maskSensitive("The zzplanzz and the falcon.", matches)).toBe("The [REDACTED:custom] and the falcon.");
   });
+
+  it("masks Anthropic, OpenAI project, Stripe live, GitHub fine-grained and AWS keys too, and not ordinary hyphenated words", () => {
+    const keys = [
+      "sk-ant-api03-" + "Ab1_".repeat(8), "sk-proj-" + "Xy9-".repeat(8), "sk_live_" + "a1".repeat(10), "rk_live_" + "b2".repeat(10),
+      "github_pat_" + "11AB_cd".repeat(4), "AKIA" + "ABCD1234EFGH5678",
+    ];
+    for (const k of keys) expect(maskSensitive(`key: ${k} end`)).toBe("key: [REDACTED:secrets] end");
+    expect(maskSensitive("We need a risk-assessment-framework and a task-management-platform.")).toBe("We need a risk-assessment-framework and a task-management-platform.");
+  });
 });
