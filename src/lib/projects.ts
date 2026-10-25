@@ -4,7 +4,15 @@ import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/
 
 export type SourceMode = "snapshot" | "linked";
 export type CheckMatch = { name: string; action: "remove_text" | "block" | "approval" };
-export type ProjectCheck = { at: string; rules: number; matches: CheckMatch[] };
+export type ProjectCheck = {
+  at: string; rules: number; matches: CheckMatch[];
+  /** What was hidden before saving (credentials, card and ID numbers, written-out passwords). */
+  hidden?: { name: string; count: number }[];
+  /** Instruction-like text aimed at an AI found in the project (kept, flagged, never obeyed). */
+  injection?: { severity: "suspicious" | "strong"; signals: { label: string; sample: string }[] } | null;
+  /** Stored encrypted. */
+  protected?: boolean;
+};
 export type ImportedProject = {
   id: string; user_id: string; name: string; source_mode: SourceMode; source_kind: "link" | "file" | "paste" | "notion";
   source_ref: string | null; source_label: string; content_type: "text" | "markdown" | "html" | "code" | "mixed";
@@ -57,6 +65,35 @@ export function projectStatus(p: ImportedProject | null): { label: string; tone:
 const TYPE_NAME: Record<ImportedProject["content_type"], string> = { markdown: "Markdown", code: "Code", text: "Text", html: "HTML", mixed: "Mixed files" };
 export const projectType = (item: ProjectItem) =>
   item.kind === "imported" && item.imported ? `Imported · ${TYPE_NAME[item.imported.content_type]}` : item.kind === "agent" ? "Generated · Agent" : "Generated · Website";
+
+/** "1 secret hidden before saving", or null when nothing was hidden. */
+export function hiddenNotice(check: ProjectCheck | null | undefined): { text: string; detail: string } | null {
+  const items = check?.hidden ?? [];
+  const n = items.reduce((t, h) => t + h.count, 0);
+  if (!n) return null;
+  return { text: `${n} secret${n === 1 ? "" : "s"} hidden before saving`, detail: items.map((h) => `${h.count} ${h.name}${h.count === 1 ? "" : "s"}`).join(", ") };
+}
+
+export type ProjectEvent = { id: string; project_id: string; project_name: string; actor_id: string | null; action: string; detail: Record<string, unknown>; created_at: string };
+/** One line of a project's history, in plain words. */
+export function eventText(e: ProjectEvent): string {
+  const d = e.detail ?? {};
+  const hidden = Number(d.hidden ?? 0);
+  switch (e.action) {
+    case "imported": return `Imported${hidden ? ` · ${hidden} secret${hidden === 1 ? "" : "s"} hidden` : ""}${d.flagged ? " · AI instructions flagged" : ""}`;
+    case "refreshed": return `Updated from the original${hidden ? ` · ${hidden} secret${hidden === 1 ? "" : "s"} hidden` : ""}`;
+    case "renamed": return `Renamed from "${String(d.from ?? "")}" to "${String(d.to ?? "")}"`;
+    case "archived": return "Archived";
+    case "restored": return "Restored";
+    case "deleted": return "Deleted permanently";
+    case "rule_added": return `Rule added: "${String(d.name ?? "")}"`;
+    case "rule_removed": return `Rule removed: "${String(d.name ?? "")}"`;
+    case "write_back_on": return "Write-back turned on";
+    case "write_back_off": return "Write-back turned off";
+    case "write_back_requested": return "Asked to write to the original (waits for approval)";
+    default: return e.action;
+  }
+}
 
 /** Calls the projects edge function with the signed-in person's token. */
 export async function callProjects(action: string, payload: Record<string, unknown>): Promise<{ ok: boolean; data: Record<string, unknown>; message: string }> {

@@ -3,13 +3,13 @@
 // is ready for Outer Control, with the next steps one press away.
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, FileUp, FolderInput, Link2, Loader2, Play, Plus, Search, ShieldCheck, Type } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileUp, FolderInput, Link2, Loader2, Lock, Play, Plus, Search, ShieldCheck, Type } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { announceProjectsChanged } from "@/hooks/useProjectList";
-import { callProjects, MAX_CHARS, MAX_FILES, UPLOAD_ACCEPT, type ImportedProject, type ProjectCheck } from "@/lib/projects";
-import { ControlBadge, SourceBadge } from "./ProjectBadges";
+import { callProjects, hiddenNotice, MAX_CHARS, MAX_FILES, UPLOAD_ACCEPT, type ImportedProject, type ProjectCheck } from "@/lib/projects";
+import { ControlBadge, ProtectedBadge, SourceBadge } from "./ProjectBadges";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any;
@@ -54,7 +54,7 @@ export default function ImportProjectDialog({ open, onOpenChange }: { open: bool
 
   const finish = async (action: string, payload: Record<string, unknown>) => {
     setBusy(true); setProblem(null);
-    const r = await callProjects(action, { ...payload, ...(name.trim() ? { name: name.trim() } : {}) });
+    const r = await callProjects(action, { ...payload, account_id: accountId, ...(name.trim() ? { name: name.trim() } : {}) });
     setBusy(false);
     if (!r.ok) { setProblem(r.message || "The project could not be imported."); return; }
     setDone({ project: r.data.project as ImportedProject, check: r.data.check as ProjectCheck });
@@ -73,7 +73,7 @@ export default function ImportProjectDialog({ open, onOpenChange }: { open: bool
 
   const searchNotion = async () => {
     setBusy(true); setProblem(null);
-    const r = await callProjects("notion_search", { query });
+    const r = await callProjects("notion_search", { query, account_id: accountId });
     setBusy(false);
     if (!r.ok) { setProblem(r.message || "Notion could not be searched."); return; }
     setPages((r.data.pages as NotionPage[]) ?? []);
@@ -110,7 +110,7 @@ export default function ImportProjectDialog({ open, onOpenChange }: { open: bool
             <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/[0.06] p-4">
               <p className="flex items-center gap-2 text-base font-semibold text-emerald-100"><CheckCircle2 className="h-5 w-5 text-emerald-300" /> Under NazAI control</p>
               <p className="mt-1 text-sm text-zinc-200">{done.project.name}</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2"><SourceBadge project={done.project} withDetail /></div>
+              <div className="mt-2 flex flex-wrap items-center gap-2"><SourceBadge project={done.project} withDetail /><ProtectedBadge project={done.project} /></div>
             </div>
             <ul className="space-y-2 text-sm">
               <li className="flex items-start gap-2" data-testid="import-check">
@@ -119,6 +119,18 @@ export default function ImportProjectDialog({ open, onOpenChange }: { open: bool
                   ? <span>Checked against {done.check.rules} rule{done.check.rules === 1 ? "" : "s"}: no matches.</span>
                   : <span>Checked against {done.check.rules} rules: {done.check.matches.length} match{done.check.matches.length === 1 ? "" : "es"} ({done.check.matches.map((m) => m.name).join(", ")}). {done.check.matches.some((m) => m.action === "remove_text") ? "That text is removed before any tool receives the project." : ""}</span>}
               </li>
+              {done.check.protected && (
+                <li className="flex items-start gap-2" data-testid="import-protected">
+                  <Lock className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
+                  <span>Stored encrypted.{hiddenNotice(done.check) ? <> <span className="text-amber-100" title={hiddenNotice(done.check)!.detail} data-testid="import-hidden">{hiddenNotice(done.check)!.text}.</span></> : " No secrets found."}</span>
+                </li>
+              )}
+              {done.check.injection && (
+                <li className="flex items-start gap-2 text-amber-100" data-testid="import-injection">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                  <span>It contains text that tries to instruct an AI ({done.check.injection.signals[0]?.label.toLowerCase()}). NazAI flagged it: tools receive the project as reference material only.</span>
+                </li>
+              )}
               <li className="flex items-start gap-2" data-testid="import-ready">
                 <Play className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
                 {toolsConnected === false

@@ -8,16 +8,23 @@
 //   POST { action: "refresh", project_id }                                 (a linked project, read again from its source)
 //   POST { action: "rename", project_id, name }
 //   POST { action: "archive", project_id, archived? }
+//   POST { action: "delete", project_id, confirm_name }                    (permanent: the project, its text and its rules)
+//   POST { action: "read", project_id }                                    (the decrypted text; any team member may read)
 //   POST { action: "set_write_back", project_id, enabled, confirm_name? }  (linked only; turning it on needs the project's name typed)
 //   POST { action: "write_back", project_id, text }                        (creates an approval; nothing is written before it is approved)
 //   POST { action: "add_rule", project_id, name, words, rule_action: "remove" | "block" | "approval" }
 //   POST { action: "remove_rule", project_id, rule_id }
+//
+// Project text is encrypted with PROJECTS_KEY (32 random bytes, base64), which only the edge functions have. Without it nothing
+// new is stored. Everything but "read" needs the owner of the account (or an owner-role team member with the integrations
+// permission); "read" is open to every active team member.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { readSecret } from "../_shared/integration-secrets.ts";
-import { handleProjectsAction, MAX_LINK_BYTES, type FetchedPage, type ProjectDeps } from "../_shared/projects.ts";
+import { handleProjectsAction, IMPORT_ACTIONS, linkShapeProblem, MAX_LINK_BYTES, READ_ACTIONS, type FetchedPage, type ProjectDeps } from "../_shared/projects.ts";
+import { importProjectKey } from "../_shared/project-crypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,12 +36,28 @@ const json = (b: unknown, status = 200) =>
 const RATE_LIMIT_PER_MINUTE = 30;
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 3;
+/** A request body larger than this is refused before it is read (200,000 characters of text, JSON-escaped, fit well within it). */
+const MAX_BODY_BYTES = 2_000_000;
+const IMPORTS_PER_DAY = 50;
 
-/** A public page: every redirect is checked again (a redirect can not lead to a private address), the body is capped. */
+const keyPromise = importProjectKey(Deno.env.get("PROJECTS_KEY"));
+
+/** Every hop of a link: the shape (https, port 443, a site name, no login in the link) and then its addresses. */
+async function checkLink(url: string): Promise<{ ok: boolean; reason: string }> {
+  const shape = linkShapeProblem(url);
+  if (shape) return { ok: false, reason: shape };
+  return await validateOutboundUrl(url);
+}
+
+/**
+ * A public page: every redirect is checked again (a redirect can not lead to a private address), the body is capped, and the
+ * address is looked up again after the fetch: a name that now points somewhere private is not trusted. A name that changes its
+ * address between the check and the fetch itself (DNS rebinding) can not be fully ruled out without pinning the connection.
+ */
 async function fetchUrl(url: string): Promise<FetchedPage> {
   let current = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const allowed = await validateOutboundUrl(current);
+    const allowed = await checkLink(current);
     if (!allowed.ok) return { ok: false, status: 0, contentType: "", text: "", finalUrl: current, error: `That link leads to an address that is not allowed (${allowed.reason}).` };
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
@@ -61,6 +84,8 @@ async function fetchUrl(url: string): Promise<FetchedPage> {
       const buf = new Uint8Array(size);
       let off = 0;
       for (const c of chunks) { buf.set(c, off); off += c.length; }
+      const after = await validateOutboundUrl(current);
+      if (!after.ok) return { ok: false, status: 0, contentType: "", text: "", finalUrl: current, error: `That link leads to an address that is not allowed (${after.reason}).` };
       return { ok: r.ok, status: r.status, contentType, text: new TextDecoder().decode(buf), finalUrl: current, error: r.ok ? undefined : `The page answered HTTP ${r.status}.` };
     } catch (e) {
       return { ok: false, status: 0, contentType: "", text: "", finalUrl: current, error: (e as Error)?.name === "AbortError" ? "The page did not answer within 10 seconds." : "The page could not be reached." };
@@ -88,6 +113,14 @@ const notion: ProjectDeps["notion"] = async (admin: any, accountId, path, init) 
   }
 };
 
+/** The account to read from: the caller's own, or one they are an active member of (any role). */
+// deno-lint-ignore no-explicit-any
+async function readScope(userClient: any, callerId: string, requested: unknown): Promise<string | null> {
+  if (typeof requested !== "string" || !requested || requested === callerId) return callerId;
+  const { data, error } = await userClient.rpc("is_account_member", { _account_owner_id: requested, _min_role: "viewer", _permission: null });
+  return error || !data ? null : requested;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
@@ -100,14 +133,26 @@ Deno.serve(async (req) => {
     if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
     const admin = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    const body = await req.json().catch(() => null);
-    if (!body || typeof body !== "object") return json({ error: "invalid_json", message: "The request body must be a JSON object." }, 400);
-    const accountId = await resolveAccountScope(userClient, userData.user.id, body.account_id, "integrations");
-    if (!accountId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+    if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return json({ error: "too_large", message: "That is too much to import at once. Nothing was stored." }, 413);
+    const raw = await req.text();
+    if (raw.length > MAX_BODY_BYTES) return json({ error: "too_large", message: "That is too much to import at once. Nothing was stored." }, 413);
+    let body: Record<string, unknown> | null = null;
+    try { body = JSON.parse(raw); } catch { body = null; }
+    if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "invalid_json", message: "The request body must be a JSON object." }, 400);
+    const action = String(body.action ?? "");
+    // Reading is for every team member; everything else needs an owner.
+    const accountId = READ_ACTIONS.has(action)
+      ? await readScope(userClient, userData.user.id, body.account_id)
+      : await resolveAccountScope(userClient, userData.user.id, body.account_id, "integrations");
+    if (!accountId) return json({ error: "forbidden", message: READ_ACTIONS.has(action) ? "You are not a member of that account." : "View only: only an owner of this account can change its projects." }, 403);
     const rate = await checkRateLimit(admin, accountId, "projects", RATE_LIMIT_PER_MINUTE, 60);
     if (!rate.allowed) return json({ error: "rate_limited", message: "Too many requests. Try again shortly." }, 429);
+    if (IMPORT_ACTIONS.has(action)) {
+      const daily = await checkRateLimit(admin, accountId, "projects_import", IMPORTS_PER_DAY, 86_400);
+      if (!daily.allowed) return json({ error: "import_quota", message: `At most ${IMPORTS_PER_DAY} imports a day. Try again tomorrow.` }, 429);
+    }
 
-    const r = await handleProjectsAction(admin, accountId, userData.user.id, body as Record<string, unknown>, { fetchUrl, checkUrl: validateOutboundUrl, notion, now: Date.now });
+    const r = await handleProjectsAction(admin, accountId, userData.user.id, body, { fetchUrl, checkUrl: checkLink, notion, now: Date.now, key: await keyPromise });
     return json(r.body, r.status);
   } catch (e) {
     console.error("projects failed:", e instanceof Error ? e.message : e);

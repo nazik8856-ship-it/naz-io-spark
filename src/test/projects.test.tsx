@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
-const state = vi.hoisted(() => ({ tables: {} as Record<string, unknown[]> }));
-vi.mock("@/hooks/useActiveAccount", () => ({ useActiveAccount: () => ({ accountId: "acct" }) }));
+const state = vi.hoisted(() => ({ tables: {} as Record<string, unknown[]>, role: "self" as string }));
+vi.mock("@/hooks/useActiveAccount", () => ({ useActiveAccount: () => ({ accountId: "acct", role: state.role, permissions: null }) }));
+vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "acct" } }) }));
 vi.mock("@/integrations/supabase/client", () => {
   const from = (table: string) => {
     const rows = () => (state.tables[table] ?? []) as Record<string, unknown>[];
@@ -40,7 +41,19 @@ const base: ImportedProject = {
   created_at: "2026-10-23T10:00:00Z", updated_at: "2026-10-24T10:00:00Z", archived_at: null, content: "## Voice\n\nShort sentences.",
 };
 const snapshot: ImportedProject = { ...base, id: "p2", name: "Launch notes", source_mode: "snapshot", source_kind: "paste", source_ref: null, source_label: "Pasted text", content_type: "html", content: "<script>alert(1)</script><p>Hello</p>", updated_at: "2026-10-22T10:00:00Z", last_synced_at: null };
-const calls = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([, init]) => JSON.parse((init as RequestInit).body as string));
+const allCalls = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([, init]) => JSON.parse((init as RequestInit).body as string));
+// Every project view reads its (encrypted) text through the server first; the other calls are what a test checks.
+const calls = () => allCalls().filter((c) => c.action !== "read");
+/** The projects function: "read" answers with the stored row's text, everything else with ok. */
+const server = (other: (body: Record<string, unknown>) => Record<string, unknown> = () => ({ ok: true })) => vi.fn(async (_u: string, init: RequestInit) => {
+  const body = JSON.parse(init.body as string);
+  if (body.action === "read") {
+    const row = (state.tables.imported_projects ?? []).find((r) => (r as { id: string }).id === body.project_id) as { content?: string } | undefined;
+    return { ok: !!row, json: async () => (row ? { ok: true, content: row.content ?? "", files: [] } : { ok: false, message: "That project was not found." }) };
+  }
+  const out = other(body);
+  return { ok: out.ok !== false, json: async () => out };
+});
 const at = (path: string, el: JSX.Element, extra: JSX.Element[] = []) => render(
   <MemoryRouter initialEntries={[path]}>
     <Routes>
@@ -57,7 +70,8 @@ const at = (path: string, el: JSX.Element, extra: JSX.Element[] = []) => render(
 beforeEach(() => {
   vi.clearAllMocks();
   state.tables = {};
-  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ok: true }) })));
+  state.role = "self";
+  vi.stubGlobal("fetch", server());
 });
 
 describe("source, status and type: one place decides what every view says", () => {
@@ -104,6 +118,7 @@ describe("Project view", () => {
     at("/projects/p2", <ProjectView />);
     await screen.findByTestId("project-identity");
     expect(screen.getByTestId("project-title").textContent).toBe("Launch notes");
+    expect(allCalls()[0]).toEqual({ action: "read", project_id: "p2", account_id: "acct" });
     expect(screen.getByTestId("project-identity").textContent).toMatch(/Snapshot[\s\S]*One-time copy[\s\S]*Under NazAI control/);
     expect(screen.getByTestId("project-text").textContent).toBe("<script>alert(1)</script><p>Hello</p>");
     expect(document.querySelector('[data-testid="project-text"] script')).toBeNull();
@@ -121,7 +136,7 @@ describe("Project view", () => {
     fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Hide the codename" } });
     fireEvent.change(screen.getByLabelText("Words to catch"), { target: { value: "Falcon" } });
     fireEvent.click(screen.getByTestId("project-add-rule"));
-    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "add_rule", project_id: "p1", name: "Hide the codename", words: "Falcon", rule_action: "remove" }));
+    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "add_rule", project_id: "p1", account_id: "acct", name: "Hide the codename", words: "Falcon", rule_action: "remove" }));
   });
 
   it("write-back for a linked project: off by default; turning it on needs the name typed; then a write asks for an approval", async () => {
@@ -137,11 +152,11 @@ describe("Project view", () => {
     fireEvent.change(screen.getByLabelText("Type the project name"), { target: { value: "Brand guide" } });
     state.tables.imported_projects = [{ ...base, write_back: true }]; // what the server stores when it accepts the change
     fireEvent.click(enable);
-    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "set_write_back", project_id: "p1", enabled: true, confirm_name: "Brand guide" }));
+    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "set_write_back", project_id: "p1", account_id: "acct", enabled: true, confirm_name: "Brand guide" }));
     await waitFor(() => expect(screen.getByTestId("project-write")).toBeTruthy());
     fireEvent.change(screen.getByLabelText("Text to add to the original"), { target: { value: "New section" } });
     fireEvent.click(screen.getByTestId("project-write"));
-    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "write_back", project_id: "p1", text: "New section" }));
+    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "write_back", project_id: "p1", account_id: "acct", text: "New section" }));
     await waitFor(() => expect((toast.success as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0]).toMatch(/Waiting for your approval/));
   });
 });
@@ -157,7 +172,7 @@ describe("Import dialog", () => {
     fireEvent.change(screen.getByLabelText("Text to import"), { target: { value: "Hello" } });
     fireEvent.click(screen.getByTestId("import-submit"));
     await screen.findByTestId("import-done");
-    expect(calls()[0]).toEqual({ action: "import_paste", text: "Hello" });
+    expect(calls()[0]).toEqual({ action: "import_paste", text: "Hello", account_id: "acct" });
     expect(screen.getByTestId("import-done").textContent).toMatch(/Under NazAI control[\s\S]*Launch notes[\s\S]*Snapshot/);
     expect(screen.getByTestId("import-check").textContent).toMatch(/Checked against 7 rules: 1 match \(API key or secret in payload\)\. That text is removed before any tool receives the project\./);
     await waitFor(() => expect(screen.getByTestId("import-ready").textContent).toMatch(/Ready for Outer Control/));
@@ -194,7 +209,80 @@ describe("Inner Control picker", () => {
     at("/projects", <ImportProjectDialog open onOpenChange={() => {}} />);
     fireEvent.click(await screen.findByTestId("import-tab-notion"));
     expect((await screen.findByTestId("notion-pages")).textContent).toMatch(/Brand guide/);
-    expect(calls()[0]).toEqual({ action: "notion_search", query: "" });
+    expect(calls()[0]).toEqual({ action: "notion_search", query: "", account_id: "acct" });
     expect(screen.getByTestId("notion-help").textContent).toMatch(/only the pages you shared[\s\S]*Connections[\s\S]*add NazAI/);
+  });
+});
+
+describe("Protection", () => {
+  const protectedRow: ImportedProject = {
+    ...base, last_check: { at: "x", rules: 7, matches: [], protected: true, hidden: [{ name: "API key", count: 1 }],
+      injection: { severity: "strong", signals: [{ label: "Tries to override earlier instructions", sample: "Ignore all previous instructions" }] } },
+  };
+  const events = [
+    { id: "e2", project_id: "p1", project_name: "Brand guide", actor_id: "teammate", action: "rule_added", detail: { name: "Hide codename" }, created_at: "2026-10-24T11:00:00Z" },
+    { id: "e1", project_id: "p1", project_name: "Brand guide", actor_id: "acct", action: "imported", detail: { hidden: 1, flagged: true }, created_at: "2026-10-24T10:00:00Z" },
+  ];
+
+  it("a protected project: the shield chip, what was hidden, the AI-instruction warning and its history", async () => {
+    state.tables = { imported_projects: [protectedRow], project_rules: [], outer_control_workflows: [], project_events: events, agents: [], websites: [] };
+    at("/projects/p1", <ProjectView />);
+    await screen.findByTestId("project-identity");
+    expect(screen.getByTestId("protected-badge").textContent).toMatch(/Protected/);
+    expect(screen.getByTestId("project-hidden").textContent).toBe(" 1 secret hidden before saving");
+    expect(screen.getByTestId("project-injection").textContent).toMatch(/tries to instruct an AI[\s\S]*reference material only[\s\S]*Tries to override earlier instructions — “Ignore all previous instructions”/);
+    expect(screen.getAllByTestId("project-event").map((e) => e.textContent)).toEqual([
+      expect.stringMatching(/^Rule added: "Hide codename" · A team member · 24 Oct/),
+      expect.stringMatching(/^Imported · 1 secret hidden · AI instructions flagged · You · 24 Oct/),
+    ]);
+    expect(screen.getByTestId("project-content").textContent).toMatch(/stored encrypted/);
+  });
+
+  it("a team member who is not an owner sees everything but can change nothing: View only", async () => {
+    state.role = "viewer";
+    state.tables = { imported_projects: [protectedRow], project_rules: [{ id: "r1", project_id: "p1", name: "Hide codename", pattern: "x", severity: "block", redact: true, enabled: true, created_at: "x" }], outer_control_workflows: [], project_events: [], agents: [], websites: [] };
+    at("/projects/p1", <ProjectView />);
+    await screen.findByTestId("project-identity");
+    expect(screen.getByTestId("view-only-badge")).toBeTruthy();
+    expect(screen.getByTestId("project-text").textContent).toBe("## Voice\n\nShort sentences.");
+    expect(screen.getByTestId("project-rules").textContent).toMatch(/Hide codename/);
+    for (const id of ["project-refresh", "project-archive", "project-delete", "project-add-rule"]) expect(screen.queryByTestId(id)).toBeNull();
+    expect(screen.queryByLabelText("Rename")).toBeNull();
+    expect(screen.queryByLabelText("Remove rule Hide codename")).toBeNull();
+    expect((screen.getByRole("switch", { name: "Allow NazAI to edit the original" }) as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("delete: permanent, next to Archive, only after the name is typed", async () => {
+    state.tables = { imported_projects: [base], project_rules: [], outer_control_workflows: [], project_events: [], agents: [], websites: [] };
+    vi.stubGlobal("fetch", server((b) => (b.action === "delete" ? { ok: true, deleted: true } : { ok: true })));
+    at("/projects/p1", <ProjectView />);
+    fireEvent.click(await screen.findByTestId("project-delete"));
+    const go = (await screen.findByTestId("delete-confirm-button")) as HTMLButtonElement;
+    expect(screen.getByTestId("delete-confirm").textContent).toMatch(/can not be brought back[\s\S]*original[\s\S]*is not touched[\s\S]*Archive instead/);
+    expect(go.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Type the project name to delete it"), { target: { value: "Brand guide" } });
+    fireEvent.click(go);
+    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "delete", project_id: "p1", account_id: "acct", confirm_name: "Brand guide" }));
+    await waitFor(() => expect(screen.getByText("dashboard page")).toBeTruthy());
+  });
+
+  it("when the text can not be read, the page says so instead of showing nothing", async () => {
+    state.tables = { imported_projects: [base], project_rules: [], outer_control_workflows: [], project_events: [], agents: [], websites: [] };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({ ok: false, message: "This project's text could not be read: it does not match the storage key. Nothing was changed." }) })));
+    at("/projects/p1", <ProjectView />);
+    expect((await screen.findByTestId("project-text-problem")).textContent).toMatch(/does not match the storage key/);
+  });
+
+  it("the import confirmation says it is stored encrypted, what was hidden, and flags AI instructions", async () => {
+    state.tables = { agent_integrations: [], external_tools: [] };
+    vi.stubGlobal("fetch", server(() => ({ ok: true, project: protectedRow, check: protectedRow.last_check })));
+    at("/projects", <ImportProjectDialog open onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByTestId("import-tab-paste"));
+    fireEvent.change(screen.getByLabelText("Text to import"), { target: { value: "Hello" } });
+    fireEvent.click(screen.getByTestId("import-submit"));
+    await screen.findByTestId("import-done");
+    expect(screen.getByTestId("import-done").querySelector('[data-testid="protected-badge"]')).toBeTruthy();
+    expect(screen.getByTestId("import-protected").textContent).toBe("Stored encrypted. 1 secret hidden before saving.");
+    expect(screen.getByTestId("import-injection").textContent).toMatch(/tries to instruct an AI \(tries to override earlier instructions\)/);
   });
 });

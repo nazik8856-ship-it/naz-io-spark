@@ -1596,12 +1596,13 @@ await t("trust: NazAI's AI can not invent a source or a citation: an analysis ci
 // ---- imported projects in Outer Control: the project's checked text goes to every tool; its own rules apply to the replies
 await t("project: a Task with a project sends its checked text to every tool; the project's rule cleans the replies too", async () => {
   reportSetup();
-  const pdeps = { now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
+  const KEY = await H.importProjectKey(Buffer.alloc(32, 3).toString("base64"));
+  const pdeps = { key: KEY, now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
   const c = H.createClient("u", "k");
   await H.handleProjectsAction(c, U, U, { action: "import_paste", name: "Launch", text: "Project Falcon launches in May with three AI tools." }, pdeps);
   const pid = H.table("imported_projects")[0].id;
   await H.handleProjectsAction(c, U, U, { action: "add_rule", project_id: pid, name: "Hide the codename", words: "Falcon", rule_action: "remove" }, pdeps);
-  const pc = await H.projectContextFor(c, U, pid); assert.ok(pc.ok);
+  const pc = await H.projectContextFor(c, U, pid, KEY); assert.ok(pc.ok);
   aiAnswer = JSON.stringify({ summary: "Both favour a May launch with AI tools [1][2].", agreements: [], differences: [], conclusion: "Launch in May with the AI tools [1][2]." });
   script = answerBy("The Falcon launch in May with AI tools looks fine.", "A May launch with three AI tools is realistic.");
   const topic = "Is a May launch with AI tools realistic?";
@@ -1619,7 +1620,8 @@ await t("project: a Task with a project sends its checked text to every tool; th
 });
 await t("project: a project's rule does not apply to a Task that does not use the project", async () => {
   reportSetup();
-  const pdeps = { now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
+  const KEY = await H.importProjectKey(Buffer.alloc(32, 3).toString("base64"));
+  const pdeps = { key: KEY, now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
   const c = H.createClient("u", "k");
   await H.handleProjectsAction(c, U, U, { action: "import_paste", name: "Launch", text: "Project Falcon." }, pdeps);
   await H.handleProjectsAction(c, U, U, { action: "add_rule", project_id: H.table("imported_projects")[0].id, name: "Hide the codename", words: "Falcon", rule_action: "remove" }, pdeps);
