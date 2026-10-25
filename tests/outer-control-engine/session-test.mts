@@ -61,6 +61,19 @@ await t("a secret in the reply is removed: modify, masked in the step, cleaned t
   assert.equal(r.status, "completed"); assert.equal(steps()[0].verdict, "modify");
   assert.ok(!sess().final_output.includes(SECRET)); assert.ok(sess().final_output.includes("[REDACTED:secrets]")); assert.ok(!String(steps()[0].reply_text).includes(SECRET));
 });
+await t("Control Diff: the step keeps the tool's reply with the removed secret as a label and its rule, never the secret", async () => {
+  setup(); script = () => ({ json: { status: "done", answer: `Use ${SECRET} to connect.` } });
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  const diff = steps()[0].decision.diff;
+  assert.deepEqual(diff.segments, [{ t: "Use " }, { removed: "API key", rule: "API key or secret in payload" }, { t: " to connect." }]);
+  assert.equal(diff.removed, 1); assert.equal(diff.flagged, 0);
+  assert.ok(!JSON.stringify(steps()[0]).includes(SECRET), "the secret is nowhere in the step row");
+});
+await t("Control Diff: a clean reply has no diff", async () => {
+  setup(); script = () => ({ json: { status: "done", answer: "All fine." } });
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(steps()[0].decision.diff, undefined);
+});
 await t("block then a corrected reply: second request names the broken rule, session completes", async () => {
   setup(); script = (n) => n === 1 ? { json: { status: "done", answer: "I will drop table customers." } } : { json: { status: "done", answer: "Here is the policy." } };
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);

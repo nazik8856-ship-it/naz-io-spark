@@ -28,6 +28,7 @@ import { buildWorkingMemory, decisionRecord, factsFor, guardConsistency, planNex
 import { loadCorrections, recordCorrection } from "./outer-control-corrections.ts";
 import { checkGoal } from "./outer-control-judgement.ts";
 import { buildSessionArtifact, describeWhatDone, type StepEvidence } from "./outer-control-artifact.ts";
+import { diffForReply } from "./outer-control-diff.ts";
 import { buildChecklist, correctionFor, passedCount, settle, type Checklist, type ChecklistInput } from "./outer-control-completion.ts";
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
@@ -751,9 +752,11 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         approvalId = outcome.approvalId;
         if (outcome.autoResolved) autoResolved = outcome.resolution === "approved" ? "approved" : "rejected";
       }
+      // Control Diff: the tool's reply next to what NazAI passed on (removed spans kept only as a label and the rule's name).
+      const diff = diffForReply(content, [...brain.applied, ...brain.overridden.map((o) => o.rule)]);
       await admin.from("outer_control_session_steps").insert({
         ...stepBase, reply_text: stored, tool_status: reply.status, evaluation_id: result.evaluationId, verdict,
-        next_action: action.kind, note: brain.why.slice(0, 500), decision: decisionRecord(brain),
+        next_action: action.kind, note: brain.why.slice(0, 500), decision: { ...decisionRecord(brain), ...(diff ? { diff } : {}) },
       });
       steps++;
 

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Activity, Plus, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
 import { toast } from "sonner";
+import ControlDiffView from "./ControlDiffView";
 import FinalArtifactView from "./FinalArtifactView";
 import { HonestStatusBadge, StatusReason } from "./HonestStatusBadge";
 import { honestStatus } from "@/lib/outer-control-status";
@@ -330,6 +331,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                             <span key={b.label} className={`ml-2 rounded-full border px-1.5 py-0 text-[10px] ${b.className}`}>{b.label}</span>
                           ))}
                           {describeDecision(st.decision).map((line, i) => <div key={i} className="ml-3 text-[10px] leading-snug text-zinc-500">{line}</div>)}
+                          {st.decision?.diff && <div className="ml-3"><ControlDiffView diff={st.decision.diff} controlled={st.verdict === "block" ? null : st.reply_text} toolName={toolName(s.tool_id)} /></div>}
                         </li>
                       ))}
                       {(steps[s.id] ?? []).length === 0 && <li className="text-zinc-500">Nothing has been exchanged yet.</li>}

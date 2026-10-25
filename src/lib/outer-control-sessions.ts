@@ -137,7 +137,16 @@ export type DecisionView = {
   /** Names of the rules that matched this reply, and what they removed from it. */
   applied?: string[];
   changes?: { name: string; count: number }[];
+  /** Control Diff: the tool's reply as segments; removed spans carry only a label and the rule's name. */
+  diff?: { segments: DiffSegment[]; removed: number; flagged: number; truncated: boolean } | null;
 };
+export type DiffSegment = { t: string } | { removed: string; rule: string } | { flagged: string; rule: string; effect: "block" | "approval" };
+
+/** "1 removed · 1 flagged": what the rules did to one reply. */
+export function diffSummary(d: DecisionView["diff"]): string | null {
+  if (!d || (!d.removed && !d.flagged)) return null;
+  return [d.removed ? `${d.removed} removed` : "", d.flagged ? `${d.flagged} flagged` : ""].filter(Boolean).join(" · ");
+}
 
 /**
  * The reasoning behind one step, as short lines. Newer steps carry a trace (decision, deciding rule, what it
