@@ -4,7 +4,7 @@
 // (it is stored encrypted); a team member who is not an owner sees everything but can change nothing ("View only").
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Copy, Download, FolderKanban, History, Loader2, Lock, Play, Plus, RefreshCw, ShieldCheck, Trash2, Archive, PenLine, Fingerprint } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Copy, Download, FolderKanban, History, Loader2, Lock, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Trash2, Archive, PenLine, Fingerprint } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
@@ -24,6 +24,9 @@ const title = "flex items-center gap-2 font-mono text-[10px] uppercase tracking-
 const inputCls = "w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-amber-300/60";
 const ACTION_WORD: Record<string, string> = { remove_text: "removed before tools receive it", block: "blocks", approval: "needs approval" };
 type TaskRow = { id: string; objective: string; status: string; started_at: string };
+type MeaningRuleRow = { id: string; name: string; description: string; action: "remove" | "block" | "approval"; enabled: boolean; created_at: string };
+const MEANING_DOES: Record<MeaningRuleRow["action"], string> = { remove: "removes the passage", block: "blocks the reply", approval: "needs approval" };
+const EMPTY_RULE = { kind: "words" as "words" | "meaning", name: "", words: "", description: "", action: "remove" };
 
 export default function ProjectView() {
   const { id = "" } = useParams();
@@ -43,7 +46,8 @@ export default function ProjectView() {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
-  const [rule, setRule] = useState({ name: "", words: "", action: "remove" });
+  const [rule, setRule] = useState({ kind: "words" as "words" | "meaning", name: "", words: "", description: "", action: "remove" });
+  const [meaningRules, setMeaningRules] = useState<MeaningRuleRow[]>([]);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmName, setConfirmName] = useState("");
@@ -51,9 +55,10 @@ export default function ProjectView() {
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const [pr, ru, ta, ev, text] = await Promise.all([
+    const [pr, ru, mr, ta, ev, text] = await Promise.all([
       anyDb.from("imported_projects").select(PROJECT_COLS).eq("id", id).eq("user_id", accountId).maybeSingle(),
       anyDb.from("project_rules").select("id, name, pattern, severity, redact, enabled, created_at").eq("project_id", id).order("created_at"),
+      anyDb.from("meaning_rules").select("id, name, description, action, enabled, created_at").eq("project_id", id).order("created_at"),
       anyDb.from("outer_control_workflows").select("id, objective, status, started_at").eq("user_id", accountId).eq("project_id", id).order("started_at", { ascending: false }).limit(5),
       anyDb.from("project_events").select("id, project_id, project_name, actor_id, action, detail, created_at").eq("project_id", id).order("created_at", { ascending: false }).limit(20),
       // The text is stored encrypted: only the server can read it.
@@ -61,6 +66,7 @@ export default function ProjectView() {
     ]);
     setP((pr?.data as ImportedProject | null) ?? null);
     setRules((ru?.data as ProjectRule[]) ?? []);
+    setMeaningRules(mr?.error ? [] : ((mr?.data as MeaningRuleRow[]) ?? []));
     setTasks(ta?.error ? [] : ((ta?.data as TaskRow[]) ?? []));
     setEvents(ev?.error ? [] : ((ev?.data as ProjectEvent[]) ?? []));
     setContent(text.ok ? String(text.data.content ?? "") : null);
@@ -205,7 +211,7 @@ export default function ProjectView() {
             </div>
 
             <div>
-              <p className="text-xs font-medium text-zinc-300">Rules for this project ({rules.length})</p>
+              <p className="text-xs font-medium text-zinc-300">Rules for this project ({rules.length + meaningRules.length})</p>
               <ul className="mt-2 space-y-1.5" data-testid="project-rules">
                 {rules.map((r) => (
                   <li key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-xs">
@@ -213,16 +219,41 @@ export default function ProjectView() {
                     {canEdit && <button type="button" aria-label={`Remove rule ${r.name}`} onClick={() => void run(`rm-${r.id}`, "remove_rule", { rule_id: r.id }, "Rule removed.")} className="text-zinc-500 hover:text-rose-300"><Trash2 className="h-3.5 w-3.5" /></button>}
                   </li>
                 ))}
+                {meaningRules.map((r) => (
+                  <li key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-violet-400/25 bg-violet-500/[0.06] px-2.5 py-1.5 text-xs" data-testid="meaning-rule">
+                    <span className="min-w-0">
+                      <span className="mr-1.5 inline-flex items-center gap-1 rounded-full border border-violet-300/40 px-1.5 font-mono text-[9px] uppercase tracking-wider text-violet-200"><Sparkles className="h-2.5 w-2.5" /> Meaning</span>
+                      <span className="text-zinc-100">{r.name}</span> <span className="text-zinc-500">· {MEANING_DOES[r.action]}</span>
+                      <span className="block truncate text-[11px] text-zinc-400" title={r.description}>{r.description}</span>
+                    </span>
+                    {canEdit && <button type="button" aria-label={`Remove rule ${r.name}`} onClick={() => void run(`rm-${r.id}`, "remove_rule", { rule_id: r.id, kind: "meaning" }, "Rule removed.")} className="text-zinc-500 hover:text-rose-300"><Trash2 className="h-3.5 w-3.5" /></button>}
+                  </li>
+                ))}
               </ul>
-              {canEdit && <form className="mt-2 space-y-2" onSubmit={async (e) => { e.preventDefault(); if (await run("rule", "add_rule", { name: rule.name, words: rule.words, rule_action: rule.action }, "Rule added. It applies to this project only.")) setRule({ name: "", words: "", action: "remove" }); }}>
-                <input className={inputCls} aria-label="Rule name" placeholder="Rule name (e.g. Hide the codename)" value={rule.name} maxLength={120} onChange={(e) => setRule({ ...rule, name: e.target.value })} />
-                <input className={inputCls} aria-label="Words to catch" placeholder="Words or phrases, separated by commas" value={rule.words} onChange={(e) => setRule({ ...rule, words: e.target.value })} />
+              {canEdit && <form className="mt-2 space-y-2" onSubmit={async (e) => {
+                e.preventDefault();
+                const payload = rule.kind === "meaning"
+                  ? { kind: "meaning", name: rule.name, description: rule.description, rule_action: rule.action }
+                  : { name: rule.name, words: rule.words, rule_action: rule.action };
+                if (await run("rule", "add_rule", payload, rule.kind === "meaning" ? "Meaning rule added. NazAI's AI judge checks every reply of a task with this project, and must quote the words that break it." : "Rule added. It applies to this project only.")) setRule(EMPTY_RULE);
+              }}>
+                <div className="flex gap-1 rounded-xl border border-white/10 bg-black/30 p-1" role="tablist" aria-label="What the rule looks for">
+                  {([["words", "Exact words"], ["meaning", "Meaning · AI judge"]] as const).map(([k, label]) => (
+                    <button key={k} type="button" role="tab" aria-selected={rule.kind === k} onClick={() => setRule({ ...rule, kind: k, action: k === "meaning" ? "block" : "remove" })}
+                      className={`flex-1 rounded-lg px-2 py-1 text-xs transition ${rule.kind === k ? (k === "meaning" ? "bg-violet-500/25 text-violet-50" : "bg-amber-400/20 text-amber-50") : "text-zinc-400 hover:text-zinc-200"}`}>{label}</button>
+                  ))}
+                </div>
+                <input className={inputCls} aria-label="Rule name" placeholder={rule.kind === "meaning" ? "Rule name (e.g. No delivery promises)" : "Rule name (e.g. Hide the codename)"} value={rule.name} maxLength={120} onChange={(e) => setRule({ ...rule, name: e.target.value })} />
+                {rule.kind === "words"
+                  ? <input className={inputCls} aria-label="Words to catch" placeholder="Words or phrases, separated by commas" value={rule.words} onChange={(e) => setRule({ ...rule, words: e.target.value })} />
+                  : <textarea className={inputCls} rows={2} aria-label="What it should catch" placeholder="In plain words, what should be caught (e.g. Promising a specific delivery date or time)" value={rule.description} maxLength={500} onChange={(e) => setRule({ ...rule, description: e.target.value })} />}
                 <select className={inputCls} aria-label="What the rule does" value={rule.action} onChange={(e) => setRule({ ...rule, action: e.target.value })}>
-                  <option value="remove">Remove them from what tools receive and return</option>
-                  <option value="block">Block a reply that contains them</option>
+                  <option value="remove">{rule.kind === "meaning" ? "Remove the passage from what is passed on" : "Remove them from what tools receive and return"}</option>
+                  <option value="block">{rule.kind === "meaning" ? "Block the reply" : "Block a reply that contains them"}</option>
                   <option value="approval">Ask me to approve first</option>
                 </select>
-                <button type="submit" disabled={busy === "rule" || !rule.name.trim() || !rule.words.trim()} className="flex w-full items-center justify-center gap-1 rounded-xl border border-amber-300/50 bg-amber-400/15 px-3 py-2 text-sm text-amber-50 disabled:opacity-40" data-testid="project-add-rule"><Plus className="h-4 w-4" /> Add rule</button>
+                {rule.kind === "meaning" && <p className="text-[11px] text-zinc-500" data-testid="meaning-help">Checked by NazAI's AI judge after your exact-word rules, which always apply. It must quote the words that break the rule, or nothing happens. If the judge is unavailable, a person decides.</p>}
+                <button type="submit" disabled={busy === "rule" || !rule.name.trim() || (rule.kind === "words" ? !rule.words.trim() : rule.description.trim().length < 3)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-amber-300/50 bg-amber-400/15 px-3 py-2 text-sm text-amber-50 disabled:opacity-40" data-testid="project-add-rule"><Plus className="h-4 w-4" /> Add rule</button>
               </form>}
             </div>
 

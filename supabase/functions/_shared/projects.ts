@@ -15,6 +15,7 @@ import { textSafeToStore } from "./outer-control-text-review.ts";
 import { scanForInjection } from "./injection-scanner.ts";
 import { sha256Hex } from "./api-key-auth.ts";
 import { decryptText, encryptText } from "./project-crypto.ts";
+import { MAX_MEANING_RULES } from "./meaning-judge.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -523,6 +524,7 @@ export async function handleProjectsAction(admin: AnyAdmin, accountId: string, u
     const mine = ((waiting ?? []) as { id: string; params: { project_id?: string } | null }[]).filter((a) => a.params?.project_id === p.id);
     for (const a of mine) await admin.from("pending_approvals").update({ status: "rejected", execution_error: "The project was deleted, so nothing will be written." }).eq("id", a.id);
     await admin.from("project_rules").delete().eq("project_id", p.id);
+    await admin.from("meaning_rules").delete().eq("project_id", p.id);
     const { error } = await admin.from("imported_projects").delete().eq("id", p.id).eq("user_id", accountId);
     if (error) return bad(500, "internal_error", "The project could not be deleted. Nothing was removed.");
     await event("deleted", { cancelled_write_backs: mine.length });
@@ -565,6 +567,31 @@ export async function handleProjectsAction(admin: AnyAdmin, accountId: string, u
     const approvalId = (data as { id: string }).id;
     await event("write_back_requested", { approval_id: approvalId, chars: check.cleaned.length });
     return ok({ approval_id: approvalId, removed: check.matches.filter((m) => m.action === "remove_text").map((m) => m.name) });
+  }
+
+  if (action === "add_rule" && body.kind === "meaning") {
+    // A rule in plain words, checked by the AI judge on every reply of a Task with this project (it must quote its evidence).
+    const { count } = await admin.from("meaning_rules").select("id", { count: "exact", head: true }).eq("project_id", p.id);
+    if ((count ?? 0) >= MAX_MEANING_RULES) return bad(409, "too_many_rules", `A project can have at most ${MAX_MEANING_RULES} meaning rules.`);
+    const name = clip(String(body.name ?? "").replace(/\s+/g, " ").trim(), 120);
+    if (!name) return bad(400, "invalid_name", "Give the rule a name.");
+    const description = clip(String(body.description ?? "").replace(/\s+/g, " ").trim(), 500);
+    if (description.length < 3) return bad(400, "invalid_description", "Say in plain words what the rule should catch.");
+    const act = String(body.rule_action ?? "block") as RuleAction;
+    if (!["remove", "block", "approval"].includes(act)) return bad(400, "invalid_action", "rule_action must be remove, block or approval.");
+    const { data, error } = await admin.from("meaning_rules").insert({ user_id: accountId, project_id: p.id, name, description, action: act, enabled: true, created_at: at })
+      .select("id, name, description, action, enabled, created_at").maybeSingle();
+    if (error || !data) return bad(500, "internal_error", "The rule could not be saved.");
+    await event("rule_added", { name, rule_action: act, kind: "meaning" });
+    return ok({ rule: data });
+  }
+
+  if (action === "remove_rule" && body.kind === "meaning") {
+    const ruleId = String(body.rule_id ?? "");
+    const { data: rule } = await admin.from("meaning_rules").select("id, name").eq("id", ruleId).eq("project_id", p.id).maybeSingle();
+    await admin.from("meaning_rules").delete().eq("id", ruleId).eq("project_id", p.id);
+    if (rule) await event("rule_removed", { name: (rule as { name: string }).name, kind: "meaning" });
+    return ok({});
   }
 
   if (action === "add_rule") {

@@ -28,3 +28,19 @@ describe("Control Diff", () => {
     expect(diffSummary({ segments: [], removed: 0, flagged: 0, truncated: false })).toBeNull();
   });
 });
+
+import { meaningLines } from "@/lib/outer-control-sessions";
+describe("meaning rule evidence on a step", () => {
+  it("each finding with its quote and reason; a removed passage is not shown; an unavailable judge is said plainly", () => {
+    expect(meaningLines({ checked: 2, unavailable: false, discarded: 1, findings: [
+      { rule: "No delivery promises", action: "block", why: "It promises a time.", quote: "arrives Friday at noon" },
+      { rule: "No medical advice", action: "remove", why: "Names a medicine.", quote: null },
+    ] })).toEqual([
+      "Meaning rule \"No delivery promises\" blocked it: “arrives Friday at noon” — It promises a time.",
+      "Meaning rule \"No medical advice\" removed the passage: (the passage is not kept) — Names a medicine.",
+    ]);
+    expect(meaningLines({ checked: 1, unavailable: true, discarded: 0, findings: [] })[0]).toMatch(/not available, so a person decides/);
+    expect(meaningLines({ checked: 3, unavailable: false, discarded: 0, findings: [] })).toEqual(["Meaning rules: 3 checked by the AI judge, none broken."]);
+    expect(meaningLines(null)).toEqual([]);
+  });
+});

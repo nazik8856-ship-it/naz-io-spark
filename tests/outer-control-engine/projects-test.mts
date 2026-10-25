@@ -449,4 +449,22 @@ await t("live check: the test line reaches the approval exactly as sent; once in
   assert.ok((await act({ action: "read", project_id: id })).body.content.includes(line));
 });
 
+await t("meaning rules for a project: plain words, limited in number, removed with the project", async () => {
+  setup();
+  await act({ action: "import_paste", name: "Support", text: "Support macros." });
+  const id = projects()[0].id;
+  const r = await act({ action: "add_rule", project_id: id, kind: "meaning", name: "No delivery promises", description: "Promising a specific delivery date", rule_action: "approval" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(H.table("meaning_rules").map((x: any) => [x.user_id, x.project_id, x.action, x.enabled]), [[U, id, "approval", true]]);
+  assert.equal((await act({ action: "add_rule", project_id: id, kind: "meaning", name: "x", description: "ab" })).status, 400);
+  assert.equal(H.table("project_rules").length, 0, "a meaning rule is not a word rule");
+  for (let i = 0; i < 9; i++) await act({ action: "add_rule", project_id: id, kind: "meaning", name: `m${i}`, description: `about ${i} things` });
+  assert.equal((await act({ action: "add_rule", project_id: id, kind: "meaning", name: "one more", description: "too many now" })).status, 409);
+  await act({ action: "remove_rule", project_id: id, kind: "meaning", rule_id: H.table("meaning_rules")[0].id });
+  assert.equal(H.table("meaning_rules").length, 9);
+  assert.ok(H.table("project_events").some((e: any) => e.action === "rule_removed" && e.detail.kind === "meaning"));
+  await act({ action: "delete", project_id: id, confirm_name: "Support" });
+  assert.equal(H.table("meaning_rules").length, 0);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1);

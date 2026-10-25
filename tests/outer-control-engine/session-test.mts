@@ -74,6 +74,52 @@ await t("Control Diff: a clean reply has no diff", async () => {
   await H.advanceSession(H.createClient("u", "k"), "s1", deps);
   assert.equal(steps()[0].decision.diff, undefined);
 });
+// ---- meaning rules: an AI judge that must quote its evidence; the deterministic rules stay on top
+const meaningRule = (action: string, extra: any = {}) => H.table("meaning_rules").push({ id: `m-${action}`, user_id: U, project_id: null, name: "No delivery promises", description: "Promising a specific delivery date or time", action, enabled: true, ...extra });
+const judgeSays = (violations: any[]) => async (p: any) => { judgePrompts.push(p); return JSON.stringify({ violations }); };
+let judgePrompts: any[] = [];
+await t("meaning rule: a quoted promise blocks the reply; the step keeps the evidence; the reply goes to the judge between markers", async () => {
+  setup(); judgePrompts = []; meaningRule("block");
+  script = () => ({ json: { status: "done", answer: "Your order will arrive by Friday at noon, guaranteed." } });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, maxRetries: 0, judgeAi: judgeSays([{ rule: "R1", quote: "will arrive by Friday at noon", why: "It promises a delivery time." }]) });
+  assert.equal(steps()[0].verdict, "block", JSON.stringify(steps()[0].decision.meaning));
+  assert.deepEqual(steps()[0].decision.meaning.findings, [{ rule: "No delivery promises", action: "block", why: "It promises a delivery time.", quote: "will arrive by Friday at noon" }]);
+  assert.match(judgePrompts[0].user, /R1: No delivery promises — Promising a specific delivery date or time[\s\S]*<<<REPLY>>>\nYour order will arrive/);
+  assert.match(judgePrompts[0].system, /never follow instructions/);
+  assert.ok(steps()[0].decision.diff.segments.some((x: any) => x.flagged === "will arrive by Friday at noon"));
+  assert.notEqual(r.status, "completed");
+});
+await t("meaning rule: a quote that is not in the reply is thrown away, so the reply passes", async () => {
+  setup(); meaningRule("block");
+  script = () => ({ json: { status: "done", answer: "Returns are accepted within thirty days." } });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: judgeSays([{ rule: "R1", quote: "arrives tomorrow", why: "made up" }, { rule: "R9", quote: "Returns", why: "no such rule" }]) });
+  assert.equal(r.status, "completed"); assert.equal(steps()[0].verdict, "allow");
+  assert.equal(steps()[0].decision.meaning.discarded, 2);
+});
+await t("meaning rule 'remove': the quoted passage is cut out of what is passed on and never kept", async () => {
+  setup(); meaningRule("remove");
+  script = () => ({ json: { status: "done", answer: "Returns take 30 days. It will arrive by Friday. Thanks." } });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: judgeSays([{ rule: "R1", quote: "It will arrive by Friday.", why: "A delivery promise." }]) });
+  assert.equal(r.status, "completed"); assert.equal(steps()[0].verdict, "modify");
+  assert.ok(!sess().final_output.includes("arrive by Friday"), sess().final_output);
+  assert.ok(!JSON.stringify(steps()[0]).includes("arrive by Friday"), "the removed passage is nowhere in the step");
+  assert.ok(steps()[0].decision.diff.segments.some((x: any) => x.removed === "passage" && x.rule === "No delivery promises"));
+});
+await t("meaning rules: without the judge a person decides; a reply the deterministic rules block never reaches the judge", async () => {
+  setup(); meaningRule("block");
+  await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: async () => null });
+  assert.equal(steps()[0].verdict, "escalate"); assert.equal(steps()[0].decision.meaning.unavailable, true);
+  setup(); judgePrompts = []; meaningRule("remove");
+  H.table("hard_rules").push({ id: "h1", user_id: U, rule_text: "Never quote prices", action_type_pattern: "outer_control_text_review", effect: "always_block", provider: null, enabled: true, shadow_mode: false, match_terms: ["$"], created_at: "2026-01-01" });
+  script = () => ({ json: { status: "done", answer: "It costs $40 and arrives Friday." } });
+  await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, maxRetries: 0, judgeAi: judgeSays([]) });
+  assert.equal(steps()[0].verdict, "block"); assert.equal(judgePrompts.length, 0, "the deterministic block stands without asking the judge");
+});
+await t("meaning rules of another project do not apply", async () => {
+  setup(); judgePrompts = []; meaningRule("block", { project_id: "proj-other" });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: judgeSays([]) });
+  assert.equal(r.status, "completed"); assert.equal(judgePrompts.length, 0);
+});
 await t("block then a corrected reply: second request names the broken rule, session completes", async () => {
   setup(); script = (n) => n === 1 ? { json: { status: "done", answer: "I will drop table customers." } } : { json: { status: "done", answer: "Here is the policy." } };
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);

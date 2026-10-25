@@ -333,3 +333,19 @@ describe("Live check (Notion import and write-back, for real)", () => {
     expect(screen.queryByTestId("live-check")).toBeNull();
   });
 });
+
+describe("Meaning rules on a project", () => {
+  it("a rule in plain words is added through the projects function, listed with its Meaning badge, and removed by kind", async () => {
+    state.tables = { imported_projects: [base], project_rules: [], meaning_rules: [{ id: "m1", project_id: "p1", name: "No delivery promises", description: "Promising a delivery date", action: "approval", enabled: true, created_at: "x" }], outer_control_workflows: [], project_events: [], agents: [], websites: [] };
+    at("/projects/p1", <ProjectView />);
+    expect((await screen.findByTestId("meaning-rule")).textContent).toMatch(/Meaning\s*No delivery promises · needs approval\s*Promising a delivery date/);
+    fireEvent.click(screen.getByRole("tab", { name: "Meaning · AI judge" }));
+    expect(screen.getByTestId("meaning-help").textContent).toMatch(/must quote the words[\s\S]*a person decides/);
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "No medical advice" } });
+    fireEvent.change(screen.getByLabelText("What it should catch"), { target: { value: "Telling someone which medicine to take" } });
+    fireEvent.click(screen.getByTestId("project-add-rule"));
+    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "add_rule", project_id: "p1", account_id: "acct", kind: "meaning", name: "No medical advice", description: "Telling someone which medicine to take", rule_action: "block" }));
+    fireEvent.click(screen.getByLabelText("Remove rule No delivery promises"));
+    await waitFor(() => expect(calls().at(-1)).toEqual({ action: "remove_rule", project_id: "p1", account_id: "acct", rule_id: "m1", kind: "meaning" }));
+  });
+});

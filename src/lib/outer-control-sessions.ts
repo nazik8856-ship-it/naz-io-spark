@@ -139,6 +139,8 @@ export type DecisionView = {
   changes?: { name: string; count: number }[];
   /** Control Diff: the tool's reply as segments; removed spans carry only a label and the rule's name. */
   diff?: { segments: DiffSegment[]; removed: number; flagged: number; truncated: boolean } | null;
+  /** Meaning rules: what the AI judge found, each with the quoted evidence (a removed passage is never kept). */
+  meaning?: { checked: number; unavailable: boolean; discarded: number; findings: { rule: string; action: string; why: string; quote: string | null }[] } | null;
 };
 export type DiffSegment = { t: string } | { removed: string; rule: string } | { flagged: string; rule: string; effect: "block" | "approval" };
 
@@ -159,7 +161,17 @@ export function describeDecision(d: DecisionView | null | undefined): string[] {
   else if (d.why) lines.push(`Why: ${d.why.length > 280 ? `${d.why.slice(0, 279)}…` : d.why}`);
   for (const b of d.plan?.basis ?? []) lines.push(`Based on: ${b}`);
   if (d.plan?.reason) lines.push(`Next: ${d.plan.reason}`);
+  lines.push(...meaningLines(d.meaning));
   return lines;
+}
+
+const MEANING_DID: Record<string, string> = { block: "blocked it", approval: "sent it for approval", remove: "removed the passage" };
+/** The AI judge's work on one reply, with its quoted evidence. */
+export function meaningLines(m: DecisionView["meaning"]): string[] {
+  if (!m || !m.checked) return [];
+  if (m.unavailable) return [`Meaning rules: the AI judge was not available, so a person decides (${m.checked} rule${m.checked === 1 ? "" : "s"} not checked).`];
+  if (!m.findings.length) return [`Meaning rules: ${m.checked} checked by the AI judge, none broken${m.discarded ? ` (${m.discarded} finding${m.discarded === 1 ? "" : "s"} without a real quote thrown away)` : ""}.`];
+  return m.findings.map((f) => `Meaning rule "${f.rule}" ${MEANING_DID[f.action] ?? f.action}: ${f.quote ? `“${f.quote}”` : "(the passage is not kept)"}${f.why ? ` — ${f.why}` : ""}`);
 }
 
 const LEVEL_STYLE: Record<string, string> = {

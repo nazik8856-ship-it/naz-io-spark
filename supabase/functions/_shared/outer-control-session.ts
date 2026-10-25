@@ -29,6 +29,7 @@ import { loadCorrections, recordCorrection } from "./outer-control-corrections.t
 import { checkGoal } from "./outer-control-judgement.ts";
 import { buildSessionArtifact, describeWhatDone, type StepEvidence } from "./outer-control-artifact.ts";
 import { diffForReply } from "./outer-control-diff.ts";
+import { judgeMeaning, loadMeaningRules, meaningRecord, mergeMeaning, type JudgeAi } from "./meaning-judge.ts";
 import { buildChecklist, correctionFor, passedCount, settle, type Checklist, type ChecklistInput } from "./outer-control-completion.ts";
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
@@ -76,6 +77,8 @@ export type SessionDeps = {
   report: (admin: AnyAdmin, s: SessionRow) => Promise<ReportResult>;
   /** The AI that checks a goal Task's criteria and writes its next question; absent or null answers mean "not available". */
   goalAi?: (prompt: { system: string; user: string }) => Promise<string | null>;
+  /** The AI judge for meaning rules; absent or null answers mean "not available" (then a person decides). */
+  judgeAi?: JudgeAi;
 };
 
 const denoEnv = (k: string): string => {
@@ -95,6 +98,7 @@ export const defaultSessionDeps = (): SessionDeps => ({
   agentTimeoutMs: 120_000,
   report: (admin, s) => writeReport(admin, s, { ai: gatewayAi, now: Date.now }),
   goalAi: gatewayAi,
+  judgeAi: gatewayAi,
 });
 
 const LEASE_MS = 150_000;
@@ -146,12 +150,15 @@ async function finish(admin: AnyAdmin, s: SessionRow, status: string, stop_reaso
 }
 
 /** The rules of the imported project this session's Task works with (none when it uses no project). */
-async function projectRulesOf(admin: AnyAdmin, s: { workflow_id?: string | null }): Promise<SafetyRule[]> {
-  if (!s.workflow_id) return [];
+async function projectIdOf(admin: AnyAdmin, s: { workflow_id?: string | null }): Promise<string | null> {
+  if (!s.workflow_id) return null;
   try {
     const { data } = await admin.from("outer_control_workflows").select("project_id").eq("id", s.workflow_id).maybeSingle();
-    return await loadProjectRules(admin, (data as { project_id?: string | null } | null)?.project_id ?? null);
-  } catch { return []; }
+    return (data as { project_id?: string | null } | null)?.project_id ?? null;
+  } catch { return null; }
+}
+async function projectRulesOf(admin: AnyAdmin, s: { workflow_id?: string | null }): Promise<SafetyRule[]> {
+  return await loadProjectRules(admin, await projectIdOf(admin, s));
 }
 
 /** The rules a session's texts are held to: the account's (and its key's), plus those of the Task's project. */
@@ -723,10 +730,20 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         sourceModel: `tool:${tool.name}`.slice(0, 80), content, origin: "external-api",
         externalId: `${s.id}:${stepNo}:${attempt}`, contentHash, extraRules: await projectRulesOf(admin, s),
       });
-      const matches = result.matches ?? [];
+      let foundation = { verdict: result.verdict, output: result.output, matches: result.matches ?? [], changes: result.changes ?? [], summary: result.summary, shadowMatches: result.shadowMatches?.length ?? 0 };
+      // Meaning rules: the AI judge reads the reply after the deterministic rules, must quote its evidence, and can only make
+      // the decision stricter. A reply those rules already block is not sent to it.
+      const meaningRules = await loadMeaningRules(admin, s.user_id, await projectIdOf(admin, s));
+      let meaning: ReturnType<typeof meaningRecord> | null = null;
+      if (meaningRules.length && result.verdict !== "block") {
+        const judged = await judgeMeaning(deps.judgeAi, meaningRules, content);
+        foundation = mergeMeaning(foundation, judged, content);
+        meaning = meaningRecord(meaningRules, judged);
+      }
+      const matches = foundation.matches;
       const corrections = await loadCorrections(admin, s);
       const brain = think({
-        foundation: { verdict: result.verdict, output: result.output, matches, changes: result.changes ?? [], summary: result.summary, shadowMatches: result.shadowMatches?.length ?? 0 },
+        foundation,
         content, contentHash, rules: safetyRules, wm, requestModsUsed: s.request_mods_used, corrections,
         loop: {
           toolStatus: reply.status, stepNo, maxSteps: s.max_steps, retriesUsed: s.retries_used, maxRetries: s.max_retries,
@@ -756,7 +773,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       const diff = diffForReply(content, [...brain.applied, ...brain.overridden.map((o) => o.rule)]);
       await admin.from("outer_control_session_steps").insert({
         ...stepBase, reply_text: stored, tool_status: reply.status, evaluation_id: result.evaluationId, verdict,
-        next_action: action.kind, note: brain.why.slice(0, 500), decision: { ...decisionRecord(brain), ...(diff ? { diff } : {}) },
+        next_action: action.kind, note: brain.why.slice(0, 500), decision: { ...decisionRecord(brain), ...(diff ? { diff } : {}), ...(meaning ? { meaning } : {}) },
       });
       steps++;
 

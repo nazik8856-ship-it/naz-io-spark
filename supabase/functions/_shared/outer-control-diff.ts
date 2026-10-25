@@ -14,7 +14,7 @@ export type DiffRule = { id: string; name: string; category: string; pattern: st
 export const MAX_DIFF_CHARS = 8000;
 const LABEL: Record<string, string> = { "builtin:secret_key": "API key", "builtin:card_number": "card number", "builtin:national_id": "ID number" };
 /** What a removed span was, in plain words; the text itself is never kept. */
-export const removedLabel = (r: DiffRule) => LABEL[r.id] ?? (r.category === "secrets" ? "secret" : r.category === "pii" ? "personal data" : "words");
+export const removedLabel = (r: DiffRule) => LABEL[r.id] ?? (r.category === "secrets" ? "secret" : r.category === "pii" ? "personal data" : r.category === "meaning" ? "passage" : "words");
 
 type Span = { start: number; end: number; rule: DiffRule };
 
