@@ -141,6 +141,8 @@ export type DecisionView = {
   diff?: { segments: DiffSegment[]; removed: number; flagged: number; truncated: boolean } | null;
   /** Meaning rules: what the AI judge found, each with the quoted evidence (a removed passage is never kept). */
   meaning?: { checked: number; unavailable: boolean; discarded: number; findings: { rule: string; action: string; why: string; quote: string | null }[] } | null;
+  /** The reply compared with the Task's project: contradictions, quoted on both sides (flagged, never blocked). */
+  project_check?: { ran: boolean; contradictions: { reply_quote: string; project_quote: string; why: string }[]; discarded?: number } | null;
 };
 export type DiffSegment = { t: string } | { removed: string; rule: string } | { flagged: string; rule: string; effect: "block" | "approval" };
 
@@ -162,6 +164,12 @@ export function describeDecision(d: DecisionView | null | undefined): string[] {
   for (const b of d.plan?.basis ?? []) lines.push(`Based on: ${b}`);
   if (d.plan?.reason) lines.push(`Next: ${d.plan.reason}`);
   lines.push(...meaningLines(d.meaning));
+  if (d.project_check) {
+    const c = d.project_check;
+    if (!c.ran) lines.push("Project check: not run (the AI check was not available).");
+    else if (!c.contradictions.length) lines.push("Project check: nothing in this answer contradicts the project.");
+    else for (const x of c.contradictions) lines.push(`Contradicts the project: “${x.reply_quote}” — the project says “${x.project_quote}”${x.why ? ` (${x.why})` : ""}`);
+  }
   return lines;
 }
 

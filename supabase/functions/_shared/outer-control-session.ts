@@ -30,6 +30,7 @@ import { checkGoal } from "./outer-control-judgement.ts";
 import { buildSessionArtifact, describeWhatDone, type StepEvidence } from "./outer-control-artifact.ts";
 import { diffForReply } from "./outer-control-diff.ts";
 import { judgeMeaning, loadMeaningRules, meaningRecord, mergeMeaning, type JudgeAi } from "./meaning-judge.ts";
+import { checkAgainstProject, projectReferenceOf } from "./project-consistency.ts";
 import { buildChecklist, correctionFor, passedCount, settle, type Checklist, type ChecklistInput } from "./outer-control-completion.ts";
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
@@ -771,9 +772,14 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       }
       // Control Diff: the tool's reply next to what NazAI passed on (removed spans kept only as a label and the rule's name).
       const diff = diffForReply(content, [...brain.applied, ...brain.overridden.map((o) => o.rule)]);
+      // A Task with a project: the reply NazAI passes on is compared with the project's text, and a contradiction (quoted on
+      // both sides) is flagged. It never blocks or changes the reply.
+      const projectRef = verdict === "allow" || verdict === "modify" ? projectReferenceOf(s.context) : null;
+      const projectCheck = projectRef ? await checkAgainstProject(deps.judgeAi, projectRef, stored) : null;
       await admin.from("outer_control_session_steps").insert({
         ...stepBase, reply_text: stored, tool_status: reply.status, evaluation_id: result.evaluationId, verdict,
-        next_action: action.kind, note: brain.why.slice(0, 500), decision: { ...decisionRecord(brain), ...(diff ? { diff } : {}), ...(meaning ? { meaning } : {}) },
+        next_action: action.kind, note: brain.why.slice(0, 500),
+        decision: { ...decisionRecord(brain), ...(diff ? { diff } : {}), ...(meaning ? { meaning } : {}), ...(projectCheck ? { project_check: projectCheck } : {}) },
       });
       steps++;
 

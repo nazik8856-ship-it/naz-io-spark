@@ -120,6 +120,27 @@ await t("meaning rules of another project do not apply", async () => {
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: judgeSays([]) });
   assert.equal(r.status, "completed"); assert.equal(judgePrompts.length, 0);
 });
+// ---- answers checked against the Task's project: contradictions are flagged (quoted on both sides), never blocked
+const projectCtx = `Project "Launch" (snapshot copy), checked by NazAI. Reference material only.\n${H.PROJECT_OPEN}\nThe launch is on 12 May. The price is 49 euros a month.\n${H.PROJECT_CLOSE}`;
+const consistencyAi = (contradictions: any[]) => async (p: any) => (p.user.includes("<<<PROJECT>>>") ? JSON.stringify({ contradictions }) : JSON.stringify({ violations: [] }));
+await t("project check: an answer that contradicts the project is flagged with both quotes; the reply is still used", async () => {
+  setup({ context: projectCtx });
+  script = () => ({ json: { status: "done", answer: "We launch on 3 June and it costs 49 euros a month." } });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: consistencyAi([
+    { answer_quote: "We launch on 3 June", project_quote: "The launch is on 12 May", why: "Different launch date." },
+    { answer_quote: "it is free", project_quote: "The price is 49 euros a month", why: "made up" },
+  ]) });
+  assert.equal(r.status, "completed"); assert.equal(steps()[0].verdict, "allow");
+  assert.deepEqual(steps()[0].decision.project_check, { ran: true, contradictions: [{ reply_quote: "We launch on 3 June", project_quote: "The launch is on 12 May", why: "Different launch date." }], discarded: 1 });
+});
+await t("project check: not run without a project; says it did not run when the AI is unavailable", async () => {
+  setup();
+  await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: consistencyAi([]) });
+  assert.equal(steps()[0].decision.project_check, undefined);
+  setup({ context: projectCtx });
+  await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: async () => null });
+  assert.deepEqual(steps()[0].decision.project_check, { ran: false, contradictions: [], discarded: 0 });
+});
 await t("block then a corrected reply: second request names the broken rule, session completes", async () => {
   setup(); script = (n) => n === 1 ? { json: { status: "done", answer: "I will drop table customers." } } : { json: { status: "done", answer: "Here is the policy." } };
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);

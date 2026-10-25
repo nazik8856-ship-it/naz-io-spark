@@ -139,3 +139,25 @@ export function proofTiles(a: Artifact): ProofTile[] {
   });
   return tiles;
 }
+
+// ---------------------------------------------------------------------------------------
+// Answers checked against the Task's project
+
+export type ProjectCheckRow = { session_id: string; project_check: { ran: boolean; contradictions: { reply_quote: string; project_quote: string; why: string }[] } | null };
+export type ProjectCheckSummary = { ran: number; notRun: number; contradictions: { tool: string; reply_quote: string; project_quote: string; why: string }[] };
+
+/** Per tool, the last answer that was checked against the project: did it run, and what contradicts the project. */
+export function projectCheckSummary(rows: ProjectCheckRow[], legs: (ProgressLeg & { id: string })[], tools: ProgressTool[]): ProjectCheckSummary | null {
+  const last = new Map<string, NonNullable<ProjectCheckRow["project_check"]>>();
+  for (const r of rows) if (r.project_check) last.set(r.session_id, r.project_check);
+  if (!last.size) return null;
+  const out: ProjectCheckSummary = { ran: 0, notRun: 0, contradictions: [] };
+  for (const [sid, c] of last) {
+    if (!c.ran) { out.notRun++; continue; }
+    out.ran++;
+    const leg = legs.find((l) => l.id === sid);
+    const tool = tools.find((t) => t.id === leg?.tool_id)?.name ?? "A tool";
+    for (const x of c.contradictions) out.contradictions.push({ tool, ...x });
+  }
+  return out;
+}

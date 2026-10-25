@@ -3,10 +3,11 @@ import { render, screen, waitFor, fireEvent, configure } from "@testing-library/
 // The full suite runs files in parallel; a first render can take longer than the default one second under that load.
 configure({ asyncUtilTimeout: 5000 });
 
-const state = vi.hoisted(() => ({ workflows: [] as unknown[], legs: [] as unknown[], tools: [] as unknown[] }));
+const state = vi.hoisted(() => ({ workflows: [] as unknown[], legs: [] as unknown[], tools: [] as unknown[], steps: [] as unknown[], projects: [] as unknown[] }));
 vi.mock("@/integrations/supabase/client", () => {
   const result = (table: string) => {
-    const data = table === "outer_control_workflows" ? state.workflows : table === "outer_control_sessions" ? state.legs : table === "external_tools" ? state.tools : [];
+    const data = table === "outer_control_workflows" ? state.workflows : table === "outer_control_sessions" ? state.legs : table === "external_tools" ? state.tools
+      : table === "outer_control_session_steps" ? state.steps : table === "imported_projects" ? state.projects : [];
     const q: Record<string, unknown> = {};
     for (const m of ["select", "eq", "neq", "is", "in", "order", "limit"]) q[m] = () => q;
     q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data, error: null }).then(res);
@@ -92,7 +93,7 @@ describe("proofTiles: the proof of a result at a glance", () => {
 });
 
 describe("TaskTracker", () => {
-  beforeEach(() => { vi.clearAllMocks(); state.tools = tools; });
+  beforeEach(() => { vi.clearAllMocks(); state.tools = tools; state.steps = []; state.projects = []; });
 
   it("shows nothing when there are no Start task Tasks", async () => {
     state.workflows = [{ id: "t9", objective: "Write the brief", status: "completed", started_at: "x", stop_reason: null, final_artifact: null }];
@@ -143,5 +144,28 @@ describe("TaskTracker", () => {
     fireEvent.click(screen.getByTestId("task-hide"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).toEqual({ action: "archive", kind: "workflow", id: "t1" });
+  });
+
+  it("a Task with a project: each tool's answer is compared with it; a contradiction is shown with both quotes", async () => {
+    state.workflows = [{ id: "t1", objective: "Research: AI safety evaluation", status: "completed", started_at: "x", stop_reason: null, final_artifact: taskArt(), project_id: "p1" }];
+    state.legs = [leg(1, "a", "failed"), leg(2, "b", "completed"), leg(3, "w", "completed", [1, 2])];
+    state.projects = [{ id: "p1", name: "Launch", source_mode: "snapshot", write_back: false }];
+    state.steps = [{ session_id: "l2", project_check: { ran: true, contradictions: [{ reply_quote: "We launch on 3 June", project_quote: "The launch is on 12 May", why: "Different date." }] } }];
+    render(<TaskTracker accountId="u1" />);
+    expect((await screen.findByTestId("project-contradiction")).textContent).toBe("Claude: “We launch on 3 June” — the project says “The launch is on 12 May” (Different date.)");
+    expect(screen.getByTestId("project-check").textContent).toMatch(/1 statement contradicts the project[\s\S]*Flagged only/);
+  });
+
+  it("checked with nothing to flag, or not checked at all, is said plainly", async () => {
+    state.workflows = [{ id: "t1", objective: "Research: AI safety evaluation", status: "completed", started_at: "x", stop_reason: null, final_artifact: taskArt(), project_id: "p1" }];
+    state.legs = [leg(1, "a", "failed"), leg(2, "b", "completed"), leg(3, "w", "completed", [1, 2])];
+    state.projects = [{ id: "p1", name: "Launch", source_mode: "snapshot", write_back: false }];
+    state.steps = [{ session_id: "l2", project_check: { ran: true, contradictions: [] } }];
+    const { unmount } = render(<TaskTracker accountId="u1" />);
+    expect((await screen.findByTestId("project-check")).textContent).toBe(" Checked against the project: no answer contradicts it.");
+    unmount();
+    state.steps = [{ session_id: "l2", project_check: { ran: false, contradictions: [] } }];
+    render(<TaskTracker accountId="u1" />);
+    expect((await screen.findByTestId("project-check")).textContent).toMatch(/Not checked against the project/);
   });
 });

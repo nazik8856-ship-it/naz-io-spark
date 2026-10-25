@@ -2,13 +2,13 @@
 // every tool and for NazAI's writer, and, once it is done, the one controlled result with its proof. A Task that finishes while the
 // page is open says so ("Result ready") and opens its result.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Ban, Check, ChevronDown, Clock, FileCheck2, Hand, Loader2, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Ban, Check, ChevronDown, Clock, FileCheck2, Hand, Loader2, ShieldCheck, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { callProjects } from "@/lib/projects";
 import { ACTION_INFO, splitTaskTitle } from "@/lib/outer-control-report-doc";
-import { hasWriter, taskProgress, type NodeState, type ProgressLeg, type ProgressNode, type ProgressTool, type TaskProgress } from "@/lib/outer-control-task-progress";
+import { hasWriter, projectCheckSummary, taskProgress, type NodeState, type ProgressLeg, type ProgressNode, type ProgressTool, type ProjectCheckRow, type ProjectCheckSummary, type TaskProgress } from "@/lib/outer-control-task-progress";
 import FinalArtifactView from "./FinalArtifactView";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -16,7 +16,7 @@ const anyDb = supabase as any; // the tables are new and not in the generated ty
 
 type TaskRow = { id: string; objective: string; status: string; started_at: string; stop_reason: string | null; final_artifact: unknown; project_id?: string | null };
 type TaskProjectInfo = { id: string; name: string; source_mode: "snapshot" | "linked"; write_back: boolean };
-type LegRow = ProgressLeg & { workflow_id: string };
+type LegRow = ProgressLeg & { id: string; workflow_id: string };
 const SHOWN = 3;
 const isOpen = (s: string) => s === "running" || s === "awaiting_human";
 
@@ -89,6 +89,7 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
   const [open, setOpen] = useState<string | null>(null);
   const seen = useRef<Map<string, string>>(new Map());
   const [projects, setProjects] = useState<Map<string, TaskProjectInfo>>(new Map());
+  const [checks, setChecks] = useState<ProjectCheckRow[]>([]);
   const [writing, setWriting] = useState<string | null>(null);
   const autoOpened = useRef<Set<string>>(new Set());
 
@@ -123,6 +124,12 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
     if (pids.length) {
       const pr = await anyDb.from("imported_projects").select("id, name, source_mode, write_back").in("id", pids);
       setProjects(new Map(((Array.isArray(pr?.data) ? pr.data : []) as TaskProjectInfo[]).map((x) => [x.id, x])));
+      // What each tool's answer showed when it was compared with the project.
+      const legIds = allLegs.filter((x) => mine.some((m) => m.id === x.workflow_id && m.project_id)).map((x) => x.id);
+      if (legIds.length) {
+        const st = await anyDb.from("outer_control_session_steps").select("session_id, project_check:decision->project_check").in("session_id", legIds).order("step_no").order("attempt");
+        setChecks(st?.error ? [] : ((Array.isArray(st?.data) ? st.data : []) as ProjectCheckRow[]));
+      }
     }
     setTools(allTools);
     setLegs(allLegs.filter((x) => mine.some((m) => m.id === x.workflow_id)));
@@ -197,12 +204,13 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
               <div className="space-y-3 px-4 pb-4 pt-3">
                 <ProgressTrack p={p} />
                 {p.phase === "ready" && <FinalArtifactView artifact={t.final_artifact} kind="task" />}
+                {t.project_id && <ProjectCheckNote summary={projectCheckSummary(checks.filter((c) => tLegs.some((l) => l.id === c.session_id)), tLegs, tools)} />}
                 {p.phase === "ready" && t.project_id && projects.get(t.project_id)?.write_back && (
                   <button type="button" disabled={writing === t.id} data-testid="task-write-back"
                     onClick={async () => {
                       const text = String((t.final_artifact as { final_output?: string } | null)?.final_output ?? "");
                       setWriting(t.id);
-                      const r = await callProjects("write_back", { project_id: t.project_id, text });
+                      const r = await callProjects("write_back", { project_id: t.project_id, account_id: accountId, text });
                       setWriting(null);
                       if (r.ok) toast.success("Waiting for your approval in Approvals. Nothing is written to the original before that.");
                       else toast.error(r.message || "That did not work.");
@@ -222,5 +230,25 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
         );
       })}
     </section>
+  );
+}
+
+/** What comparing each tool's answer with the Task's project found. */
+function ProjectCheckNote({ summary }: { summary: ProjectCheckSummary | null }) {
+  if (!summary) return null;
+  if (!summary.ran) return <p className="text-xs text-zinc-500" data-testid="project-check">Not checked against the project: the AI check was not available.</p>;
+  if (!summary.contradictions.length) {
+    return <p className="flex items-center gap-1.5 text-xs text-emerald-200" data-testid="project-check"><ShieldCheck className="h-3.5 w-3.5" /> Checked against the project: no answer contradicts it.</p>;
+  }
+  return (
+    <div className="rounded-xl border border-amber-400/40 bg-amber-400/[0.07] p-3 text-xs oc-in" data-testid="project-check">
+      <p className="flex items-center gap-1.5 font-semibold text-amber-100"><AlertTriangle className="h-3.5 w-3.5 text-amber-300" /> {summary.contradictions.length} statement{summary.contradictions.length === 1 ? "" : "s"} contradict{summary.contradictions.length === 1 ? "s" : ""} the project</p>
+      <ul className="mt-1.5 space-y-1.5 text-zinc-200">
+        {summary.contradictions.map((c, i) => (
+          <li key={i} data-testid="project-contradiction"><span className="text-zinc-400">{c.tool}:</span> “{c.reply_quote}” <span className="text-zinc-400">— the project says</span> “{c.project_quote}”{c.why ? <span className="text-zinc-500"> ({c.why})</span> : null}</li>
+        ))}
+      </ul>
+      <p className="mt-1.5 text-[11px] text-zinc-500">Flagged only: NazAI quoted both sides. Check which one is right before you use the result.</p>
+    </div>
   );
 }
