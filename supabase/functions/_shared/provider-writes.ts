@@ -61,7 +61,8 @@ export async function loadProviderIntegration(
     .eq("provider", provider)
     .eq("status", "connected");
   const rows = ((data || []) as IntegrationRow[]).filter((r) => (match ? match(r) : true));
-  return rows.find((r) => r.agent_id === agentId) || rows[0] || null;
+  // No agent's own connection: the account-level one (the one Projects imports with), before any agent's.
+  return rows.find((r) => r.agent_id === agentId) || rows.find((r) => !r.agent_id) || rows[0] || null;
 }
 
 const notConnected = (provider: string, kind: string) =>

@@ -28,6 +28,9 @@ import { buildWorkingMemory, decisionRecord, factsFor, guardConsistency, planNex
 import { loadCorrections, recordCorrection } from "./outer-control-corrections.ts";
 import { checkGoal } from "./outer-control-judgement.ts";
 import { buildSessionArtifact, describeWhatDone, type StepEvidence } from "./outer-control-artifact.ts";
+import { diffForReply } from "./outer-control-diff.ts";
+import { judgeMeaning, loadMeaningRules, meaningRecord, mergeMeaning, type JudgeAi } from "./meaning-judge.ts";
+import { checkAgainstProject, projectReferenceOf } from "./project-consistency.ts";
 import { buildChecklist, correctionFor, passedCount, settle, type Checklist, type ChecklistInput } from "./outer-control-completion.ts";
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
@@ -75,6 +78,8 @@ export type SessionDeps = {
   report: (admin: AnyAdmin, s: SessionRow) => Promise<ReportResult>;
   /** The AI that checks a goal Task's criteria and writes its next question; absent or null answers mean "not available". */
   goalAi?: (prompt: { system: string; user: string }) => Promise<string | null>;
+  /** The AI judge for meaning rules; absent or null answers mean "not available" (then a person decides). */
+  judgeAi?: JudgeAi;
 };
 
 const denoEnv = (k: string): string => {
@@ -94,9 +99,12 @@ export const defaultSessionDeps = (): SessionDeps => ({
   agentTimeoutMs: 120_000,
   report: (admin, s) => writeReport(admin, s, { ai: gatewayAi, now: Date.now }),
   goalAi: gatewayAi,
+  judgeAi: gatewayAi,
 });
 
 const LEASE_MS = 150_000;
+/** A step whose runner was cut off this many times in a row is stopped instead of being tried again forever. */
+export const MAX_INTERRUPTIONS_PER_STEP = 3;
 const MAX_ANSWER_CHARS = 2000;
 const MAX_EDIT_CHARS = 8000;
 export const APPROVED_STATUSES = new Set(["approved", "auto_approved"]);
@@ -145,12 +153,15 @@ async function finish(admin: AnyAdmin, s: SessionRow, status: string, stop_reaso
 }
 
 /** The rules of the imported project this session's Task works with (none when it uses no project). */
-async function projectRulesOf(admin: AnyAdmin, s: { workflow_id?: string | null }): Promise<SafetyRule[]> {
-  if (!s.workflow_id) return [];
+async function projectIdOf(admin: AnyAdmin, s: { workflow_id?: string | null }): Promise<string | null> {
+  if (!s.workflow_id) return null;
   try {
     const { data } = await admin.from("outer_control_workflows").select("project_id").eq("id", s.workflow_id).maybeSingle();
-    return await loadProjectRules(admin, (data as { project_id?: string | null } | null)?.project_id ?? null);
-  } catch { return []; }
+    return (data as { project_id?: string | null } | null)?.project_id ?? null;
+  } catch { return null; }
+}
+async function projectRulesOf(admin: AnyAdmin, s: { workflow_id?: string | null }): Promise<SafetyRule[]> {
+  return await loadProjectRules(admin, await projectIdOf(admin, s));
 }
 
 /** The rules a session's texts are held to: the account's (and its key's), plus those of the Task's project. */
@@ -451,6 +462,8 @@ async function acceptReply(admin: AnyAdmin, s: SessionRow, tool: ToolRow, stepNo
  */
 export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: SessionDeps = defaultSessionDeps()): Promise<{ status: string; steps: number }> {
   const began = deps.now();
+  // What the last driver left: a lease that ran out without being released means it was cut off mid-run.
+  const { data: before } = await admin.from("outer_control_sessions").select("lease_until, step_count, interruptions, interrupted_step, interrupted_streak").eq("id", sessionId).maybeSingle();
   // Claim: one driver per session at a time.
   const { data: claimed } = await admin.from("outer_control_sessions")
     .update({ lease_until: iso(began + LEASE_MS) })
@@ -460,6 +473,22 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
   if (!claimed) {
     const { data: cur } = await admin.from("outer_control_sessions").select("status").eq("id", sessionId).maybeSingle();
     return { status: (cur as { status?: string } | null)?.status ?? "missing", steps: 0 };
+  }
+  // Durable: an interrupted run carries on from the last recorded step. The same step cut off again and again is stopped.
+  const prev = before as { lease_until: string | null; step_count: number; interruptions?: number; interrupted_step?: number | null; interrupted_streak?: number } | null;
+  if (prev?.lease_until) {
+    const stepNo = prev.step_count + 1;
+    const streak = prev.interrupted_step === stepNo ? (prev.interrupted_streak ?? 0) + 1 : 1;
+    await admin.from("outer_control_sessions").update({
+      interruptions: (prev.interruptions ?? 0) + 1, interrupted_step: stepNo, interrupted_streak: streak, last_resumed_at: iso(began),
+    }).eq("id", sessionId);
+    if (streak > MAX_INTERRUPTIONS_PER_STEP) {
+      const { data: row } = await admin.from("outer_control_sessions").select("*").eq("id", sessionId).maybeSingle();
+      if (row) {
+        await finish(admin, row as SessionRow, "failed", `Step ${stepNo} was cut off ${streak} times in a row before it could finish, so it was stopped instead of being tried again. Try again later or check the tool.`, deps);
+        return { status: "failed", steps: 0 };
+      }
+    }
   }
 
   let steps = 0;
@@ -722,10 +751,20 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         sourceModel: `tool:${tool.name}`.slice(0, 80), content, origin: "external-api",
         externalId: `${s.id}:${stepNo}:${attempt}`, contentHash, extraRules: await projectRulesOf(admin, s),
       });
-      const matches = result.matches ?? [];
+      let foundation = { verdict: result.verdict, output: result.output, matches: result.matches ?? [], changes: result.changes ?? [], summary: result.summary, shadowMatches: result.shadowMatches?.length ?? 0 };
+      // Meaning rules: the AI judge reads the reply after the deterministic rules, must quote its evidence, and can only make
+      // the decision stricter. A reply those rules already block is not sent to it.
+      const meaningRules = await loadMeaningRules(admin, s.user_id, await projectIdOf(admin, s));
+      let meaning: ReturnType<typeof meaningRecord> | null = null;
+      if (meaningRules.length && result.verdict !== "block") {
+        const judged = await judgeMeaning(deps.judgeAi, meaningRules, content);
+        foundation = mergeMeaning(foundation, judged, content);
+        meaning = meaningRecord(meaningRules, judged);
+      }
+      const matches = foundation.matches;
       const corrections = await loadCorrections(admin, s);
       const brain = think({
-        foundation: { verdict: result.verdict, output: result.output, matches, changes: result.changes ?? [], summary: result.summary, shadowMatches: result.shadowMatches?.length ?? 0 },
+        foundation,
         content, contentHash, rules: safetyRules, wm, requestModsUsed: s.request_mods_used, corrections,
         loop: {
           toolStatus: reply.status, stepNo, maxSteps: s.max_steps, retriesUsed: s.retries_used, maxRetries: s.max_retries,
@@ -751,9 +790,16 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         approvalId = outcome.approvalId;
         if (outcome.autoResolved) autoResolved = outcome.resolution === "approved" ? "approved" : "rejected";
       }
+      // Control Diff: the tool's reply next to what NazAI passed on (removed spans kept only as a label and the rule's name).
+      const diff = diffForReply(content, [...brain.applied, ...brain.overridden.map((o) => o.rule)]);
+      // A Task with a project: the reply NazAI passes on is compared with the project's text, and a contradiction (quoted on
+      // both sides) is flagged. It never blocks or changes the reply.
+      const projectRef = verdict === "allow" || verdict === "modify" ? projectReferenceOf(s.context) : null;
+      const projectCheck = projectRef ? await checkAgainstProject(deps.judgeAi, projectRef, stored) : null;
       await admin.from("outer_control_session_steps").insert({
         ...stepBase, reply_text: stored, tool_status: reply.status, evaluation_id: result.evaluationId, verdict,
-        next_action: action.kind, note: brain.why.slice(0, 500), decision: decisionRecord(brain),
+        next_action: action.kind, note: brain.why.slice(0, 500),
+        decision: { ...decisionRecord(brain), ...(diff ? { diff } : {}), ...(meaning ? { meaning } : {}), ...(projectCheck ? { project_check: projectCheck } : {}) },
       });
       steps++;
 

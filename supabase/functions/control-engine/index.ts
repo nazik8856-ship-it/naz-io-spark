@@ -41,6 +41,7 @@ const RATE_LIMIT_PER_MINUTE = 120;
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { nothingToRunMessage } from "../_shared/approval-run.ts";
+import { projectWriteBackAllowed } from "../_shared/projects.ts";
 import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
 import { replayDraft, replayRealTraffic, previewProposedHardRules, evaluateAction, asSafetyRules, type PolicySnapshot, type ProposedHardRuleInput, type GateOutcome } from "../_shared/policy-replay.ts";
 import { scanWithRules } from "../_shared/safety-scanner.ts";
@@ -481,6 +482,12 @@ serve(async (req) => {
           ok: true, executed: false, nothing_to_run: true, approvals: distinct, required: needed,
           message: nothingToRunMessage(actType),
         });
+      }
+
+      // A project write-back runs only while the project still exists, is not archived and still has write-back on.
+      if (ap.origin === "projects") {
+        const still = await projectWriteBackAllowed(supabase, userId, (ap.params ?? {}) as Record<string, unknown>);
+        if (!still.ok) return json({ ok: false, executed: false, not_carried_out: true, message: still.message });
       }
 
       // Atomic claim: only succeeds if executed_at is still NULL right now.

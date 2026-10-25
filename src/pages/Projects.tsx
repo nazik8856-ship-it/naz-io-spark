@@ -6,7 +6,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { ArrowLeft, FolderInput, FolderKanban, Loader2 } from "lucide-react";
 import { useProjectList } from "@/hooks/useProjectList";
 import { projectType, shortDate } from "@/lib/projects";
-import { ControlBadge, SourceBadge } from "@/components/projects/ProjectBadges";
+import { ControlBadge, ProtectedBadge, SourceBadge } from "@/components/projects/ProjectBadges";
 import ImportProjectDialog from "@/components/projects/ImportProjectDialog";
 
 type Filter = "all" | "imported" | "generated";
@@ -54,7 +54,7 @@ export default function Projects() {
                 <li key={p.key}>
                   <button type="button" onClick={() => navigate(p.href)} data-testid="project-row" data-kind={p.kind}
                     className="grid w-full grid-cols-1 gap-2 border-b border-white/[0.06] px-4 py-3 text-left transition hover:bg-amber-400/[0.04] md:grid-cols-[2fr_1.2fr_1.6fr_1.2fr_0.6fr] md:items-center md:gap-3">
-                    <span className="truncate text-sm font-medium text-zinc-100" data-testid="project-name">{p.name}</span>
+                    <span className="flex min-w-0 items-center gap-2"><span className="truncate text-sm font-medium text-zinc-100" data-testid="project-name">{p.name}</span><ProtectedBadge project={p.imported ?? null} /></span>
                     <span><SourceBadge project={p.imported ?? null} /></span>
                     <span><ControlBadge project={p.imported ?? null} /></span>
                     <span className="text-xs text-zinc-300" data-testid="project-type">{projectType(p)}</span>

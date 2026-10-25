@@ -4,15 +4,16 @@
 // and deciding; this card only shows it and collects the few things a person must give.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Activity, Plus, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
+import { Activity, Gauge, Plus, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
 import { toast } from "sonner";
+import ControlDiffView from "./ControlDiffView";
 import FinalArtifactView from "./FinalArtifactView";
 import { HonestStatusBadge, StatusReason } from "./HonestStatusBadge";
 import { honestStatus } from "@/lib/outer-control-status";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems, type Tone } from "@/lib/outer-control-ui";
-import { describeClosure, describeUsage, healthSummary, isInternalTool, toolHealth, type ActivityStep, type ToolUsage } from "@/lib/outer-control-tools-ui";
+import { describeClosure, describeRecord, describeUsage, healthSummary, isInternalTool, toolHealth, toolRecord, type ActivityStep, type ToolRecord, type ToolRecordRow, type ToolUsage } from "@/lib/outer-control-tools-ui";
 import TaskTracker from "./TaskTracker";
 import TaskPanel, { type TaskProject, type TaskRequest } from "./TaskPanel";
 import { ACTION_INFO } from "@/lib/outer-control-report-doc";
@@ -67,6 +68,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
   const [usage, setUsage] = useState<Map<string, ToolUsage>>(new Map());
+  const [records, setRecords] = useState<Map<string, ToolRecord>>(new Map());
   const [showArchived, setShowArchived] = useState(false);
   const [archivedCount, setArchivedCount] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -83,12 +85,15 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       if (withArchive && !showArchived) q = q.is("archived_at", null);
       return q.order("started_at", { ascending: false }).limit(10);
     };
-    const [t, s0, k, u] = await Promise.all([
+    const [t, s0, k, u, rec] = await Promise.all([
       anyDb.from("external_tools").select("id, name, endpoint_url, request_format, model, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
       sessionsQuery(true),
       anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
       anyDb.from("outer_control_tool_usage").select("tool_id, requests_30d, failed_30d, requests_today").eq("user_id", accountId),
+      anyDb.from("outer_control_tool_record").select("tool_id, sessions, completed, failed, stopped, replies, blocked, edited, escalated, median_seconds, last_used_at").eq("user_id", accountId),
     ]);
+    // The track record is optional: before its view exists the page works without it.
+    setRecords(new Map((rec?.error || !Array.isArray(rec?.data) ? [] : (rec.data as ToolRecordRow[])).filter((x) => x && typeof x.tool_id === "string").map((x) => [x.tool_id, toolRecord(x)])));
     setUsage(new Map((Array.isArray(u?.data) ? (u.data as ToolUsage[]) : []).filter((x) => x && typeof x.tool_id === "string").map((x) => [x.tool_id, x])));
     const s = s0?.error ? await sessionsQuery(false) : s0;
     try {
@@ -330,6 +335,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                             <span key={b.label} className={`ml-2 rounded-full border px-1.5 py-0 text-[10px] ${b.className}`}>{b.label}</span>
                           ))}
                           {describeDecision(st.decision).map((line, i) => <div key={i} className="ml-3 text-[10px] leading-snug text-zinc-500">{line}</div>)}
+                          {st.decision?.diff && <div className="ml-3"><ControlDiffView diff={st.decision.diff} controlled={st.verdict === "block" ? null : st.reply_text} toolName={toolName(s.tool_id)} /></div>}
                         </li>
                       ))}
                       {(steps[s.id] ?? []).length === 0 && <li className="text-zinc-500">Nothing has been exchanged yet.</li>}
@@ -404,7 +410,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
         </div>
       </div>
       <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} onTest={(t) => runTest(t.id, t.name)} testingId={busy?.startsWith("test-") ? busy.slice(5) : null} />
-      <TaskPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startTask} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }} project={taskProject} onClearProject={() => setTaskProject(null)} />
+      <TaskPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startTask} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }} project={taskProject} onClearProject={() => setTaskProject(null)} records={records} />
 
       <div className="mt-4 space-y-2">
         {shownTools.length === 0 && (
@@ -431,6 +437,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                   </div>
                   <div className="mt-0.5 text-xs text-zinc-500">{t.endpoint_url.startsWith("nazai-agent://") ? "Your NazAI agent" : hostOf(t.endpoint_url)}</div>
                   {describeUsage(usage.get(t.id)) && <div className="mt-1.5 flex items-center gap-1.5 text-xs text-zinc-300" data-testid="tool-usage"><Activity className="h-3 w-3 text-cyan-300/80" aria-hidden />{describeUsage(usage.get(t.id))}</div>}
+                  {describeRecord(records.get(t.id)) && <div className="mt-1 flex items-center gap-1.5 text-xs text-zinc-400" data-testid="tool-record" title="Track record over the last 30 days"><Gauge className="h-3 w-3 text-amber-300/80" aria-hidden />{describeRecord(records.get(t.id))}</div>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button disabled={busy === `test-${t.id}`} onClick={() => runTest(t.id, t.name)} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-40">

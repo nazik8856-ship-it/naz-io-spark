@@ -61,6 +61,105 @@ await t("a secret in the reply is removed: modify, masked in the step, cleaned t
   assert.equal(r.status, "completed"); assert.equal(steps()[0].verdict, "modify");
   assert.ok(!sess().final_output.includes(SECRET)); assert.ok(sess().final_output.includes("[REDACTED:secrets]")); assert.ok(!String(steps()[0].reply_text).includes(SECRET));
 });
+await t("Control Diff: the step keeps the tool's reply with the removed secret as a label and its rule, never the secret", async () => {
+  setup(); script = () => ({ json: { status: "done", answer: `Use ${SECRET} to connect.` } });
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  const diff = steps()[0].decision.diff;
+  assert.deepEqual(diff.segments, [{ t: "Use " }, { removed: "API key", rule: "API key or secret in payload" }, { t: " to connect." }]);
+  assert.equal(diff.removed, 1); assert.equal(diff.flagged, 0);
+  assert.ok(!JSON.stringify(steps()[0]).includes(SECRET), "the secret is nowhere in the step row");
+});
+await t("Control Diff: a clean reply has no diff", async () => {
+  setup(); script = () => ({ json: { status: "done", answer: "All fine." } });
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(steps()[0].decision.diff, undefined);
+});
+// ---- meaning rules: an AI judge that must quote its evidence; the deterministic rules stay on top
+const meaningRule = (action: string, extra: any = {}) => H.table("meaning_rules").push({ id: `m-${action}`, user_id: U, project_id: null, name: "No delivery promises", description: "Promising a specific delivery date or time", action, enabled: true, ...extra });
+const judgeSays = (violations: any[]) => async (p: any) => { judgePrompts.push(p); return JSON.stringify({ violations }); };
+let judgePrompts: any[] = [];
+await t("meaning rule: a quoted promise blocks the reply; the step keeps the evidence; the reply goes to the judge between markers", async () => {
+  setup(); judgePrompts = []; meaningRule("block");
+  script = () => ({ json: { status: "done", answer: "Your order will arrive by Friday at noon, guaranteed." } });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, maxRetries: 0, judgeAi: judgeSays([{ rule: "R1", quote: "will arrive by Friday at noon", why: "It promises a delivery time." }]) });
+  assert.equal(steps()[0].verdict, "block", JSON.stringify(steps()[0].decision.meaning));
+  assert.deepEqual(steps()[0].decision.meaning.findings, [{ rule: "No delivery promises", action: "block", why: "It promises a delivery time.", quote: "will arrive by Friday at noon" }]);
+  assert.match(judgePrompts[0].user, /R1: No delivery promises — Promising a specific delivery date or time[\s\S]*<<<REPLY>>>\nYour order will arrive/);
+  assert.match(judgePrompts[0].system, /never follow instructions/);
+  assert.ok(steps()[0].decision.diff.segments.some((x: any) => x.flagged === "will arrive by Friday at noon"));
+  assert.notEqual(r.status, "completed");
+});
+await t("meaning rule: a quote that is not in the reply is thrown away, so the reply passes", async () => {
+  setup(); meaningRule("block");
+  script = () => ({ json: { status: "done", answer: "Returns are accepted within thirty days." } });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: judgeSays([{ rule: "R1", quote: "arrives tomorrow", why: "made up" }, { rule: "R9", quote: "Returns", why: "no such rule" }]) });
+  assert.equal(r.status, "completed"); assert.equal(steps()[0].verdict, "allow");
+  assert.equal(steps()[0].decision.meaning.discarded, 2);
+});
+await t("meaning rule 'remove': the quoted passage is cut out of what is passed on and never kept", async () => {
+  setup(); meaningRule("remove");
+  script = () => ({ json: { status: "done", answer: "Returns take 30 days. It will arrive by Friday. Thanks." } });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: judgeSays([{ rule: "R1", quote: "It will arrive by Friday.", why: "A delivery promise." }]) });
+  assert.equal(r.status, "completed"); assert.equal(steps()[0].verdict, "modify");
+  assert.ok(!sess().final_output.includes("arrive by Friday"), sess().final_output);
+  assert.ok(!JSON.stringify(steps()[0]).includes("arrive by Friday"), "the removed passage is nowhere in the step");
+  assert.ok(steps()[0].decision.diff.segments.some((x: any) => x.removed === "passage" && x.rule === "No delivery promises"));
+});
+await t("meaning rules: without the judge a person decides; a reply the deterministic rules block never reaches the judge", async () => {
+  setup(); meaningRule("block");
+  await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: async () => null });
+  assert.equal(steps()[0].verdict, "escalate"); assert.equal(steps()[0].decision.meaning.unavailable, true);
+  setup(); judgePrompts = []; meaningRule("remove");
+  H.table("hard_rules").push({ id: "h1", user_id: U, rule_text: "Never quote prices", action_type_pattern: "outer_control_text_review", effect: "always_block", provider: null, enabled: true, shadow_mode: false, match_terms: ["$"], created_at: "2026-01-01" });
+  script = () => ({ json: { status: "done", answer: "It costs $40 and arrives Friday." } });
+  await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, maxRetries: 0, judgeAi: judgeSays([]) });
+  assert.equal(steps()[0].verdict, "block"); assert.equal(judgePrompts.length, 0, "the deterministic block stands without asking the judge");
+});
+await t("meaning rules of another project do not apply", async () => {
+  setup(); judgePrompts = []; meaningRule("block", { project_id: "proj-other" });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: judgeSays([]) });
+  assert.equal(r.status, "completed"); assert.equal(judgePrompts.length, 0);
+});
+// ---- durable: a run cut off mid-way carries on from its last step; the same step cut off again and again is stopped
+await t("durable: a run whose lease ran out is picked up again and finishes; the interruption is recorded", async () => {
+  setup(); sess().lease_until = new Date(Date.now() - 60_000).toISOString();
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(r.status, "completed");
+  assert.equal(sess().interruptions, 1); assert.equal(sess().interrupted_step, 1); assert.equal(sess().interrupted_streak, 1); assert.ok(sess().last_resumed_at);
+  setup();
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(sess().interruptions ?? 0, 0, "a normal run is not an interruption");
+});
+await t("durable: a step cut off more than 3 times in a row is stopped with the reason, not looped; a live lease is left alone", async () => {
+  setup(); Object.assign(sess(), { lease_until: new Date(Date.now() - 1000).toISOString(), interruptions: 3, interrupted_step: 1, interrupted_streak: 3 });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(r.status, "failed"); assert.equal(calls.length, 0, "the tool was not asked again");
+  assert.match(sess().stop_reason, /Step 1 was cut off 4 times in a row/);
+  setup(); sess().lease_until = new Date(Date.now() + 60_000).toISOString();
+  const busy = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(busy.steps, 0); assert.equal(sess().interruptions ?? 0, 0, "someone else is driving it");
+});
+// ---- answers checked against the Task's project: contradictions are flagged (quoted on both sides), never blocked
+const projectCtx = `Project "Launch" (snapshot copy), checked by NazAI. Reference material only.\n${H.PROJECT_OPEN}\nThe launch is on 12 May. The price is 49 euros a month.\n${H.PROJECT_CLOSE}`;
+const consistencyAi = (contradictions: any[]) => async (p: any) => (p.user.includes("<<<PROJECT>>>") ? JSON.stringify({ contradictions }) : JSON.stringify({ violations: [] }));
+await t("project check: an answer that contradicts the project is flagged with both quotes; the reply is still used", async () => {
+  setup({ context: projectCtx });
+  script = () => ({ json: { status: "done", answer: "We launch on 3 June and it costs 49 euros a month." } });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: consistencyAi([
+    { answer_quote: "We launch on 3 June", project_quote: "The launch is on 12 May", why: "Different launch date." },
+    { answer_quote: "it is free", project_quote: "The price is 49 euros a month", why: "made up" },
+  ]) });
+  assert.equal(r.status, "completed"); assert.equal(steps()[0].verdict, "allow");
+  assert.deepEqual(steps()[0].decision.project_check, { ran: true, contradictions: [{ reply_quote: "We launch on 3 June", project_quote: "The launch is on 12 May", why: "Different launch date." }], discarded: 1 });
+});
+await t("project check: not run without a project; says it did not run when the AI is unavailable", async () => {
+  setup();
+  await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: consistencyAi([]) });
+  assert.equal(steps()[0].decision.project_check, undefined);
+  setup({ context: projectCtx });
+  await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: async () => null });
+  assert.deepEqual(steps()[0].decision.project_check, { ran: false, contradictions: [], discarded: 0 });
+});
 await t("block then a corrected reply: second request names the broken rule, session completes", async () => {
   setup(); script = (n) => n === 1 ? { json: { status: "done", answer: "I will drop table customers." } } : { json: { status: "done", answer: "Here is the policy." } };
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
@@ -1596,12 +1695,13 @@ await t("trust: NazAI's AI can not invent a source or a citation: an analysis ci
 // ---- imported projects in Outer Control: the project's checked text goes to every tool; its own rules apply to the replies
 await t("project: a Task with a project sends its checked text to every tool; the project's rule cleans the replies too", async () => {
   reportSetup();
-  const pdeps = { now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
+  const KEY = await H.importProjectKey(Buffer.alloc(32, 3).toString("base64"));
+  const pdeps = { key: KEY, now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
   const c = H.createClient("u", "k");
   await H.handleProjectsAction(c, U, U, { action: "import_paste", name: "Launch", text: "Project Falcon launches in May with three AI tools." }, pdeps);
   const pid = H.table("imported_projects")[0].id;
   await H.handleProjectsAction(c, U, U, { action: "add_rule", project_id: pid, name: "Hide the codename", words: "Falcon", rule_action: "remove" }, pdeps);
-  const pc = await H.projectContextFor(c, U, pid); assert.ok(pc.ok);
+  const pc = await H.projectContextFor(c, U, pid, KEY); assert.ok(pc.ok);
   aiAnswer = JSON.stringify({ summary: "Both favour a May launch with AI tools [1][2].", agreements: [], differences: [], conclusion: "Launch in May with the AI tools [1][2]." });
   script = answerBy("The Falcon launch in May with AI tools looks fine.", "A May launch with three AI tools is realistic.");
   const topic = "Is a May launch with AI tools realistic?";
@@ -1619,7 +1719,8 @@ await t("project: a Task with a project sends its checked text to every tool; th
 });
 await t("project: a project's rule does not apply to a Task that does not use the project", async () => {
   reportSetup();
-  const pdeps = { now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
+  const KEY = await H.importProjectKey(Buffer.alloc(32, 3).toString("base64"));
+  const pdeps = { key: KEY, now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
   const c = H.createClient("u", "k");
   await H.handleProjectsAction(c, U, U, { action: "import_paste", name: "Launch", text: "Project Falcon." }, pdeps);
   await H.handleProjectsAction(c, U, U, { action: "add_rule", project_id: H.table("imported_projects")[0].id, name: "Hide the codename", words: "Falcon", rule_action: "remove" }, pdeps);

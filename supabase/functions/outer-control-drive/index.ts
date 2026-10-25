@@ -45,11 +45,14 @@ import { ACTION_INFO, MAX_BACKGROUND, REPORT_KINDS, TASK_CREDITS, type ReportKin
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
 import { projectContextFor } from "../_shared/projects.ts";
+import { importProjectKey } from "../_shared/project-crypto.ts";
 
 import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
 
 /** How many requests NazAI's AI reads per account per day (route_task). */
 const ROUTE_DAILY_CAP = 200;
+/** Imported projects are stored encrypted; their text is decrypted here only to go to the tools of a Task. */
+const projectsKey = importProjectKey(Deno.env.get("PROJECTS_KEY"));
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -275,7 +278,8 @@ Deno.serve(async (req) => {
       // An imported project the Task works with: its text, checked against the account's and the project's rules, goes to every tool.
       let project: { id: string; text: string } | null = null;
       if (body.project_id) {
-        const pc = await projectContextFor(admin, accountId, String(body.project_id));
+        // The Task's context holds at most 8000 characters; the project gets what the background leaves.
+        const pc = await projectContextFor(admin, accountId, String(body.project_id), await projectsKey, 8000 - (background ? background.length + 2 : 0));
         if (!pc.ok) return json({ error: "project_unavailable", message: pc.message }, 409);
         project = { id: String(body.project_id), text: pc.text };
       }
@@ -316,9 +320,8 @@ Deno.serve(async (req) => {
       // Draft and multi-step build on the previous step, so they go one after another. Everything else asks its tools at the same
       // time, and the result is written from the tools that answered (a tool that fails is named in the result).
       const parallel = kind !== "draft" && kind !== "multistep";
-      // A Task's context holds at most 8000 characters; the project's text gets what the background leaves (removed words can make
-      // the checked text longer than the original).
-      const projectText = project ? project.text.slice(0, Math.max(0, 8000 - (background ? background.length + 2 : 0))) : "";
+      // The project's text was fitted into what the background leaves of the Task's 8000 characters (its end marker included).
+      const projectText = project ? project.text : "";
       const taskContext = [projectText, background].filter(Boolean).join("\n\n") || null;
       const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: taskContext, steps, max_steps: 3, parallel });
       if (!started.ok) {
