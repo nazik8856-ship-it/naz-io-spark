@@ -294,6 +294,13 @@ await t("encrypted at rest: the table holds ciphertext only; the server reads it
   assert.equal(none.status, 503); assert.match(none.body.message, /encryption key is missing\). Nothing was stored/);
   assert.equal(projects().length, 1);
   assert.equal(await H.importProjectKey("too-short"), null); assert.equal(await H.importProjectKey(undefined), null);
+  // A long random password (e.g. four generated 10-character passwords joined) is a key too, the same one every time.
+  const pass = "Xk7#pQ2!mZ" + "r9$Lw4@tBn" + "Hd3%vF8&jC" + "s6^Gy1*eKa";
+  const k1 = await H.importProjectKey(pass), k2 = await H.importProjectKey(` ${pass} `);
+  assert.ok(k1 && k2);
+  assert.equal(await H.decryptText(k2!, await H.encryptText(k1!, "same key")), "same key");
+  assert.equal(await H.importProjectKey(pass.slice(0, 31)), null, "fewer than 32 characters is refused");
+  await assert.rejects(H.decryptText((await H.importProjectKey(pass + "x"))!, await H.encryptText(k1!, "x")), "a different password can not read it");
 });
 
 await t("secrets hidden before saving: keys, card numbers and written-out passwords never reach the database; types and code stay", async () => {

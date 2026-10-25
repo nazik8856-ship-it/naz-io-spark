@@ -1,5 +1,6 @@
-// Imported projects are stored encrypted (AES-256-GCM). The key lives only in the edge functions' environment (PROJECTS_KEY,
-// 32 random bytes in base64), so the database, its backups and anyone who can read the table see ciphertext, never the content.
+// Imported projects are stored encrypted (AES-256-GCM). The key lives only in the edge functions' environment (PROJECTS_KEY:
+// 32 random bytes in base64, or a random password of 32+ characters), so the database, its backups and anyone who can read the
+// table see ciphertext, never the content.
 // Format: "v1:<iv base64>:<ciphertext base64>"; a fresh 12-byte IV for every write.
 
 const enc = new TextEncoder();
@@ -18,12 +19,22 @@ function fromB64(b64: string): Uint8Array {
   return out;
 }
 
-/** The key from its base64 form; null when it is missing or not 32 bytes (then nothing is stored: projects fail closed). */
-export async function importProjectKey(b64: string | null | undefined): Promise<CryptoKey | null> {
-  if (!b64) return null;
-  let raw: Uint8Array;
-  try { raw = fromB64(b64.trim()); } catch { return null; }
-  if (raw.length !== 32) return null;
+/** At least this many characters for a key given as a long random password (e.g. several generated passwords joined). */
+export const MIN_PASSPHRASE_CHARS = 32;
+
+/**
+ * The key: 32 random bytes in base64, or a long random password (32+ characters) turned into 32 bytes with SHA-256. null when
+ * it is missing or too short (then nothing is stored: projects fail closed).
+ */
+export async function importProjectKey(secret: string | null | undefined): Promise<CryptoKey | null> {
+  const s = (secret ?? "").trim();
+  if (!s) return null;
+  let raw: Uint8Array | null = null;
+  try { const b = fromB64(s); if (b.length === 32) raw = b; } catch { /* not base64: maybe a password */ }
+  if (!raw) {
+    if (s.length < MIN_PASSPHRASE_CHARS) return null;
+    raw = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(s)));
+  }
   return await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
