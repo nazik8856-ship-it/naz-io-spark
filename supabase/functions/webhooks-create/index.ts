@@ -15,6 +15,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { storeSigningSecret } from "../_shared/signing-secrets.ts";
+import { deleteSecret } from "../_shared/integration-secrets.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,14 +70,19 @@ Deno.serve(async (req) => {
   const events = Array.isArray(body?.events) ? body.events.filter((e: unknown) => typeof e === "string") : [];
   if (!events.length) return json({ error: "Pick at least one event" }, 400);
 
+  // The signing secret is stored in Vault (the row keeps only its id) and returned exactly once, in this response.
   const secret = generateSecret();
+  const secretId = await storeSigningSecret(admin, secret, `webhook-${targetUserId}`).catch(() => null);
+  if (!secretId) return json({ error: "Couldn't store the signing secret, so no webhook was created" }, 500);
   const { data, error } = await admin
     .from("webhooks")
-    .insert({ user_id: targetUserId, url, secret, events, enabled: true })
+    .insert({ user_id: targetUserId, url, secret: "", secret_id: secretId, events, enabled: true })
     .select("id, url, events, enabled, created_at")
     .maybeSingle();
-  if (error) return json({ error: error.message }, 500);
-  if (!data) return json({ error: "Couldn't create the webhook" }, 500);
+  if (error || !data) {
+    await deleteSecret(admin, secretId);
+    return json({ error: error ? error.message : "Couldn't create the webhook" }, 500);
+  }
 
   return json({ ok: true, secret, ...data });
 });

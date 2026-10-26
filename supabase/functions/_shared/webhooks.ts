@@ -7,7 +7,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isRetryEligible, isExhausted, computeNextRetryAt } from "./webhook-retry.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
-import { previousSecretActive } from "./webhook-secret-rotation.ts";
+import { webhookSigningSecrets } from "./signing-secrets.ts";
 import { validateOutboundUrl } from "./url-safety.ts";
 
 export const WEBHOOK_EVENTS = [
@@ -92,9 +92,12 @@ export async function hmacHex(secret: string, message: string): Promise<string> 
 type Hook = {
   id: string;
   url: string;
-  secret: string;
+  /** The signing secrets live in Vault (secret_id, previous_secret_id); the plain columns only for a webhook made before that. */
+  secret?: string | null;
+  secret_id?: string | null;
   events: string[];
   previous_secret?: string | null;
+  previous_secret_id?: string | null;
   previous_secret_expires_at?: string | null;
 };
 
@@ -139,7 +142,7 @@ export async function triggerWebhooks(
   try {
     const { data } = await admin
       .from("webhooks")
-      .select("id, url, secret, events, alerted_at, previous_secret, previous_secret_expires_at")
+      .select("id, url, secret, secret_id, events, alerted_at, previous_secret, previous_secret_id, previous_secret_expires_at")
       .eq("user_id", userId)
       .eq("enabled", true);
     const hooks = ((data ?? []) as (Hook & { alerted_at?: string | null })[]).filter((h) => Array.isArray(h.events) && h.events.includes(event));
@@ -160,7 +163,9 @@ export async function triggerWebhooks(
         const urlCheck = await validateOutboundUrl(hook.url);
         if (!urlCheck.ok) throw new Error(`blocked: ${urlCheck.reason}`);
         const signaturePayload = buildSignaturePayload(timestamp, body);
-        const signature = await hmacHex(hook.secret, signaturePayload);
+        const secrets = await webhookSigningSecrets(admin, hook);
+        if (!secrets.secret) throw new Error("the webhook's signing secret could not be read");
+        const signature = await hmacHex(secrets.secret, signaturePayload);
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
           "X-NazAI-Event": event,
@@ -170,8 +175,8 @@ export async function triggerWebhooks(
         // While a rotated-out secret is still inside its grace window, sign
         // with it too so the receiver can swap in the new secret on their
         // own schedule instead of at the exact moment of rotation.
-        if (previousSecretActive(hook)) {
-          headers["X-NazAI-Signature-Previous"] = await hmacHex(hook.previous_secret as string, signaturePayload);
+        if (secrets.previous) {
+          headers["X-NazAI-Signature-Previous"] = await hmacHex(secrets.previous, signaturePayload);
         }
         const resp = await fetch(hook.url, {
           method: "POST",
