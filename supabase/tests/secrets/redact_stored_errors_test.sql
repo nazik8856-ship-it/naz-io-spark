@@ -4,7 +4,8 @@
 \set ON_ERROR_STOP 1
 RESET ROLE;
 -- The tables the triggers attach to that the baseline does not have (only the columns that matter here).
-CREATE TABLE IF NOT EXISTS public.action_reversals (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), error text);
+CREATE TABLE IF NOT EXISTS public.action_reversals (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), error text, irreversible_reason text);
+CREATE TABLE IF NOT EXISTS public.circuit_breakers (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), last_reason text);
 CREATE TABLE IF NOT EXISTS public.email_send_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), error_message text);
 CREATE TABLE IF NOT EXISTS public.external_tools (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text, last_error text);
 CREATE TABLE IF NOT EXISTS public.imported_projects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), sync_error text);
@@ -12,12 +13,14 @@ CREATE TABLE IF NOT EXISTS public.integration_snapshots (id uuid PRIMARY KEY DEF
 CREATE TABLE IF NOT EXISTS public.outer_control_evaluations (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), execution_summary text);
 CREATE TABLE IF NOT EXISTS public.outer_control_session_steps (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), error text, reply_text text);
 CREATE TABLE IF NOT EXISTS public.outer_control_sessions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), stop_reason text);
-CREATE TABLE IF NOT EXISTS public.outer_control_workflows (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), stop_reason text);
+CREATE TABLE IF NOT EXISTS public.outer_control_workflows (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), stop_reason text, blocked_reason text);
+CREATE TABLE IF NOT EXISTS public.platform_incidents (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), kind text, detail jsonb);
 CREATE TABLE IF NOT EXISTS public.pending_approvals (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), execution_error text, execution_summary text);
 CREATE TABLE IF NOT EXISTS public.webhook_deliveries (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), error text);
 -- Messages stored before the migration (on a clean slate, whatever ran before).
 TRUNCATE public.agent_integrations;
 INSERT INTO public.external_tools (name, last_error) VALUES ('Old', 'The tool rejected the credentials: Bearer abcdefghijklmnop123');
+INSERT INTO public.platform_incidents (kind, detail) VALUES ('old', '{"error": "refused key sk-ant-api03-Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_", "client_secret": "s3cr3t-value", "count": 2}');
 INSERT INTO public.agent_integrations (user_id, provider, last_error) VALUES ('00000000-0000-0000-0000-0000000000a1', 'Notion', 'Notion refused secret_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6');
 
 \ir ../../migrations/20261030040000_redact_stored_errors.sql
@@ -67,6 +70,7 @@ SELECT pg_temp.check(public.redact_secrets(NULL) IS NULL AND public.redact_secre
 -- 2. Already stored messages were scrubbed by the migration.
 SELECT pg_temp.check((SELECT last_error FROM public.external_tools WHERE name = 'Old') = 'The tool rejected the credentials: Bearer [REDACTED:secrets]', 'stored tool error scrubbed');
 SELECT pg_temp.check((SELECT last_error FROM public.agent_integrations WHERE provider = 'Notion') = 'Notion refused [REDACTED:secrets]', 'stored integration error scrubbed');
+SELECT pg_temp.check((SELECT detail FROM public.platform_incidents WHERE kind = 'old') = '{"error": "refused key [REDACTED:secrets]", "client_secret": "[REDACTED:secrets]", "count": 2}'::jsonb, 'stored incident detail scrubbed');
 
 -- 3. New writes are scrubbed on insert and on update, in every covered column; other columns are left alone.
 INSERT INTO public.outer_control_session_steps (error, reply_text) VALUES ('HTTP 401 with key sk-ant-api03-Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_Ab1_', 'kept as written');
@@ -78,5 +82,40 @@ INSERT INTO public.webhook_deliveries (error) VALUES ('blocked: https://hooks.te
 SELECT pg_temp.check((SELECT error FROM public.webhook_deliveries) = 'blocked: https://hooks.test/x?sig=[REDACTED:secrets]&id=1', 'delivery error scrubbed');
 INSERT INTO public.outer_control_sessions (stop_reason) VALUES ('The tool answered HTTP 503.');
 SELECT pg_temp.check((SELECT stop_reason FROM public.outer_control_sessions) = 'The tool answered HTTP 503.', 'an ordinary message is stored unchanged');
-SELECT pg_temp.check((SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%_redact_errors') = 12, 'twelve tables carry the trigger');
+SELECT pg_temp.check((SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%_redact_errors') = 14, 'fourteen tables carry the trigger');
+
+-- 4. JSON: the same result as redactDeep() in the functions (expected text generated from it), and through the trigger.
+SELECT pg_temp.check(public.redact_secrets_jsonb(('{"provider":"Notion","status":401,"headers":{"Authorization":"Bearer zzzzzzzzzzzz","content-type":"application/json"},"body":{"access_token":"anything-at-all","note":"retry with sk_live_' || '4eC39HqLyjWDarjtT1zdp7dc","empty":""},"list":["AKIA' || 'IOSFODNN7EXAMPLE","fine",3,true],"secret_id":"uuid-kept","token":null,"password":"","nested":[{"url":"https://x.test/cb?code=abc123&state=ok"}]}')::jsonb)
+  = '{"provider":"Notion","status":401,"headers":{"Authorization":"[REDACTED:secrets]","content-type":"application/json"},"body":{"access_token":"[REDACTED:secrets]","note":"retry with [REDACTED:secrets]","empty":""},"list":["[REDACTED:secrets]","fine",3,true],"secret_id":"uuid-kept","token":null,"password":"","nested":[{"url":"https://x.test/cb?code=[REDACTED:secrets]&state=ok"}]}'::jsonb,
+  'JSON scrubbed exactly as redactDeep does');
+SELECT pg_temp.check(public.redact_secrets_jsonb(NULL) IS NULL AND public.redact_secrets_jsonb('null') = 'null' AND public.redact_secrets_jsonb('[]') = '[]' AND public.redact_secrets_jsonb('{}') = '{}', 'empty JSON passes through');
+INSERT INTO public.platform_incidents (kind, detail) VALUES ('new', jsonb_build_object('response', jsonb_build_object('headers', jsonb_build_object('x-api-key', 'abc'), 'text', 'Bearer abcdefghijklmnop')));
+SELECT pg_temp.check((SELECT detail FROM public.platform_incidents WHERE kind = 'new') = '{"response": {"headers": {"x-api-key": "[REDACTED:secrets]"}, "text": "Bearer [REDACTED:secrets]"}}'::jsonb, 'incident detail scrubbed on insert, shape kept');
+
+-- 5. Every covered column, whatever table: a fake key written into it does not stay. (Covers tables added later too: the list
+--    comes from the triggers themselves.)
+DO $$
+DECLARE
+  tr record;
+  col text;
+  fake text := 'sk-ant-api03-' || repeat('Zz9_', 8);
+  typ text;
+  leaked boolean;
+BEGIN
+  FOR tr IN SELECT c.relname AS tbl, t.tgargs, t.tgnargs FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE t.tgname LIKE '%_redact_errors' LOOP
+    FOREACH col IN ARRAY string_to_array(rtrim(encode(tr.tgargs, 'escape'), E'\\000'), E'\\000') LOOP
+      EXECUTE format('SELECT 1 FROM public.%I LIMIT 1', tr.tbl) INTO leaked;
+      IF leaked IS NULL THEN EXECUTE format('INSERT INTO public.%I DEFAULT VALUES', tr.tbl); END IF;
+      SELECT data_type INTO typ FROM information_schema.columns WHERE table_schema = 'public' AND table_name = tr.tbl AND column_name = col;
+      IF typ = 'jsonb' THEN
+        EXECUTE format('UPDATE public.%I SET %I = jsonb_build_object(''message'', $1)', tr.tbl, col) USING 'failed with ' || fake;
+      ELSE
+        EXECUTE format('UPDATE public.%I SET %I = $1', tr.tbl, col) USING 'failed with ' || fake;
+      END IF;
+      EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I WHERE %I::text LIKE $1)', tr.tbl, col) INTO leaked USING '%' || fake || '%';
+      IF leaked THEN RAISE EXCEPTION 'FAILED: a key written to %.% was stored', tr.tbl, col; END IF;
+      leaked := NULL;
+    END LOOP;
+  END LOOP;
+END $$;
 \echo 'redact_stored_errors_test: all checks passed'

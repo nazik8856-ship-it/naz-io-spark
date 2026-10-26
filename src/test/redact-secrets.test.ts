@@ -4,7 +4,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { REDACTED, redactDeep, redactSecrets, scrubErrorEvent } from "@/lib/redact-secrets";
-import { scrubPostHogEvent } from "@/lib/posthog";
+import { scrubPostHogEvent, scrubReplayNetworkRequest } from "@/lib/posthog";
 
 const R = REDACTED;
 const KEYS = {
@@ -113,6 +113,33 @@ describe("error reports leave without secrets", () => {
     const snap = { event: "$snapshot", properties: { token: "phc_public_project_key", $snapshot_data: [{ deep: { a: { b: { c: { d: { e: { f: { g: { h: { i: 1 } } } } } } } } } }] } };
     expect(scrubPostHogEvent(snap)).toBe(snap);
     expect(scrubPostHogEvent(null)).toBeNull();
+  });
+
+  it("a replay keeps its recording; only the page address it records loses its secrets", () => {
+    const frames = [
+      { type: 4, data: { href: "https://app.test/oauth/callback?code=4/0AY0e-abc&state=xyz", width: 400, height: 800 } },
+      { type: 2, data: { node: { text: "page" } } },
+    ];
+    const snap = { event: "$snapshot", properties: { token: "phc_public_project_key", $snapshot_data: frames } };
+    const out = scrubPostHogEvent(snap)!;
+    expect((out.properties!.$snapshot_data as typeof frames)[0].data.href).toBe(`https://app.test/oauth/callback?code=${R}&state=xyz`);
+    expect((out.properties!.$snapshot_data as typeof frames)[1]).toEqual({ type: 2, data: { node: { text: "page" } } });
+    expect(out.properties!.token).toBe("phc_public_project_key");
+  });
+
+  it("a network request recorded by replay: address, headers and bodies scrubbed, timings kept", () => {
+    const out = scrubReplayNetworkRequest({
+      name: `https://api.test/v1/items?access_token=abc123def456&page=2`, startTime: 10, endTime: 30, status: 200,
+      requestHeaders: { Authorization: "Bearer abcdefghijklmnop", accept: "application/json" },
+      responseHeaders: { "set-cookie": "sb=session-value" },
+      requestBody: `{"client_secret":"zzz-secret-value"}`, responseBody: `{"key":"${KEYS.openai}"}`,
+    });
+    expect(out.name).toBe(`https://api.test/v1/items?access_token=${R}&page=2`);
+    expect(out).toMatchObject({ startTime: 10, endTime: 30, status: 200 });
+    expect(out.requestHeaders).toEqual({ Authorization: R, accept: "application/json" });
+    expect(out.responseHeaders).toEqual({ "set-cookie": R });
+    expect(JSON.stringify(out)).not.toMatch(/zzz-secret-value|abc123def456|session-value/);
+    expect(out.responseBody).not.toContain(KEYS.openai);
   });
 });
 

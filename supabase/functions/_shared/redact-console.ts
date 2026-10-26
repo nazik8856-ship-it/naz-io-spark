@@ -12,14 +12,23 @@ export function redactForLog(arg: unknown): unknown {
   return redactDeep(arg);
 }
 
-/** Wraps console.log/info/warn/error/debug/trace once per isolate; calling it again does nothing. */
+/** Wraps every console method that prints what it is given, once per isolate; calling it again does nothing. */
 export function installRedactingConsole(): void {
   const g = globalThis as Patched;
   if (g[MARK]) return;
   g[MARK] = true;
-  for (const method of ["log", "info", "warn", "error", "debug", "trace"] as const) {
+  for (const method of ["log", "info", "warn", "error", "debug", "trace", "group", "groupCollapsed"] as const) {
     const original = console[method].bind(console);
     console[method] = (...args: unknown[]) => original(...args.map(redactForLog));
+  }
+  // dir and table print their first argument (the rest are options); assert and timeLog print what follows their first.
+  for (const method of ["dir", "table"] as const) {
+    const original = console[method].bind(console) as (first: unknown, ...rest: unknown[]) => void;
+    (console as unknown as Record<string, unknown>)[method] = (first: unknown, ...rest: unknown[]) => original(redactForLog(first), ...rest);
+  }
+  for (const method of ["assert", "timeLog"] as const) {
+    const original = console[method].bind(console) as (first: unknown, ...rest: unknown[]) => void;
+    (console as unknown as Record<string, unknown>)[method] = (first: unknown, ...rest: unknown[]) => original(first, ...rest.map(redactForLog));
   }
 }
 

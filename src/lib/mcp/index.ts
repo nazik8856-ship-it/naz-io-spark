@@ -1,3 +1,4 @@
+import "../../../supabase/functions/_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { auth, defineMcp } from "@lovable.dev/mcp-js";
 import listAgents from "./tools/list-agents";
 import getAgent from "./tools/get-agent";

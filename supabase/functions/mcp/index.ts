@@ -2,6 +2,69 @@
 // To take ownership, delete this banner line; the plugin then leaves the file alone.
 // supabase function: mcp
 // Bundled from src/lib/mcp/index.ts by @lovable.dev/mcp-js.
+// supabase/functions/_shared/redact-secrets.ts
+var REDACTED = "[REDACTED:secrets]";
+var SECRET_SHAPES = /(sk-ant-[A-Za-z0-9_-]{20,}|sk-proj-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{16,}|sk_live_[A-Za-z0-9]{16,}|sk_test_[A-Za-z0-9]{16,}|rk_live_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,}|ya29\.[A-Za-z0-9._-]{20,}|secret_[A-Za-z0-9]{30,}|ntn_[A-Za-z0-9]{30,}|shpat_[A-Fa-f0-9]{20,}|re_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(\.[A-Za-z0-9_-]{5,})?)/g;
+var AUTH_SCHEMES = /\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/g;
+var NAMED = /(\b(?:authorization|proxy-authorization|x-api-key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|client[_-]?secret|webhook[_-]?secret|signing[_-]?secret|secret|password|passwd|pwd|token|cookie|set-cookie)\b["']?\s*[:=]\s*["']?)(?!\[REDACTED|(?:Bearer|Basic|Token)\s+\[REDACTED)((?:Bearer|Basic|Token)\s+)?[^\s"',;&}\]]{6,}/gi;
+var URL_PARAMS = /([?&#](?:access_token|refresh_token|id_token|token|key|api_key|apikey|client_secret|code|signature|sig|password)=)[^&#\s"']+/gi;
+function redactSecrets(text) {
+  if (!text) return text;
+  return text.replace(SECRET_SHAPES, REDACTED).replace(NAMED, (_m, prefix) => `${prefix}${REDACTED}`).replace(AUTH_SCHEMES, (_m, scheme) => `${scheme} ${REDACTED}`).replace(URL_PARAMS, (_m, prefix) => `${prefix}${REDACTED}`);
+}
+var SECRET_KEYS = /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|secret|password|passwd|token|private[_-]?key|credentials?|service[_-]?key|webhook[_-]?secret|signing[_-]?secret|callback[_-]?secret)$/i;
+function redactDeep(value, depth = 0, seen = /* @__PURE__ */ new WeakSet()) {
+  try {
+    if (typeof value === "string") return redactSecrets(value);
+    if (value === null || typeof value !== "object") return value;
+    if (seen.has(value)) return "[circular]";
+    if (depth > 8) return "[deep]";
+    seen.add(value);
+    if (value instanceof Error) {
+      const copy = new Error(redactSecrets(value.message));
+      copy.name = value.name;
+      copy.stack = value.stack ? redactSecrets(value.stack) : void 0;
+      return copy;
+    }
+    if (Array.isArray(value)) return value.slice(0, 200).map((v) => redactDeep(v, depth + 1, seen));
+    if (typeof value.entries === "function" && typeof Headers !== "undefined" && value instanceof Headers) {
+      return Object.fromEntries([...value.entries()].map(([k, v]) => [k, SECRET_KEYS.test(k) ? REDACTED : redactSecrets(v)]));
+    }
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = SECRET_KEYS.test(k) && v !== null && v !== void 0 && v !== "" ? REDACTED : redactDeep(v, depth + 1, seen);
+    }
+    return out;
+  } catch {
+    return "[unprintable]";
+  }
+}
+
+// supabase/functions/_shared/redact-console.ts
+var MARK = /* @__PURE__ */ Symbol.for("nazai.redact-console");
+function redactForLog(arg) {
+  if (typeof arg === "string") return redactSecrets(arg);
+  return redactDeep(arg);
+}
+function installRedactingConsole() {
+  const g = globalThis;
+  if (g[MARK]) return;
+  g[MARK] = true;
+  for (const method of ["log", "info", "warn", "error", "debug", "trace", "group", "groupCollapsed"]) {
+    const original = console[method].bind(console);
+    console[method] = (...args) => original(...args.map(redactForLog));
+  }
+  for (const method of ["dir", "table"]) {
+    const original = console[method].bind(console);
+    console[method] = (first, ...rest) => original(redactForLog(first), ...rest);
+  }
+  for (const method of ["assert", "timeLog"]) {
+    const original = console[method].bind(console);
+    console[method] = (first, ...rest) => original(first, ...rest.map(redactForLog));
+  }
+}
+installRedactingConsole();
+
 // src/lib/mcp/index.ts
 import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@0.20.1";
 

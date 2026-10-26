@@ -21,10 +21,12 @@ describe("secrets shown on screen are masked in session replay", () => {
     expect(tag).toContain("ph-no-capture");
   });
 
-  it("replay masks inputs, and the masking selector is the one these elements use", () => {
+  it("replay masks inputs (with the selector these elements use), never records the console, and scrubs recorded requests", () => {
     const ph = readFileSync(join(__dirname, "../lib/posthog.ts"), "utf8");
     expect(ph).toMatch(/maskAllInputs:\s*true/);
     expect(ph).toMatch(/maskTextSelector:\s*"\[data-ph-mask\]"/);
     expect(ph).toMatch(/before_send:\s*\(event\)\s*=>\s*scrubPostHogEvent\(event\)/);
+    expect(ph).toMatch(/enable_recording_console_log:\s*false/);
+    expect(ph).toMatch(/maskCapturedNetworkRequestFn:\s*\(req\)\s*=>\s*scrubReplayNetworkRequest\(req\)/);
   });
 });
