@@ -64,7 +64,7 @@ describe("redactDeep: objects, errors and headers", () => {
     const out = redactDeep({
       provider: "Notion", status: 401, headers: { Authorization: "Bearer zzzzzzzzzzzz", "content-type": "application/json" },
       body: { access_token: "anything-at-all", note: `retry with ${KEYS.stripe}` }, list: [KEYS.aws, "fine"], secret_id: "uuid-kept",
-    }) as Record<string, any>;
+    }) as { headers: Record<string, string>; body: Record<string, string>; list: string[]; secret_id: string; provider: string };
     expect(out.headers.Authorization).toBe(R);
     expect(out.headers["content-type"]).toBe("application/json");
     expect(out.body.access_token).toBe(R);

@@ -8,7 +8,7 @@ import { AlertTriangle, ArrowLeft, Copy, Download, FlaskConical, FolderKanban, H
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
-import { announceProjectsChanged, useProjectList } from "@/hooks/useProjectList";
+import { announceProjectsChanged } from "@/hooks/useProjectList";
 import { ago, callProjects, eventText, hiddenNotice, PROJECT_COLS, shortDate, type ImportedProject, type ProjectCheck, type ProjectEvent, type ProjectRule } from "@/lib/projects";
 import { hasPermission } from "@/lib/account-switcher";
 import { useAuth } from "@/hooks/useAuth";
@@ -62,7 +62,6 @@ export default function ProjectView() {
   const { user } = useAuth();
   // Owners change a project; every other team member can only look at it.
   const canEdit = hasPermission(role, permissions, "integrations");
-  const { count, loading: listLoading } = useProjectList();
   const [p, setP] = useState<ImportedProject | null>(null);
   const [content, setContent] = useState<string | null>(null);
   const [contentProblem, setContentProblem] = useState<string | null>(null);
@@ -107,11 +106,11 @@ export default function ProjectView() {
   useEffect(() => { if (p) document.title = `${p.name} · NazAI`; }, [p]);
   // "Add a rule" from the import confirmation opens straight on the rules.
   useEffect(() => { if (!loading && window.location.hash === "#rules") document.getElementById("rules")?.scrollIntoView({ behavior: "smooth" }); }, [loading]);
-  // An archived or missing project: back to the list, or to the dashboard when there is no project left.
+  // An archived or missing project: back to the list (with none left, the list offers the import).
   useEffect(() => {
-    if (loading || listLoading) return;
-    if (!p || p.archived_at) navigate(count > 0 ? "/projects" : "/dashboard", { replace: true });
-  }, [loading, listLoading, p, count, navigate]);
+    if (loading) return;
+    if (!p || p.archived_at) navigate("/projects", { replace: true });
+  }, [loading, p, navigate]);
 
   const run = async (key: string, action: string, payload: Record<string, unknown>, okMsg?: string) => {
     setBusy(key);
@@ -380,7 +379,7 @@ export default function ProjectView() {
               toast.success("Deleted permanently.");
               setDeleteOpen(false);
               announceProjectsChanged();
-              navigate(count > 1 ? "/projects" : "/dashboard", { replace: true });
+              navigate("/projects", { replace: true });
             }}
             className="rounded-xl border border-rose-400/50 bg-rose-500/20 px-3 py-2 text-sm font-semibold text-rose-50 disabled:opacity-40" data-testid="delete-confirm-button">Delete permanently</button>
         </DialogContent>

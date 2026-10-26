@@ -52,23 +52,43 @@ const CARDS: Card[] = [
     glow: "#a855f7",
     route: "/control-system",
   },
+  {
+    id: "projects",
+    label: "WORKSPACE",
+    title: "Projects",
+    description: "Your imported and generated projects, under NazAI control. Open one to see its source, rules and tasks.",
+    badge: "Your work",
+    when: "Choose this to see your projects, or to import one from a link, files, pasted text or Notion.",
+    icon: FolderKanban,
+    glow: "#d4af37",
+    route: "/projects",
+  },
 ];
 
-/** The third card: shown only once the account has a project (imported or generated). */
-const PROJECTS_CARD: Card = {
-  id: "projects",
-  label: "WORKSPACE",
-  title: "Projects",
-  description: "Your imported and generated projects, under NazAI control. Open one to see its source, rules and tasks.",
-  badge: "Your work",
-  when: "Choose this to see and manage the projects NazAI controls.",
-  icon: FolderKanban,
-  glow: "#d4af37",
-  route: "/projects",
-};
-
-/** The Projects card's preview: real projects (not a sample), with where each came from. */
-function ProjectsPreview({ items }: { items: ProjectItem[] }) {
+/** The Projects card's preview: real projects (not a sample), with where each came from; with none yet, where to import one from. */
+function ProjectsPreview({ items, loading }: { items: ProjectItem[]; loading: boolean }) {
+  if (loading || items.length === 0) {
+    return (
+      <div className="mt-5 rounded-xl border border-white/10 bg-[#020617]/80 p-3 font-mono text-[12.5px]" data-testid="preview-projects">
+        <div className="mb-1.5 flex gap-1.5"><i className="h-1.5 w-1.5 rounded-full bg-white/20" /><i className="h-1.5 w-1.5 rounded-full bg-white/20" /><i className="h-1.5 w-1.5 rounded-full bg-white/20" /></div>
+        {loading ? (
+          <p className="py-1.5 text-slate-500" data-testid="preview-projects-loading">Loading your projects…</p>
+        ) : (
+          <>
+            {["Link", "Files", "Pasted text", "Notion"].map((from) => (
+              <div key={from} className="flex items-center justify-between border-t border-white/[0.06] py-1.5 text-slate-400 first-of-type:border-t-0" data-testid="preview-import-source">
+                <span className="truncate pr-2">Import from {from === "Files" || from === "Pasted text" ? from.toLowerCase() : `a ${from === "Link" ? "link" : "Notion page"}`}</span>
+                <span className="shrink-0 rounded-full border border-dashed border-amber-300/50 px-2 py-px text-[10.5px] text-amber-200/80">+</span>
+              </div>
+            ))}
+            <span className="mt-2 inline-block rounded-full border border-amber-400/40 bg-amber-400/15 px-2.5 py-0.5 text-[11px] text-amber-200" data-testid="preview-projects-status">
+              ● No projects yet · import your first
+            </span>
+          </>
+        )}
+      </div>
+    );
+  }
   const attention = items.filter((i) => projectStatus(i.imported ?? null).tone === "warn").length;
   return (
     <div className="mt-5 rounded-xl border border-white/10 bg-[#020617]/80 p-3 font-mono text-[12.5px]" data-testid="preview-projects">
@@ -136,10 +156,8 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const firstVisit = isFirstVisit(user);
-  // Projects appears as a third card only once there is at least one project, so there is never an empty Projects screen.
+  // Projects is always the third card: with no project yet it opens on the import.
   const projectList = useProjectList();
-  const cards = projectList.count > 0 ? [...CARDS, PROJECTS_CARD] : CARDS;
-  const three = cards.length === 3;
 
   // Choosing an interface ends the first visit; the marker lives on the account so it holds on every device.
   const choose = (route: string) => {
@@ -208,7 +226,7 @@ export default function Dashboard() {
           />
           <div className="welcome-drift-a absolute left-[8%] top-32 h-[26rem] w-[26rem] rounded-full bg-cyan-500/20 blur-[120px]" />
           <div className="welcome-drift-b absolute right-[6%] top-40 h-[26rem] w-[26rem] rounded-full bg-purple-600/20 blur-[120px]" />
-          {three && <div className="welcome-drift-a absolute right-[-4%] top-[28rem] h-[22rem] w-[22rem] rounded-full bg-amber-400/10 blur-[120px]" />}
+          <div className="welcome-drift-a absolute right-[-4%] top-[28rem] h-[22rem] w-[22rem] rounded-full bg-amber-400/10 blur-[120px]" />
           <div className="absolute bottom-[-10rem] left-1/3 h-80 w-[26rem] rounded-full bg-blue-600/15 blur-[120px]" />
         </div>
 
@@ -217,41 +235,22 @@ export default function Dashboard() {
             Welcome to <span className="text-[#00f2ff]" style={{ textShadow: "0 0 30px rgba(0,242,255,0.45)" }}>NazAI</span>
           </h1>
           <p className="welcome-in mx-auto mt-3 max-w-xl text-zinc-300 text-sm sm:text-base leading-relaxed" style={{ animationDelay: "0.12s" }} data-testid="welcome-subtitle">
-            Build AI agents with the Generator, and review or restrict what they do with the AI Control System.
+            Build AI agents with the Generator, review or restrict what they do with the AI Control System, and keep your projects under control in Projects.
           </p>
           <p className="welcome-in mt-2 text-zinc-500 text-xs font-mono uppercase tracking-[0.2em]" style={{ animationDelay: "0.2s" }}>Choose your interface</p>
         </div>
 
-        <div className={`relative mx-auto ${three ? "max-w-6xl" : "max-w-4xl"}`}>
+        <div className="relative mx-auto max-w-6xl">
           {/* Three cards: one line through all three with a node on each, and the chip saying what connects them. */}
-          {three && (
-            <div className="pointer-events-none relative mb-5 hidden h-8 md:block" aria-hidden data-testid="welcome-link-3">
-              <div className="absolute left-[16.6%] right-[16.6%] top-1/2 h-px bg-gradient-to-r from-[#00f2ff]/50 via-[#a855f7]/50 to-[#d4af37]/60" />
-              {["16.6%", "50%", "83.4%"].map((x, i) => (
-                <span key={x} className="welcome-pulse absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full" style={{ left: x, backgroundColor: ["#00f2ff", "#a855f7", "#d4af37"][i], boxShadow: `0 0 10px ${["#00f2ff", "#a855f7", "#d4af37"][i]}` }} />
-              ))}
-              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full border border-sky-300/40 bg-[#04101f] px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-sky-300 shadow-[0_0_24px_rgba(56,189,248,0.3)]">Build → Control → Projects</span>
-            </div>
-          )}
-          {/* a few nodes and lines between the two cards: the Generator builds, the Control System governs */}
-          {!three && <svg className="pointer-events-none absolute inset-0 hidden h-full w-full md:block" viewBox="0 0 952 470" preserveAspectRatio="none" aria-hidden data-testid="welcome-network">
-            <g stroke="#38bdf8" strokeOpacity="0.28" strokeWidth="1" fill="none">
-              <path d="M330 60 L476 30 L620 70" /><path d="M330 150 L476 210 L620 160" /><path d="M476 30 L476 210" />
-              <path d="M476 210 L476 330 L330 380" /><path d="M476 330 L620 390" /><path d="M200 20 L330 60" /><path d="M760 30 L620 70" />
-            </g>
-            <g fill="#7dd3fc" className="welcome-pulse">
-              <circle cx="476" cy="30" r="3" /><circle cx="476" cy="210" r="3.5" /><circle cx="476" cy="330" r="3" />
-              <circle cx="330" cy="60" r="2.5" /><circle cx="620" cy="70" r="2.5" />
-            </g>
-          </svg>}
-          {!three && (
-            <div className="pointer-events-none absolute left-1/2 top-[42%] z-10 hidden -translate-x-1/2 -translate-y-1/2 md:block" aria-hidden data-testid="welcome-link">
-              <span className="whitespace-nowrap rounded-full border border-sky-300/40 bg-[#04101f] px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-sky-300 shadow-[0_0_24px_rgba(56,189,248,0.3)]">Build → Control</span>
-            </div>
-          )}
-
-          <div className={`relative grid grid-cols-1 gap-5 ${three ? "md:grid-cols-3 md:gap-8 lg:gap-10" : "md:grid-cols-2 md:gap-[120px]"}`}>
-            {cards.map((c, idx) => {
+          <div className="pointer-events-none relative mb-5 hidden h-8 md:block" aria-hidden data-testid="welcome-link-3">
+            <div className="absolute left-[16.6%] right-[16.6%] top-1/2 h-px bg-gradient-to-r from-[#00f2ff]/50 via-[#a855f7]/50 to-[#d4af37]/60" />
+            {["16.6%", "50%", "83.4%"].map((x, i) => (
+              <span key={x} className="welcome-pulse absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full" style={{ left: x, backgroundColor: ["#00f2ff", "#a855f7", "#d4af37"][i], boxShadow: `0 0 10px ${["#00f2ff", "#a855f7", "#d4af37"][i]}` }} />
+            ))}
+            <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full border border-sky-300/40 bg-[#04101f] px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-sky-300 shadow-[0_0_24px_rgba(56,189,248,0.3)]">Build → Control → Projects</span>
+          </div>
+          <div className="relative grid grid-cols-1 gap-5 md:grid-cols-3 md:gap-8 lg:gap-10">
+            {CARDS.map((c, idx) => {
               const Icon = c.icon;
               return (
                 <button
@@ -309,7 +308,7 @@ export default function Dashboard() {
                   <h2 className="relative text-2xl md:text-[28px] font-bold mb-2">{c.title}</h2>
                   <p className="relative text-zinc-300 text-sm md:text-[14.5px] leading-relaxed">{c.description}</p>
 
-                  <div className="relative">{c.id === "generator" ? <GeneratorPreview /> : c.id === "projects" ? <ProjectsPreview items={projectList.items} /> : <ControlPreview />}</div>
+                  <div className="relative">{c.id === "generator" ? <GeneratorPreview /> : c.id === "projects" ? <ProjectsPreview items={projectList.items} loading={projectList.loading} /> : <ControlPreview />}</div>
 
                   <div className="relative mt-auto pt-5">
                     {firstVisit && (
@@ -327,7 +326,7 @@ export default function Dashboard() {
           </div>
         </div>
         <p className="relative mt-8 text-center text-[11px] text-slate-600" data-testid="welcome-illustration-note">
-          {three ? "The Generator and Control previews are illustrations with sample content; Projects shows your real projects." : "Previews are illustrations with sample content, not your data."}
+          The Generator and Control previews are illustrations with sample content; Projects shows your real projects.
         </p>
       </main>
     </div>

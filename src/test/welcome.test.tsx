@@ -3,8 +3,8 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { isFirstVisit } from "@/lib/welcome";
 
-const state = vi.hoisted(() => ({ user: null as unknown, updateUser: vi.fn(async () => ({ data: {}, error: null })), projects: [] as unknown[] }));
-vi.mock("@/hooks/useProjectList", () => ({ useProjectList: () => ({ items: state.projects, count: state.projects.length, loading: false, reload: vi.fn() }) }));
+const state = vi.hoisted(() => ({ user: null as unknown, updateUser: vi.fn(async () => ({ data: {}, error: null })), projects: [] as unknown[], loading: false }));
+vi.mock("@/hooks/useProjectList", () => ({ useProjectList: () => ({ items: state.projects, count: state.projects.length, loading: state.loading, reload: vi.fn() }) }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: state.user }) }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { auth: { signOut: vi.fn(), updateUser: state.updateUser } } }));
 import Dashboard from "@/pages/Dashboard";
@@ -38,12 +38,12 @@ const renderPage = () => render(
 );
 
 describe("Welcome screen", () => {
-  beforeEach(() => { state.updateUser.mockClear(); state.projects = []; });
+  beforeEach(() => { state.updateUser.mockClear(); state.projects = []; state.loading = false; });
 
-  it("a returning user sees the subtitle and both cards, with no first-time labels", () => {
+  it("a returning user sees the subtitle and the three cards, with no first-time labels", () => {
     state.user = { email: "a@b.c", created_at: ago(40), user_metadata: {} };
     renderPage();
-    expect(screen.getByTestId("welcome-subtitle").textContent).toMatch(/Generator.*AI Control System/);
+    expect(screen.getByTestId("welcome-subtitle").textContent).toMatch(/Generator.*AI Control System.*Projects/);
     expect(screen.getByTestId("card-generator").textContent).toMatch(/Describe an agent/);
     expect(screen.getByTestId("card-control-system").textContent).toMatch(/require approval/);
     expect(screen.queryAllByTestId("first-time-badge")).toHaveLength(0);
@@ -53,9 +53,9 @@ describe("Welcome screen", () => {
   it("a new user sees a badge and a 'choose this when' line on each card", () => {
     state.user = { email: "a@b.c", created_at: new Date().toISOString(), user_metadata: {} };
     renderPage();
-    expect(screen.getAllByTestId("first-time-badge").map((e) => e.textContent)).toEqual(["Start here", "Next step"]);
+    expect(screen.getAllByTestId("first-time-badge").map((e) => e.textContent)).toEqual(["Start here", "Next step", "Your work"]);
     expect(screen.getAllByTestId("first-time-when").map((e) => e.textContent)).toEqual([
-      expect.stringMatching(/create something new/), expect.stringMatching(/already runs/),
+      expect.stringMatching(/create something new/), expect.stringMatching(/already runs/), expect.stringMatching(/import one from a link/),
     ]);
   });
 
@@ -80,16 +80,28 @@ describe("Welcome screen", () => {
     renderPage();
     expect(screen.getByTestId("card-generator").querySelector("[data-testid=preview-generator]")).toBeTruthy();
     expect(screen.getByTestId("card-control-system").textContent).toMatch(/Refund over \$500.*Approval/);
-    expect(screen.getByTestId("welcome-illustration-note").textContent).toMatch(/illustrations with sample content, not your data/);
-    expect(screen.getByTestId("welcome-link").textContent).toMatch(/Build → Control/);
+    expect(screen.getByTestId("welcome-illustration-note").textContent).toMatch(/illustrations with sample content; Projects shows your real projects/);
+    expect(screen.getByTestId("welcome-link-3").textContent).toBe("Build → Control → Projects");
   });
 
-  it("with no project there is no Projects card: two cards, as before", () => {
+  it("with no project the Projects card is still there, says where to import from, and opens Projects", () => {
     state.user = { email: "a@b.c", created_at: ago(40), user_metadata: {} };
     renderPage();
-    expect(screen.queryByTestId("card-projects")).toBeNull();
-    expect(screen.getByTestId("welcome-link").textContent).toBe("Build → Control");
-    expect(screen.getByTestId("welcome-illustration-note").textContent).toMatch(/^Previews are illustrations/);
+    const card = screen.getByTestId("card-projects");
+    expect(screen.getAllByRole("button").filter((b) => b.dataset.testid?.startsWith("card-")).map((b) => b.dataset.testid)).toEqual(["card-generator", "card-control-system", "card-projects"]);
+    expect(screen.getAllByTestId("preview-import-source").map((e) => e.textContent)).toEqual(["Import from a link+", "Import from files+", "Import from pasted text+", "Import from a Notion page+"]);
+    expect(screen.getByTestId("preview-projects-status").textContent).toBe("● No projects yet · import your first");
+    expect(screen.queryByTestId("preview-project")).toBeNull();
+    fireEvent.click(card);
+    expect(screen.getByText("projects page")).toBeTruthy();
+  });
+
+  it("while the projects load the card shows a loading line, not \"no projects\"", () => {
+    state.user = { email: "a@b.c", created_at: ago(40), user_metadata: {} };
+    state.loading = true;
+    renderPage();
+    expect(screen.getByTestId("preview-projects-loading").textContent).toBe("Loading your projects…");
+    expect(screen.queryByTestId("preview-projects-status")).toBeNull();
   });
 
   it("with a project the third card appears in the same style, shows the real projects, and opens Projects", () => {
@@ -105,7 +117,6 @@ describe("Welcome screen", () => {
     expect(screen.getAllByTestId("preview-project").map((e) => e.textContent)).toEqual(["Brand guideLinked", "Launch notesSnapshot", "Support agentGenerated"]);
     expect(screen.getByTestId("preview-projects-status").textContent).toBe("● 3 projects · all under control");
     expect(screen.getByTestId("welcome-link-3").textContent).toBe("Build → Control → Projects");
-    expect(screen.queryByTestId("welcome-link")).toBeNull();
     expect(screen.getByTestId("welcome-illustration-note").textContent).toMatch(/Projects shows your real projects/);
     fireEvent.click(card);
     expect(screen.getByText("projects page")).toBeTruthy();
