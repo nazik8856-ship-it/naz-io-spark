@@ -22,6 +22,7 @@
 // supplied — these typically need OAuth setup we can't fully complete here;
 // they are still usable by the agent runtime.
 
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { createSecret, updateSecret, deleteSecret } from "../_shared/integration-secrets.ts";

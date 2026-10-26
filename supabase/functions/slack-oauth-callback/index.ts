@@ -3,6 +3,7 @@
 // bot token (form-encoded, per Slack docs), then upsert per workspace
 // keyed on (user_id, provider="Slack", metadata->>'team_id') so the same
 // user connecting multiple workspaces gets one row per workspace.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { exchangeCode, fetchTeamInfo, scopesForGroups, SLACK_DEFAULT_GROUPS } from "../_shared/slack.ts";
 import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";

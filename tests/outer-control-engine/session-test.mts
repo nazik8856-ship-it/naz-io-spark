@@ -120,6 +120,27 @@ await t("meaning rules of another project do not apply", async () => {
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, judgeAi: judgeSays([]) });
   assert.equal(r.status, "completed"); assert.equal(judgePrompts.length, 0);
 });
+// ---- secrets: the tool's credential goes in the outgoing request only, never into what is stored
+await t("secrets: the tool's key is sent to the tool but never stored in the step, the session or the evaluation", async () => {
+  setup();
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(calls[0].headers.Authorization, "Bearer tok-123", "the tool received its credential");
+  const stored = JSON.stringify({ steps: steps(), session: sess(), evaluations: H.table("outer_control_evaluations"), approvals: approvals() });
+  assert.ok(!stored.includes("tok-123"), "the credential is nowhere in what was stored");
+  assert.ok(!/authorization/i.test(JSON.stringify(steps().map((s: any) => s.request))), "no Authorization header in the stored request");
+});
+await t("secrets: a tool with its own key header (x-api-key, no scheme) gets the key; nothing stored has it or the header", async () => {
+  setup();
+  Object.assign(H.table("external_tools")[0], { auth_header: "x-api-key", auth_scheme: "" });
+  H.state.rpc.read_integration_secret = { token: "sk-tool-key-778899" };
+  script = () => ({ status: 401, json: { error: "invalid key sk-tool-key-778899" } });
+  await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, maxRetries: 0 });
+  assert.equal(calls[0].headers["x-api-key"], "sk-tool-key-778899", "the tool received its key in its own header");
+  assert.ok(!("Authorization" in calls[0].headers), "no Authorization header was invented");
+  const stored = JSON.stringify({ steps: steps(), session: sess(), evaluations: H.table("outer_control_evaluations"), approvals: approvals() });
+  assert.ok(!/x-api-key/i.test(JSON.stringify(steps().map((s: any) => s.request))), "the key's header is not in the stored request");
+  assert.ok(!stored.includes("sk-tool-key-778899"), "the key is nowhere in what was stored, even when the tool echoes it back in its error");
+});
 // ---- durable: a run cut off mid-way carries on from its last step; the same step cut off again and again is stopped
 await t("durable: a run whose lease ran out is picked up again and finishes; the interruption is recorded", async () => {
   setup(); sess().lease_until = new Date(Date.now() - 60_000).toISOString();

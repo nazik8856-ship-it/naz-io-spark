@@ -540,7 +540,7 @@ export default function ControlApiKeys() {
               Copy this now — it won't be shown again
             </p>
             <div className="mt-2 flex items-center gap-2">
-              <code className="flex-1 truncate rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200">
+              <code data-ph-mask className="ph-no-capture flex-1 truncate rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200" data-testid="new-api-key">
                 {justCreated.key}
               </code>
               <button

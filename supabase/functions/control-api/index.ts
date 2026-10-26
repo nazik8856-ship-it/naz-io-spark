@@ -38,6 +38,7 @@
 // requests would have consumed, no more and no less. Once the counter
 // trips, the rest of the batch is reported as skipped rather than each
 // one paying for its own DB round trip to learn the same thing.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";

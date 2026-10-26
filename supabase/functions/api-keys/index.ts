@@ -18,6 +18,7 @@
 // it via the same is_account_member() RPC the DB's own RLS policies use --
 // this can't just rely on RLS the way the frontend's plain SELECT can,
 // since every write here goes through the service-role admin client.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
@@ -34,6 +35,7 @@ import { isValidTriggerPhrase, isValidRuleAnswer, isValidMatchType, MAX_RESPONSE
 import { findOverlappingCandidates, excerptOf } from "../_shared/rule-context-overlap.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { putSigningSecret } from "../_shared/signing-secrets.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
 
 const corsHeaders = {
@@ -321,6 +323,8 @@ Deno.serve(async (req) => {
         return json({ error: "ai_spend_cap_usd must be a positive number, or null to remove the cap" }, 400);
       }
     }
+    // The callback secret is stored in Vault once the key is known to belong to this account (below); the row keeps only its id.
+    let pendingCallbackSecret: string | null = null;
     if (body.on_uncertain === "callback") {
       const callbackUrl = String(body?.callback_url || "").trim();
       const callbackSecret = String(body?.callback_secret || "").trim();
@@ -337,7 +341,7 @@ Deno.serve(async (req) => {
         return json({ error: `callback_url is not allowed: ${urlCheck.reason}` }, 400);
       }
       update.callback_url = callbackUrl;
-      update.callback_secret = callbackSecret;
+      pendingCallbackSecret = callbackSecret;
       if (body?.callback_timeout_seconds !== undefined) {
         const timeout = Number(body.callback_timeout_seconds);
         if (!Number.isFinite(timeout) || timeout < 5 || timeout > 60) {
@@ -373,6 +377,14 @@ Deno.serve(async (req) => {
 
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+    if (pendingCallbackSecret) {
+      const { data: cur } = await admin.from("api_keys").select("callback_secret_id").eq("id", keyId).eq("user_id", targetUserId).maybeSingle();
+      if (!cur) return json({ error: "not_found", message: "That key was not found." }, 404);
+      const secretId = await putSigningSecret(admin, (cur as { callback_secret_id: string | null }).callback_secret_id, pendingCallbackSecret, `api-key-callback-${keyId}`).catch(() => null);
+      if (!secretId) return json({ error: "internal_error", message: "The callback secret could not be stored. Nothing was changed." }, 500);
+      update.callback_secret_id = secretId;
+      update.callback_secret = null;
+    }
 
     // Correctness-audit gap: outer_control:execute could only ever be
     // granted at key-creation time -- an account had to revoke and

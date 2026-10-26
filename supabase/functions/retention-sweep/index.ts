@@ -72,6 +72,7 @@
 // ai_spend_daily is real financial history read account-wide by
 // compliance-attestation and the report emails, keyed by user_id, not
 // something a single key's cleanup should ever be able to shrink.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { retentionCutoffIso } from "../_shared/retention.ts";
 

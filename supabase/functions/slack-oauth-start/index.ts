@@ -2,6 +2,7 @@
 // only the bot scopes the user checked on the NazAI pre-consent screen.
 // The client opens the URL in a popup; Slack redirects back to
 // slack-oauth-callback with ?code & ?state.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { buildAuthUrl, isConfigured, scopesForGroups, SLACK_DEFAULT_GROUPS } from "../_shared/slack.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";

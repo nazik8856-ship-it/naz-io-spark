@@ -1,6 +1,7 @@
 // figma-oauth-start — builds a real Figma OAuth2 authorization URL for the
 // current authenticated NazAI user and returns it. The client opens the URL
 // in a popup; Figma redirects back to figma-oauth-callback with ?code.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { signState, buildAuthUrl, scopesForGroups, FIGMA_DEFAULT_GROUPS } from "../_shared/figma.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";

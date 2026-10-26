@@ -16,6 +16,7 @@
 // shows up with a null actor_id, distinguishing it from a human-
 // authored one for free, no extra column needed (same reasoning as
 // last round's rule-auto-draft-sweep).
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { detectRecurringReasonPatterns, draftKnowledgeBaseEntryFromPattern, type ReasonCodedResolution } from "../_shared/knowledge-base-auto-draft.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";

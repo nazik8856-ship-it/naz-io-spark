@@ -21,6 +21,7 @@
 // agent-runtime uses to call control-engine directly. This is what lets
 // control-self-audit run this suite on a schedule with no human's session
 // token, still scoped to one specific org's own policy/rules/breakers.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { CONTROL_SCENARIOS, type Scenario, type Verdict } from "../_shared/control-scenarios.ts";
 
 const corsHeaders = {

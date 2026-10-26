@@ -2,6 +2,7 @@
 // the Notion authorize URL. The client opens it in a popup; Notion redirects
 // back to notion-oauth-callback with ?code & ?state. Notion capabilities are
 // fixed on the integration itself, so we don't request per-scope consent.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { buildAuthUrl, isConfigured } from "../_shared/notion.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";

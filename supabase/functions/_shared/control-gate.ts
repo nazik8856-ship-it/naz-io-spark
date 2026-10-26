@@ -39,6 +39,7 @@ import { isWithinQuietHours, summarizeQuietHoursEscalation, type QuietHoursConfi
 import { isCallbackFailureTrouble, summarizePolicyDowngrade } from "./policy-downgrade.ts";
 import { claimRowOnce } from "./idempotency.ts";
 import { resolveEffectiveOnUncertain, type ActionTypeOverride } from "./action-type-policy.ts";
+import { callbackSecretOf } from "./signing-secrets.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -405,7 +406,9 @@ export async function loadActionTypeOverrides(admin: SupabaseClient, apiKeyId: s
 export type ApiKeyCallbackRow = {
   on_uncertain: string | null;
   callback_url: string | null;
+  /** The callback secret lives in Vault (callback_secret_id); callback_secret only for a key set up before that. */
   callback_secret: string | null;
+  callback_secret_id?: string | null;
   callback_timeout_seconds: number | null;
   callback_fallback: string | null;
   // "Zero human review" plan, item 6: a separate, optional shadow-mode
@@ -433,7 +436,7 @@ export type ApiKeyCallbackRow = {
 async function loadApiKeyCallbackConfig(admin: SupabaseClient, apiKeyId: string): Promise<ApiKeyCallbackRow | null> {
   const { data } = await admin
     .from("api_keys")
-    .select("on_uncertain, callback_url, callback_secret, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, quiet_hours_start_hour, quiet_hours_end_hour, quiet_hours_timezone, callback_failure_streak")
+    .select("on_uncertain, callback_url, callback_secret, callback_secret_id, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, quiet_hours_start_hour, quiet_hours_end_hour, quiet_hours_timezone, callback_failure_streak")
     .eq("id", apiKeyId)
     .maybeSingle();
   return data as ApiKeyCallbackRow | null;
@@ -520,10 +523,11 @@ export async function createPendingApproval(
         : { autoResolved: true, resolution: "rejected", status: "auto_rejected" };
       comment = input.forcedResolution.note;
     } else if (keyRow) {
-      if (effectiveOnUncertain.policy === "callback" && keyRow.callback_url && keyRow.callback_secret) {
+      const callbackSecret = effectiveOnUncertain.policy === "callback" && keyRow.callback_url ? await callbackSecretOf(admin, keyRow) : null;
+      if (effectiveOnUncertain.policy === "callback" && keyRow.callback_url && callbackSecret) {
         callbackConfig = {
           url: keyRow.callback_url,
-          secret: keyRow.callback_secret,
+          secret: callbackSecret,
           timeoutSeconds: keyRow.callback_timeout_seconds ?? 20,
           fallback: keyRow.callback_fallback === "auto_allow" ? "auto_allow" : "auto_deny",
         };

@@ -6,6 +6,7 @@
 // incident for the escalation itself (see the "incident_stale_unacknowledged"
 // event's own doc comment in critical-alerts.ts) -- this re-notifies about
 // the SAME incident, it never spawns a duplicate. Service-role only.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isIncidentOverdueForEscalation, INCIDENT_ESCALATION_HOURS, type IncidentLike } from "../_shared/incident-escalation.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";

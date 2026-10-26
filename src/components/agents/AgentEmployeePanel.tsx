@@ -355,7 +355,7 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
                 Give this to a developer to trigger the agent from another system. Keep the key private.
               </div>
               <div className="flex items-start gap-1.5">
-                <pre className="flex-1 min-w-0 overflow-x-auto px-2 py-1.5 text-[10px] rounded border border-white/10 bg-black/40 text-cyan-200 font-mono whitespace-pre">
+                <pre data-ph-mask className="ph-no-capture flex-1 min-w-0 overflow-x-auto px-2 py-1.5 text-[10px] rounded border border-white/10 bg-black/40 text-cyan-200 font-mono whitespace-pre" data-testid="agent-webhook-command">
 {curlCommand}
                 </pre>
                 <div className="flex flex-col gap-1">

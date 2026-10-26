@@ -12,6 +12,7 @@
 // user_id/action_type/provider/decision_id for every circuit_breaker_trip,
 // so this reads THAT (via a SECURITY DEFINER RPC that also joins in the
 // tripping agent_id) instead.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   findCorrelatedFailures,

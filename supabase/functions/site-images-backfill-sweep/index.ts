@@ -12,6 +12,7 @@
 // transient gateway 429 does not strand it but nothing can loop forever.
 // User-supplied images are never replaced: collectImageSlots skips any slot
 // that already has an asset_url.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 import { collectImageSlots } from "../_shared/site-images.ts";

@@ -9,6 +9,7 @@
 // "when was the last nudge," so this also re-checks already-escalated rows
 // and re-arms the claim optimistically against whatever value was actually
 // read, instead of assuming it's always NULL.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isOverdueForEscalation, isOverdueForExecution, hoursSince, type PendingApprovalLike } from "../_shared/escalation.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";

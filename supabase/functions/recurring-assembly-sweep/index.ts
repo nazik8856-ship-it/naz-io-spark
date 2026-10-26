@@ -19,6 +19,7 @@
 // account volume ever makes a single run too slow, that's a real, separate
 // performance problem to solve when it happens, not a reason to add
 // cursor/batching complexity nothing here needs yet.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkAgentAssembly, checkWebsiteAssembly } from "../_shared/final-assembly-check.ts";
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";

@@ -11,6 +11,7 @@
 // (packId / tierId) and the server looks up the actual credits/price from
 // its own copy of the catalog -- mirrors src/lib/credit-packs.ts and
 // src/lib/credit-tiers.ts exactly; keep both in sync if the catalog changes.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { checkRateLimit } from '../_shared/rate-limit.ts'
 

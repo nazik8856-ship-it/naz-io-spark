@@ -15,6 +15,7 @@
 // service-role insert has no auth.uid() -- so a drafted rule shows up
 // with a null actor_id, distinguishing it from a human-authored one for
 // free, no extra column needed.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { detectRecurringBlockPatterns, draftRuleFromPattern, type DecisionRow } from "../_shared/rule-auto-draft.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";

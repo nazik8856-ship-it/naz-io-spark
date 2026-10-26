@@ -13,6 +13,7 @@
 // sweep) -- both candidate queries already scope by row, not by caller,
 // so there's nothing to loop over per org the way audit-integrity-sweep
 // does.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
 import { formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";

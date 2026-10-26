@@ -8,6 +8,7 @@
 //     Allow/Modify/Block/Deferred verdict, real execution and the
 //     agent_decisions logging. No decision logic is duplicated here.
 //  2) Anything else -> normal conversational reply.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCapabilityBlock } from "../_shared/capability-registry.ts";

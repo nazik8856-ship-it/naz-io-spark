@@ -15,6 +15,7 @@
 // sign-in flow) we synthesize a deterministic sample derived from the stored
 // account metadata + fetch time so the agent still has concrete numbers to
 // reason about instead of "unknown".
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { ensureAccessToken, gmailList } from "../_shared/gmail.ts";

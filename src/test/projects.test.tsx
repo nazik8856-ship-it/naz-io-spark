@@ -104,11 +104,22 @@ describe("Projects list", () => {
     expect(screen.getByText("generated page")).toBeTruthy();
   });
 
-  it("with no project there is no Projects page: it goes back to the dashboard", async () => {
+  it("with no project the page still opens and offers the import (and the Generator)", async () => {
     state.tables = { imported_projects: [], agents: [], websites: [] };
-    at("/projects", <Projects />);
-    await waitFor(() => expect(screen.getByText("dashboard page")).toBeTruthy());
-    expect(screen.queryByText(/No projects/)).toBeNull();
+    at("/projects", <Projects />, [<Route key="g" path="/generator-home" element={<div>generator page</div>} />]);
+    const empty = await screen.findByTestId("projects-empty");
+    expect(empty.textContent).toMatch(/No projects yet[\s\S]*link, files, pasted text or a Notion page/);
+    expect(screen.queryByText("dashboard page")).toBeNull();
+    expect(screen.queryByRole("tablist")).toBeNull();
+    fireEvent.click(screen.getByTestId("projects-empty-import"));
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+  });
+
+  it("with no project, the Generator is one press away too", async () => {
+    state.tables = { imported_projects: [], agents: [], websites: [] };
+    at("/projects", <Projects />, [<Route key="g" path="/generator-home" element={<div>generator page</div>} />]);
+    fireEvent.click(await screen.findByTestId("projects-empty-generate"));
+    expect(screen.getByText("generator page")).toBeTruthy();
   });
 });
 
@@ -255,7 +266,14 @@ describe("Protection", () => {
   it("delete: permanent, next to Archive, only after the name is typed", async () => {
     state.tables = { imported_projects: [base], project_rules: [], outer_control_workflows: [], project_events: [], agents: [], websites: [] };
     vi.stubGlobal("fetch", server((b) => (b.action === "delete" ? { ok: true, deleted: true } : { ok: true })));
-    at("/projects/p1", <ProjectView />);
+    render(
+      <MemoryRouter initialEntries={["/projects/p1"]}>
+        <Routes>
+          <Route path="/projects/:id" element={<ProjectView />} />
+          <Route path="/projects" element={<div>projects list</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
     fireEvent.click(await screen.findByTestId("project-delete"));
     const go = (await screen.findByTestId("delete-confirm-button")) as HTMLButtonElement;
     expect(screen.getByTestId("delete-confirm").textContent).toMatch(/can not be brought back[\s\S]*original[\s\S]*is not touched[\s\S]*Archive instead/);
@@ -263,7 +281,7 @@ describe("Protection", () => {
     fireEvent.change(screen.getByLabelText("Type the project name to delete it"), { target: { value: "Brand guide" } });
     fireEvent.click(go);
     await waitFor(() => expect(calls().at(-1)).toEqual({ action: "delete", project_id: "p1", account_id: "acct", confirm_name: "Brand guide" }));
-    await waitFor(() => expect(screen.getByText("dashboard page")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("projects list")).toBeTruthy());
   });
 
   it("when the text can not be read, the page says so instead of showing nothing", async () => {

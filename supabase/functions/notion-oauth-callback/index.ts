@@ -4,6 +4,7 @@
 // upsert per workspace keyed on (user_id, provider="Notion",
 // metadata->>'workspace_id') so a user connecting multiple workspaces gets
 // one row per workspace instead of overwriting the previous one.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { exchangeCode } from "../_shared/notion.ts";
 import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";

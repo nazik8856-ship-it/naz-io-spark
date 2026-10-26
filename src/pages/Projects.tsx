@@ -1,9 +1,9 @@
 // Projects: every project of the account, imported (snapshot or linked) and generated (agents and websites), with its source,
-// status and type. This page only exists once there is a project: with none it goes back to the dashboard, so there is never an
-// empty Projects page.
+// status and type. It always opens: with no project yet it offers the import (and the Generator), so the first project can be
+// brought in from here.
 import { useEffect, useMemo, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
-import { ArrowLeft, FolderInput, FolderKanban, Loader2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ArrowLeft, FolderInput, FolderKanban, Loader2, Sparkles } from "lucide-react";
 import { useProjectList } from "@/hooks/useProjectList";
 import { projectType, shortDate } from "@/lib/projects";
 import { ControlBadge, ProtectedBadge, SourceBadge } from "@/components/projects/ProjectBadges";
@@ -19,7 +19,7 @@ export default function Projects() {
   const shown = useMemo(() => items.filter((i) => filter === "all" || i.origin === filter), [items, filter]);
   useEffect(() => { document.title = "Projects · NazAI"; }, []);
 
-  if (!loading && items.length === 0 && !importing) return <Navigate to="/dashboard" replace />;
+  const empty = !loading && items.length === 0;
 
   return (
     <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#020617" }}>
@@ -35,15 +35,29 @@ export default function Projects() {
 
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
         <p className="text-sm text-zinc-400">Every project here is under NazAI control: your rules apply to it, and Outer Control can use it.</p>
-        <div className="mt-4 flex gap-1.5" role="tablist">
+        {!empty && <div className="mt-4 flex gap-1.5" role="tablist">
           {(["all", "imported", "generated"] as Filter[]).map((f) => (
             <button key={f} role="tab" aria-selected={filter === f} onClick={() => setFilter(f)}
               className={`rounded-full border px-3 py-1 text-xs capitalize ${filter === f ? "border-amber-300/60 bg-amber-400/15 text-amber-100" : "border-white/10 text-zinc-400 hover:text-zinc-200"}`}>{f}</button>
           ))}
-        </div>
+        </div>}
 
         {loading ? (
           <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-amber-300" /></div>
+        ) : empty ? (
+          <div className="mt-6 flex flex-col items-center rounded-2xl border border-dashed border-amber-300/30 bg-gradient-to-b from-[#0b1a35]/60 to-[#070f22]/60 px-6 py-12 text-center" data-testid="projects-empty">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-300/40 bg-amber-400/10 shadow-[0_0_24px_-6px_rgba(212,175,55,0.6)]">
+              <FolderKanban className="h-7 w-7 text-[#d4af37]" />
+            </div>
+            <h2 className="mt-4 text-lg font-semibold">No projects yet</h2>
+            <p className="mt-1.5 max-w-md text-sm text-zinc-400">Import one from a link, files, pasted text or a Notion page. It comes under NazAI control right away: your rules apply to it, and Outer Control can use it.</p>
+            <button onClick={() => setImporting(true)} className="mt-5 flex items-center gap-1.5 rounded-lg border border-amber-300/50 bg-amber-400/20 px-4 py-2.5 text-sm font-semibold text-amber-50 shadow-[0_0_18px_-4px_rgba(212,175,55,0.5)] hover:bg-amber-400/30" data-testid="projects-empty-import">
+              <FolderInput className="h-4 w-4" /> Import a project
+            </button>
+            <button onClick={() => navigate("/generator-home")} className="mt-3 flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200" data-testid="projects-empty-generate">
+              <Sparkles className="h-3.5 w-3.5 text-[#00f2ff]" /> Or build a new one with the Generator
+            </button>
+          </div>
         ) : (
           <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#0b1a35]/60 to-[#070f22]/60">
             <div className="hidden grid-cols-[2fr_1.2fr_1.6fr_1.2fr_0.6fr] gap-3 border-b border-white/10 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500 md:grid">

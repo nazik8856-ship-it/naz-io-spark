@@ -19,6 +19,7 @@
 //    mismatched signature or an unsigned decision in range.
 //
 // 2. A real user JWT — runs the sweep for just that one caller.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, isKnowledgeBaseHealthMismatch, isUnjustifiedApiKeyPause, isUnjustifiedBadOutcomeDowngrade, isUnjustifiedRepeatedPauseDowngrade, isUnjustifiedAutoResolvedApproval, isStaleIncident, STALE_INCIDENT_DAYS, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation, type KnowledgeBaseHealthEntry, type RecentActionShape, type HardRuleBlockShape } from "../_shared/audit-integrity.ts";

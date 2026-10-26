@@ -1,6 +1,7 @@
 // RBAC Phase 1: accept a pending team invite by token. The caller must be
 // logged in (any NazAI account) — accepting attaches THEIR user id to the
 // membership row as member_id.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {

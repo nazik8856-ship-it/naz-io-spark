@@ -1,6 +1,7 @@
 // Generate up to 3 essential clarifying questions before deploying an agent.
 // Input:  { prompt: string, profile: object, role?: string }
 // Output: { questions: { id: string, question: string, options?: string[], placeholder?: string }[] }
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 

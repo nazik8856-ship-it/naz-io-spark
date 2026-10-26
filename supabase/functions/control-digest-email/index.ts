@@ -2,6 +2,7 @@
 // spend status for every org with an active policy version. Only actually
 // sends when there's real signal (_shared/digest.ts) — an empty digest
 // every day trains people to ignore it. Service-role only.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSpendStatus } from "../_shared/spend-guard.ts";
 import { digestHasContent } from "../_shared/digest.ts";
