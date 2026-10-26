@@ -7,6 +7,7 @@
 // Images the user supplied (any section/item that already has an asset_url)
 // are never touched. A site whose images all fail keeps the existing
 // illustration fallback AND gets a visible generation note -- never silent.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { OUT_OF_CREDITS, openIncidentOnce, OUTAGE_SUMMARY, PROVIDER_OUTAGE_KIND } from "../_shared/provider-health.ts";
 import { pickAiGateway, aiGatewayHeaders, type GatewayConfig } from "../_shared/ai-gateway.ts";

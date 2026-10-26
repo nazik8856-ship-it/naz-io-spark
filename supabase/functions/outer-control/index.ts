@@ -59,6 +59,7 @@
 // verify_jwt = false, same as control-api/agent-runtime -- auth is the
 // Authorization: Bearer nazai_sk_... header via resolveApiKeyAuth, not a
 // Supabase session JWT.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { judgeStateless } from "../_shared/outer-control-judgement.ts";
 import { relayToTask, taskForKey } from "../_shared/outer-control-relay.ts";
 import { driveSession } from "../_shared/outer-control-workflow.ts";

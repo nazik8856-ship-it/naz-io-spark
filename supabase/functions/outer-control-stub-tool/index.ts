@@ -16,6 +16,7 @@
 // With no marker it answers the request for real, with NazAI's own AI, so every answer is different and about the request
 // (it stands in for a real external AI such as ChatGPT). If the AI is not available it falls back to "Stub tool answer."
 // Requires "Authorization: Bearer stub-token". It holds no data and calls nothing else.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAiGateway, pickAiGateway } from "../_shared/ai-gateway.ts";
 import { checkIpRateLimit } from "../_shared/rate-limit.ts";

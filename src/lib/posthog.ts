@@ -3,6 +3,21 @@
 // integrations/supabase/client.ts (hardcoded rather than an env var, since
 // this app has no env-var convention and this key is meant to be public).
 import posthog from "posthog-js";
+import { scrubErrorEvent } from "@/lib/redact-secrets";
+
+type PostHogEvent = { event?: string; properties?: Record<string, unknown> };
+/**
+ * A PostHog event with secrets scrubbed (an error capture's message and stack can hold a token from a URL). Session replay
+ * snapshots are left alone (inputs are already masked, and secret text on screen carries data-ph-mask); the event's own
+ * properties.token is PostHog's public project key and must stay, or the event is rejected.
+ */
+export function scrubPostHogEvent<T extends PostHogEvent | null>(event: T): T {
+  if (!event || event.event === "$snapshot") return event;
+  const projectKey = event.properties?.token;
+  const clean = scrubErrorEvent(event) as T;
+  if (clean && clean.properties && projectKey !== undefined) clean.properties.token = projectKey;
+  return clean ?? event;
+}
 
 const POSTHOG_KEY = "phc_w5rW6zzh54sXxAfNQqexLx2RhDHGsmDApW8sbgMnDno2";
 const POSTHOG_HOST = "https://us.i.posthog.com";
@@ -22,6 +37,9 @@ export function initPostHog() {
     // setting most likely to surface a real, silent client-side crash
     // nobody reported.
     capture_exceptions: true,
+    // Every event (error captures included: their message and stack can hold a token from a URL) is scrubbed of secrets
+    // before it is sent.
+    before_send: (event) => scrubPostHogEvent(event),
     session_recording: {
       // Mask every input's value in replay recordings by default (auth
       // fields, card fields in PaymentWindow, API keys, etc.) -- opt a

@@ -3,6 +3,7 @@
 // managed-Postgres backup window. This is a safety net, not a substitute
 // for a real restore drill -- it exists so "if the platform backup silently
 // failed for a week" isn't a total-loss scenario. Service-role only.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { BACKUP_TABLES, backupObjectPath, isExpiredBackupFolder, todayUtcDateString } from "../_shared/governance-backup.ts";
 

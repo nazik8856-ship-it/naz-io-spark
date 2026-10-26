@@ -4,6 +4,7 @@
 // (low/medium/high), scores confidence with the SHARED decision-scoring
 // helpers agent-runtime uses, returns Allow / Modify / Block, and logs every
 // verdict to agent_decisions.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveAccountScope } from "../_shared/account-scope.ts";

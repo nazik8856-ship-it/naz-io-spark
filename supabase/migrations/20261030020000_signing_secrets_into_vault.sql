@@ -62,11 +62,9 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.forget_replaced_vault_secrets() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS webhooks_forget_vault_secrets ON public.webhooks;
-CREATE TRIGGER webhooks_forget_vault_secrets AFTER UPDATE OF secret_id, previous_secret_id OR DELETE ON public.webhooks
+CREATE OR REPLACE TRIGGER webhooks_forget_vault_secrets AFTER UPDATE OF secret_id, previous_secret_id OR DELETE ON public.webhooks
   FOR EACH ROW EXECUTE FUNCTION public.forget_replaced_vault_secrets();
-DROP TRIGGER IF EXISTS api_keys_forget_vault_secrets ON public.api_keys;
-CREATE TRIGGER api_keys_forget_vault_secrets AFTER UPDATE OF callback_secret_id OR DELETE ON public.api_keys
+CREATE OR REPLACE TRIGGER api_keys_forget_vault_secrets AFTER UPDATE OF callback_secret_id OR DELETE ON public.api_keys
   FOR EACH ROW EXECUTE FUNCTION public.forget_replaced_vault_secrets();
 
 -- Rotation, now on Vault: the old secret becomes the previous one for the grace window, the new one is stored in Vault and

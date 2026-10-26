@@ -14,6 +14,7 @@
 // checks every non-revoked key directly (not keys inferred from recent
 // traffic), so there's no separate "dormant key stuck alerted forever"
 // cleanup pass needed -- every key is re-evaluated every single tick.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   isContentGapBacklogStale, summarizeStaleContentGapBacklog, type GapClusterForBacklogHealth,

@@ -7,6 +7,7 @@
 // risks losing events silently. Public DSN, safe to hardcode (same
 // convention as every other public key in this codebase).
 import * as Sentry from "npm:@sentry/deno@8";
+import { redactDeep, redactSecrets, scrubErrorEvent } from "./redact-secrets.ts";
 
 const SENTRY_DSN = "https://44ff55d0854209b82ab71c48874b00e6@o4512076695666688.ingest.de.sentry.io/4512076789121104";
 
@@ -20,6 +21,11 @@ function ensureInit() {
     environment: Deno.env.get("SENTRY_ENVIRONMENT") ?? "production",
     // No tracing -- this is error/event reporting only, not perf monitoring.
     tracesSampleRate: 0,
+    // Nothing sent to Sentry carries a secret: the event (message, exception, extra context, breadcrumbs) is scrubbed and
+    // request headers and cookies are dropped before it leaves the function.
+    sendDefaultPii: false,
+    beforeSend: (event) => scrubErrorEvent(event),
+    beforeBreadcrumb: (crumb) => scrubErrorEvent(crumb),
   });
 }
 
@@ -27,7 +33,7 @@ function ensureInit() {
 export async function reportEdgeException(err: unknown, context?: Record<string, unknown>): Promise<void> {
   try {
     ensureInit();
-    Sentry.captureException(err, context ? { extra: context } : undefined);
+    Sentry.captureException(redactDeep(err), context ? { extra: redactDeep(context) as Record<string, unknown> } : undefined);
     await Sentry.flush(2000);
   } catch { /* best effort */ }
 }
@@ -36,7 +42,7 @@ export async function reportEdgeException(err: unknown, context?: Record<string,
 export async function reportEdgeMessage(message: string, context?: Record<string, unknown>): Promise<void> {
   try {
     ensureInit();
-    Sentry.captureMessage(message, { level: "error", extra: context ?? {} });
+    Sentry.captureMessage(redactSecrets(message), { level: "error", extra: (redactDeep(context ?? {}) as Record<string, unknown>) });
     await Sentry.flush(2000);
   } catch { /* best effort */ }
 }

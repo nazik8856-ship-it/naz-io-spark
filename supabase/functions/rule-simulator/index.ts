@@ -5,6 +5,7 @@
 // execution. Reuses the exact same pure matching/scanning logic the real
 // gate enforces with (ruleMatchesAction, scanWithRules) so the simulator
 // can never drift from what actually decides.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ruleMatchesAction, selectRulesForAgent } from "../_shared/rule-matching.ts";
 import { scanWithRules, BUILTIN_SAFETY_RULES, type SafetyRule } from "../_shared/safety-scanner.ts";

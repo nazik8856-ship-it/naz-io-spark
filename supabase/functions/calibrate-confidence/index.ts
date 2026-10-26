@@ -7,6 +7,7 @@
 // success rate falls meaningfully short of the confidence the model claimed —
 // a signal that the scoring prompt needs review.
 
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { flagBucketIfNew } from "../_shared/confidence-bucket-flags.ts";

@@ -5,6 +5,7 @@
 // compliance/ROI reports (Markdown documents) -- this is a short email
 // with the headline numbers and a link to the full report, the same
 // shape as the existing weekly trend email. Service-role only.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { summarizeDecisionsForRoi, costPerAutonomousDecision, type DecisionForRoi } from "../_shared/roi-report.ts";
 

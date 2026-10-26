@@ -14,6 +14,7 @@
 //
 // 2. A real user JWT — runs the suite for just that one caller (used by a
 //    "run self-audit now" button), same persistence and alerting logic.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CONTROL_SCENARIOS } from "../_shared/control-scenarios.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";

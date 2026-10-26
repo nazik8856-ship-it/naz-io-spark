@@ -6,6 +6,7 @@
 // Returns { found: boolean, accounts: Account[], error?: string }.
 // If found=false the client shows "Account doesn't exist — try another".
 
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkIpRateLimit } from "../_shared/rate-limit.ts";

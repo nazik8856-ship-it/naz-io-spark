@@ -4,6 +4,7 @@
 // (hardcoded rather than an env var, since this app has no env-var
 // convention and a Sentry DSN is meant to be public).
 import * as Sentry from "@sentry/react";
+import { scrubErrorEvent } from "@/lib/redact-secrets";
 
 const SENTRY_DSN = "https://0253663b0a7ad8a706ac9c1d7fc3c326@o4512076695666688.ingest.de.sentry.io/4512076788990032";
 
@@ -19,6 +20,12 @@ export function initSentry() {
     // already owns session replay (lib/posthog.ts); Sentry's own replay
     // would be a second, redundant recording of the same sessions.
     integrations: [],
+    // Nothing sent to Sentry carries a secret (an error message with a token in a URL, a failed request's headers): every event
+    // and breadcrumb is scrubbed first, request headers and cookies dropped.
+    sendDefaultPii: false,
+    beforeSend: (event) => scrubErrorEvent(event),
+    beforeSendTransaction: (event) => scrubErrorEvent(event),
+    beforeBreadcrumb: (crumb) => scrubErrorEvent(crumb),
   });
 }
 

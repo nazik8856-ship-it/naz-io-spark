@@ -14,6 +14,7 @@
 // Resend (see process-email-queue) instead of Lovable's hosted email API --
 // email.bounced/email.complained are Resend's equivalent of what Lovable's
 // own Go service used to forward to handle-email-suppression (now retired).
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
 

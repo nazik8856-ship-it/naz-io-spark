@@ -163,7 +163,7 @@ export default function ControlWebhooks() {
               Signing secret — copy it now, it won't be shown again
             </div>
             <div className="mt-2 flex items-center gap-2">
-              <code className="flex-1 truncate rounded bg-black/40 px-2 py-1.5 text-xs text-zinc-200">{justCreated.secret}</code>
+              <code data-ph-mask className="ph-no-capture flex-1 truncate rounded bg-black/40 px-2 py-1.5 text-xs text-zinc-200" data-testid="new-webhook-secret">{justCreated.secret}</code>
               <button
                 onClick={() => { navigator.clipboard.writeText(justCreated.secret); toast({ title: "Copied" }); }}
                 className="shrink-0 rounded border border-white/15 px-2 py-1.5 text-[10px] font-mono uppercase hover:bg-white/10"

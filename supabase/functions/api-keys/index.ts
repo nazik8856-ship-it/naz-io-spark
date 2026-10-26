@@ -18,6 +18,7 @@
 // it via the same is_account_member() RPC the DB's own RLS policies use --
 // this can't just rely on RLS the way the frontend's plain SELECT can,
 // since every write here goes through the service-role admin client.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";

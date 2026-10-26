@@ -1,6 +1,7 @@
 // Autonomous agent runtime — one run of an agent.
 // Business-aware: loads business profile + memory; supports remember/ask_user/request_approval tools.
 // Input: { agentId: string, trigger?: "manual"|"cron"|"webhook", userInstruction?: string }
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readSecret } from "../_shared/integration-secrets.ts";

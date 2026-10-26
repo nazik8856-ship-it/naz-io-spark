@@ -14,6 +14,7 @@
 // outcomes take real time to measure (decision_outcomes is populated by
 // a separate, unscheduled sweep), so there's nothing new to see between
 // runs much faster than that.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isBadOutcomeTrouble, summarizePolicyDowngrade, BAD_OUTCOME_LOOKBACK_DAYS } from "../_shared/policy-downgrade.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";

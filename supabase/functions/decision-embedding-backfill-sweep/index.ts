@@ -6,6 +6,7 @@
 // batch per run, oldest-first, so a single invocation never tries an
 // account's entire history (or exhausts an embedding-provider rate
 // limit) at once.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildBackfillEmbeddingInput, generateEmbeddingWithinBudget, formatEmbeddingLiteral, type BackfillableDecisionRow } from "../_shared/decision-embeddings.ts";
 

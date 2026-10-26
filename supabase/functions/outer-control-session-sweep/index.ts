@@ -2,6 +2,7 @@
 // Every minute (pg_cron, service role): resume sessions whose approval has been
 // resolved, advance sessions that are mid-run (a driver was cut off or a retry is
 // due), end sessions that have waited for a person too long, and re-test the connection of tools that are in use.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 import { contactRuleStopping, resumeSession } from "../_shared/outer-control-session.ts";

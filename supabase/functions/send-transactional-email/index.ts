@@ -1,3 +1,4 @@
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
 import { createClient } from 'npm:@supabase/supabase-js@2'

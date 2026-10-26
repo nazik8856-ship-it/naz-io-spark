@@ -14,4 +14,5 @@ run -f ../../migrations/20261030010000_secret_column_grants.sql
 run -f column_grants_test.sql
 run -f vault_signing_secrets_test.sql
 run -f drop_credentials_column_test.sql
+run -f redact_stored_errors_test.sql
 echo "secrets database tests: all passed"

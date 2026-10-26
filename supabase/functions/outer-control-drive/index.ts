@@ -29,6 +29,7 @@
 // verify_jwt = true. Credentials go into the vault (create_integration_secret) and are
 // never returned. Sessions run in the background (EdgeRuntime.waitUntil); the dashboard
 // polls, and outer-control-session-sweep picks up anything that was left mid-way.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";

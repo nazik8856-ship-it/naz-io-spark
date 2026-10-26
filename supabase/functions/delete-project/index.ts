@@ -16,6 +16,7 @@
 // service-role client, scoped by an explicit user_id check in the query
 // itself. RLS is not part of this request's path at all, so it can't be
 // the cause of a re-occurrence.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkRateLimit } from "../_shared/rate-limit.ts";

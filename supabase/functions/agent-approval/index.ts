@@ -7,6 +7,7 @@
 // design. What it must NOT skip is the deterministic control gate: a kill
 // switch flipped, a hard rule added, or a circuit breaker tripped AFTER this
 // item was queued must still stop it from actually running now.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { runControlGate } from "../_shared/control-gate.ts";

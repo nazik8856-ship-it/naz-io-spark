@@ -21,6 +21,7 @@
 // Project text is encrypted with PROJECTS_KEY (32 random bytes, base64), which only the edge functions have. Without it nothing
 // new is stored. Everything but "read" needs the owner of the account (or an owner-role team member with the integrations
 // permission); "read" is open to every active team member.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";

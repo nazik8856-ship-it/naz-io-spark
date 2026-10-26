@@ -5,6 +5,8 @@
 // Auth: this function is configured with verify_jwt = false so it can be
 // invoked from unauthenticated signup contexts (no session yet).
 
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':

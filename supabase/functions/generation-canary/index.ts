@@ -16,6 +16,7 @@
 // history. Every run is also recorded in generation_canary_runs.
 // Service-role only. Honors the consequential-sweep pause switch because it
 // spends provider credit.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { aiGatewayHeaders, pickAiGateway } from "../_shared/ai-gateway.ts";
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";

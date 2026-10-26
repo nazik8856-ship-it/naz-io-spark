@@ -10,6 +10,7 @@
 // that opts out simply stops contributing to the NEXT computed total,
 // rather than leaving a stale trace of its own past contribution behind
 // forever.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { aggregateCrossAccountStats, type CrossAccountDecisionRow } from "../_shared/cross-account-precedent.ts";
 

@@ -3,6 +3,7 @@
 // the code for tokens, and persist
 // them in agent_integrations under provider="Canva". Uses the same
 // Vault upsert pattern as gmail-oauth-callback.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { exchangeCode, fetchUserInfo } from "../_shared/canva.ts";
 import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";

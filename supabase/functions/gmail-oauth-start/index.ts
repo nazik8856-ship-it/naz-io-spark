@@ -1,6 +1,7 @@
 // gmail-oauth-start — build a Google OAuth authorization URL for the current
 // user and return it. Client opens it in a popup / new tab; Google redirects
 // to gmail-oauth-callback which stores tokens in agent_integrations.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { signState, buildGoogleAuthUrl, scopesForGoogleKind, GMAIL_REDIRECT_URI } from "../_shared/gmail.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";

@@ -1,3 +1,4 @@
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkIpRateLimit } from "../_shared/rate-limit.ts";
 

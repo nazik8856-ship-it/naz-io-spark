@@ -10,6 +10,7 @@
 // shape already proven by integration-revocation-sweep and
 // auto-resolution-share-sweep, applied here to the embedding pipeline
 // per api key rather than per integration/account.
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   summarizeEmbeddingCoverage, isEmbeddingPipelineStale, summarizeStalePipeline, type DecisionRow,

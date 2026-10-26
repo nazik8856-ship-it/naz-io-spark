@@ -3,6 +3,7 @@
 // assigns a default schedule, and persists the agent with all of it.
 // Input: { plan: string, businessProfileId?: string, userPrompt?: string,
 //          intakeAnswers?: Record<string,string>, role?: string }
+import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
