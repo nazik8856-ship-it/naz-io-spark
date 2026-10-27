@@ -14,7 +14,7 @@ import { isRedactableMatch } from "./outer-control-scoring.ts";
 import { textSafeToStore } from "./outer-control-text-review.ts";
 import { scanForInjection } from "./injection-scanner.ts";
 import { sha256Hex } from "./api-key-auth.ts";
-import { decryptText, encryptText } from "./project-crypto.ts";
+import { currentKeyPrefix, decryptText, encryptText, needsReencrypt, type ProjectKeys } from "./project-crypto.ts";
 import { judgeMeaning, MAX_MEANING_RULES, type JudgeAi } from "./meaning-judge.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -306,8 +306,8 @@ export type ProjectDeps = {
   /** The Notion API with the account's Notion token; null token when Notion is not connected. */
   notion: (admin: AnyAdmin, accountId: string, path: string, init?: { method?: string; body?: unknown }) => Promise<{ ok: boolean; status: number; json: Record<string, unknown> | null; connected: boolean }>;
   now: () => number;
-  /** The key project text is encrypted with (PROJECTS_KEY); without it nothing new is stored. */
-  key: CryptoKey | null;
+  /** The keys project text is encrypted with (PROJECTS_KEY, and PROJECTS_KEY_PREVIOUS during a rotation); without them nothing new is stored. */
+  key: ProjectKeys | null;
   /** The AI judge, to try a meaning rule on recent replies before it is turned on; absent: only word rules can be tried. */
   judge?: JudgeAi | null;
   /** The GitHub API (api.github.com only) with a token given for this one import; never stored. */
@@ -367,7 +367,7 @@ async function logEvent(admin: AnyAdmin, accountId: string, actorId: string, pro
 }
 
 /** The text as stored: invisible characters removed, secrets hidden, flagged for AI instructions, then encrypted. */
-async function protectForStorage(key: CryptoKey, raw: string) {
+async function protectForStorage(key: ProjectKeys, raw: string) {
   const scanned = scanProjectText(raw);
   const hidden = hideBeforeSaving(scanned.text);
   return { text: hidden.text, hidden: hidden.hidden, injection: scanned.injection, content_enc: await encryptText(key, hidden.text), content_sha256: await sha256Hex(hidden.text) };
@@ -378,11 +378,20 @@ type ProjectRow = Record<string, unknown> & {
   content: string; content_enc: string | null; content_sha256: string; files: ProjectFile[]; last_check: ProjectCheck | null;
 };
 
-/** A project's text: decrypted. One saved before encryption existed is encrypted now and its clear copy emptied. null: unreadable. */
-async function projectText(admin: AnyAdmin, key: CryptoKey | null, row: ProjectRow): Promise<string | null> {
+/**
+ * A project's text: decrypted. Text still on the previous key (during a rotation) is re-encrypted with the current one; one saved
+ * before encryption existed is encrypted now and its clear copy emptied. null: unreadable.
+ */
+async function projectText(admin: AnyAdmin, key: ProjectKeys | null, row: ProjectRow): Promise<string | null> {
   if (row.content_enc) {
     if (!key) return null;
-    try { return await decryptText(key, row.content_enc); } catch { return null; }
+    let text: string;
+    try { text = await decryptText(key, row.content_enc); } catch { return null; }
+    if (needsReencrypt(key, row.content_enc)) {
+      // Only if nobody changed it in between (the same stored value), so a newer write is never overwritten.
+      await admin.from("imported_projects").update({ content_enc: await encryptText(key, text) }).eq("id", row.id).eq("content_enc", row.content_enc);
+    }
+    return text;
   }
   const text = row.content ?? "";
   if (key && text) {
@@ -392,12 +401,27 @@ async function projectText(admin: AnyAdmin, key: CryptoKey | null, row: ProjectR
 }
 
 /** Projects saved before encryption existed: encrypted now, a few at a time (the session sweep calls this every run). */
-export async function sealLegacyProjects(admin: AnyAdmin, key: CryptoKey | null, limit = 20): Promise<number> {
+export async function sealLegacyProjects(admin: AnyAdmin, key: ProjectKeys | null, limit = 20): Promise<number> {
   if (!key) return 0;
   const { data } = await admin.from("imported_projects").select(`${PROJECT_COLS}, content, content_enc`).is("content_enc", null).neq("content", "").limit(limit);
   const rows = (data ?? []) as ProjectRow[];
   for (const row of rows) await projectText(admin, key, row);
   return rows.length;
+}
+
+/**
+ * During a key rotation: projects still encrypted with the previous key (or the older format) are re-encrypted with the current
+ * one, a few at a time (the session sweep calls this every run). Returns how many were moved and how many are still left; the
+ * rotation is finished when `left` is 0.
+ */
+export async function reencryptProjects(admin: AnyAdmin, key: ProjectKeys | null, limit = 20): Promise<{ moved: number; left: number }> {
+  if (!key) return { moved: 0, left: 0 };
+  const prefix = `${currentKeyPrefix(key)}%`;
+  const { data } = await admin.from("imported_projects").select(`${PROJECT_COLS}, content, content_enc`).not("content_enc", "is", null).not("content_enc", "like", prefix).limit(limit);
+  let moved = 0;
+  for (const row of (data ?? []) as ProjectRow[]) if ((await projectText(admin, key, row)) !== null) moved++;
+  const { count } = await admin.from("imported_projects").select("id", { count: "exact", head: true }).not("content_enc", "is", null).not("content_enc", "like", prefix);
+  return { moved, left: count ?? 0 };
 }
 
 async function insertProject(admin: AnyAdmin, accountId: string, userId: string, deps: ProjectDeps, p: {
@@ -778,7 +802,7 @@ const neutralizeMarkers = (s: string) => s.replace(/<<<\s*(BEGIN|END)_[A-Z_]*\s*
  * wrapped as reference material (between markers the text itself can not forge), never as instructions. `room` is how many
  * characters the Task's context has left for it.
  */
-export async function projectContextFor(admin: AnyAdmin, accountId: string, projectId: string, key: CryptoKey | null, room = 8000): Promise<{ ok: true; name: string; mode: string; text: string; removed: string[] } | { ok: false; message: string }> {
+export async function projectContextFor(admin: AnyAdmin, accountId: string, projectId: string, key: ProjectKeys | null, room = 8000): Promise<{ ok: true; name: string; mode: string; text: string; removed: string[] } | { ok: false; message: string }> {
   const { data } = await admin.from("imported_projects").select(`${PROJECT_COLS}, content, content_enc`).eq("id", projectId).eq("user_id", accountId).maybeSingle();
   const p = data as ProjectRow | null;
   if (!p || p.archived_at) return { ok: false, message: "That project was not found." };

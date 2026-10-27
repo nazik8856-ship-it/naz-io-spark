@@ -46,14 +46,14 @@ import { ACTION_INFO, MAX_BACKGROUND, REPORT_KINDS, TASK_CREDITS, type ReportKin
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
 import { projectContextFor } from "../_shared/projects.ts";
-import { importProjectKey } from "../_shared/project-crypto.ts";
+import { projectKeysFromEnv } from "../_shared/project-crypto.ts";
 
 import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
 
 /** How many requests NazAI's AI reads per account per day (route_task). */
 const ROUTE_DAILY_CAP = 200;
 /** Imported projects are stored encrypted; their text is decrypted here only to go to the tools of a Task. */
-const projectsKey = importProjectKey(Deno.env.get("PROJECTS_KEY"));
+const projectsKey = projectKeysFromEnv();
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

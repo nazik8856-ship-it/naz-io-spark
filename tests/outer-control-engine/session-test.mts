@@ -759,6 +759,19 @@ await t("tools: Update key on a key another tool shares stores a new one, so the
   assert.equal(H.table("external_tools")[0].credentials_secret_id, "sec-own");
   assert.equal(H.table("external_tools").find((x: any) => x.id === "tool-2").credentials_secret_id, "sec-1");
 });
+await t("rotation: after Update key the very next call to the tool uses the new key, and the old one is never sent again", async () => {
+  setup();
+  const vault: Record<string, any> = { "sec-1": { token: "old-key-111" } };
+  H.state.rpc.read_integration_secret = (a: any) => vault[a.sid] ?? null;
+  H.state.rpc.update_integration_secret = (a: any) => { vault[a.sid] = a.payload; return null; };
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(calls[0].headers.Authorization, "Bearer old-key-111");
+  assert.equal((await H.updateToolKey(H.createClient("u", "k"), U, "tool-1", "new-key-222")).ok, true);
+  calls = []; Object.assign(sess(), { status: "running", step_count: 0, final_output: null });
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(calls[0].headers.Authorization, "Bearer new-key-222", "no cached copy of the old key");
+  assert.ok(!JSON.stringify(calls).includes("old-key-111"));
+});
 await t("tools: a tool that had no key gets one created", async () => {
   setup(); H.table("external_tools")[0].credentials_secret_id = null; H.state.rpc.create_integration_secret = "sec-new";
   assert.equal((await H.updateToolKey(H.createClient("u", "k"), U, "tool-1", "abc")).ok, true);
@@ -1723,7 +1736,7 @@ await t("trust: NazAI's AI can not invent a source or a citation: an analysis ci
 // ---- imported projects in Outer Control: the project's checked text goes to every tool; its own rules apply to the replies
 await t("project: a Task with a project sends its checked text to every tool; the project's rule cleans the replies too", async () => {
   reportSetup();
-  const KEY = await H.importProjectKey(Buffer.alloc(32, 3).toString("base64"));
+  const KEY = await H.importProjectKeys(Buffer.alloc(32, 3).toString("base64"));
   const pdeps = { key: KEY, now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
   const c = H.createClient("u", "k");
   await H.handleProjectsAction(c, U, U, { action: "import_paste", name: "Launch", text: "Project Falcon launches in May with three AI tools." }, pdeps);
@@ -1747,7 +1760,7 @@ await t("project: a Task with a project sends its checked text to every tool; th
 });
 await t("project: a project's rule does not apply to a Task that does not use the project", async () => {
   reportSetup();
-  const KEY = await H.importProjectKey(Buffer.alloc(32, 3).toString("base64"));
+  const KEY = await H.importProjectKeys(Buffer.alloc(32, 3).toString("base64"));
   const pdeps = { key: KEY, now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
   const c = H.createClient("u", "k");
   await H.handleProjectsAction(c, U, U, { action: "import_paste", name: "Launch", text: "Project Falcon." }, pdeps);

@@ -28,7 +28,8 @@ import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { readSecret } from "../_shared/integration-secrets.ts";
 import { handleProjectsAction, IMPORT_ACTIONS, linkShapeProblem, MAX_LINK_BYTES, READ_ACTIONS, type FetchedPage, type ProjectDeps } from "../_shared/projects.ts";
-import { importProjectKey } from "../_shared/project-crypto.ts";
+import { MIN_PASSPHRASE_CHARS, projectKeysFromEnv } from "../_shared/project-crypto.ts";
+import { optionalSecret, requireSecret } from "../_shared/require-secret.ts";
 import { gatewayAi } from "../_shared/outer-control-report.ts";
 
 const corsHeaders = {
@@ -45,7 +46,10 @@ const MAX_REDIRECTS = 3;
 const MAX_BODY_BYTES = 2_000_000;
 const IMPORTS_PER_DAY = 50;
 
-const keyPromise = importProjectKey(Deno.env.get("PROJECTS_KEY"));
+// Without its key this function can not store or read anything: a missing, misnamed or too short key stops it at startup, by name.
+requireSecret("PROJECTS_KEY", { minLength: MIN_PASSPHRASE_CHARS });
+optionalSecret("PROJECTS_KEY_PREVIOUS", { minLength: MIN_PASSPHRASE_CHARS });
+const keyPromise = projectKeysFromEnv();
 
 /** Every hop of a link: the shape (https, port 443, a site name, no login in the link) and then its addresses. */
 async function checkLink(url: string): Promise<{ ok: boolean; reason: string }> {

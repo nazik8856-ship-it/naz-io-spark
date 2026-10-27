@@ -16,7 +16,12 @@
 // own Go service used to forward to handle-email-suppression (now retired).
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { timingSafeEqual } from "../_shared/timing-safe.ts";
+import { verifySvixSignature, webhookSecrets } from "../_shared/svix-verify.ts";
+import { optionalSecret, requireSecret } from "../_shared/require-secret.ts";
+
+// Without its signing secret every event would be refused: a missing or misnamed one stops this function at startup, by name.
+requireSecret("RESEND_WEBHOOK_SECRET");
+optionalSecret("RESEND_WEBHOOK_SECRET_PREVIOUS");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,72 +36,6 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-// Tolerance window for the svix-timestamp header, matching Svix's own
-// recommended practice -- bounds how old (or how far in the future) a
-// "genuine" signed request can be, so a captured request/signature pair
-// can't be replayed indefinitely.
-const TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
-
-function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
-}
-
-async function computeSvixSignature(secret: string, signedContent: string): Promise<string> {
-  // Svix secrets are shipped as "whsec_<base64>" -- the prefix identifies the
-  // secret format/version and is never part of the key material itself.
-  const rawSecret = secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret;
-  const keyBytes = base64ToBytes(rawSecret);
-  const key = await crypto.subtle.importKey(
-    "raw",
-    keyBytes,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedContent));
-  return bytesToBase64(new Uint8Array(sig));
-}
-
-/**
- * Verifies a Svix-signed webhook request. Returns null on success, or a
- * string reason on failure -- fail closed in every case (missing secret,
- * missing headers, stale timestamp, no matching signature).
- */
-async function verifySvixSignature(
-  secret: string,
-  svixId: string | null,
-  svixTimestamp: string | null,
-  svixSignature: string | null,
-  rawBody: string,
-): Promise<string | null> {
-  if (!svixId || !svixTimestamp || !svixSignature) return "missing svix headers";
-
-  const tsNum = Number(svixTimestamp);
-  if (!Number.isFinite(tsNum)) return "invalid svix-timestamp";
-  const nowSeconds = Date.now() / 1000;
-  if (Math.abs(nowSeconds - tsNum) > TIMESTAMP_TOLERANCE_SECONDS) return "stale svix-timestamp";
-
-  const signedContent = `${svixId}.${svixTimestamp}.${rawBody}`;
-  const expected = await computeSvixSignature(secret, signedContent);
-
-  // svix-signature can carry multiple space-separated "v1,<base64>" values
-  // (e.g. during secret rotation) -- a match against any one is valid.
-  const candidates = svixSignature.split(" ").map((part) => part.split(",")[1]).filter(Boolean);
-  for (const candidate of candidates) {
-    if (timingSafeEqual(candidate, expected)) return null;
-  }
-  return "signature mismatch";
-}
-
 Deno.serve(async (request: Request) => {
   if (request.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -106,8 +45,9 @@ Deno.serve(async (request: Request) => {
     return json({ error: "Method not allowed" }, 405);
   }
 
-  const secret = Deno.env.get("RESEND_WEBHOOK_SECRET");
-  if (!secret) {
+  // During a rotation RESEND_WEBHOOK_SECRET_PREVIOUS holds the old secret, so events signed before the switch still verify.
+  const secrets = webhookSecrets("RESEND_WEBHOOK_SECRET");
+  if (secrets.length === 0) {
     console.error("RESEND_WEBHOOK_SECRET is not configured -- rejecting all webhook traffic (fail closed)");
     return json({ error: "Server configuration error" }, 500);
   }
@@ -115,7 +55,7 @@ Deno.serve(async (request: Request) => {
   const rawBody = await request.text();
 
   const failReason = await verifySvixSignature(
-    secret,
+    secrets,
     request.headers.get("svix-id"),
     request.headers.get("svix-timestamp"),
     request.headers.get("svix-signature"),

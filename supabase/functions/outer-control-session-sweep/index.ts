@@ -11,8 +11,8 @@ import { checkKillSwitches } from "../_shared/control-gate.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { driveSession, progressWorkflow } from "../_shared/outer-control-workflow.ts";
-import { sealLegacyProjects } from "../_shared/projects.ts";
-import { importProjectKey } from "../_shared/project-crypto.ts";
+import { reencryptProjects, sealLegacyProjects } from "../_shared/projects.ts";
+import { projectKeysFromEnv } from "../_shared/project-crypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,14 +31,20 @@ Deno.serve(async (req) => {
   if ((req.headers.get("Authorization") ?? "") !== `Bearer ${serviceKey}`) return json({ error: "unauthorized" }, 401);
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
 
-  // Not a consequential step, so it runs even while those are paused: imported projects saved before encryption get encrypted.
+  // Not a consequential step, so it runs even while those are paused: imported projects saved before encryption get encrypted,
+  // and during a key rotation the ones still on the previous key are re-encrypted with the new one.
   let sealed = 0;
-  try { sealed = await sealLegacyProjects(admin, await importProjectKey(Deno.env.get("PROJECTS_KEY"))); } catch (e) { console.error("sealing projects failed:", e instanceof Error ? e.message : e); }
+  let projectKey = { moved: 0, left: 0 };
+  try {
+    const keys = await projectKeysFromEnv();
+    sealed = await sealLegacyProjects(admin, keys);
+    projectKey = await reencryptProjects(admin, keys);
+  } catch (e) { console.error("sealing projects failed:", e instanceof Error ? e.message : e); }
 
   if (await areConsequentialSweepsPaused(admin)) return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });
 
   const now = Date.now();
-  const out = { sealed, resumed: 0, advanced: 0, expired: 0, workflows: 0, errors: 0, keepalive: { tested: 0, failed: 0, skipped: 0, broke: 0 } };
+  const out = { sealed, project_key: projectKey, resumed: 0, advanced: 0, expired: 0, workflows: 0, errors: 0, keepalive: { tested: 0, failed: 0, skipped: 0, broke: 0 } };
 
   // 1. Paused sessions: resume or end them if what they waited for has happened.
   const { data: waiting } = await admin.from("outer_control_sessions")
