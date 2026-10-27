@@ -15,4 +15,6 @@ run -f column_grants_test.sql
 run -f vault_signing_secrets_test.sql
 run -f drop_credentials_column_test.sql
 run -f redact_stored_errors_test.sql
+run -f secret_lifecycle_test.sql
+run -f api_key_revocation_test.sql
 echo "secrets database tests: all passed"

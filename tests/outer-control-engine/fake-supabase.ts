@@ -24,6 +24,13 @@ class Q {
   is(c: string, v: any) { this.filters.push((r) => (r[c] ?? null) === v); return this; }
   in(c: string, vs: any[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
   neq(c: string, v: any) { this.filters.push((r) => r[c] !== v); return this; }
+  /** not(col, "is", null) and not(col, "like", "prefix%"), as PostgREST reads them. */
+  not(c: string, op: string, v: any) {
+    if (op === "is") this.filters.push((r) => (r[c] ?? null) !== v);
+    else if (op === "like") { const re = new RegExp(`^${String(v).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*")}$`); this.filters.push((r) => !re.test(String(r[c] ?? ""))); }
+    else throw new Error(`fake-supabase: not(${op}) is not supported`);
+    return this;
+  }
   gte(c: string, v: any) { this.filters.push((r) => r[c] >= v); return this; }
   lte(c: string, v: any) { this.filters.push((r) => r[c] <= v); return this; }
   or(expr: string) {

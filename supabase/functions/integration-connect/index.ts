@@ -25,7 +25,8 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { createSecret, updateSecret, deleteSecret } from "../_shared/integration-secrets.ts";
+import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";
+import { disconnectIntegration } from "../_shared/integration-disconnect.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { SHOPIFY_API_VERSION } from "../_shared/shopify.ts";
 
@@ -235,25 +236,9 @@ Deno.serve(async (req) => {
     if (!provider) return j(400, { error: "Missing provider" });
 
     if (action === "disconnect") {
-      // Look up existing rows first so we can drop the Vault secret(s) too.
-      let sel = admin
-        .from("agent_integrations")
-        .select("id, credentials_secret_id")
-        .eq("user_id", user.id)
-        .eq("provider", provider);
-      sel = agentId ? sel.eq("agent_id", agentId) : sel.is("agent_id", null);
-      const { data: existingRows } = await sel;
-      for (const r of existingRows || []) {
-        await deleteSecret(admin, (r.credentials_secret_id as string | null) ?? null);
-      }
-      let del = supabase
-        .from("agent_integrations")
-        .delete()
-        .eq("user_id", user.id)
-        .eq("provider", provider);
-      del = agentId ? del.eq("agent_id", agentId) : del.is("agent_id", null);
-      const { error } = await del;
-      if (error) return j(500, { error: error.message });
+      // The token is cancelled at the provider first, then the row (and with it the stored token) is deleted.
+      const r = await disconnectIntegration(admin, supabase, { userId: user.id, provider, agentId }, { fetchImpl: fetch, env: (n) => Deno.env.get(n) });
+      if (!r.ok) return j(500, { error: r.error });
       return j(200, { ok: true });
     }
 

@@ -11,11 +11,11 @@ let web: Record<string, Page> = {};
 let notionPages: Record<string, { title: string; blocks: any[] }> = {};
 let notionConnected = true;
 const notionCalls: string[] = [];
-const KEY = await H.importProjectKey(Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(32))).toString("base64"));
+const KEY = await H.importProjectKeys(Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(32))).toString("base64"));
 /** What the database holds is ciphertext; the test reads it the way the server does. */
 const plain = (row: any) => H.decryptText(KEY, row.content_enc);
 const deps = {
-  key: KEY as CryptoKey | null,
+  key: KEY as any,
   judge: null as any,
   github: undefined as any,
   now: () => Date.parse("2026-10-24T10:00:00Z"),
@@ -281,26 +281,26 @@ await t("encrypted at rest: the table holds ciphertext only; the server reads it
   const r = await act({ action: "import_paste", name: "Plan", text: "Launch Falcon in May with the partners." });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   const row = projects()[0];
-  assert.equal(row.content, ""); assert.match(row.content_enc, /^v1:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/);
+  assert.equal(row.content, ""); assert.match(row.content_enc, /^v2:[0-9a-f]{8}:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/);
   assert.ok(!JSON.stringify(row).includes("Falcon"), "the text appears nowhere in the stored row");
   assert.equal(row.last_check.protected, true);
   const read = await act({ action: "read", project_id: row.id });
   assert.equal(read.body.content, "Launch Falcon in May with the partners.");
-  deps.key = await H.importProjectKey(Buffer.alloc(32, 7).toString("base64"));
+  deps.key = await H.importProjectKeys(Buffer.alloc(32, 7).toString("base64"));
   const wrong = await act({ action: "read", project_id: row.id });
   assert.equal(wrong.status, 500); assert.match(wrong.body.message, /does not match the storage key/);
   deps.key = null;
   const none = await act({ action: "import_paste", text: "Another" });
   assert.equal(none.status, 503); assert.match(none.body.message, /encryption key is missing\). Nothing was stored/);
   assert.equal(projects().length, 1);
-  assert.equal(await H.importProjectKey("too-short"), null); assert.equal(await H.importProjectKey(undefined), null);
+  assert.equal(await H.importProjectKeys("too-short"), null); assert.equal(await H.importProjectKeys(undefined), null);
   // A long random password (e.g. four generated 10-character passwords joined) is a key too, the same one every time.
   const pass = "Xk7#pQ2!mZ" + "r9$Lw4@tBn" + "Hd3%vF8&jC" + "s6^Gy1*eKa";
-  const k1 = await H.importProjectKey(pass), k2 = await H.importProjectKey(` ${pass} `);
+  const k1 = await H.importProjectKeys(pass), k2 = await H.importProjectKeys(` ${pass} `);
   assert.ok(k1 && k2);
   assert.equal(await H.decryptText(k2!, await H.encryptText(k1!, "same key")), "same key");
-  assert.equal(await H.importProjectKey(pass.slice(0, 31)), null, "fewer than 32 characters is refused");
-  await assert.rejects(H.decryptText((await H.importProjectKey(pass + "x"))!, await H.encryptText(k1!, "x")), "a different password can not read it");
+  assert.equal(await H.importProjectKeys(pass.slice(0, 31)), null, "fewer than 32 characters is refused");
+  await assert.rejects(H.decryptText((await H.importProjectKeys(pass + "x"))!, await H.encryptText(k1!, "x")), "a different password can not read it");
 });
 
 await t("secrets hidden before saving: keys, card numbers and written-out passwords never reach the database; types and code stay", async () => {
@@ -440,6 +440,60 @@ await t("projects saved before encryption: readable, then encrypted by the sweep
   assert.equal(await H.sealLegacyProjects(H.createClient("u", "k"), KEY), 1);
   assert.equal(projects()[0].content, ""); assert.equal(await plain(projects()[0]), "Again plain."); assert.equal(projects()[0].last_check.protected, true);
   assert.equal(await H.sealLegacyProjects(H.createClient("u", "k"), KEY), 0);
+});
+
+// ---- secrets handling, front 4: PROJECTS_KEY can be replaced with no failed read
+const b64key = () => Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(32))).toString("base64");
+/** The format before key ids ("v1:<iv>:<ct>"), as the old code wrote it. */
+async function v1Encrypt(rawB64: string, text: string) {
+  const k = await globalThis.crypto.subtle.importKey("raw", Buffer.from(rawB64, "base64"), { name: "AES-GCM" }, false, ["encrypt"]);
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, new TextEncoder().encode(text)));
+  return `v1:${Buffer.from(iv).toString("base64")}:${Buffer.from(ct).toString("base64")}`;
+}
+await t("key rotation: every value names its key; with the new key and the previous one everything reads and moves to the new key; then the previous key can go", async () => {
+  setup();
+  const OLD = b64key(), NEW = b64key();
+  const before = await H.importProjectKeys(OLD);
+  deps.key = before;
+  const a = (await act({ action: "import_paste", text: "# Alpha\n\nFirst project." })).body.project.id;
+  const b = (await act({ action: "import_paste", text: "# Beta\n\nSecond project." })).body.project.id;
+  const row = (id: string) => projects().find((p: any) => p.id === id);
+  assert.match(row(a).content_enc, new RegExp(`^v2:${before!.current.id}:`), "the stored value names its key");
+  projects().push({ id: "legacy-v1", user_id: U, name: "Legacy", source_mode: "snapshot", source_kind: "paste", content: "", content_enc: await v1Encrypt(OLD, "Written before key ids."), content_sha256: "x", files: [], last_check: { at: "t", rules: 0, matches: [] }, write_back: false, archived_at: null });
+
+  // Rotation starts: PROJECTS_KEY = new, PROJECTS_KEY_PREVIOUS = old.
+  const during = await H.importProjectKeys(NEW, OLD);
+  deps.key = during;
+  assert.equal((await act({ action: "read", project_id: a })).body.content.includes("First project."), true, "an old-key project reads during the rotation");
+  assert.match(row(a).content_enc, new RegExp(`^v2:${during!.current.id}:`), "reading it moved it to the new key");
+  const c = (await act({ action: "import_paste", text: "# Gamma\n\nNew project." })).body.project.id;
+  assert.match(row(c).content_enc, new RegExp(`^v2:${during!.current.id}:`), "new text is written with the new key");
+  assert.deepEqual(await H.reencryptProjects(H.createClient("u", "k"), during), { moved: 2, left: 0 }, "the sweep moves the rest (the old format too)");
+  assert.equal(await H.decryptText(during!, row("legacy-v1").content_enc), "Written before key ids.");
+
+  // Rotation done: PROJECTS_KEY_PREVIOUS deleted. Everything still reads.
+  const after = await H.importProjectKeys(NEW);
+  deps.key = after;
+  for (const id of [a, b, c, "legacy-v1"]) assert.equal((await act({ action: "read", project_id: id })).status, 200, `${id} reads with the new key alone`);
+  assert.deepEqual(await H.reencryptProjects(H.createClient("u", "k"), after), { moved: 0, left: 0 });
+});
+
+await t("key rotation: forgetting PROJECTS_KEY_PREVIOUS fails closed and is visible (left > 0), it never corrupts; a previous key equal to the current one is ignored", async () => {
+  setup();
+  const OLD = b64key(), NEW = b64key();
+  deps.key = await H.importProjectKeys(OLD);
+  const id = (await act({ action: "import_paste", text: "# Delta\n\nKept safe." })).body.project.id;
+  const stored = projects()[0].content_enc;
+  const newOnly = await H.importProjectKeys(NEW);
+  deps.key = newOnly;
+  assert.notEqual((await act({ action: "read", project_id: id })).status, 200, "unreadable without the key that wrote it");
+  assert.deepEqual(await H.reencryptProjects(H.createClient("u", "k"), newOnly), { moved: 0, left: 1 }, "the sweep reports it as left on the old key");
+  assert.equal(projects()[0].content_enc, stored, "and leaves the stored value untouched");
+  deps.key = await H.importProjectKeys(NEW, OLD);
+  assert.equal((await act({ action: "read", project_id: id })).status, 200, "putting the previous key back recovers it");
+  const same = await H.importProjectKeys(NEW, NEW);
+  assert.equal(same!.previous, null);
 });
 
 await t("live check: the test line reaches the approval exactly as sent; once in the page, a refresh reads it back", async () => {

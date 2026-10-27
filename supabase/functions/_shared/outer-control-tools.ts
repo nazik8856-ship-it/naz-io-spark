@@ -17,8 +17,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Replace the credential a tool is contacted with. The new value goes to the vault (in place
- * when the tool already has one), the old test result is cleared so the next Test starts fresh,
- * and nothing about the value is ever returned.
+ * when the tool already has one of its own; as a new secret when another tool shares it, so that
+ * tool keeps its key), the old test result is cleared so the next Test starts fresh, and nothing
+ * about the value is ever returned.
  */
 export async function updateToolKey(admin: AnyAdmin, accountId: string, toolId: string, rawToken: unknown): Promise<ToolChange> {
   const token = typeof rawToken === "string" ? rawToken.trim() : "";
@@ -29,6 +30,10 @@ export async function updateToolKey(admin: AnyAdmin, accountId: string, toolId: 
   if (tool.agent_id) return { ok: false, code: "no_key", message: "A NazAI agent has no key to replace.", status: 400 };
 
   let secretId: string | null = tool.credentials_secret_id ?? null;
+  if (secretId) {
+    const { count: sharedWith } = await admin.from("external_tools").select("id", { count: "exact", head: true }).eq("credentials_secret_id", secretId).neq("id", toolId);
+    if ((sharedWith ?? 0) > 0) secretId = null;
+  }
   if (secretId) {
     const { error } = await admin.rpc("update_integration_secret", { sid: secretId, payload: { token } });
     if (error) return { ok: false, code: "secret_failed", message: "Could not store the new credential.", status: 500 };
@@ -44,7 +49,8 @@ export async function updateToolKey(admin: AnyAdmin, accountId: string, toolId: 
 }
 
 /**
- * Remove a tool: switch it off, hide it, drop its stored credential and cancel any session
+ * Remove a tool: switch it off, hide it, let go of its stored credential (the database deletes
+ * the secret once no other tool or integration uses it) and cancel any session
  * still using it as its tool (sessions that only had it as a fallback keep going without one).
  * Returns the workflows whose later steps may now be able to move on.
  */
@@ -77,7 +83,6 @@ export async function removeTool(admin: AnyAdmin, accountId: string, toolId: str
   const { error } = await admin.from("external_tools")
     .update({ enabled: false, removed_at: iso(), credentials_secret_id: null, updated_at: iso() }).eq("id", toolId).eq("user_id", accountId);
   if (error) return { ok: false, code: "internal_error", message: "Could not remove the tool.", status: 500 };
-  if (tool.credentials_secret_id) await admin.rpc("delete_integration_secret", { sid: tool.credentials_secret_id });
 
   const workflowIds = [...new Set(rows.map((r) => r.workflow_id).filter((w): w is string => !!w))];
   return { ok: true, message: "Tool removed.", workflowIds };

@@ -752,17 +752,37 @@ await t("tools: Update key replaces the stored credential in place, clears the o
   assert.equal((await H.updateToolKey(H.createClient("u", "k"), U, "tool-1", "x".repeat(2001))).ok, false);
   const other = await H.updateToolKey(H.createClient("u", "k"), "someone-else", "tool-1", "abc"); assert.equal(other.ok, false); assert.equal(other.status, 404);
 });
+await t("tools: Update key on a key another tool shares stores a new one, so the other tool keeps its key", async () => {
+  setup(); H.table("external_tools").push({ id: "tool-2", user_id: U, name: "Twin", credentials_secret_id: "sec-1", enabled: true }); H.state.rpc.create_integration_secret = "sec-own";
+  assert.equal((await H.updateToolKey(H.createClient("u", "k"), U, "tool-1", "fresh-key")).ok, true);
+  assert.ok(!H.rpcCalls.some((c: any) => c.name === "update_integration_secret"), "the shared secret is not overwritten");
+  assert.equal(H.table("external_tools")[0].credentials_secret_id, "sec-own");
+  assert.equal(H.table("external_tools").find((x: any) => x.id === "tool-2").credentials_secret_id, "sec-1");
+});
+await t("rotation: after Update key the very next call to the tool uses the new key, and the old one is never sent again", async () => {
+  setup();
+  const vault: Record<string, any> = { "sec-1": { token: "old-key-111" } };
+  H.state.rpc.read_integration_secret = (a: any) => vault[a.sid] ?? null;
+  H.state.rpc.update_integration_secret = (a: any) => { vault[a.sid] = a.payload; return null; };
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(calls[0].headers.Authorization, "Bearer old-key-111");
+  assert.equal((await H.updateToolKey(H.createClient("u", "k"), U, "tool-1", "new-key-222")).ok, true);
+  calls = []; Object.assign(sess(), { status: "running", step_count: 0, final_output: null });
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(calls[0].headers.Authorization, "Bearer new-key-222", "no cached copy of the old key");
+  assert.ok(!JSON.stringify(calls).includes("old-key-111"));
+});
 await t("tools: a tool that had no key gets one created", async () => {
   setup(); H.table("external_tools")[0].credentials_secret_id = null; H.state.rpc.create_integration_secret = "sec-new";
   assert.equal((await H.updateToolKey(H.createClient("u", "k"), U, "tool-1", "abc")).ok, true);
   assert.equal(H.table("external_tools")[0].credentials_secret_id, "sec-new");
 });
-await t("tools: Remove switches the tool off, hides it, deletes its key, cancels the sessions that use it and only drops it as fallback from the rest", async () => {
+await t("tools: Remove switches the tool off, hides it, lets go of its key, cancels the sessions that use it and only drops it as fallback from the rest", async () => {
   setup(); H.table("external_tools")[0].id = "11111111-1111-4111-8111-111111111111"; H.table("outer_control_sessions")[0].tool_id = "11111111-1111-4111-8111-111111111111"; H.table("outer_control_sessions").push({ id: "s2", user_id: U, tool_id: "tool-2", status: "running", workflow_id: null }, { id: "s3", user_id: U, tool_id: "11111111-1111-4111-8111-111111111111", status: "completed", workflow_id: null }, { id: "s4", user_id: U, tool_id: "tool-9", fallback_tool_id: "11111111-1111-4111-8111-111111111111", status: "queued", workflow_id: "wf-1" });
   const r = await H.removeTool(H.createClient("u", "k"), U, "11111111-1111-4111-8111-111111111111");
   assert.equal(r.ok, true); assert.deepEqual(r.workflowIds, []);
   const row = H.table("external_tools")[0]; assert.equal(row.enabled, false); assert.ok(row.removed_at); assert.equal(row.credentials_secret_id, null);
-  assert.ok(H.rpcCalls.some((c: any) => c.name === "delete_integration_secret" && c.args.sid === "sec-1"));
+  assert.ok(!H.rpcCalls.some((c: any) => c.name === "delete_integration_secret"), "the key is let go; the database deletes it once no other row uses it");
   const by = (id: string) => H.table("outer_control_sessions").find((x: any) => x.id === id);
   assert.equal(sess().status, "cancelled"); assert.equal(by("s4").status, "queued"); assert.equal(by("s4").fallback_tool_id, null); assert.equal(by("s4").tool_id, "tool-9"); assert.equal(by("s2").status, "running"); assert.equal(by("s3").status, "completed");
   const again = await H.removeTool(H.createClient("u", "k"), U, "11111111-1111-4111-8111-111111111111"); assert.equal(again.ok, false); assert.equal(again.status, 404);
@@ -1716,7 +1736,7 @@ await t("trust: NazAI's AI can not invent a source or a citation: an analysis ci
 // ---- imported projects in Outer Control: the project's checked text goes to every tool; its own rules apply to the replies
 await t("project: a Task with a project sends its checked text to every tool; the project's rule cleans the replies too", async () => {
   reportSetup();
-  const KEY = await H.importProjectKey(Buffer.alloc(32, 3).toString("base64"));
+  const KEY = await H.importProjectKeys(Buffer.alloc(32, 3).toString("base64"));
   const pdeps = { key: KEY, now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
   const c = H.createClient("u", "k");
   await H.handleProjectsAction(c, U, U, { action: "import_paste", name: "Launch", text: "Project Falcon launches in May with three AI tools." }, pdeps);
@@ -1740,7 +1760,7 @@ await t("project: a Task with a project sends its checked text to every tool; th
 });
 await t("project: a project's rule does not apply to a Task that does not use the project", async () => {
   reportSetup();
-  const KEY = await H.importProjectKey(Buffer.alloc(32, 3).toString("base64"));
+  const KEY = await H.importProjectKeys(Buffer.alloc(32, 3).toString("base64"));
   const pdeps = { key: KEY, now: () => Date.now(), checkUrl: async () => ({ ok: true, reason: "" }), fetchUrl: async () => ({ ok: false, status: 404, contentType: "", text: "", finalUrl: "" }), notion: async () => ({ ok: false, status: 0, json: null, connected: false }) };
   const c = H.createClient("u", "k");
   await H.handleProjectsAction(c, U, U, { action: "import_paste", name: "Launch", text: "Project Falcon." }, pdeps);
