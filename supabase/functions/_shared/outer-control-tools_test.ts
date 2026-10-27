@@ -64,7 +64,7 @@ Deno.test("removeTool: cancels sessions that use the tool, and only drops it as 
   assertEquals(by("done").status, "completed");
   assertEquals(tables.external_tools[0].enabled, false);
   assertEquals(tables.external_tools[0].credentials_secret_id, null);
-  assertEquals(rpcs.includes("delete_integration_secret"), true);
+  assertEquals(rpcs.includes("delete_integration_secret"), false, "the database deletes the secret once nothing uses it (a shared key stays)");
 });
 
 Deno.test("removeTool: refuses an id that is not a plain uuid, and a tool already removed", async () => {
