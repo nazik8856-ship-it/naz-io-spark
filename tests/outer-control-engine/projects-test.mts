@@ -154,6 +154,46 @@ await t("refresh: only a linked project; it reads the page again and says whethe
   assert.equal(r.status, 409); assert.match(r.body.message, /Only a linked project/);
 });
 
+await t("fingerprint: keyed with DATA_KEY (not a plain SHA-256); a plain one from before still counts as unchanged; the sweep remakes old ones", async () => {
+  setup();
+  const { createHash } = await import("node:crypto");
+  const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+  const FP = await H.importFieldKeys(Buffer.alloc(32, 5).toString("base64"));
+  (deps as any).fingerprintKeys = FP;
+  try {
+    notionPages[PAGE] = { title: "Brand guide", blocks: [para("Short sentences.")] };
+    await act({ action: "import_notion", page_id: PAGE });
+    const p = projects()[0];
+    const text = await plain(p);
+    assert.equal(p.content_sha256, await H.fingerprint(FP, text), "keyed fingerprint stored");
+    assert.notEqual(p.content_sha256, sha(text), "not the plain SHA-256 anyone could compute from a guess");
+    assert.equal(p.last_check.fingerprint_key, FP.current.id);
+
+    // A project saved before keyed fingerprints: refresh with the same text is still "unchanged", and stores the keyed one.
+    p.content_sha256 = sha(text); delete p.last_check.fingerprint_key;
+    let r = await act({ action: "refresh", project_id: p.id });
+    assert.equal(r.body.changed, false, "a plain SHA-256 of the same text matches");
+    assert.equal(projects()[0].content_sha256, await H.fingerprint(FP, text));
+
+    // The sweep remakes old fingerprints a few at a time, and only those.
+    await act({ action: "import_paste", text: "Second project." });
+    for (const x of projects()) { x.content_sha256 = sha(await plain(x)); delete x.last_check.fingerprint_key; }
+    const c = H.createClient("u", "k");
+    assert.deepEqual(await H.refingerprintProjects(c, KEY, FP, 1), { moved: 1, left: 1 });
+    assert.deepEqual(await H.refingerprintProjects(c, KEY, FP, 5), { moved: 1, left: 0 });
+    assert.deepEqual(await H.refingerprintProjects(c, KEY, FP, 5), { moved: 0, left: 0 }, "nothing left to do");
+    for (const x of projects()) assert.equal(x.content_sha256, await H.fingerprint(FP, await plain(x)));
+    assert.deepEqual(await H.refingerprintProjects(c, KEY, null, 5), { moved: 0, left: 0 }, "without DATA_KEY it waits");
+
+    // A rotated DATA_KEY: fingerprints under the previous key are remade under the new one.
+    const FP2 = await H.importFieldKeys(Buffer.alloc(32, 6).toString("base64"), Buffer.alloc(32, 5).toString("base64"));
+    assert.deepEqual(await H.refingerprintProjects(c, KEY, FP2, 5), { moved: 2, left: 0 });
+    (deps as any).fingerprintKeys = FP2;
+    r = await act({ action: "refresh", project_id: projects()[0].id });
+    assert.equal(r.body.changed, false);
+  } finally { (deps as any).fingerprintKeys = undefined; }
+});
+
 await t("write-back: off by default; never for a snapshot; turning it on needs the name typed; a write only creates an approval", async () => {
   setup();
   notionPages[PAGE] = { title: "Brand guide", blocks: [para("Short sentences.")] };

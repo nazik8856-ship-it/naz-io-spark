@@ -32,5 +32,6 @@ export { composeReportText, isReportDoc, reportHtml } from "../../supabase/funct
 export { buildReportDoc } from "../../supabase/functions/_shared/outer-control-report.ts";
 export { checkGoal } from "../../supabase/functions/_shared/outer-control-judgement.ts";
 export { validateLegs, legReadiness } from "../../supabase/functions/_shared/outer-control-workflow-plan.ts";
-export { handleProjectsAction, htmlToText, githubRepoOf, notionBlocksToMarkdown, wordsToPattern, checkProjectText, projectContextFor, contentTypeOf, rulesForProject, cleanName, MAX_PROJECT_CHARS, hideBeforeSaving, scanProjectText, looksBinary, linkShapeProblem, sealLegacyProjects, reencryptProjects, projectWriteBackAllowed, PROJECT_OPEN, PROJECT_CLOSE, googleExportOf, githubTokenOf, replayWordRule } from "../../supabase/functions/_shared/projects.ts";
+export { handleProjectsAction, htmlToText, githubRepoOf, notionBlocksToMarkdown, wordsToPattern, checkProjectText, projectContextFor, contentTypeOf, rulesForProject, cleanName, MAX_PROJECT_CHARS, hideBeforeSaving, scanProjectText, looksBinary, linkShapeProblem, sealLegacyProjects, reencryptProjects, refingerprintProjects, projectWriteBackAllowed, PROJECT_OPEN, PROJECT_CLOSE, googleExportOf, githubTokenOf, replayWordRule } from "../../supabase/functions/_shared/projects.ts";
 export { importProjectKeys, encryptText, decryptText, needsReencrypt } from "../../supabase/functions/_shared/project-crypto.ts";
+export { importFieldKeys, fingerprint } from "../../supabase/functions/_shared/field-crypto.ts";

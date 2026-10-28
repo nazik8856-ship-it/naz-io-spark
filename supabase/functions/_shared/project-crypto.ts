@@ -10,24 +10,11 @@
 // Format: "v2:<key id>:<iv base64>:<ciphertext base64>"; the key id is the first 8 hex characters of SHA-256 of the key, a fresh
 // 12-byte IV for every write. "v1:<iv>:<ciphertext>" (before key ids) is still read: it is tried with each key.
 
+import { fromB64, keyMaterial, MIN_PASSPHRASE_CHARS, toB64 } from "./field-crypto.ts";
+export { MIN_PASSPHRASE_CHARS };
+
 const enc = new TextEncoder();
 const dec = new TextDecoder();
-
-function toB64(bytes: Uint8Array): string {
-  let s = "";
-  // In chunks: a 200,000-character project is far more than one call's argument limit.
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(s);
-}
-function fromB64(b64: string): Uint8Array {
-  const s = atob(b64);
-  const out = new Uint8Array(s.length);
-  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
-  return out;
-}
-
-/** At least this many characters for a key given as a long random password (e.g. several generated passwords joined). */
-export const MIN_PASSPHRASE_CHARS = 32;
 
 export type ProjectKey = { key: CryptoKey; id: string };
 /** The key new text is encrypted with, and during a rotation the one it replaces. */
@@ -35,17 +22,9 @@ export type ProjectKeys = { current: ProjectKey; previous: ProjectKey | null };
 
 /** One key from its environment value; null when it is missing or too short. */
 async function importOne(secret: string | null | undefined): Promise<ProjectKey | null> {
-  const s = (secret ?? "").trim();
-  if (!s) return null;
-  let raw: Uint8Array | null = null;
-  try { const b = fromB64(s); if (b.length === 32) raw = b; } catch { /* not base64: maybe a password */ }
-  if (!raw) {
-    if (s.length < MIN_PASSPHRASE_CHARS) return null;
-    raw = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(s)));
-  }
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", raw));
-  const id = [...digest.subarray(0, 4)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  return { key: await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]), id };
+  const m = await keyMaterial(secret);
+  if (!m) return null;
+  return { key: await crypto.subtle.importKey("raw", m.raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]), id: m.id };
 }
 
 /**

@@ -79,12 +79,19 @@ import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writ
 // hands back, before it re-enters the agent's own reasoning loop.
 import { evaluateExternalText, excerptOf, maskedDescription } from "../_shared/outer-control-text-review.ts";
 import { extractExternalText, parseExternalId } from "../_shared/outer-control-intake.ts";
-import { sha256Hex } from "../_shared/api-key-auth.ts";
+import { dataKeysFromEnv, fingerprint, fingerprintMatches, MIN_PASSPHRASE_CHARS } from "../_shared/field-crypto.ts";
+import { optionalSecret, requireSecret } from "../_shared/require-secret.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// DATA_KEY makes the stored fingerprint of each evaluated text keyed (HMAC), so it can not be used to guess the text. A missing,
+// misnamed or too short key stops the function at startup, by name.
+requireSecret("DATA_KEY", { minLength: MIN_PASSPHRASE_CHARS });
+optionalSecret("DATA_KEY_PREVIOUS", { minLength: MIN_PASSPHRASE_CHARS });
+const dataKeyPromise = dataKeysFromEnv();
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -360,7 +367,8 @@ async function handleTaskRoutes(req: Request, relay: boolean, taskId: string): P
   } catch {
     return json({ error: "invalid_json", message: "The request body must be a JSON object." }, 400);
   }
-  const r = await relayToTask(admin, auth, body, (ids) => inBackground(Promise.all(ids.map((id) => driveSession(admin, id)))));
+  const dataKeys = (await dataKeyPromise)!;
+  const r = await relayToTask(admin, auth, body, (ids) => inBackground(Promise.all(ids.map((id) => driveSession(admin, id)))), (t) => fingerprint(dataKeys, t));
   return json(r.body, r.status);
 }
 
@@ -437,7 +445,8 @@ Deno.serve(async (req) => {
     const ext = parseExternalId(body.external_id);
     if (!ext.ok) return json({ error: "invalid_external_id", message: ext.message }, 400);
 
-    const contentHash = await sha256Hex(content);
+    const dataKeys = (await dataKeyPromise)!;
+    const contentHash = await fingerprint(dataKeys, content);
 
     // A retried call (same external_id on the same key AND the same text) returns
     // the verdict already recorded instead of judging and logging the same text
@@ -453,7 +462,8 @@ Deno.serve(async (req) => {
         .eq("external_id", ext.id)
         .maybeSingle();
       if (!prior) return null;
-      if (prior.content_hash && prior.content_hash !== contentHash) {
+      // Compared by the text, so a fingerprint stored before keyed ones (plain SHA-256) or under the previous key still matches.
+      if (prior.content_hash && !(await fingerprintMatches(dataKeys, prior.content_hash, content))) {
         return json({
           error: "external_id_reused",
           message: "This external_id was already used for different text. Use a new external_id for a new response.",

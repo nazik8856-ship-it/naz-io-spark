@@ -34,6 +34,33 @@ encrypted with a key that is not configured: put the old key back as `PROJECTS_K
 A missing, misnamed (e.g. `PROJECT_KEY`) or too short `PROJECTS_KEY` stops the `projects` function at startup with the name in the
 error, in the function's logs.
 
+## DATA_KEY (encrypts user content, keys its fingerprints)
+
+The same two-key rotation as `PROJECTS_KEY`, with `DATA_KEY_PREVIOUS`. Both are derived into separate encryption and fingerprint
+keys inside the functions (`_shared/field-crypto.ts`); the value itself is never used directly. Use a different value from
+`PROJECTS_KEY`.
+
+1. Generate a new key (`openssl rand -base64 32`).
+2. In Edge Function secrets: add `DATA_KEY_PREVIOUS` = the **current** value of `DATA_KEY`. Then set `DATA_KEY` = the new key.
+3. Redeploy `projects`, `outer-control`, then `outer-control-session-sweep` (the sweep last: it starts moving things to the new
+   key).
+4. Wait until nothing is left on the old key. The session sweep reports `"project_fingerprints": { "moved": n, "left": n }`; once
+   columns are encrypted with `DATA_KEY`, check them too:
+   ```sql
+   select * from encryption_report();
+   ```
+   `keys` shows how many values are on each key id (the 8 characters after `v2:`). Wait for `left` 0 and only the new id in `keys`.
+5. Delete `DATA_KEY_PREVIOUS`. Redeploy the same three functions.
+
+Check: open a project (its fingerprint shows), refresh a linked one (it says "unchanged" when the source has not changed), and
+send the same `external_id` twice to `/evaluate` (the second call returns the first verdict).
+
+What the old key leaves behind: evaluation fingerprints (`outer_control_evaluations.content_hash`) are not remade, because the
+full text is not kept. After step 5, retrying a request sent before the rotation with the same `external_id` is answered
+`external_id_reused` instead of the earlier verdict; send it with a new `external_id`.
+
+A missing, misnamed or too short `DATA_KEY` stops `projects` and `outer-control` at startup with the name in the error.
+
 ## RESEND_WEBHOOK_SECRET (verifies Resend's email events)
 
 1. In Resend → Webhooks, roll the signing secret (or create a new endpoint for the same URL) and copy the new `whsec_…` value.

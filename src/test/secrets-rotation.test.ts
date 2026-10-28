@@ -27,7 +27,7 @@ const secretsRead = [...new Set(sources().flatMap((f) => [...readFileSync(f, "ut
 
 describe("rotating server secrets", () => {
   it("finds the secrets the functions read", () => {
-    expect(secretsRead).toEqual(expect.arrayContaining(["PROJECTS_KEY", "PROJECTS_KEY_PREVIOUS", "RESEND_WEBHOOK_SECRET", "OPENAI_API_KEY", "SUPABASE_SERVICE_ROLE_KEY"]));
+    expect(secretsRead).toEqual(expect.arrayContaining(["PROJECTS_KEY", "PROJECTS_KEY_PREVIOUS", "DATA_KEY", "DATA_KEY_PREVIOUS", "RESEND_WEBHOOK_SECRET", "OPENAI_API_KEY", "SUPABASE_SERVICE_ROLE_KEY"]));
   });
 
   it.each(secretsRead)("%s has a procedure in docs/secrets-rotation.md", (name) => {
@@ -38,6 +38,11 @@ describe("rotating server secrets", () => {
     const projects = readFileSync(join(FUNCTIONS, "projects/index.ts"), "utf8");
     expect(projects).toMatch(/^requireSecret\("PROJECTS_KEY"/m);
     expect(projects).toMatch(/^optionalSecret\("PROJECTS_KEY_PREVIOUS"/m);
+    for (const fn of ["projects", "outer-control"]) {
+      const src = readFileSync(join(FUNCTIONS, `${fn}/index.ts`), "utf8");
+      expect(src, fn).toMatch(/^requireSecret\("DATA_KEY"/m);
+      expect(src, fn).toMatch(/^optionalSecret\("DATA_KEY_PREVIOUS"/m);
+    }
     const resend = readFileSync(join(FUNCTIONS, "resend-events/index.ts"), "utf8");
     expect(resend).toMatch(/^requireSecret\("RESEND_WEBHOOK_SECRET"\)/m);
   });
