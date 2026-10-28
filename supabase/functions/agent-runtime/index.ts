@@ -29,7 +29,7 @@ import { recordAiSpend, estimateCostUsd } from "../_shared/spend-guard.ts";
 import { pickAiGateway, callAiGateway, type GatewayConfig } from "../_shared/ai-gateway.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { validateOutboundUrl } from "../_shared/url-safety.ts";
+import { fetchPublicHttps, validateOutboundUrl } from "../_shared/url-safety.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
 import { deriveRunOutcome, type AgentEvent } from "../_shared/agent-outcome.ts";
 
@@ -4028,7 +4028,11 @@ async function executeTool(
     if (tool.kind === "http_get") {
       const url = String(input.url || tool.config?.url || "");
       if (!/^https?:\/\//.test(url)) return { summary: "Invalid URL.", error: true };
-      const resp = await fetch(url, { headers: { "User-Agent": "NazAI-Agent/1.0" } });
+      // Read over https only (an http:// address is upgraded), every redirect re-checked: never plain http, never an internal address.
+      let resp: Response;
+      try { resp = await fetchPublicHttps(url, { headers: { "User-Agent": "NazAI-Agent/1.0" } }); } catch (e) {
+        return { summary: `Fetch failed: ${e instanceof Error ? e.message : "unknown"}`, error: true };
+      }
       const ct = resp.headers.get("content-type") || "";
       const text = await resp.text();
       const body = ct.includes("application/json") ? text.slice(0, 1200) : stripHtml(text).slice(0, 1200);
@@ -4079,7 +4083,8 @@ async function executeTool(
       if (!/^https?:\/\//.test(url)) return { summary: "audit_url requires a valid http(s) URL.", error: true };
       let pageText = "";
       try {
-        const r = await fetch(url, { headers: { "User-Agent": "NazAI-Agent/1.0" } });
+        // Read over https only, every redirect re-checked (as http_get).
+        const r = await fetchPublicHttps(url, { headers: { "User-Agent": "NazAI-Agent/1.0" } });
         const t = await r.text();
         pageText = stripHtml(t).slice(0, 8000);
       } catch (e) {

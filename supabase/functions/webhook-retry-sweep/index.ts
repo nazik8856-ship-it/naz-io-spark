@@ -112,10 +112,12 @@ Deno.serve(async (req) => {
       if (secrets.previous) {
         headers["X-NazAI-Signature-Previous"] = await hmacHex(secrets.previous, signaturePayload);
       }
+      // A redirect is not followed: it could carry the signed payload to plain http or another host. It counts as a failure.
       const resp = await fetch(hook.url, {
         method: "POST",
         headers,
         body,
+        redirect: "manual",
         signal: AbortSignal.timeout(8000),
       });
       statusCode = resp.status;

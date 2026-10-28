@@ -87,3 +87,29 @@ export async function validateOutboundUrl(rawUrl: string): Promise<UrlSafetyResu
   }
   return { ok: true, reason: `host ${host} passed ip checks` };
 }
+
+/**
+ * Data encryption, front 1: fetches a page from an address someone typed in, over https only. A bare host name or an http://
+ * address is upgraded to https://; every redirect is followed by hand and checked again (https, public address), so a redirect
+ * can never carry the request to plain http or to an internal address. Throws with the reason when a hop is not allowed.
+ */
+export async function fetchPublicHttps(
+  rawUrl: string,
+  init: RequestInit = {},
+  deps: { fetchImpl?: typeof fetch; validate?: (url: string) => Promise<UrlSafetyResult>; maxRedirects?: number } = {},
+): Promise<Response> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const validate = deps.validate ?? validateOutboundUrl;
+  let url = rawUrl.trim().replace(/^http:\/\//i, "https://");
+  if (!/^https:\/\//i.test(url)) url = `https://${url}`;
+  for (let hop = 0; hop <= (deps.maxRedirects ?? 3); hop++) {
+    const check = await validate(url);
+    if (!check.ok) throw new Error(`address not allowed: ${check.reason}`);
+    const res = await fetchImpl(url, { ...init, redirect: "manual" });
+    const next = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+    if (!next) return res;
+    await res.body?.cancel().catch(() => undefined);
+    url = new URL(next, url).toString();
+  }
+  throw new Error("too many redirects");
+}
