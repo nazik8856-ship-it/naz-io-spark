@@ -6,6 +6,7 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
+import { fetchPublicHttps } from "../_shared/url-safety.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,9 +42,8 @@ serve(async (req) => {
     let scrapedTitle = "";
     if (url) {
       try {
-        const resp = await fetch(url.startsWith("http") ? url : `https://${url}`, {
-          headers: { "User-Agent": "NazAI-Researcher/1.0" }, redirect: "follow",
-        });
+        // https only, every redirect re-checked (never plain http, never an internal address).
+        const resp = await fetchPublicHttps(url, { headers: { "User-Agent": "NazAI-Researcher/1.0" } });
         const html = await resp.text();
         scrapedTitle = (html.match(/<title>([^<]+)<\/title>/i)?.[1] || "").trim();
         scraped = stripHtml(html).slice(0, 6000);

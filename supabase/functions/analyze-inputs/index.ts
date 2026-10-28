@@ -6,6 +6,7 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
+import { fetchPublicHttps } from "../_shared/url-safety.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,8 +23,8 @@ function stripFences(s: string) {
 
 async function fetchUrlText(url: string): Promise<string> {
   try {
-    const r = await fetch(url, {
-      redirect: "follow",
+    // https only (an http:// link is upgraded), every redirect re-checked: never plain http, never an internal address.
+    const r = await fetchPublicHttps(url, {
       headers: { "User-Agent": "Mozilla/5.0 NazAI-Analyzer/1.0" },
       signal: AbortSignal.timeout(8000),
     });

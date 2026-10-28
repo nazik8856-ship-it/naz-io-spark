@@ -70,8 +70,10 @@ async function verifyShopify(c: Credentials) {
   const shopifyUrl = `https://${store}/admin/api/${SHOPIFY_API_VERSION}/shop.json`;
   const shopifyCheck = await validateOutboundUrl(shopifyUrl);
   if (!shopifyCheck.ok) return { ok: false, error: `store_url is not allowed: ${shopifyCheck.reason}` };
+  // The token travels in a header a redirect would carry along, so no redirect is followed.
   const r = await fetch(shopifyUrl, {
     headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
+    redirect: "manual",
   });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) return { ok: false, error: data?.errors || `Shopify ${r.status}` };
@@ -98,6 +100,7 @@ async function verifyWoo(c: Credentials) {
   const auth = btoa(`${key}:${secret}`);
   const r = await fetch(wooUrl, {
     headers: { Authorization: `Basic ${auth}` },
+    redirect: "manual",
   });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) return { ok: false, error: data?.message || `WooCommerce ${r.status}` };

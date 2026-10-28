@@ -14,6 +14,7 @@
 // outbound payloads with it can still see it.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { storeSigningSecret } from "../_shared/signing-secrets.ts";
@@ -68,6 +69,9 @@ Deno.serve(async (req) => {
 
   const url = String(body?.url || "");
   if (!/^https:\/\//.test(url)) return json({ error: "Needs an https:// URL" }, 400);
+  // The same check every delivery makes (https, a public address), up front instead of failing at the first event.
+  const urlCheck = await validateOutboundUrl(url);
+  if (!urlCheck.ok) return json({ error: `That URL can't receive webhooks: ${urlCheck.reason}` }, 400);
   const events = Array.isArray(body?.events) ? body.events.filter((e: unknown) => typeof e === "string") : [];
   if (!events.length) return json({ error: "Pick at least one event" }, 400);
 
