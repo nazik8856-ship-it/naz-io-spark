@@ -32,6 +32,8 @@ const err = (status: number, error: string, message: string): RelayResult => ({ 
 
 export async function relayToTask(
   admin: AnyAdmin, auth: RelayAuth, body: Record<string, unknown>, drive: (sessionIds: string[]) => void,
+  /** The stored fingerprint of the evaluated text: keyed with DATA_KEY by the outer-control function; plain SHA-256 in tests. */
+  fingerprintOf: (text: string) => Promise<string> = sha256Hex,
 ): Promise<RelayResult> {
   if (!auth.scopes.includes("outer_control:execute")) {
     return err(403, "insufficient_scope", "Relaying work to an agent runs it, so the API key needs the outer_control:execute scope.");
@@ -67,7 +69,7 @@ export async function relayToTask(
   const content = intake.text;
   const result = await evaluateExternalText(admin, {
     userId: auth.userId, agentId: null, apiKeyId: auth.keyId, isTest: auth.isTest, sourceModel, content,
-    origin: "external-api", externalId: null, contentHash: await sha256Hex(content),
+    origin: "external-api", externalId: null, contentHash: await fingerprintOf(content),
   });
   if (!result.evaluationId) return err(500, "internal_error", "Could not record this evaluation.");
   const verdictBody = { verdict: result.verdict, evaluation_id: result.evaluationId, summary: result.summary, trust_score: result.trustScore, approval_id: result.approvalId ?? undefined };

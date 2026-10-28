@@ -15,6 +15,7 @@ import { textSafeToStore } from "./outer-control-text-review.ts";
 import { scanForInjection } from "./injection-scanner.ts";
 import { sha256Hex } from "./api-key-auth.ts";
 import { currentKeyPrefix, decryptText, encryptText, needsReencrypt, type ProjectKeys } from "./project-crypto.ts";
+import { fingerprint, fingerprintMatches, type FieldKeys } from "./field-crypto.ts";
 import { judgeMeaning, MAX_MEANING_RULES, type JudgeAi } from "./meaning-judge.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -42,6 +43,8 @@ export type ProjectCheck = {
   hidden?: HiddenItem[];
   /** Instruction-like text aimed at an AI inside the project; it is kept, flagged, and always sent to tools as reference only. */
   injection?: { severity: "suspicious" | "strong"; signals: InjectionSignal[] } | null;
+  /** The id of the DATA_KEY the fingerprint (content_sha256) was made with; absent: a plain SHA-256 from before keyed ones. */
+  fingerprint_key?: string;
   /** Encrypted at rest. */
   protected?: boolean;
 };
@@ -312,6 +315,11 @@ export type ProjectDeps = {
   judge?: JudgeAi | null;
   /** The GitHub API (api.github.com only) with a token given for this one import; never stored. */
   github?: (path: string, token: string, raw?: boolean) => Promise<{ ok: boolean; status: number; text: string }>;
+  /**
+   * DATA_KEY, for the text's fingerprint (content_sha256): keyed, so it can not be used to guess the encrypted text. The projects
+   * function always has it (required at startup); absent only in tests, where a plain SHA-256 is stored.
+   */
+  fingerprintKeys?: FieldKeys | null;
 };
 
 // ---------------------------------------------------------------------------------------
@@ -367,10 +375,11 @@ async function logEvent(admin: AnyAdmin, accountId: string, actorId: string, pro
 }
 
 /** The text as stored: invisible characters removed, secrets hidden, flagged for AI instructions, then encrypted. */
-async function protectForStorage(key: ProjectKeys, raw: string) {
+async function protectForStorage(key: ProjectKeys, fpKeys: FieldKeys | null | undefined, raw: string) {
   const scanned = scanProjectText(raw);
   const hidden = hideBeforeSaving(scanned.text);
-  return { text: hidden.text, hidden: hidden.hidden, injection: scanned.injection, content_enc: await encryptText(key, hidden.text), content_sha256: await sha256Hex(hidden.text) };
+  const content_sha256 = fpKeys ? await fingerprint(fpKeys, hidden.text) : await sha256Hex(hidden.text);
+  return { text: hidden.text, hidden: hidden.hidden, injection: scanned.injection, content_enc: await encryptText(key, hidden.text), content_sha256 };
 }
 
 type ProjectRow = Record<string, unknown> & {
@@ -398,6 +407,30 @@ async function projectText(admin: AnyAdmin, key: ProjectKeys | null, row: Projec
     await admin.from("imported_projects").update({ content_enc: await encryptText(key, text), content: "", last_check: { ...(row.last_check ?? {}), protected: true } }).eq("id", row.id);
   }
   return text;
+}
+
+const fpMark = (deps: ProjectDeps) => deps.fingerprintKeys ? { fingerprint_key: deps.fingerprintKeys.current.id } : {};
+
+/**
+ * Fingerprints made before keyed ones (a plain SHA-256, which can be used to guess a short text) or with a previous DATA_KEY:
+ * made again with the current key, a few projects at a time (the session sweep calls this every run). Nothing else changes.
+ */
+export async function refingerprintProjects(admin: AnyAdmin, key: ProjectKeys | null, fpKeys: FieldKeys | null, limit = 20): Promise<{ moved: number; left: number }> {
+  if (!key || !fpKeys) return { moved: 0, left: 0 };
+  const kid = fpKeys.current.id;
+  const stale = `last_check->>fingerprint_key.is.null,last_check->>fingerprint_key.neq.${kid}`;
+  const { data } = await admin.from("imported_projects").select(`${PROJECT_COLS}, content, content_enc`).not("content_enc", "is", null).or(stale).limit(limit);
+  let moved = 0;
+  for (const row of (data ?? []) as ProjectRow[]) {
+    const text = await projectText(admin, key, row);
+    if (text === null) continue;
+    // Only if the text was not changed in between (the same stored value), so a newer fingerprint is never overwritten.
+    await admin.from("imported_projects").update({ content_sha256: await fingerprint(fpKeys, text), last_check: { ...(row.last_check ?? {}), fingerprint_key: kid } })
+      .eq("id", row.id).eq("content_sha256", row.content_sha256);
+    moved++;
+  }
+  const { count } = await admin.from("imported_projects").select("id", { count: "exact", head: true }).not("content_enc", "is", null).or(stale);
+  return { moved, left: count ?? 0 };
 }
 
 /** Projects saved before encryption existed: encrypted now, a few at a time (the session sweep calls this every run). */
@@ -432,11 +465,11 @@ async function insertProject(admin: AnyAdmin, accountId: string, userId: string,
   if (!p.content.trim()) return bad(400, "empty", "There is no text to import.");
   if (p.content.length > MAX_PROJECT_CHARS) return bad(413, "too_large", `A project can hold at most ${MAX_PROJECT_CHARS.toLocaleString("en")} characters; this one has ${p.content.length.toLocaleString("en")}.`);
   if (looksBinary(p.content)) return bad(415, "not_text", "That is not readable text (it looks like a binary file). Nothing was stored.");
-  const stored = await protectForStorage(deps.key, p.content);
+  const stored = await protectForStorage(deps.key, deps.fingerprintKeys, p.content);
   const rules = await rulesForProject(admin, accountId, null);
   const check = checkProjectText(rules, stored.text);
   const at = new Date(deps.now()).toISOString();
-  const last_check: ProjectCheck = { at, rules: rules.length, matches: check.matches, hidden: stored.hidden, injection: stored.injection, protected: true };
+  const last_check: ProjectCheck = { at, rules: rules.length, matches: check.matches, hidden: stored.hidden, injection: stored.injection, protected: true, ...fpMark(deps) };
   const { data, error } = await admin.from("imported_projects").insert({
     user_id: accountId, name: p.name, source_mode: p.source_mode, source_kind: p.source_kind, source_ref: p.source_ref, source_label: clip(p.source_label, 200),
     content_type: p.content_type, content: "", content_enc: stored.content_enc, files: p.files, content_sha256: stored.content_sha256, last_check,
@@ -613,10 +646,11 @@ export async function handleProjectsAction(admin: AnyAdmin, accountId: string, u
       await admin.from("imported_projects").update({ sync_error: clip(String(got.result.body.message ?? "Sync failed"), 500), updated_at: at }).eq("id", p.id);
       return got.result;
     }
-    const stored = await protectForStorage(deps.key, clip(got.markdown, MAX_PROJECT_CHARS));
-    const changed = stored.content_sha256 !== p.content_sha256;
+    const stored = await protectForStorage(deps.key, deps.fingerprintKeys, clip(got.markdown, MAX_PROJECT_CHARS));
+    // Compared by the text, so a fingerprint stored before keyed ones (plain SHA-256) or under the previous key still matches.
+    const changed = deps.fingerprintKeys ? !(await fingerprintMatches(deps.fingerprintKeys, p.content_sha256 as string, stored.text)) : stored.content_sha256 !== p.content_sha256;
     const rules = await rulesForProject(admin, accountId, p.id);
-    const last_check: ProjectCheck = { at, rules: rules.length, matches: checkProjectText(rules, stored.text).matches, hidden: stored.hidden, injection: stored.injection, protected: true };
+    const last_check: ProjectCheck = { at, rules: rules.length, matches: checkProjectText(rules, stored.text).matches, hidden: stored.hidden, injection: stored.injection, protected: true, ...fpMark(deps) };
     await admin.from("imported_projects").update({ content: "", content_enc: stored.content_enc, content_sha256: stored.content_sha256, last_check, last_synced_at: at, sync_error: null, updated_at: at }).eq("id", p.id);
     if (changed) await event("refreshed", { hidden: stored.hidden.reduce((n, h) => n + h.count, 0), flagged: !!stored.injection });
     return ok({ changed, check: last_check });

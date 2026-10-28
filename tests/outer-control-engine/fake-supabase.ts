@@ -34,8 +34,10 @@ class Q {
   gte(c: string, v: any) { this.filters.push((r) => r[c] >= v); return this; }
   lte(c: string, v: any) { this.filters.push((r) => r[c] <= v); return this; }
   or(expr: string) {
-    const parts = expr.split(/,(?=[a-z_]+\.)/).map((p) => { const m = p.match(/^([a-z_]+)\.(is|lt|gt|eq)\.(.*)$/)!; return { c: m[1], op: m[2], v: m[3] }; });
-    this.filters.push((r) => parts.some((p) => p.op === "is" ? (r[p.c] ?? null) === (p.v === "null" ? null : p.v) : p.op === "lt" ? (r[p.c] ?? null) !== null && r[p.c] < p.v : p.op === "gt" ? r[p.c] > p.v : String(r[p.c]) === p.v));
+    // A column, or a JSON field as col->>field (read as text, null when absent).
+    const parts = expr.split(/,(?=[a-z_]+(?:->>[a-z_]+)?\.)/).map((p) => { const m = p.match(/^([a-z_]+(?:->>[a-z_]+)?)\.(is|lt|gt|eq|neq)\.(.*)$/)!; return { c: m[1], op: m[2], v: m[3] }; });
+    const val = (r: any, c: string) => { const [col, f] = c.split("->>"); const v = f ? r[col]?.[f] : r[col]; return f && v != null ? String(v) : v; };
+    this.filters.push((r) => parts.some((p) => { const x = val(r, p.c); return p.op === "is" ? (x ?? null) === (p.v === "null" ? null : p.v) : p.op === "lt" ? (x ?? null) !== null && x < p.v : p.op === "gt" ? x > p.v : p.op === "neq" ? x != null && String(x) !== p.v : String(x) === p.v; }));
     return this;
   }
   gt(c: string, v: any) { this.filters.push((r) => r[c] > v); return this; }

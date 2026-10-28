@@ -29,6 +29,7 @@ import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { readSecret } from "../_shared/integration-secrets.ts";
 import { handleProjectsAction, IMPORT_ACTIONS, linkShapeProblem, MAX_LINK_BYTES, READ_ACTIONS, type FetchedPage, type ProjectDeps } from "../_shared/projects.ts";
 import { MIN_PASSPHRASE_CHARS, projectKeysFromEnv } from "../_shared/project-crypto.ts";
+import { dataKeysFromEnv } from "../_shared/field-crypto.ts";
 import { optionalSecret, requireSecret } from "../_shared/require-secret.ts";
 import { gatewayAi } from "../_shared/outer-control-report.ts";
 
@@ -50,6 +51,10 @@ const IMPORTS_PER_DAY = 50;
 requireSecret("PROJECTS_KEY", { minLength: MIN_PASSPHRASE_CHARS });
 optionalSecret("PROJECTS_KEY_PREVIOUS", { minLength: MIN_PASSPHRASE_CHARS });
 const keyPromise = projectKeysFromEnv();
+// DATA_KEY makes each project's fingerprint keyed, so it can not be used to guess the encrypted text.
+requireSecret("DATA_KEY", { minLength: MIN_PASSPHRASE_CHARS });
+optionalSecret("DATA_KEY_PREVIOUS", { minLength: MIN_PASSPHRASE_CHARS });
+const dataKeyPromise = dataKeysFromEnv();
 
 /** Every hop of a link: the shape (https, port 443, a site name, no login in the link) and then its addresses. */
 async function checkLink(url: string): Promise<{ ok: boolean; reason: string }> {
@@ -177,7 +182,7 @@ Deno.serve(async (req) => {
       if (!daily.allowed) return json({ error: "import_quota", message: `At most ${IMPORTS_PER_DAY} imports a day. Try again tomorrow.` }, 429);
     }
 
-    const r = await handleProjectsAction(admin, accountId, userData.user.id, body, { fetchUrl, checkUrl: checkLink, notion, now: Date.now, key: await keyPromise, judge: gatewayAi, github });
+    const r = await handleProjectsAction(admin, accountId, userData.user.id, body, { fetchUrl, checkUrl: checkLink, notion, now: Date.now, key: await keyPromise, fingerprintKeys: await dataKeyPromise, judge: gatewayAi, github });
     return json(r.body, r.status);
   } catch (e) {
     console.error("projects failed:", e instanceof Error ? e.message : e);
