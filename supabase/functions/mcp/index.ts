@@ -133,14 +133,21 @@ var get_agent_default = defineTool2({
 });
 
 // src/lib/mcp/tools/list-agent-events.ts
-import { createClient as createClient3 } from "npm:@supabase/supabase-js@^2.110.0";
 import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z3 } from "npm:zod@^3.25.76";
-function sb3(ctx) {
-  return createClient3(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY, {
-    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-    auth: { persistSession: false, autoRefreshToken: false }
+async function readEvents(token, agentId, limit) {
+  const resp = await fetch(`${process.env.SUPABASE_URL}/functions/v1/outer-control-read`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: process.env.SUPABASE_PUBLISHABLE_KEY },
+    body: JSON.stringify({ table: "agent_events", ops: [
+      { m: "select", a: ["id, run_id, kind, payload, created_at"] },
+      { m: "eq", a: ["agent_id", agentId] },
+      { m: "order", a: ["created_at", { ascending: false }] },
+      { m: "limit", a: [limit] }
+    ] })
   });
+  const body = await resp.json().catch(() => null);
+  return body ?? { data: null, error: { message: `Could not read events (HTTP ${resp.status}).` } };
 }
 var list_agent_events_default = defineTool3({
   name: "list_agent_events",
@@ -154,7 +161,7 @@ var list_agent_events_default = defineTool3({
   handler: async ({ agent_id, limit }, ctx) => {
     if (!ctx.isAuthenticated())
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    const { data, error } = await sb3(ctx).from("agent_events").select("id, run_id, kind, payload, created_at").eq("agent_id", agent_id).order("created_at", { ascending: false }).limit(limit ?? 50);
+    const { data, error } = await readEvents(ctx.getToken(), agent_id, limit ?? 50);
     if (error)
       return { content: [{ type: "text", text: error.message }], isError: true };
     return {
@@ -165,11 +172,11 @@ var list_agent_events_default = defineTool3({
 });
 
 // src/lib/mcp/tools/list-projects.ts
-import { createClient as createClient4 } from "npm:@supabase/supabase-js@^2.110.0";
+import { createClient as createClient3 } from "npm:@supabase/supabase-js@^2.110.0";
 import { defineTool as defineTool4 } from "npm:@lovable.dev/mcp-js@0.20.1";
 import { z as z4 } from "npm:zod@^3.25.76";
-function sb4(ctx) {
-  return createClient4(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY, {
+function sb3(ctx) {
+  return createClient3(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY, {
     global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
     auth: { persistSession: false, autoRefreshToken: false }
   });
@@ -185,7 +192,7 @@ var list_projects_default = defineTool4({
   handler: async ({ limit }, ctx) => {
     if (!ctx.isAuthenticated())
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    const { data, error } = await sb4(ctx).from("projects").select("*").order("created_at", { ascending: false }).limit(limit ?? 50);
+    const { data, error } = await sb3(ctx).from("projects").select("*").order("created_at", { ascending: false }).limit(limit ?? 50);
     if (error)
       return { content: [{ type: "text", text: error.message }], isError: true };
     return {

@@ -43,9 +43,14 @@ keys inside the functions (`_shared/field-crypto.ts`); the value itself is never
 1. Generate a new key (`openssl rand -base64 32`).
 2. In Edge Function secrets: add `DATA_KEY_PREVIOUS` = the **current** value of `DATA_KEY`. Then set `DATA_KEY` = the new key.
 3. Redeploy every function that uses it: `projects`, `outer-control`, `outer-control-drive`, `outer-control-read`,
-   `control-engine`, `control-system-decide`, `agent-runtime`, `api-keys`, `website-form-submit`, `integration-sync`,
-   `analyze-inputs`, `measure-decision-outcomes`, then `outer-control-session-sweep` (the sweep last:
-   it starts moving things to the new key; its encryption step runs every five minutes).
+   `encrypted-write`, `control-engine`, `control-system-decide`, `control-api`, `agent-runtime`, `agent-approval`,
+   `agent-scheduler`, `api-keys`, `website-form-submit`, `integration-sync`, `analyze-inputs`, `analyze-org-insights`,
+   `measure-decision-outcomes`, `compile-agent-manifest`, `compile-website-manifest`, `final-assembly-check`,
+   `recurring-assembly-sweep`, `audit-integrity-sweep`, `knowledge-base-auto-draft-sweep`, `content-gap-triage-sweep`,
+   `approval-escalation-sweep`, `stuck-approval-sweep`, `auto-resolution-share-sweep`, `control-digest-email`,
+   `control-weekly-trend-email`, `control-monthly-report-email`, `data-deletion-sweep`, `retention-sweep`,
+   `governance-backup-export`, then `outer-control-session-sweep` (the sweep last: it starts moving things to the new key;
+   its encryption step runs every five minutes). `src/test/field-encryption.test.ts` lists the same functions.
 4. Wait until nothing is left on the old key. The session sweep reports `"project_fingerprints": { "moved": n, "left": n }`; once
    columns are encrypted with `DATA_KEY`, check them too:
    ```sql
@@ -63,8 +68,10 @@ full text is not kept. After step 5, retrying a request sent before the rotation
 
 A missing, misnamed or too short `DATA_KEY` stops each of those functions at startup with the name in the error.
 
-**Never lose this key.** Outer Control content (tasks, replies, results, memory, evaluations), website form submissions and
-connected-account snapshots are stored encrypted with it; without it that content can not be read. Keep a copy in your password manager.
+**Never lose this key.** Outer Control content (tasks, replies, results, memory, evaluations), website form submissions,
+connected-account snapshots, agent runs and events, Generator requests, knowledge-base entries, the /respond API's context,
+cache and questions, and approvals' text are stored encrypted with it; without it that content can not be read (the governance
+backups keep it encrypted too). Keep a copy in your password manager.
 
 ## RESEND_WEBHOOK_SECRET (verifies Resend's email events)
 

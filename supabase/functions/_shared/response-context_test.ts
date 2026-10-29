@@ -161,7 +161,7 @@ type FakeAdmin = { rpc(name: string, args: Record<string, unknown>): Promise<{ d
 Deno.test("findRelevantContext: maps RPC rows into ResponseContextEntry and applies the similarity floor", async () => {
   const client: FakeAdmin = {
     rpc(name: string, args: Record<string, unknown>) {
-      assertEquals(name, "search_response_context");
+      assertEquals(name, "search_response_context_v2");
       assertEquals(args._api_key_id, "key-1");
       return Promise.resolve({
         data: [

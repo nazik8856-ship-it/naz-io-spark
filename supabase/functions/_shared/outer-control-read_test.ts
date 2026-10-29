@@ -8,6 +8,8 @@ const sel = (cols: string) => ({ m: "select", a: [cols] });
 Deno.test("a read the screens send is accepted", () => {
   assertEquals(validRead({ table: "outer_control_sessions", ops: [sel("id, objective, status"), { m: "eq", a: ["user_id", "u1"] }, { m: "is", a: ["archived_at", null] }, { m: "order", a: ["started_at", { ascending: false }] }, { m: "limit", a: [10] }] }), null);
   assertEquals(validRead({ table: "outer_control_session_steps", ops: [sel("id, reply_text"), { m: "in", a: ["session_id", ["a", "b"]] }, { m: "maybeSingle", a: [] }] }), null);
+  assertEquals(validRead({ table: "pending_approvals", ops: [{ m: "select", a: ["id, description", { count: "exact" }] }, { m: "eq", a: ["status", "pending"] }] }), null, "a count with the rows");
+  assertEquals(validRead({ table: "pending_approvals", ops: [{ m: "select", a: ["id", { count: "exact", head: true, x: 1 }] }] }), "invalid select options");
 });
 
 Deno.test("anything else is refused", () => {

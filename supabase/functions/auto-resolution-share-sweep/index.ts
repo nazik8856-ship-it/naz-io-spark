@@ -12,7 +12,7 @@
 // a ratio across ALL of an account's pending_approvals (both api-key- and
 // human-driven), not one key's raw call volume.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import {
   summarizeResolutionActivity, detectAutoResolutionShareSpike, summarizeAutoResolutionSpike,
   type ResolvedApprovalRow,

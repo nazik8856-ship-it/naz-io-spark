@@ -17,6 +17,8 @@ import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 import { DecisionExplanationPanel } from "@/components/control/DecisionExplanationPanel";
 import type { PrecedentCitationRecord, DeferredDetail } from "@/lib/decision-explanation";
 import type { TraceEntry } from "@/components/control/GateTraceList";
+import { approvalSignoff } from "@/lib/encrypted-write"; // a comment is stored encrypted (data encryption, front 4)
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 4)
 
 type Approval = {
   id: string;
@@ -134,8 +136,7 @@ export default function ControlApprovals() {
   const load = useCallback(async () => {
     if (!user || !accountId) return;
     const [{ data }, { data: members }, { data: ownerContact }] = await Promise.all([
-      anyDb
-        .from("pending_approvals")
+      ocRead("pending_approvals")
         .select("*")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false })
@@ -244,10 +245,11 @@ export default function ControlApprovals() {
     setBusy(row.id);
     // Quorum is enforced server-side: the RPC appends one DISTINCT sign-off and
     // only flips the row to "approved" once required_approvals is reached.
-    const { data, error } = await anyDb.rpc("record_approval_signoff", {
-      _approval_id: row.id,
-      _vote: status === "approved" ? "approve" : "reject",
-      _comment: comments[row.id]?.slice(0, 800) || null,
+    // The comment is stored encrypted, so a sign-off with a comment goes through the server (data encryption, front 4).
+    const { data, error } = await approvalSignoff({
+      approval_id: row.id,
+      vote: status === "approved" ? "approve" : "reject",
+      comment: comments[row.id]?.slice(0, 800) || null,
     });
     setBusy(null);
     if (error) {

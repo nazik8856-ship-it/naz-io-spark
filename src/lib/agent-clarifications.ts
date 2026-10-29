@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { ocWrite } from "@/lib/encrypted-write"; // encrypted content is written through the server (data encryption, front 3)
 
 /**
  * Shared handling for `ask_user` pauses.
@@ -101,7 +102,7 @@ export async function submitClarificationAnswer(opts: {
   const userId = auth.user?.id;
 
   if (userId) {
-    await supabase.from("agent_events").insert({
+    await ocWrite("agent_events").insert({
       agent_id: agentId,
       user_id: userId,
       run_id: request.runId || crypto.randomUUID(),

@@ -4,7 +4,7 @@ import { ENCRYPTED_COLUMNS } from "./encrypted-db.ts";
 
 const TABLES = new Set(Object.keys(ENCRYPTED_COLUMNS));
 /** Reading only: the first step is the column list, then filters and shaping. */
-const METHODS = new Set(["eq", "neq", "in", "is", "not", "gt", "gte", "lt", "lte", "order", "limit", "range", "single", "maybeSingle"]);
+const METHODS = new Set(["eq", "neq", "in", "is", "not", "gt", "gte", "lt", "lte", "or", "order", "limit", "range", "single", "maybeSingle"]);
 const MAX_OPS = 20;
 
 /** An argument is plain data: text, numbers, booleans, null, lists of those, or a small options object (order/range). */
@@ -21,7 +21,11 @@ export function validRead(body: unknown): string | null {
   if (!b || typeof b.table !== "string" || !TABLES.has(b.table)) return "unknown table";
   if (!Array.isArray(b.ops) || b.ops.length < 1 || b.ops.length > MAX_OPS) return "ops must be 1 to 20 steps";
   const [first, ...rest] = b.ops as { m?: unknown; a?: unknown }[];
-  if (first?.m !== "select" || !Array.isArray(first.a) || first.a.length !== 1 || typeof first.a[0] !== "string" || first.a[0].length > 2000) return "the first step must be select with a column list";
+  if (first?.m !== "select" || !Array.isArray(first.a) || first.a.length < 1 || first.a.length > 2 || typeof first.a[0] !== "string" || first.a[0].length > 2000) return "the first step must be select with a column list";
+  // A count with the rows, as supabase-js asks for it: { count: "exact" } (and head: true for the count alone).
+  const opts = first.a[1] as { count?: unknown; head?: unknown } | undefined;
+  if (opts !== undefined && (typeof opts !== "object" || opts === null || Object.keys(opts).some((k) => k !== "count" && k !== "head")
+    || (opts.count !== undefined && !["exact", "planned", "estimated"].includes(String(opts.count))) || (opts.head !== undefined && typeof opts.head !== "boolean"))) return "invalid select options";
   for (const o of rest) {
     if (!o || typeof o.m !== "string" || !METHODS.has(o.m)) return `not allowed: ${String(o?.m)}`;
     if (!Array.isArray(o.a) || o.a.length > 3 || !o.a.every((x) => plainArg(x))) return `invalid arguments for ${o.m}`;

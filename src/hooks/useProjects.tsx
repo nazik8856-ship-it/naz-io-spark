@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { ocWrite } from "@/lib/encrypted-write"; // encrypted content is written through the server (data encryption, front 3)
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 
 // Updated Interface to match image_72d166.png
 export interface Project {
@@ -23,8 +25,7 @@ export function useProjects(userId: string | undefined) {
     setLoading(true);
 
     // FETCHING FROM MISSIONS TABLE
-    const { data, error } = await supabase
-      .from("missions")
+    const { data, error } = await ocRead("missions")
       .select("*")
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
@@ -47,14 +48,13 @@ export function useProjects(userId: string | undefined) {
       if (!userId) return null;
 
       // INSERTING INTO MISSIONS TABLE
-      const { data, error } = await supabase
-        .from("missions")
+      const { data, error } = await ocWrite("missions")
         .insert({
           user_id: userId,
           directive: html, // Mapping HTML content to directive column
           status: "active",
         })
-        .select()
+        .select("*")
         .single();
 
       if (error) {
@@ -69,8 +69,7 @@ export function useProjects(userId: string | undefined) {
 
   const updateProjectHTML = useCallback(
     async (projectId: string, html: string) => {
-      const { error } = await supabase
-        .from("missions")
+      const { error } = await ocWrite("missions")
         .update({ directive: html }) // Updated column name
         .eq("id", projectId);
 

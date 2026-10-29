@@ -15,6 +15,8 @@
 // fallback would blunt items 169/170's content-gap tracking.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sha256Hex } from "./api-key-auth.ts";
+import { envDataKeys, openRows } from "./encrypted-db.ts";
+import { fingerprint } from "./field-crypto.ts";
 import type { ResponseSource } from "./response-context.ts";
 
 export const CACHE_TTL_HOURS = 24;
@@ -28,9 +30,15 @@ export const MIN_CACHE_SIMILARITY = 0.97;
 
 export type CachedResponse = { answer: string; sources: ResponseSource[] | null; confidence: string | null };
 
-/** Pure -- the same key for "Refund policy?" and "refund policy?  ", so trivial formatting differences still hit the cache. */
+/**
+ * The same key for "Refund policy?" and "refund policy?  ", so trivial formatting differences still hit the cache. Keyed with
+ * DATA_KEY (data encryption, front 4): the question itself is stored encrypted, and a plain SHA-256 of it could be used to guess
+ * it. Without DATA_KEY (tests only; the functions require it at startup) a plain SHA-256.
+ */
 export async function cacheKeyFor(message: string): Promise<string> {
-  return sha256Hex(message.trim().toLowerCase());
+  const keys = await envDataKeys();
+  const normalized = message.trim().toLowerCase();
+  return keys ? await fingerprint(keys, normalized) : await sha256Hex(normalized);
 }
 
 /**
@@ -78,14 +86,15 @@ export async function findNearDuplicateCachedResponse(
   currentPolicyVersion: number,
 ): Promise<CachedResponse | null> {
   try {
-    const { data, error } = await admin.rpc("search_response_cache", {
+    // _v2 returns the row id and the encrypted answer (data encryption, front 4), decrypted here.
+    const { data, error } = await admin.rpc("search_response_cache_v2", {
       _api_key_id: apiKeyId,
       _embedding: embeddingLiteral,
       _policy_version: currentPolicyVersion,
       _limit: 1,
     });
     if (error || !Array.isArray(data) || !data.length) return null;
-    const row = data[0] as { answer: string; sources: ResponseSource[] | null; confidence: string | null; similarity: number };
+    const [row] = await openRows("api_response_cache", data as { id: string; answer: string; sources: ResponseSource[] | null; confidence: string | null; similarity: number }[]);
     if (Number(row.similarity) < MIN_CACHE_SIMILARITY) return null;
     return { answer: row.answer, sources: row.sources ?? null, confidence: row.confidence ?? null };
   } catch {

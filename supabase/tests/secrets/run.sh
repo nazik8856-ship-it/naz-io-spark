@@ -20,4 +20,5 @@ run -f api_key_revocation_test.sql
 run -f https_addresses_test.sql
 run -f encryption_report_test.sql
 run -f encrypt_outer_control_test.sql
+run -f encrypt_front4_test.sql
 echo "secrets database tests: all passed"

@@ -8,6 +8,7 @@
 // account judging its own actions; this is a multi-tenant "brain" feature
 // serving many unrelated end customers through the same account).
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { openRows } from "./encrypted-db.ts";
 
 export type ResponseContextEntry = {
   id: string;
@@ -68,13 +69,14 @@ export async function findRelevantContext(
   limit: number = DEFAULT_CONTEXT_LIMIT,
 ): Promise<ResponseContextEntry[]> {
   try {
-    const { data, error } = await admin.rpc("search_response_context", {
+    // _v2 returns the encrypted entry text too (data encryption, front 4), decrypted here.
+    const { data, error } = await admin.rpc("search_response_context_v2", {
       _api_key_id: apiKeyId,
       _embedding: embeddingLiteral,
       _limit: limit,
     });
     if (error || !Array.isArray(data)) return [];
-    return (data as { id: string; entry_text: string; similarity: number }[])
+    return (await openRows("api_key_context_entries", data as { id: string; entry_text: string; similarity: number }[]))
       .filter((r) => Number(r.similarity) >= MIN_CONTEXT_SIMILARITY)
       .map((r) => ({ id: r.id, entry_text: r.entry_text }));
   } catch {

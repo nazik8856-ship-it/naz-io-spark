@@ -4,6 +4,7 @@ import { toast } from "@/hooks/use-toast";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 import { approvalRunMode, nothingToRunMessage, PROVIDER_WRITE_KINDS } from "@/lib/approval-run";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 4)
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
 
@@ -48,8 +49,7 @@ export function usePendingApprovalsFeed(accountId: string | undefined) {
   const load = useCallback(async () => {
     if (!accountId) return;
     setLoading(true);
-    const { data, count } = await anyDb
-      .from("pending_approvals")
+    const { data, count } = await ocRead("pending_approvals")
       .select("id, description, action_type, risk_tier, created_at, status, executed_at", { count: "exact" })
       .eq("user_id", accountId)
       // An approved item stays only while "Run it" still has something to carry out; the others (an Outer Control first contact,

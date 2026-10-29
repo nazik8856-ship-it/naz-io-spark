@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Loader2, Clock, Pencil } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 
 // Interface updated to match image_72d166.png
 interface Mission {
@@ -27,8 +28,7 @@ export default function DashboardRecently({ onOpenProject, onEditPrompt }: Props
     const fetchMissions = async () => {
       setLoading(true);
       // CORRECT TABLE: 'missions' | CORRECT COLUMNS: '*'
-      const { data, error } = await supabase
-        .from("missions")
+      const { data, error } = await ocRead("missions")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(10);

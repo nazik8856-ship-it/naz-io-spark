@@ -1,12 +1,21 @@
-import { createClient } from "@supabase/supabase-js";
-import { defineTool, type ToolContext } from "@lovable.dev/mcp-js";
+import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 
-function sb(ctx: ToolContext) {
-  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
-    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
+// Data encryption, front 3: an event's details are stored encrypted, so they are read through the outer-control-read edge
+// function (as the signed-in user, decrypted), the same way the website reads them.
+async function readEvents(token: string, agentId: string, limit: number) {
+  const resp = await fetch(`${process.env.SUPABASE_URL}/functions/v1/outer-control-read`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: process.env.SUPABASE_PUBLISHABLE_KEY! },
+    body: JSON.stringify({ table: "agent_events", ops: [
+      { m: "select", a: ["id, run_id, kind, payload, created_at"] },
+      { m: "eq", a: ["agent_id", agentId] },
+      { m: "order", a: ["created_at", { ascending: false }] },
+      { m: "limit", a: [limit] },
+    ] }),
   });
+  const body = (await resp.json().catch(() => null)) as { data: unknown[] | null; error: { message: string } | null } | null;
+  return body ?? { data: null, error: { message: `Could not read events (HTTP ${resp.status}).` } };
 }
 
 export default defineTool({
@@ -22,12 +31,7 @@ export default defineTool({
   handler: async ({ agent_id, limit }, ctx) => {
     if (!ctx.isAuthenticated())
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    const { data, error } = await sb(ctx)
-      .from("agent_events")
-      .select("id, run_id, kind, payload, created_at")
-      .eq("agent_id", agent_id)
-      .order("created_at", { ascending: false })
-      .limit(limit ?? 50);
+    const { data, error } = await readEvents(ctx.getToken(), agent_id, limit ?? 50);
     if (error)
       return { content: [{ type: "text", text: error.message }], isError: true };
     return {

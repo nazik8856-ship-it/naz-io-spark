@@ -18,6 +18,9 @@ import AgentHealthBadge from "./AgentHealthBadge";
 import AgentSpendSafetyBadge from "./AgentSpendSafetyBadge";
 import RunControlReport from "./RunControlReport";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
+
+const EVENT_COLS = "id, run_id, kind, payload, created_at, reasoning, confidence";
 
 type OutputItem = {
   id: string;
@@ -142,9 +145,8 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
 
 
   const loadEvents = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("agent_events")
-      .select("id, run_id, kind, payload, created_at, reasoning, confidence")
+    const { data, error } = await ocRead("agent_events")
+      .select(EVENT_COLS)
       .eq("agent_id", agentId)
       .order("created_at", { ascending: true })
       .limit(200);
@@ -251,8 +253,11 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "agent_events", filter: `agent_id=eq.${agentId}` },
-        (payload) => {
-          const row = payload.new as AgentEvent;
+        async (payload) => {
+          // The live event carries the row without its details (stored encrypted); they are read through the server.
+          const ev = payload.new as AgentEvent;
+          const { data } = await ocRead("agent_events").select(EVENT_COLS).eq("id", ev.id).maybeSingle();
+          const row = (data ?? ev) as AgentEvent;
           setEvents((prev) => (prev.find((e) => e.id === row.id) ? prev : [...prev, row]));
         },
       )

@@ -39,7 +39,7 @@
 // trips, the rest of the batch is reported as skipped rather than each
 // one paying for its own DB round trip to learn the same thing.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { checkIpRateLimit, checkRateLimit, resolveConfiguredRateLimit, computeWindowStart } from "../_shared/rate-limit.ts";

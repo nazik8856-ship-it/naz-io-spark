@@ -4,7 +4,7 @@
 // answers "what needs you right now") — this is the longer-horizon "is
 // this getting better or worse" view. Service-role only.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { computeTrend } from "../_shared/trend.ts";
 import { resolveNotificationRecipients, type MemberRow, type PreferenceRow } from "../_shared/notification-preferences.ts";
 

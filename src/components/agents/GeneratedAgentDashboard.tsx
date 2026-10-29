@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import RichMarkdown from "@/components/chat/RichMarkdown";
 import { RunOutcomes } from "@/components/agents/RunOutcomes";
 import AgentControlReport from "@/components/agents/AgentControlReport";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 
 
 export type Widget =
@@ -964,13 +965,13 @@ function ExecutionFlowWidget({
     (async () => {
       if (!agentId) return;
       // Runs: prefer the run_ids seen in events, fall back to latest by agent.
-      const q = supabase.from("agent_runs")
+      const q = ocRead("agent_runs")
         .select("id, trigger, status, started_at, instruction")
         .eq("agent_id", agentId)
         .order("started_at", { ascending: false })
         .limit(limit);
       const { data: r } = runIds.length
-        ? await supabase.from("agent_runs")
+        ? await ocRead("agent_runs")
             .select("id, trigger, status, started_at, instruction")
             .in("id", runIds)
         : await q;

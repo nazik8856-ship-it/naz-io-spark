@@ -8,10 +8,19 @@
 // guard in src/test/field-encryption.test.ts and the migration's notes list what was adjusted). Every edge function that reaches
 // these tables wraps its client (also checked there).
 
-import { encColumn, openFields, sealFields as sealRow, sweepColumn, type FieldKeys } from "./field-crypto.ts";
+import { redactDeep } from "./redact-secrets.ts";
+import { dataKeysFromEnv, encColumn, openFields, sealFields as sealRow, sweepColumn, type FieldKeys } from "./field-crypto.ts";
 
 /** Per table: the encrypted columns, and the value an omitted column gets on insert (the database default it replaces). */
-export const ENCRYPTED_COLUMNS: Record<string, { cols: string[]; defaults?: Record<string, unknown> }> = {
+/**
+ * A few fields inside an encrypted JSON column that the database itself needs (to count, filter or join), copied to plain
+ * columns on every write: small identifiers and flags, never content.
+ */
+type Projection = Record<string, Record<string, { col: string; type: "boolean" | "text" }>>;
+/** redact: columns scrubbed of secrets before they are encrypted (what the redaction trigger did while they were plain). */
+export type EncryptedTable = { cols: string[]; defaults?: Record<string, unknown>; project?: Projection; redact?: string[] };
+
+export const ENCRYPTED_COLUMNS: Record<string, EncryptedTable> = {
   outer_control_sessions: {
     cols: ["objective", "context", "correction", "history", "next_input", "final_output", "pending_question", "pending_answer", "final_artifact"],
     defaults: { history: [] },
@@ -28,7 +37,40 @@ export const ENCRYPTED_COLUMNS: Record<string, { cols: string[]; defaults?: Reco
   // from a connected account (Gmail, Slack, Shopify…).
   website_form_submissions: { cols: ["fields", "submitter_ip"], defaults: { fields: {} } },
   integration_snapshots: { cols: ["data"], defaults: { data: {} } },
+  // Agents: what a run was asked and how it ended, and each step's details and reasoning.
+  agent_runs: { cols: ["instruction", "summary", "outcome"] },
+  // What a Generator request asked for (and the page it produced), and the account's own knowledge-base text.
+  missions: { cols: ["directive"] },
+  knowledge_base_entries: { cols: ["entry_text"] },
+  // The /respond API: an API key's own context entries, cached answers (and the question they answer), and logged questions.
+  api_key_context_entries: { cols: ["entry_text"] },
+  api_response_cache: { cols: ["message", "answer"] },
+  api_response_generations: { cols: ["message"] },
+  // An approval: what is being asked, the approver's comment, and what running it did (secrets removed first, as before).
+  pending_approvals: { cols: ["description", "comment", "execution_summary"], defaults: { description: "" }, redact: ["execution_summary"] },
+  agent_events: {
+    cols: ["payload", "reasoning"], defaults: { payload: {} },
+    project: { payload: {
+      ok: { col: "payload_ok", type: "boolean" },
+      ref: { col: "payload_ref", type: "text" },
+      original_event_id: { col: "payload_original_event_id", type: "text" },
+    } },
+  },
 };
+
+/** The plain copies of the projected fields, for the values being written. */
+export function projectedFields(spec: EncryptedTable, values: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [col, fields] of Object.entries(spec.project ?? {})) {
+    if (!(col in values)) continue;
+    const v = values[col] as Record<string, unknown> | null;
+    for (const [key, { col: target, type }] of Object.entries(fields)) {
+      const x = v && typeof v === "object" ? v[key] : undefined;
+      out[target] = type === "boolean" ? (x === true ? true : x === false ? false : null) : x === undefined || x === null ? null : String(x);
+    }
+  }
+  return out;
+}
 
 // deno-lint-ignore no-explicit-any
 type AnyClient = any;
@@ -93,7 +135,7 @@ export function withFieldEncryption(admin: AnyClient, keys: FieldKeys | Promise<
   });
 }
 
-function builder(admin: AnyClient, table: string, spec: { cols: string[]; defaults?: Record<string, unknown> }, keysP: Promise<FieldKeys>, keepPlain: boolean) {
+function builder(admin: AnyClient, table: string, spec: EncryptedTable, keysP: Promise<FieldKeys>, keepPlain: boolean) {
   const ops: Op[] = [];
   const proxy: AnyClient = new Proxy({}, {
     get(_t, prop) {
@@ -136,11 +178,13 @@ function refuseUnreadable(table: string, cols: string[], ops: Op[]) {
   }
 }
 
-async function run(admin: AnyClient, table: string, spec: { cols: string[]; defaults?: Record<string, unknown> }, keysP: Promise<FieldKeys>, ops: Op[], keepPlain = false) {
+async function run(admin: AnyClient, table: string, spec: EncryptedTable, keysP: Promise<FieldKeys>, ops: Op[], keepPlain = false) {
   refuseUnreadable(table, spec.cols, ops);
   const keys = await keysP;
   // Tests of the engine only: the plain value is written too, so their checks on stored rows keep working; reads still decrypt.
-  const sealFields = async (k: FieldKeys, t: string, id: string, values: Row, cols: string[]) => {
+  const sealFields = async (k: FieldKeys, t: string, id: string, values0: Row, cols: string[]) => {
+    const values: Row = { ...values0 };
+    for (const c of spec.redact ?? []) if (c in values && values[c] != null) values[c] = redactDeep(values[c]);
     const sealed = await sealRow(k, t, id, values, cols);
     if (keepPlain) for (const c of cols) if (c in values) sealed[c] = values[c];
     return sealed;
@@ -161,7 +205,7 @@ async function run(admin: AnyClient, table: string, spec: { cols: string[]; defa
       if (mut.m === "upsert" && !r.id && opts?.onConflict && opts.onConflict !== "id") throw new Error(`upsert into ${table} on ${opts.onConflict} needs the row id (it is part of what is encrypted)`);
       const full: Row = { ...(spec.defaults ?? {}), ...r, id: r.id ?? crypto.randomUUID() };
       for (const k of Object.keys(spec.defaults ?? {})) if (!(k in r)) full[k] = spec.defaults![k];
-      return { ...full, ...(await sealFields(keys, table, String(full.id), full, spec.cols)) };
+      return { ...full, ...projectedFields(spec, full), ...(await sealFields(keys, table, String(full.id), full, spec.cols)) };
     }));
     const next = shaped.map((o, i) => (i === mi ? { m: o.m, a: [Array.isArray(mut.a[0]) ? sealed : sealed[0], ...o.a.slice(1)] } : o));
     return await finish(await replay(admin, table, next));
@@ -172,7 +216,7 @@ async function run(admin: AnyClient, table: string, spec: { cols: string[]; defa
   if (!spec.cols.some((c) => c in patch)) return await finish(await replay(admin, table, shaped));
   const idOp = ops.find((o) => o.m === "eq" && o.a[0] === "id");
   if (idOp) {
-    const sealedPatch = { ...patch, ...(await sealFields(keys, table, String(idOp.a[1]), patch, spec.cols)) };
+    const sealedPatch = { ...patch, ...projectedFields(spec, patch), ...(await sealFields(keys, table, String(idOp.a[1]), patch, spec.cols)) };
     return await finish(await replay(admin, table, shaped.map((o, i) => (i === mi ? { m: "update", a: [sealedPatch, ...o.a.slice(1)] } : o))));
   }
   // No single row named: each matching row gets its own encrypted values (they are bound to the row), with the same conditions.
@@ -181,7 +225,7 @@ async function run(admin: AnyClient, table: string, spec: { cols: string[]; defa
   if (error) return { data: null, error };
   const out: unknown[] = [];
   for (const t of (targets ?? []) as Row[]) {
-    const sealedPatch = { ...patch, ...(await sealFields(keys, table, String(t.id), patch, spec.cols)) };
+    const sealedPatch = { ...patch, ...projectedFields(spec, patch), ...(await sealFields(keys, table, String(t.id), patch, spec.cols)) };
     const rest = ops.filter((o, i) => i > mi && SHAPERS.has(o.m) && o.m !== "single" && o.m !== "maybeSingle");
     const res = await replay(admin, table, [{ m: "update", a: [sealedPatch] }, ...filters, { m: "eq", a: ["id", t.id] }, ...rest.map((o) => (o.m === "select" && plan ? { m: "select", a: [plan.select] } : o))]);
     if (res.error) return { data: null, error: res.error };
@@ -209,4 +253,33 @@ export async function sweepEncryptedColumns(plainAdmin: AnyClient, keys: FieldKe
     out.encrypted += res.encrypted; out.reencrypted += res.reencrypted; out.failed += res.failed; out.columns++;
   }
   return out;
+}
+
+let envKeys: Promise<FieldKeys | null> | null = null;
+/** DATA_KEY from the environment, imported once per function instance (null where it is not set, e.g. in tests). */
+export function envDataKeys(): Promise<FieldKeys | null> {
+  return envKeys ??= dataKeysFromEnv();
+}
+
+/**
+ * Rows returned by a database function (an rpc) rather than a table read: each "<col>_enc" it returns is decrypted into "<col>"
+ * (the row's id must be returned too, as "id" or the field named by idKey). Rows without encrypted values are returned as they are.
+ */
+export async function openRows<T extends Record<string, unknown>>(table: string, rows: T[], keys?: FieldKeys | null, idKey = "id"): Promise<T[]> {
+  const cols = ENCRYPTED_COLUMNS[table]?.cols ?? [];
+  if (!rows?.length || !cols.length) return rows;
+  const k = keys === undefined ? await envDataKeys() : keys;
+  return await Promise.all(rows.map(async (r) => {
+    const present = cols.filter((c) => c in r || encColumn(c) in r);
+    if (!present.some((c) => r[encColumn(c)])) {
+      const o: Record<string, unknown> = { ...r };
+      for (const c of present) delete o[encColumn(c)];
+      return o as T;
+    }
+    if (!k) throw new Error(`${table}: encrypted values but DATA_KEY is not configured`);
+    if (idKey === "id") return await openFields(k, table, r, present);
+    // The row's own id is in another field (the function returns a different id as "id").
+    const opened = await openFields(k, table, { ...r, id: r[idKey] }, present);
+    return { ...opened, id: r.id } as T;
+  }));
 }

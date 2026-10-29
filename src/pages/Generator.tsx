@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 import { posthog } from "@/lib/posthog";
 import { PROCESS_MISSION_FUNCTION } from "@/constants";
+import { ocWrite } from "@/lib/encrypted-write"; // encrypted content is written through the server (data encryption, front 3)
 
 const Generator = () => {
   const navigate = useNavigate();
@@ -96,7 +97,7 @@ const Generator = () => {
       });
 
       // 2. Insert using verified column 'directive'
-      const { error } = await supabase.from("missions").insert({
+      const { error } = await ocWrite("missions").insert({
         user_id: session.user.id, // Verified policy: (auth.uid() = user_id)
         directive: generatedCode, // ALIGNED: Ensure this column exists in DB
         status: "completed"       

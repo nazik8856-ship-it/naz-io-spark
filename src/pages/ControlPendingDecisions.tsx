@@ -9,6 +9,7 @@ import { type TraceEntry } from "@/components/control/GateTraceList";
 import { DecisionExplanationPanel } from "@/components/control/DecisionExplanationPanel";
 import type { PrecedentCitationRecord, ApprovalResolution, DeferredDetail } from "@/lib/decision-explanation";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 4)
 
 type DecisionRow = {
   id: string;
@@ -87,8 +88,7 @@ export default function ControlPendingDecisions() {
     // pulled in separately so "Explain" doesn't say "no human was involved".
     const ids = fetched.map((r) => r.id);
     if (ids.length) {
-      const { data: approvalRows, error: approvalError } = await supabase
-        .from("pending_approvals")
+      const { data: approvalRows, error: approvalError } = await ocRead("pending_approvals")
         .select("decision_id, status, resolved_at, comment, required_approvals, approvals")
         .eq("user_id", accountId)
         .in("decision_id", ids)

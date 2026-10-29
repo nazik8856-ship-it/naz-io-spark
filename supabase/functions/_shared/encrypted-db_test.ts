@@ -1,7 +1,7 @@
 // Run with: deno test --allow-env supabase/functions/_shared/encrypted-db_test.ts
 // Data encryption, front 3: the client wrapper. What reaches the database is ciphertext; what the code reads is the text.
-import { ENCRYPTED_COLUMNS, planSelect, sweepEncryptedColumns, withFieldEncryption } from "./encrypted-db.ts";
-import { importFieldKeys, toB64 } from "./field-crypto.ts";
+import { ENCRYPTED_COLUMNS, openRows, planSelect, sweepEncryptedColumns, withFieldEncryption } from "./encrypted-db.ts";
+import { importFieldKeys, sealFields, toB64 } from "./field-crypto.ts";
 import { createClient, reset, state, table } from "../../../tests/outer-control-engine/fake-supabase.ts";
 
 function assert(ok: unknown, m: string) { if (!ok) throw new Error(m); }
@@ -89,8 +89,41 @@ Deno.test("filtering or sorting by an encrypted column is refused, by name", asy
 });
 
 Deno.test("every listed table and column", () => {
-  assertEquals(Object.keys(ENCRYPTED_COLUMNS).length, 8);
-  assertEquals(Object.values(ENCRYPTED_COLUMNS).reduce((n, s) => n + s.cols.length, 0), 29);
+  assertEquals(Object.keys(ENCRYPTED_COLUMNS).length, 16);
+  assertEquals(Object.values(ENCRYPTED_COLUMNS).reduce((n, s) => n + s.cols.length, 0), 43);
+});
+
+Deno.test("agent events: the payload is encrypted, its ok/ref/original_event_id flags stay filterable in their own columns", async () => {
+  const db = setup();
+  await db.from("agent_events").insert({ agent_id: "a1", kind: "action", payload: { ok: true, ref: "e-9", original_event_id: "e-1", email: "secret text" } });
+  const row = table("agent_events")[0];
+  assertEquals([row.payload, row.payload_ok, row.payload_ref, row.payload_original_event_id], [null, true, "e-9", "e-1"]);
+  assert(!row.payload_enc.includes("secret"), "the payload itself is only ciphertext");
+  const { data } = await db.from("agent_events").select("id, payload").eq("payload_ok", true);
+  assertEquals(data[0].payload.email, "secret text");
+  await db.from("agent_events").update({ payload: { ok: false } }).eq("id", row.id);
+  assertEquals([table("agent_events")[0].payload_ok, table("agent_events")[0].payload_ref], [false, null], "an update keeps the flags in step");
+  await db.from("agent_events").insert({ agent_id: "a1", kind: "note" });
+  assertEquals(table("agent_events")[1].payload_ok, null, "no payload given: the {} default, no flags");
+});
+
+Deno.test("approvals: an execution summary is scrubbed of secrets before it is encrypted; the description default is kept", async () => {
+  const db = setup();
+  await db.from("pending_approvals").insert({ user_id: "u1", status: "pending", execution_summary: `sent with key ${["sk", "live", "0123456789abcdefghijklmnop"].join("_")}` } /* a made-up key, built in pieces */);
+  const { data } = await db.from("pending_approvals").select("description, execution_summary").eq("user_id", "u1").single();
+  assert(!data.execution_summary.includes("0123456789abcdefghij"), `the key is scrubbed: ${data.execution_summary}`);
+  assertEquals(data.description, "");
+});
+
+Deno.test("rows from a database function: <col>_enc is decrypted with the row's own id, wherever the function returns it", async () => {
+  const sealed = await sealFields(KEYS, "pending_approvals", "row-7", { description: "Refund order 42" }, ["description"]);
+  const rows = await openRows("pending_approvals", [
+    { id: "decision-3", real_source: "approval", approval_row_id: "row-7", ...sealed },
+    { id: "decision-4", real_source: "decision", approval_row_id: null, description: "Plain decision", description_enc: null },
+  ], KEYS, "approval_row_id");
+  assertEquals(rows.map((r) => [r.id, r.description, "description_enc" in r]), [["decision-3", "Refund order 42", false], ["decision-4", "Plain decision", false]]);
+  await rejects(openRows("pending_approvals", [{ id: "d", approval_row_id: "row-8", ...sealed }], KEYS, "approval_row_id"), "");
+  await rejects(openRows("pending_approvals", [{ id: "d", approval_row_id: "row-7", ...sealed }], null, "approval_row_id"), "DATA_KEY is not configured");
 });
 
 Deno.test("the column list sent to the database asks for the encrypted columns and the id, and nothing extra comes back", () => {

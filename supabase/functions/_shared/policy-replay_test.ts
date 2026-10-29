@@ -81,7 +81,7 @@ function fakeAdmin(opts: { activePolicy?: RpcResult; activeThrows?: boolean; rep
         if (opts.activeThrows) throw new Error("no active policy row");
         return Promise.resolve(opts.activePolicy ?? { data: null, error: null });
       }
-      if (name === "get_replayable_real_decisions") {
+      if (name === "get_replayable_real_decisions_v2") {
         return Promise.resolve(opts.replayableRows ?? { data: [], error: null });
       }
       throw new Error(`unexpected rpc: ${name}`);

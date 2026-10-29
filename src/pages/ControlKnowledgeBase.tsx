@@ -19,6 +19,8 @@ import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
+import { ocWrite } from "@/lib/encrypted-write"; // encrypted content is written through the server (data encryption, front 3)
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 
 type Entry = {
   id: string;
@@ -61,8 +63,7 @@ export default function ControlKnowledgeBase() {
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const { data } = await anyDb
-      .from("knowledge_base_entries")
+    const { data } = await ocRead("knowledge_base_entries")
       .select("id, entry_text, action_type_pattern, provider, enabled, pending_review, auto_drafted, created_at")
       .eq("user_id", accountId)
       .order("created_at", { ascending: false });
@@ -74,7 +75,7 @@ export default function ControlKnowledgeBase() {
   const add = async () => {
     if (!user || !canWrite || !text.trim() || busy) return;
     setBusy(true);
-    const { error } = await anyDb.from("knowledge_base_entries").insert({
+    const { error } = await ocWrite("knowledge_base_entries").insert({
       user_id: accountId,
       entry_text: text.trim(),
       action_type_pattern: scope,
