@@ -81,7 +81,16 @@ class Q {
   }
   then(res: any, rej?: any) { return Promise.resolve(this.run()).then(res, rej); }
 }
+// With NAZAI_FIELD_ENC=1 (the second engine run) every client goes through the field encryption wrapper, as in the edge
+// functions: the engine's real reads and writes then store ciphertext and must read their own text back.
+import { withFieldEncryption } from "../../supabase/functions/_shared/encrypted-db.ts";
+import { importFieldKeys } from "../../supabase/functions/_shared/field-crypto.ts";
+const fieldKeys = (globalThis as any).process?.env?.NAZAI_FIELD_ENC === "1" ? importFieldKeys("engine-test-data-key-0123456789abcdef") : null;
 export function createClient(_u: string, _k: string, _o?: any) {
+  const c = rawClient();
+  return fieldKeys ? withFieldEncryption(c, fieldKeys as any, { keepPlainForTests: true }) : c;
+}
+function rawClient() {
   return {
     auth: { getUser: async () => ({ data: { user: state.user } }) },
     from: (t: string) => permissive(new Q(t)),

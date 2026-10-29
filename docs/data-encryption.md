@@ -37,6 +37,43 @@ Imported projects use the same format with their own key (`PROJECTS_KEY`, `proje
 
 The report and the lock run only as the server (`service_role`).
 
+## What is encrypted
+
+| Table | Columns | Since |
+| --- | --- | --- |
+| `imported_projects` | `content` (with `PROJECTS_KEY`) | before front 2 |
+| `outer_control_sessions` | objective, context, correction, history, next_input, final_output, pending_question, pending_answer, final_artifact | front 3 |
+| `outer_control_session_steps` | request, reply_text, note | front 3 |
+| `outer_control_evaluations` | input_excerpt, output_text, summary, next_step, changes | front 3 |
+| `outer_control_workflows` | objective, context, summary, final_output, final_artifact, goal_pool | front 3 |
+| `outer_control_memory` | summary, data | front 3 |
+| `outer_control_completion_checks` | summary | front 3 |
+
+How the Outer Control columns work:
+
+- **Server:** every edge function that reaches these tables imports `createClient` from `_shared/encrypted-client.ts`.
+  Its clients encrypt these columns on every write and decrypt them on every read (`_shared/encrypted-db.ts`), so the
+  engine code is unchanged. Filtering or sorting by an encrypted column is refused with an error naming it (the database
+  only holds ciphertext, so it would silently match nothing).
+- **Website:** screens read these tables through the `outer-control-read` edge function (`src/lib/outer-control-read.ts`,
+  used like `supabase.from(table)`). It runs the same query as the signed-in user, so row level security decides what comes
+  back exactly as before, and returns the text decrypted. Queries that read no encrypted column (counts, ids, statuses)
+  still go straight to the database.
+- **Live updates:** an insert event carries the row without its text; the live feed reads the text through
+  `outer-control-read`.
+- **Existing rows** are converted by the session sweep every five minutes, a batch per column, using the report.
+- **Safety net:** a write that puts plain text into one of these columns (a path that does not encrypt) clears the
+  encrypted twin in a trigger, so the newer value is what is read, never an older encrypted one. The sweep encrypts it
+  again.
+- **What the database still checks:** the "completed" guards used to compare the final result's text with its artifact.
+  For an encrypted result they check that the result, its artifact and (for a session) a passing checklist with the
+  result's fingerprint are all present; the server builds and verifies the artifact before saving it.
+  `outer_control_tool_usage` counts encrypted requests too.
+
+Checks: `src/test/field-encryption.test.ts` (every function uses the encrypting client, the code and migration list the
+same columns, no screen reads an encrypted column directly), the engine tests run a second time with every client going
+through the wrapper, and `supabase/tests/secrets/encrypt_outer_control_test.sql`.
+
 ## Fingerprints
 
 | Fingerprint | Kind | Why |

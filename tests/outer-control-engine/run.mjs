@@ -27,7 +27,12 @@ let failed = false;
 for (const name of ["session-test", "goal-test", "projects-test"]) {
   const test = await transform(await readFile(path.join(here, `${name}.mts`), "utf8"), { loader: "ts", format: "esm", target: "node20" });
   await writeFile(path.join(out, `${name}.mjs`), test.code);
-  const run = spawnSync(process.execPath, [path.join(out, `${name}.mjs`)], { stdio: "inherit" });
-  if (run.status !== 0) failed = true;
+  // Twice: as is, and with every database client going through the field encryption wrapper (data encryption, front 3), so the
+  // engine's real reads and writes must round-trip through ciphertext.
+  for (const enc of ["0", "1"]) {
+    if (enc === "1") console.log(`\n${name}, with field encryption:`);
+    const run = spawnSync(process.execPath, [path.join(out, `${name}.mjs`)], { stdio: "inherit", env: { ...process.env, NAZAI_FIELD_ENC: enc } });
+    if (run.status !== 0) failed = true;
+  }
 }
 process.exit(failed ? 1 : 0);

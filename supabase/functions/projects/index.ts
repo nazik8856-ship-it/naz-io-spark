@@ -22,7 +22,7 @@
 // new is stored. Everything but "read" needs the owner of the account (or an owner-role team member with the integrations
 // permission); "read" is open to every active team member.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";

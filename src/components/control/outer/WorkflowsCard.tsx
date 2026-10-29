@@ -13,6 +13,7 @@ import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, visibleItems } from "@/lib/outer-control-ui";
 import { isGoalTask, type CriterionView } from "@/lib/outer-control-goal-ui";
 import { legsPayload, type CondKind, type DraftLeg, type SessionStatus, type WorkflowStatus } from "@/lib/outer-control-sessions";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any; // the tables are new and not in the generated types
@@ -57,7 +58,7 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
     const GOAL_COLS = "mode, criteria_state, max_rounds, rounds_used, blocked_reason";
     // Archived Tasks are left out of the list (nothing is deleted). Before a newer column exists the older query still works.
     const wfQuery = (withArchive: boolean, withGoal: boolean) => {
-      let q = anyDb.from("outer_control_workflows").select(`${WF_COLS}${withGoal ? `, ${GOAL_COLS}` : ""}${withArchive ? ", archived_at" : ""}`).eq("user_id", accountId).neq("kind", "single");
+      let q = ocRead("outer_control_workflows").select(`${WF_COLS}${withGoal ? `, ${GOAL_COLS}` : ""}${withArchive ? ", archived_at" : ""}`).eq("user_id", accountId).neq("kind", "single");
       if (withArchive) q = q.is("archived_at", null);
       return q.order("started_at", { ascending: false }).limit(8);
     };
@@ -77,7 +78,7 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
     if (rows.length) {
       const h = await anyDb.from("outer_control_task_handoffs").select("id, task_id, from_leg, from_label, to_leg, outcome, rules, note").in("task_id", rows.map((r) => r.id)).order("created_at");
       setHandoffs((h.data ?? []) as HandoffRow[]);
-      const l = await anyDb.from("outer_control_sessions")
+      const l = await ocRead("outer_control_sessions")
         .select("id, workflow_id, leg_no, tool_id, objective, status, stop_reason, final_output, depends_on, final_artifact").in("workflow_id", rows.map((r) => r.id)).order("leg_no");
       setLegs((l.data ?? []) as LegRow[]);
     } else { setLegs([]); setHandoffs([]); }

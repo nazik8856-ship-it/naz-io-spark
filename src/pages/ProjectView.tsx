@@ -15,6 +15,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { ControlBadge, ProtectedBadge, SourceBadge, ViewOnlyBadge } from "@/components/projects/ProjectBadges";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import NotionLiveCheck from "@/components/projects/NotionLiveCheck";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any;
@@ -88,7 +89,7 @@ export default function ProjectView() {
       anyDb.from("imported_projects").select(PROJECT_COLS).eq("id", id).eq("user_id", accountId).maybeSingle(),
       anyDb.from("project_rules").select("id, name, pattern, severity, redact, enabled, created_at").eq("project_id", id).order("created_at"),
       anyDb.from("meaning_rules").select("id, name, description, action, enabled, created_at").eq("project_id", id).order("created_at"),
-      anyDb.from("outer_control_workflows").select("id, objective, status, started_at").eq("user_id", accountId).eq("project_id", id).order("started_at", { ascending: false }).limit(5),
+      ocRead("outer_control_workflows").select("id, objective, status, started_at").eq("user_id", accountId).eq("project_id", id).order("started_at", { ascending: false }).limit(5),
       anyDb.from("project_events").select("id, project_id, project_name, actor_id, action, detail, created_at").eq("project_id", id).order("created_at", { ascending: false }).limit(20),
       // The text is stored encrypted: only the server can read it.
       callProjects("read", { project_id: id, account_id: accountId }),

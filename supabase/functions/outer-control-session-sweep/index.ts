@@ -3,7 +3,7 @@
 // resolved, advance sessions that are mid-run (a driver was cut off or a retry is
 // due), end sessions that have waited for a person too long, and re-test the connection of tools that are in use.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, createPlainClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 import { contactRuleStopping, resumeSession } from "../_shared/outer-control-session.ts";
 import { liveTest, runKeepAlive } from "../_shared/outer-control-keepalive.ts";
@@ -13,6 +13,7 @@ import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { driveSession, progressWorkflow } from "../_shared/outer-control-workflow.ts";
 import { refingerprintProjects, reencryptProjects, sealLegacyProjects } from "../_shared/projects.ts";
 import { dataKeysFromEnv } from "../_shared/field-crypto.ts";
+import { sweepEncryptedColumns } from "../_shared/encrypted-db.ts";
 import { projectKeysFromEnv } from "../_shared/project-crypto.ts";
 
 const corsHeaders = {
@@ -47,10 +48,18 @@ Deno.serve(async (req) => {
     fingerprints = await refingerprintProjects(admin, keys, await dataKeys);
   } catch (e) { console.error("sealing projects failed:", e instanceof Error ? e.message : e); }
 
+  // Outer Control content written before encryption (or by a path that does not encrypt) is encrypted, and during a DATA_KEY
+  // rotation values on the previous key are moved, a batch per column every five minutes. Not consequential either.
+  let encryption: Record<string, number> | null = null;
+  if (new Date().getUTCMinutes() % 5 === 0) {
+    try { encryption = await sweepEncryptedColumns(createPlainClient(Deno.env.get("SUPABASE_URL")!, serviceKey), await dataKeys); }
+    catch (e) { console.error("encrypting stored content failed:", e instanceof Error ? e.message : e); }
+  }
+
   if (await areConsequentialSweepsPaused(admin)) return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });
 
   const now = Date.now();
-  const out = { sealed, project_key: projectKey, project_fingerprints: fingerprints, resumed: 0, advanced: 0, expired: 0, workflows: 0, errors: 0, keepalive: { tested: 0, failed: 0, skipped: 0, broke: 0 } };
+  const out = { sealed, project_key: projectKey, project_fingerprints: fingerprints, encryption, resumed: 0, advanced: 0, expired: 0, workflows: 0, errors: 0, keepalive: { tested: 0, failed: 0, skipped: 0, broke: 0 } };
 
   // 1. Paused sessions: resume or end them if what they waited for has happened.
   const { data: waiting } = await admin.from("outer_control_sessions")

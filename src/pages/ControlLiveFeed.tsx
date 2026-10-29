@@ -9,6 +9,9 @@ import { classifyDecisionOutcome, type DecisionOutcome } from "@/lib/roi-report"
 import { type TraceEntry } from "@/components/control/GateTraceList";
 import { DecisionExplanationPanel } from "@/components/control/DecisionExplanationPanel";
 import type { PrecedentCitationRecord, DeferredDetail } from "@/lib/decision-explanation";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
+
+const OUTER_EVAL_COLS = "id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed, agent_id, api_key_id, matches, input_excerpt, output_text, action_params, corrected_params, execution_summary";
 
 const MAX_ROWS = 200;
 
@@ -155,9 +158,8 @@ export default function ControlLiveFeed() {
         .eq("user_id", accountId)
         .order("created_at", { ascending: false })
         .limit(50),
-      anyDb
-        .from("outer_control_evaluations")
-        .select("id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed, agent_id, api_key_id, matches, input_excerpt, output_text, action_params, corrected_params, execution_summary")
+      ocRead("outer_control_evaluations")
+        .select(OUTER_EVAL_COLS)
         .eq("user_id", accountId)
         .order("created_at", { ascending: false })
         .limit(50),
@@ -192,10 +194,13 @@ export default function ControlLiveFeed() {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "outer_control_evaluations", filter: `user_id=eq.${accountId}` },
-        (payload) => {
+        async (payload) => {
           if (pausedRef.current) return;
-          const row = payload.new as OuterEvalRow;
-          setRows((prev) => [{ kind: "outer" as const, id: row.id, created_at: row.created_at, row }, ...prev].sort(byNewest).slice(0, MAX_ROWS));
+          // The live event carries the row without its text (stored encrypted); the text is read through the server.
+          const ev = payload.new as OuterEvalRow;
+          const { data } = await ocRead("outer_control_evaluations").select(OUTER_EVAL_COLS).eq("id", ev.id).maybeSingle();
+          const row = (data ?? ev) as OuterEvalRow;
+          setRows((prev) => prev.some((x) => x.id === row.id) ? prev : [{ kind: "outer" as const, id: row.id, created_at: row.created_at, row }, ...prev].sort(byNewest).slice(0, MAX_ROWS));
         },
       )
       .subscribe((status) => setOuterConnected(status === "SUBSCRIBED"));

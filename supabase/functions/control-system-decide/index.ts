@@ -10,7 +10,7 @@
 //  2) Anything else -> normal conversational reply.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { buildCapabilityBlock } from "../_shared/capability-registry.ts";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";

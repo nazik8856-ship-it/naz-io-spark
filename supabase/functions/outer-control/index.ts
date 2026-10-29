@@ -63,7 +63,7 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import { judgeStateless } from "../_shared/outer-control-judgement.ts";
 import { relayToTask, taskForKey } from "../_shared/outer-control-relay.ts";
 import { driveSession } from "../_shared/outer-control-workflow.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { checkRateLimit, checkIpRateLimit } from "../_shared/rate-limit.ts";
 import { scanAction, type SafetyMatch } from "../_shared/safety-scanner.ts";

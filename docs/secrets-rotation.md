@@ -42,15 +42,16 @@ keys inside the functions (`_shared/field-crypto.ts`); the value itself is never
 
 1. Generate a new key (`openssl rand -base64 32`).
 2. In Edge Function secrets: add `DATA_KEY_PREVIOUS` = the **current** value of `DATA_KEY`. Then set `DATA_KEY` = the new key.
-3. Redeploy `projects`, `outer-control`, then `outer-control-session-sweep` (the sweep last: it starts moving things to the new
-   key).
+3. Redeploy every function that uses it: `projects`, `outer-control`, `outer-control-drive`, `outer-control-read`,
+   `control-engine`, `control-system-decide`, `agent-runtime`, `api-keys`, then `outer-control-session-sweep` (the sweep last:
+   it starts moving things to the new key; its encryption step runs every five minutes).
 4. Wait until nothing is left on the old key. The session sweep reports `"project_fingerprints": { "moved": n, "left": n }`; once
    columns are encrypted with `DATA_KEY`, check them too:
    ```sql
    select * from encryption_report();
    ```
    `keys` shows how many values are on each key id (the 8 characters after `v2:`). Wait for `left` 0 and only the new id in `keys`.
-5. Delete `DATA_KEY_PREVIOUS`. Redeploy the same three functions.
+5. Delete `DATA_KEY_PREVIOUS`. Redeploy the same functions.
 
 Check: open a project (its fingerprint shows), refresh a linked one (it says "unchanged" when the source has not changed), and
 send the same `external_id` twice to `/evaluate` (the second call returns the first verdict).
@@ -59,7 +60,10 @@ What the old key leaves behind: evaluation fingerprints (`outer_control_evaluati
 full text is not kept. After step 5, retrying a request sent before the rotation with the same `external_id` is answered
 `external_id_reused` instead of the earlier verdict; send it with a new `external_id`.
 
-A missing, misnamed or too short `DATA_KEY` stops `projects` and `outer-control` at startup with the name in the error.
+A missing, misnamed or too short `DATA_KEY` stops each of those functions at startup with the name in the error.
+
+**Never lose this key.** Outer Control content (tasks, replies, results, memory, evaluations) is stored encrypted with it;
+without it that content can not be read. Keep a copy in your password manager.
 
 ## RESEND_WEBHOOK_SECRET (verifies Resend's email events)
 

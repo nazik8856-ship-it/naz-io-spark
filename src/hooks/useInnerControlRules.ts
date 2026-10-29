@@ -18,6 +18,7 @@ import {
   type SafetyRuleRow,
 } from "@/lib/inner-control-ui";
 import { rulesFor, type InnerProject } from "@/lib/inner-projects";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 // Stale generated types: control-system tables aren't in types.ts yet.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any;
@@ -46,7 +47,7 @@ async function loadOuterTasks(accountId: string, rows: DecisionRow[], project?: 
     if (!linked.length) return none;
     const taskIds = [...new Set(linked.map((r) => r.outer_task_id).filter((x): x is string => !!x))];
     const [tasks, legs] = await Promise.all([
-      anyDb.from("outer_control_workflows").select("id, objective, status, final_output").in("id", taskIds),
+      ocRead("outer_control_workflows").select("id, objective, status, final_output").in("id", taskIds),
       anyDb.from("outer_control_sessions").select("workflow_id, leg_no, tool_id").in("workflow_id", taskIds),
     ]);
     const legRows = (legs.data ?? []) as { workflow_id: string; leg_no: number; tool_id: string }[];
