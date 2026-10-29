@@ -4,7 +4,7 @@
 // legitimate write path into website_form_submissions; the table itself has
 // no anon/authenticated INSERT policy at all.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 
 // Inlined from _shared/rate-limit.ts's checkIpRateLimit -- kept local so this

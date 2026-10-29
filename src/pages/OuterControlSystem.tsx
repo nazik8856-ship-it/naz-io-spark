@@ -16,6 +16,7 @@ import OuterStatusBar, { type Attention } from "@/components/control/outer/Outer
 import RecentDecisions, { type DecisionRow } from "@/components/control/outer/RecentDecisions";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { healthText, type Verdict } from "@/lib/outer-control-ui";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 
 type EvaluationRow = DecisionRow;
 
@@ -295,8 +296,7 @@ export default function OuterControlSystem() {
           .eq("user_id", accountId)
           .is("revoked_at", null)
           .contains("scopes", ["control:verdict"]),
-        anyDb
-          .from("outer_control_evaluations")
+        ocRead("outer_control_evaluations")
           .select("id, source_model, verdict, trust_score, summary, created_at, content_kind, action_type, executed, matches, input_excerpt, output_text, action_params, corrected_params, execution_summary, changes, next_step, shadow_matches, approval_id")
           .eq("user_id", accountId)
           .order("created_at", { ascending: false })

@@ -24,6 +24,7 @@ import ToolPlanBox, { useToolPlan } from "./ToolPlanBox";
 import { stepInstruction } from "@/lib/outer-control-tool-plan";
 import { saveTextFile, sessionsToCsv, type ExportSession } from "@/lib/outer-control-export";
 import { describeCompletion, describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, waitingReason, type CompletionView, type HandoffView, type PendingKind, type SessionStatus, type StepLike } from "@/lib/outer-control-sessions";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 
 // The tables are new and not in the generated Supabase types.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -81,7 +82,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     const SESSION_COLS = "id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no, completion, final_artifact, finished_at";
     // Archived items are left out unless asked for. Before the archive column exists the plain query still works.
     const sessionsQuery = (withArchive: boolean) => {
-      let q = anyDb.from("outer_control_sessions").select(withArchive ? `${SESSION_COLS}, archived_at` : SESSION_COLS).eq("user_id", accountId);
+      let q = ocRead("outer_control_sessions").select(withArchive ? `${SESSION_COLS}, archived_at` : SESSION_COLS).eq("user_id", accountId);
       if (withArchive && !showArchived) q = q.is("archived_at", null);
       return q.order("started_at", { ascending: false }).limit(10);
     };
@@ -113,10 +114,10 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   }, [accountId, showArchived]);
 
   const loadSteps = useCallback(async (sessionId: string) => {
-    const { data } = await anyDb.from("outer_control_session_steps")
+    const { data } = await ocRead("outer_control_session_steps")
       .select("id, step_no, attempt, verdict, next_action, error, note, reply_text, decision").eq("session_id", sessionId).order("step_no").order("attempt");
     setSteps((p) => ({ ...p, [sessionId]: (data ?? []) as Step[] }));
-    const { data: mem } = await anyDb.from("outer_control_memory").select("id, kind, summary").eq("session_id", sessionId).order("created_at");
+    const { data: mem } = await ocRead("outer_control_memory").select("id, kind, summary").eq("session_id", sessionId).order("created_at");
     setMemory((p) => ({ ...p, [sessionId]: (mem ?? []) as MemoryRow[] }));
   }, []);
 
@@ -163,7 +164,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const exportHistory = async () => {
     setBusy("export");
     const cols = "id, tool_id, objective, status, step_count, max_steps, stop_reason, started_at, finished_at, workflow_id, leg_no, final_artifact";
-    const q = (withArchive: boolean) => anyDb.from("outer_control_sessions").select(withArchive ? `${cols}, archived_at` : cols).eq("user_id", accountId).order("started_at", { ascending: false }).limit(1000);
+    const q = (withArchive: boolean) => ocRead("outer_control_sessions").select(withArchive ? `${cols}, archived_at` : cols).eq("user_id", accountId).order("started_at", { ascending: false }).limit(1000);
     let r = await q(true);
     if (r?.error) r = await q(false);
     setBusy(null);

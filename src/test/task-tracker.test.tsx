@@ -110,7 +110,8 @@ describe("TaskTracker", () => {
     expect((await screen.findByTestId("task-headline")).textContent).toBe("Waiting for ChatGPT (1 of 2 answered)…");
     expect(screen.getByText("Research & synthesize")).toBeTruthy();
     expect(screen.getByText("AI safety evaluation")).toBeTruthy();
-    expect(screen.getAllByTestId("task-node").map((n) => n.getAttribute("data-state"))).toEqual(["asking", "done", "waiting"]);
+    // The steps can render a moment after the headline: wait for them rather than read them at once.
+    await waitFor(() => expect(screen.getAllByTestId("task-node").map((n) => n.getAttribute("data-state"))).toEqual(["asking", "done", "waiting"]));
     expect(screen.getByText("At the same time")).toBeTruthy();
     expect(screen.queryByTestId("final-artifact")).toBeNull();
   });
@@ -124,8 +125,8 @@ describe("TaskTracker", () => {
     state.legs = [leg(1, "a", "failed"), leg(2, "b", "completed"), leg(3, "w", "completed", [1, 2])];
     rerender(<TaskTracker accountId="u1" refreshKey={1} />);
     await waitFor(() => expect(screen.getByTestId("task-headline").textContent).toBe("Result ready, written without ChatGPT (no answer)."));
-    expect((toast.success as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe("Result ready: Research & synthesize");
-    expect(screen.getByTestId("final-artifact")).toBeTruthy();
+    await waitFor(() => expect((toast.success as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])).toContain("Result ready: Research & synthesize"));
+    expect(await screen.findByTestId("final-artifact")).toBeTruthy();
     expect(screen.getByTestId("report-missing").textContent).toMatch(/Not included because it did not answer: ChatGPT \(The tool answered HTTP 503\)\./);
     expect(screen.getByTestId("proof-tools").textContent).toMatch(/Did not answer: ChatGPT/);
     expect(screen.getByTestId("task-node-result").getAttribute("data-state")).toBe("done");

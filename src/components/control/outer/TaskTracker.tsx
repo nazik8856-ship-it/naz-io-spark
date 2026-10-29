@@ -10,6 +10,7 @@ import { callProjects } from "@/lib/projects";
 import { ACTION_INFO, splitTaskTitle } from "@/lib/outer-control-report-doc";
 import { hasWriter, projectCheckSummary, taskProgress, type NodeState, type ProgressLeg, type ProgressNode, type ProgressTool, type ProjectCheckRow, type ProjectCheckSummary, type TaskProgress } from "@/lib/outer-control-task-progress";
 import FinalArtifactView from "./FinalArtifactView";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any; // the tables are new and not in the generated types
@@ -103,7 +104,7 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
     const COLS = "id, objective, status, started_at, stop_reason, final_artifact";
     // Before the project column exists the older query still works.
     const q = (withArchive: boolean, withProject: boolean) => {
-      let x = anyDb.from("outer_control_workflows").select(withProject ? `${COLS}, project_id` : COLS).eq("user_id", accountId).neq("kind", "single");
+      let x = ocRead("outer_control_workflows").select(withProject ? `${COLS}, project_id` : COLS).eq("user_id", accountId).neq("kind", "single");
       if (withArchive) x = x.is("archived_at", null);
       return x.order("started_at", { ascending: false }).limit(8);
     };

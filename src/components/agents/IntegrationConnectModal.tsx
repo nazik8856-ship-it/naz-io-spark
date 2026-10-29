@@ -19,6 +19,7 @@ import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages
 import { IntegrationLogo, getIntegrationLogo } from "@/components/IntegrationLogos";
 import ExecutionLog from "@/components/execution/ExecutionLog";
 import { useExecutionLog } from "@/hooks/useExecutionLog";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 4)
 
 type Integration = {
   name: string;
@@ -443,8 +444,7 @@ export default function IntegrationConnectModal({
         });
         setStep("connected");
         // Load latest live snapshot
-        const { data: snap } = await supabase
-          .from("integration_snapshots")
+        const { data: snap } = await ocRead("integration_snapshots")
           .select("kind, data, error, fetched_at")
           .eq("user_id", user.id)
           .eq("provider", providerKey)
