@@ -14,7 +14,7 @@ describe("ocRead", () => {
     const fetchMock = vi.fn(async () => ({ status: 200, json: async () => ({ data: [{ id: "s1", objective: "Write the plan" }], error: null }) }));
     vi.stubGlobal("fetch", fetchMock);
     const r = await ocRead("outer_control_sessions").select("id, objective").eq("user_id", "u1").order("started_at", { ascending: false }).limit(10);
-    expect(r).toEqual({ data: [{ id: "s1", objective: "Write the plan" }], error: null });
+    expect(r).toEqual({ data: [{ id: "s1", objective: "Write the plan" }], error: null, count: null });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://x.test/functions/v1/outer-control-read");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer user-jwt");
@@ -25,8 +25,18 @@ describe("ocRead", () => {
 
   it("an error or an unreachable server comes back as an error, never as empty data that looks real", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ status: 400, json: async () => ({ data: null, error: { message: "unknown table" } }) })));
-    expect(await ocRead("outer_control_sessions").select("id")).toEqual({ data: null, error: { message: "unknown table" } });
+    expect(await ocRead("outer_control_sessions").select("id")).toEqual({ data: null, error: { message: "unknown table" }, count: null });
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
     expect((await ocRead("outer_control_sessions").select("id")).error?.message).toMatch(/Could not reach/);
+  });
+
+  it("passes the row count through when the screen asks for one", async () => {
+    const fetchMock = vi.fn(async () => ({ status: 200, json: async () => ({ data: [], error: null, count: 7 }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    const r = await ocRead("pending_approvals").select("id, description", { count: "exact" }).or("status.eq.pending,status.eq.approved");
+    expect(r.count).toBe(7);
+    expect(JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body)).ops).toEqual([
+      { m: "select", a: ["id, description", { count: "exact" }] }, { m: "or", a: ["status.eq.pending,status.eq.approved"] },
+    ]);
   });
 });

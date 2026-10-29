@@ -19,6 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ocWrite } from "@/lib/encrypted-write"; // encrypted content is written through the server (data encryption, front 3)
 
 type AgentRow = {
   id: string;
@@ -99,7 +100,7 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
     const userId = (await supabase.auth.getUser()).data.user?.id;
     const ev = events.find((e) => e.id === eventId);
     if (!ev || !userId) return;
-    const { error } = await supabase.from("agent_events").insert({
+    const { error } = await ocWrite("agent_events").insert({
       agent_id: agentId, user_id: userId, run_id: ev.run_id,
       kind: "clarification_answer", payload: { ref: eventId, answer },
     } as never);
@@ -212,7 +213,7 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
     if (when.getTime() <= Date.now()) { toast.error("Pick a time in the future."); return; }
     const userId = (await supabase.auth.getUser()).data.user?.id;
     if (!userId) { toast.error("Not signed in."); return; }
-    const { error } = await supabase.from("agent_runs").insert({
+    const { error } = await ocWrite("agent_runs").insert({
       agent_id: agentId,
       user_id: userId,
       trigger: "scheduled",

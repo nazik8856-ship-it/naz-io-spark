@@ -5,7 +5,7 @@
 //          intakeAnswers?: Record<string,string>, role?: string }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { pickRole } from "../_shared/agent-role-classifier.ts";
 import { deriveCronLabel, nextRunFromCron } from "../_shared/agent-schedule.ts";

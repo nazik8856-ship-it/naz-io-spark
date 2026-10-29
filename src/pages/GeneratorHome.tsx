@@ -32,6 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 
 
 // Small "..." menu used on each recent project card — Edit navigates to the
@@ -191,8 +192,7 @@ export default function GeneratorHome() {
       // Derive plain outcome per agent from its latest run's actual events.
       const ids = agents.map((a) => a.id);
       if (ids.length === 0) return;
-      const { data: evs } = await supabase
-        .from("agent_events")
+      const { data: evs } = await ocRead("agent_events")
         .select("agent_id, run_id, kind, payload, created_at")
         .in("agent_id", ids)
         .order("created_at", { ascending: false })

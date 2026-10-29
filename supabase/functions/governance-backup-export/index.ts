@@ -4,7 +4,9 @@
 // for a real restore drill -- it exists so "if the platform backup silently
 // failed for a week" isn't a total-loss scenario. Service-role only.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// The plain client on purpose: the backup copies rows as stored, so encrypted content stays encrypted in the backup files
+// (restorable with DATA_KEY), never written out decrypted (data encryption, front 4).
+import { createPlainClient as createClient } from "../_shared/encrypted-client.ts";
 import { BACKUP_TABLES, backupObjectPath, isExpiredBackupFolder, todayUtcDateString } from "../_shared/governance-backup.ts";
 
 const corsHeaders = {

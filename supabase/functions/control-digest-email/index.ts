@@ -3,7 +3,7 @@
 // sends when there's real signal (_shared/digest.ts) — an empty digest
 // every day trains people to ignore it. Service-role only.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { getSpendStatus } from "../_shared/spend-guard.ts";
 import { digestHasContent } from "../_shared/digest.ts";
 import { isAuditIntegrityFailure } from "../_shared/audit-integrity.ts";

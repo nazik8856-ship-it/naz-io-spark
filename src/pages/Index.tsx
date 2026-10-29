@@ -57,6 +57,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
 const DEPLOYMENT_ID = "NAZAI_V2_FINAL_BENTO";
@@ -417,8 +418,7 @@ export default function Dashboard() {
     const fetchMissions = async () => {
       setMissionsLoading(true);
       try {
-        const { data, error } = await supabase
-          .from("missions")
+        const { data, error } = await ocRead("missions")
           .select("*")
           .eq("user_id", userId)
           .order("created_at", { ascending: false });

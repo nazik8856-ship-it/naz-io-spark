@@ -86,7 +86,7 @@ Deno.test("findNearDuplicateCachedResponse: applies the similarity floor", async
   const client: FakeAdmin = {
     from: fakeFromReturning(null),
     rpc(name, args) {
-      assertEquals(name, "search_response_cache");
+      assertEquals(name, "search_response_cache_v2");
       assertEquals(args._api_key_id, "key-1");
       assertEquals(args._policy_version, 3);
       return Promise.resolve({

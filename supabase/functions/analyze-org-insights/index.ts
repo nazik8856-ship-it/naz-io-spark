@@ -1,6 +1,6 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
@@ -57,7 +57,7 @@ serve(async (req) => {
         .select("agent_id, payload, created_at")
         .eq("user_id", userId)
         .eq("kind", "action")
-        .contains("payload", { ok: true })
+        .eq("payload_ok", true) // payload is stored encrypted; its ok flag has its own plain column
         .order("created_at", { ascending: false })
         .limit(120),
       admin.from("agent_runs")

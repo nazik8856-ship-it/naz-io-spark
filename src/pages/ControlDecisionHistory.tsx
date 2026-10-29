@@ -10,6 +10,7 @@ import { classifyDecisionOutcome, type DecisionOutcome } from "@/lib/roi-report"
 import { type TraceEntry } from "@/components/control/GateTraceList";
 import { DecisionExplanationPanel } from "@/components/control/DecisionExplanationPanel";
 import type { PrecedentCitationRecord, ApprovalResolution, DecisionOverride, DeferredDetail } from "@/lib/decision-explanation";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 4)
 
 // action_type/provider (2026-08-23) and gate_trace (2026-08-18) aren't in
 // the generated Supabase types yet.
@@ -160,8 +161,7 @@ export default function ControlDecisionHistory() {
     // through the approvals queue.
     const ids = pageRows.map((r) => r.id);
     if (ids.length) {
-      const { data: approvalRows } = await anyDb
-        .from("pending_approvals")
+      const { data: approvalRows } = await ocRead("pending_approvals")
         .select("decision_id, status, resolved_at, comment")
         .eq("user_id", accountId)
         .in("decision_id", ids)

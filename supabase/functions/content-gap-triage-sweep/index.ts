@@ -14,12 +14,13 @@
 // so there's nothing to loop over per org the way audit-integrity-sweep
 // does.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
 import { formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 import { findRelevantContext } from "../_shared/response-context.ts";
 import { findMatchingRule, type ResponseRule } from "../_shared/response-rules.ts";
 import { pickMatchingCluster, MAX_GAPS_PER_SWEEP_PHASE, type GapClusterCandidate } from "../_shared/content-gap-triage.ts";
+import { openRows } from "../_shared/encrypted-db.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,9 +53,10 @@ Deno.serve(async (req) => {
   // question is no longer a real gap.
   let resolved = 0;
   {
-    const { data: rows, error } = await admin.rpc("list_resolvable_gap_candidates", { _limit: MAX_GAPS_PER_SWEEP_PHASE });
-    if (error) console.error(`[CONTENT GAP TRIAGE] list_resolvable_gap_candidates failed: ${error.message}`);
-    const candidates = (rows ?? []) as ResolvableCandidate[];
+    // _v2 returns the encrypted question too (data encryption, front 4), decrypted here.
+    const { data: rows, error } = await admin.rpc("list_resolvable_gap_candidates_v2", { _limit: MAX_GAPS_PER_SWEEP_PHASE });
+    if (error) console.error(`[CONTENT GAP TRIAGE] list_resolvable_gap_candidates_v2 failed: ${error.message}`);
+    const candidates = await openRows("api_response_generations", (rows ?? []) as ResolvableCandidate[]);
 
     for (const gap of candidates) {
       try {

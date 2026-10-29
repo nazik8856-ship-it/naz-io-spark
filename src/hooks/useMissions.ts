@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { ocWrite } from "@/lib/encrypted-write"; // encrypted content is written through the server (data encryption, front 3)
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 
 export interface Mission {
   id: string;
@@ -22,8 +24,7 @@ export function useMissions() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from("missions")
+    const { data, error } = await ocRead("missions")
       .select("id, directive, attachment_urls, status, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
@@ -42,15 +43,14 @@ export function useMissions() {
   const saveMission = async (directive: string, attachmentUrls: string[]) => {
     if (!user) return null;
 
-    const { data, error } = await supabase
-      .from("missions")
+    const { data, error } = await ocWrite("missions")
       .insert({
         user_id: user.id,
         directive,
         attachment_urls: attachmentUrls,
         status: "completed",
       })
-      .select()
+      .select("*")
       .single();
 
     if (!error && data) {

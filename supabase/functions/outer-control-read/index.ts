@@ -29,8 +29,8 @@ Deno.serve(async (req) => {
     // deno-lint-ignore no-explicit-any
     let q: any = db.from(body.table);
     for (const o of body.ops as { m: string; a: unknown[] }[]) q = q[o.m](...o.a);
-    const { data, error } = await q;
-    return json({ data: data ?? null, error: error ? { message: error.message, code: error.code } : null });
+    const { data, error, count } = await q;
+    return json({ data: data ?? null, error: error ? { message: error.message, code: error.code } : null, ...(typeof count === "number" ? { count } : {}) });
   } catch (e) {
     console.error("outer-control-read failed:", e instanceof Error ? e.message : e);
     return json({ data: null, error: { message: "Could not read this. Try again." } }, 500);

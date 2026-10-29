@@ -18,6 +18,7 @@ import {
   type RealDecisionRow,
   type RealTrafficReplaySummary,
 } from "./real-traffic-replay.ts";
+import { openRows } from "./encrypted-db.ts";
 
 export type PolicySnapshot = {
   hard_rules?: unknown;
@@ -358,8 +359,10 @@ async function runRealTrafficDiff(
   proposedSnapshot: PolicySnapshot,
   limit: number,
 ): Promise<{ error: string; status: number } | { changed: RealTrafficReplayReport["changed"]; summary: RealTrafficReplaySummary }> {
-  const { data: rows, error } = await admin.rpc("get_replayable_real_decisions", { _user_id: userId, _limit: limit });
+  // _v2 returns an approval's own row id and its encrypted description (data encryption, front 4), decrypted here.
+  const { data: raw, error } = await admin.rpc("get_replayable_real_decisions_v2", { _user_id: userId, _limit: limit });
   if (error) return { error: error.message, status: 500 };
+  const rows = await openRows("pending_approvals", (raw ?? []) as (RealDecisionRow & Record<string, unknown>)[], undefined, "approval_row_id");
 
   const changed: RealTrafficReplayReport["changed"] = [];
   const diffs: RealActionDiff[] = [];

@@ -50,6 +50,14 @@ The report and the lock run only as the server (`service_role`).
 | `outer_control_completion_checks` | summary | front 3 |
 | `website_form_submissions` | fields, submitter_ip (what visitors type into a generated site's forms, and their address) | front 4 |
 | `integration_snapshots` | data (live data read from a connected account: Gmail, Slack, Shopify…) | front 4 |
+| `agent_runs` | instruction, summary, outcome (what an agent run was asked and how it ended) | front 4 |
+| `agent_events` | payload, reasoning (each step an agent took and why) | front 4 |
+| `missions` | directive (what a Generator request asked for) | front 4 |
+| `knowledge_base_entries` | entry_text | front 4 |
+| `api_key_context_entries` | entry_text (the /respond API's context) | front 4 |
+| `api_response_cache` | message, answer (cached /respond questions and answers) | front 4 |
+| `api_response_generations` | message (logged /respond questions) | front 4 |
+| `pending_approvals` | description, comment, execution_summary (what an approval asks, the approver's comment, what the action reported) | front 4 |
 
 How these columns work (all but `imported_projects`):
 
@@ -61,8 +69,25 @@ How these columns work (all but `imported_projects`):
   used like `supabase.from(table)`). It runs the same query as the signed-in user, so row level security decides what comes
   back exactly as before, and returns the text decrypted. Queries that read no encrypted column (counts, ids, statuses)
   still go straight to the database.
+- **Website writes:** the few screens that write these tables (an agent's run and clarification answer, a Generator request, a
+  knowledge-base entry) send the same write to the `encrypted-write` edge function (`src/lib/encrypted-write.ts`, used like
+  `supabase.from(table)`), which runs it as the signed-in user and encrypts the content first. An approver's sign-off with a
+  comment goes through it too: the vote is recorded by `record_approval_signoff` as before, then the comment is stored encrypted.
+  Writes that touch no encrypted column (a status, an on/off switch) still go straight to the database.
 - **Live updates:** an insert event carries the row without its text; the live feed reads the text through
   `outer-control-read`.
+- **Flags the database needs:** three small fields inside an agent event's payload stay readable in their own plain columns,
+  filled on every write: `payload_ok` (did the action succeed, counted by `get_business_context`), `payload_ref` (which question an
+  answer belongs to) and `payload_original_event_id` (which event an approval answers). They are flags and ids, not content.
+- **Database functions that returned this text** have `_v2` versions that also return the row id and the encrypted value, which
+  the server decrypts (`openRows`): `get_replayable_real_decisions_v2`, `search_response_cache_v2`, `search_response_context_v2`,
+  `list_resolvable_gap_candidates_v2`. Similarity search is unchanged: embeddings are not encrypted.
+- **Secret scrubbing:** an approval's `execution_summary` is scrubbed of secrets by the server before it is encrypted (what the
+  database trigger did while it was stored in the clear).
+- **Backups:** the daily governance backup copies rows exactly as stored, so these columns stay encrypted in its files
+  (restorable with `DATA_KEY`).
+- **The /respond cache key** (`api_response_cache.message_hash`) is a keyed fingerprint (`DATA_KEY`). Entries saved before with a
+  plain SHA-256 are simply not matched and expire on their own.
 - **Existing rows** are converted by the session sweep every five minutes, a batch per column, using the report.
 - **Safety net:** a write that puts plain text into one of these columns (a path that does not encrypt) clears the
   encrypted twin in a trigger, so the newer value is what is read, never an older encrypted one. The sweep encrypts it
@@ -73,8 +98,24 @@ How these columns work (all but `imported_projects`):
   `outer_control_tool_usage` counts encrypted requests too.
 
 Checks: `src/test/field-encryption.test.ts` (every function uses the encrypting client, the code and migration list the
-same columns, no screen reads an encrypted column directly), the engine tests run a second time with every client going
-through the wrapper, and `supabase/tests/secrets/encrypt_outer_control_test.sql`.
+same columns, no screen reads or writes an encrypted column directly), the engine tests run a second time with every client
+going through the wrapper, `supabase/functions/_shared/encrypted-db_test.ts` and `encrypted-write_test.ts`, and
+`supabase/tests/secrets/encrypt_outer_control_test.sql` and `encrypt_front4_test.sql`.
+
+## What is deliberately not encrypted
+
+- **Notes kept in the browser** (`localStorage`: the ground-truth notes, the command-center checklist, preview caches): they live
+  only on the user's own device and never reach NazAI's database, so `DATA_KEY` has nothing to protect there; moving them to the
+  server would change how the screens behave.
+- **`profiles.user_context`**: unused by the code (every value is `{}`).
+- **Embeddings** used for similarity search: they are numbers derived from the text, needed by the database to search.
+
+## Locking a column
+
+Once `encryption_report()` shows 0 plain values for a column, `encryption_enforce('<table>', '<col>')` makes the database refuse
+any write that puts text in the clear there. It is not applied yet: with it, a write path that does not encrypt fails with an
+error instead of being caught and encrypted by the sweep a few minutes later. Apply it per column once the report has stayed at
+0 for a while.
 
 ## Fingerprints
 

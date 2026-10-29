@@ -17,7 +17,7 @@
 // authored one for free, no extra column needed (same reasoning as
 // last round's rule-auto-draft-sweep).
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { detectRecurringReasonPatterns, draftKnowledgeBaseEntryFromPattern, type ReasonCodedResolution } from "../_shared/knowledge-base-auto-draft.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 

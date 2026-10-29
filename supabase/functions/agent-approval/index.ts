@@ -9,7 +9,7 @@
 // item was queued must still stop it from actually running now.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { runControlGate } from "../_shared/control-gate.ts";
 import { claimRowOnce, releaseRowClaim } from "../_shared/idempotency.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
@@ -85,7 +85,8 @@ serve(async (req) => {
         .select("id, kind")
         .eq("agent_id", evt.agent_id)
         .in("kind", ["approval_granted", "approval_rejected"])
-        .contains("payload", { original_event_id: eventId })
+        // payload is stored encrypted; the event it answers is kept in its own plain column (data encryption, front 3).
+        .eq("payload_original_event_id", eventId)
         .limit(1).maybeSingle();
       if (existing) return json({ ok: true, alreadyResolved: existing.kind });
       // Claimed by another in-flight request that hasn't logged its

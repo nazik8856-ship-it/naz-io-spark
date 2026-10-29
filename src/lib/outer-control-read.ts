@@ -6,7 +6,7 @@ import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/
 
 type Op = { m: string; a: unknown[] };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type ReadResult = { data: any; error: { message: string; code?: string } | null };
+export type ReadResult = { data: any; error: { message: string; code?: string } | null; count?: number | null };
 
 async function run(table: string, ops: Op[]): Promise<ReadResult> {
   const { data: sess } = await supabase.auth.getSession();
@@ -19,13 +19,13 @@ async function run(table: string, ops: Op[]): Promise<ReadResult> {
     });
     const body = await resp.json().catch(() => null);
     if (!body) return { data: null, error: { message: `Could not read (HTTP ${resp.status}).` } };
-    return { data: body.data ?? null, error: body.error ?? null };
+    return { data: body.data ?? null, error: body.error ?? null, count: typeof body.count === "number" ? body.count : null };
   } catch {
     return { data: null, error: { message: "Could not reach Outer Control. Try again." } };
   }
 }
 
-const METHODS = ["select", "eq", "neq", "in", "is", "not", "gt", "gte", "lt", "lte", "order", "limit", "range", "single", "maybeSingle"] as const;
+const METHODS = ["select", "eq", "neq", "in", "is", "not", "gt", "gte", "lt", "lte", "or", "order", "limit", "range", "single", "maybeSingle"] as const;
 type Builder = { [K in (typeof METHODS)[number]]: (...a: unknown[]) => Builder } & PromiseLike<ReadResult>;
 
 /** A read of an Outer Control table, built like supabase.from(table).select(...)... and awaited the same way. */
