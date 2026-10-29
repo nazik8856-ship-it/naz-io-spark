@@ -1,4 +1,4 @@
-// Data encryption, front 3: the content columns below are stored encrypted (field-crypto.ts, DATA_KEY), and the server code does
+// Data encryption, fronts 3 and 4: the content columns below are stored encrypted (field-crypto.ts, DATA_KEY), and the server code does
 // not have to know. withFieldEncryption(admin, keys) returns a client that behaves like the service client, except that for these
 // tables every write puts the text into "<col>_enc" (encrypted, bound to its row) and empties "<col>", and every read gives the
 // text back in "<col>" (rows not converted yet are read as stored). Nothing else changes: filters, ordering, counts and every other
@@ -24,6 +24,10 @@ export const ENCRYPTED_COLUMNS: Record<string, { cols: string[]; defaults?: Reco
   },
   outer_control_memory: { cols: ["summary", "data"] },
   outer_control_completion_checks: { cols: ["summary"] },
+  // Data encryption, front 4: what visitors type into a generated website's forms (and their address), and the live data read
+  // from a connected account (Gmail, Slack, Shopify…).
+  website_form_submissions: { cols: ["fields", "submitter_ip"], defaults: { fields: {} } },
+  integration_snapshots: { cols: ["data"], defaults: { data: {} } },
 };
 
 // deno-lint-ignore no-explicit-any

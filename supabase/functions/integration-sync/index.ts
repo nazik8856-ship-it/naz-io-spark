@@ -17,7 +17,7 @@
 // reason about instead of "unknown".
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient, type SupabaseClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { ensureAccessToken, gmailList } from "../_shared/gmail.ts";
 import { readSecret } from "../_shared/integration-secrets.ts";
 import { SHOPIFY_API_VERSION } from "../_shared/shopify.ts";

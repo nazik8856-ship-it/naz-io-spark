@@ -14,7 +14,7 @@ const read = (p: string) => readFileSync(p, "utf8");
 const registrySrc = read(join(FUNCTIONS, "_shared/encrypted-db.ts"));
 const block = registrySrc.slice(registrySrc.indexOf("ENCRYPTED_COLUMNS"), registrySrc.indexOf("};", registrySrc.indexOf("ENCRYPTED_COLUMNS")));
 const REGISTRY: Record<string, string[]> = Object.fromEntries(
-  [...block.matchAll(/(outer_control_\w+): \{\s*cols: \[([^\]]*)\]/g)].map((m) => [m[1], [...m[2].matchAll(/"(\w+)"/g)].map((x) => x[1])]),
+  [...block.matchAll(/^\s*(\w+): \{\s*cols: \[([^\]]*)\]/gm)].map((m) => [m[1], [...m[2].matchAll(/"(\w+)"/g)].map((x) => x[1])]),
 );
 const TABLES = Object.keys(REGISTRY);
 
@@ -36,14 +36,14 @@ function reach(file: string, seen = new Set<string>()): Set<string> {
 const touchesTables = (file: string) => TABLES.some((t) => read(file).includes(`"${t}"`));
 
 describe("Outer Control content is encrypted by every edge function that reaches it", () => {
-  it("lists the six tables and 26 columns", () => {
-    expect(TABLES.length).toBe(6);
-    expect(Object.values(REGISTRY).flat().length).toBe(26);
+  it("lists the eight tables and 29 columns", () => {
+    expect(TABLES.length).toBe(8);
+    expect(Object.values(REGISTRY).flat().length).toBe(29);
   });
 
   it("the code and the migration encrypt the same columns", () => {
-    const sql = read(join(ROOT, "supabase/migrations/20261103010000_encrypt_outer_control.sql"));
-    const inSql = [...sql.matchAll(/\('(outer_control_\w+)', '(\w+)'\)/g)].map((m) => `${m[1]}.${m[2]}`).sort();
+    const sql = ["20261103010000_encrypt_outer_control.sql", "20261103020000_encrypt_visitor_and_integration_data.sql"].map((f) => read(join(ROOT, "supabase/migrations", f))).join("\n");
+    const inSql = [...sql.matchAll(/\('(\w+)', '(\w+)'\)/g)].filter((m) => REGISTRY[m[1]]).map((m) => `${m[1]}.${m[2]}`).sort();
     const inCode = Object.entries(REGISTRY).flatMap(([t, cols]) => cols.map((c) => `${t}.${c}`)).sort();
     expect([...new Set(inSql)]).toEqual(inCode);
   });
@@ -52,7 +52,7 @@ describe("Outer Control content is encrypted by every edge function that reaches
   const reaching = fns.filter((d) => [...reach(join(FUNCTIONS, d, "index.ts"))].some(touchesTables));
 
   it("finds the functions that reach the tables", () => {
-    expect(reaching).toEqual(expect.arrayContaining(["outer-control", "outer-control-drive", "outer-control-session-sweep", "projects", "agent-runtime"]));
+    expect(reaching).toEqual(expect.arrayContaining(["outer-control", "outer-control-drive", "outer-control-session-sweep", "projects", "agent-runtime", "website-form-submit", "integration-sync", "analyze-inputs", "measure-decision-outcomes"]));
   });
 
   it.each(reaching)("%s creates its clients with the encrypting createClient", (fn) => {
@@ -81,7 +81,7 @@ describe("screens read Outer Control content through the server", () => {
     const consts = new Map([...src.matchAll(/const (\w+) = ["`]([^"`]*)["`]/g)].map((m) => [m[1], m[2]]));
     const fill = (expr: string) => expr.replace(/\$\{(\w+)\}/g, (_, n) => consts.get(n) ?? "").replace(/^(\w+)$/, (_, n) => consts.get(n) ?? n);
     const out: { table: string; cols: string[] }[] = [];
-    for (const m of src.matchAll(/\.from\(\s*"(outer_control_\w+)"\s*\)\s*\.select\(\s*(?:"([^"]*)"|`([^`]*)`|(\w+ \? `[^`]*` : \w+|[\w]+))/g)) {
+    for (const m of src.matchAll(/\.from\(\s*"(\w+)"\s*\)\s*\.select\(\s*(?:"([^"]*)"|`([^`]*)`|(\w+ \? `[^`]*` : \w+|[\w]+))/g)) {
       const raw = m[2] ?? m[3] ?? m[4] ?? "";
       const parts = raw.includes("?") ? raw.split(/[?:]/).map((x) => x.trim().replace(/^`|`$/g, "")) : [raw];
       const cols = parts.flatMap((x) => fill(x).split(",")).map((c) => c.trim().split(":").pop()!.split("->")[0].trim()).filter(Boolean);

@@ -89,8 +89,8 @@ Deno.test("filtering or sorting by an encrypted column is refused, by name", asy
 });
 
 Deno.test("every listed table and column", () => {
-  assertEquals(Object.keys(ENCRYPTED_COLUMNS).length, 6);
-  assertEquals(Object.values(ENCRYPTED_COLUMNS).reduce((n, s) => n + s.cols.length, 0), 26);
+  assertEquals(Object.keys(ENCRYPTED_COLUMNS).length, 8);
+  assertEquals(Object.values(ENCRYPTED_COLUMNS).reduce((n, s) => n + s.cols.length, 0), 29);
 });
 
 Deno.test("the column list sent to the database asks for the encrypted columns and the id, and nothing extra comes back", () => {

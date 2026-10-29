@@ -48,8 +48,10 @@ The report and the lock run only as the server (`service_role`).
 | `outer_control_workflows` | objective, context, summary, final_output, final_artifact, goal_pool | front 3 |
 | `outer_control_memory` | summary, data | front 3 |
 | `outer_control_completion_checks` | summary | front 3 |
+| `website_form_submissions` | fields, submitter_ip (what visitors type into a generated site's forms, and their address) | front 4 |
+| `integration_snapshots` | data (live data read from a connected account: Gmail, Slack, Shopify…) | front 4 |
 
-How the Outer Control columns work:
+How these columns work (all but `imported_projects`):
 
 - **Server:** every edge function that reaches these tables imports `createClient` from `_shared/encrypted-client.ts`.
   Its clients encrypt these columns on every write and decrypt them on every read (`_shared/encrypted-db.ts`), so the

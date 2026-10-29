@@ -71,6 +71,21 @@ SELECT pg_temp.check((SELECT requests_30d = 2 FROM public.outer_control_tool_usa
 -- The report sees the new columns.
 SELECT pg_temp.check((SELECT plain_rows = 2 AND encrypted_rows = 1 FROM public.encryption_report() WHERE table_name = 'outer_control_sessions' AND column_name = 'objective'), 'the report counts plain (2 rows written in the clear) and encrypted values');
 
+-- Front 4: form submissions and integration snapshots, the same way.
+DROP TABLE IF EXISTS public.website_form_submissions, public.integration_snapshots CASCADE;
+CREATE TABLE public.website_form_submissions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, fields jsonb NOT NULL DEFAULT '{}', submitter_ip text);
+CREATE TABLE public.integration_snapshots (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, data jsonb NOT NULL DEFAULT '{}');
+\ir ../../migrations/20261103020000_encrypt_visitor_and_integration_data.sql
+\ir ../../migrations/20261103020000_encrypt_visitor_and_integration_data.sql
+INSERT INTO public.website_form_submissions (fields, fields_enc, submitter_ip, submitter_ip_enc) VALUES (NULL, 'v2:k:iv:f', NULL, 'v2:k:iv:ip');
+INSERT INTO public.integration_snapshots (data, data_enc) VALUES (NULL, 'v2:k:iv:d');
+SELECT pg_temp.check((SELECT fields IS NULL AND submitter_ip IS NULL AND fields_enc IS NOT NULL FROM public.website_form_submissions), 'a visitor''s form is stored only encrypted');
+UPDATE public.integration_snapshots SET data = '{"plain": true}';
+SELECT pg_temp.check((SELECT data_enc IS NULL FROM public.integration_snapshots), 'a plain write wins here too');
+SELECT pg_temp.check((SELECT count(*) = 3 FROM public.encrypted_columns WHERE table_name IN ('website_form_submissions', 'integration_snapshots')), 'listed for the report');
+DROP TABLE public.website_form_submissions, public.integration_snapshots;
+DELETE FROM public.encrypted_columns WHERE table_name IN ('website_form_submissions', 'integration_snapshots');
+
 DROP VIEW public.outer_control_tool_usage;
 DROP TABLE public.outer_control_sessions, public.outer_control_session_steps, public.outer_control_evaluations, public.outer_control_workflows, public.outer_control_memory, public.outer_control_completion_checks;
 DELETE FROM public.encrypted_columns WHERE table_name LIKE 'outer_control_%';

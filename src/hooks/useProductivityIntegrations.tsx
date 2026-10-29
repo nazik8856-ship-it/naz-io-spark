@@ -11,6 +11,7 @@ import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 4)
 
 export const PRODUCTIVITY_TOOLS = [
   { id: "gdrive", label: "Google Drive", providerKey: "Google Drive" },
@@ -57,7 +58,7 @@ export function useProductivityIntegrations(active: boolean): {
     });
     const list = Array.from(providers);
     if (!list.length) { setConnected([]); return; }
-    const { data: snaps } = await supabase.from("integration_snapshots").select("provider, kind, data, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50);
+    const { data: snaps } = await ocRead("integration_snapshots").select("provider, kind, data, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50);
     const byProv = new Map<string, string>();
     ((snaps || []) as Array<{ provider: string; data: unknown }>).forEach((s) => {
       const p = String(s.provider).toLowerCase();

@@ -43,7 +43,8 @@ keys inside the functions (`_shared/field-crypto.ts`); the value itself is never
 1. Generate a new key (`openssl rand -base64 32`).
 2. In Edge Function secrets: add `DATA_KEY_PREVIOUS` = the **current** value of `DATA_KEY`. Then set `DATA_KEY` = the new key.
 3. Redeploy every function that uses it: `projects`, `outer-control`, `outer-control-drive`, `outer-control-read`,
-   `control-engine`, `control-system-decide`, `agent-runtime`, `api-keys`, then `outer-control-session-sweep` (the sweep last:
+   `control-engine`, `control-system-decide`, `agent-runtime`, `api-keys`, `website-form-submit`, `integration-sync`,
+   `analyze-inputs`, `measure-decision-outcomes`, then `outer-control-session-sweep` (the sweep last:
    it starts moving things to the new key; its encryption step runs every five minutes).
 4. Wait until nothing is left on the old key. The session sweep reports `"project_fingerprints": { "moved": n, "left": n }`; once
    columns are encrypted with `DATA_KEY`, check them too:
@@ -62,8 +63,8 @@ full text is not kept. After step 5, retrying a request sent before the rotation
 
 A missing, misnamed or too short `DATA_KEY` stops each of those functions at startup with the name in the error.
 
-**Never lose this key.** Outer Control content (tasks, replies, results, memory, evaluations) is stored encrypted with it;
-without it that content can not be read. Keep a copy in your password manager.
+**Never lose this key.** Outer Control content (tasks, replies, results, memory, evaluations), website form submissions and
+connected-account snapshots are stored encrypted with it; without it that content can not be read. Keep a copy in your password manager.
 
 ## RESEND_WEBHOOK_SECRET (verifies Resend's email events)
 

@@ -63,6 +63,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 4)
 
 type WebsiteView = "preview" | "code";
 type Device = "desktop" | "tablet" | "phone";
@@ -767,8 +768,7 @@ export default function GeneratedDashboard() {
   const openLeads = async () => {
     setLeadsOpen(true);
     setLoadingLeads(true);
-    const { data, error } = await supabase
-      .from("website_form_submissions")
+    const { data, error } = await ocRead("website_form_submissions")
       .select("id, page_slug, section_kind, fields, created_at")
       .eq("website_id", id!)
       .order("created_at", { ascending: false })
