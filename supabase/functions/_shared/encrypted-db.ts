@@ -22,14 +22,18 @@ export type EncryptedTable = { cols: string[]; defaults?: Record<string, unknown
 
 export const ENCRYPTED_COLUMNS: Record<string, EncryptedTable> = {
   outer_control_sessions: {
-    cols: ["objective", "context", "correction", "history", "next_input", "final_output", "pending_question", "pending_answer", "final_artifact"],
+    cols: ["objective", "context", "correction", "history", "next_input", "final_output", "pending_question", "pending_answer", "final_artifact", "handoff"],
     defaults: { history: [] },
   },
-  outer_control_session_steps: { cols: ["request", "reply_text", "note"] },
-  outer_control_evaluations: { cols: ["input_excerpt", "output_text", "summary", "next_step", "changes"], defaults: { changes: [] } },
+  outer_control_session_steps: { cols: ["request", "reply_text", "note", "decision"] },
+  // Front 5: also the text a rule quoted (matches[].sample) and what an action reported (secrets removed first, as before).
+  outer_control_evaluations: {
+    cols: ["input_excerpt", "output_text", "summary", "next_step", "changes", "execution_summary", "matches", "shadow_matches"],
+    defaults: { changes: [], matches: [], shadow_matches: [] }, redact: ["execution_summary"],
+  },
   outer_control_workflows: {
-    cols: ["objective", "context", "summary", "final_output", "final_artifact", "goal_pool"],
-    defaults: { goal_pool: [] },
+    cols: ["objective", "context", "summary", "final_output", "final_artifact", "goal_pool", "done_criteria", "criteria_state"],
+    defaults: { goal_pool: [], done_criteria: [], criteria_state: [] },
   },
   outer_control_memory: { cols: ["summary", "data"] },
   outer_control_completion_checks: { cols: ["summary"] },
@@ -44,7 +48,7 @@ export const ENCRYPTED_COLUMNS: Record<string, EncryptedTable> = {
   knowledge_base_entries: { cols: ["entry_text"] },
   // The /respond API: an API key's own context entries, cached answers (and the question they answer), and logged questions.
   api_key_context_entries: { cols: ["entry_text"] },
-  api_response_cache: { cols: ["message", "answer"] },
+  api_response_cache: { cols: ["message", "answer", "sources"] },
   api_response_generations: { cols: ["message"] },
   // An approval: what is being asked, the approver's comment, and what running it did (secrets removed first, as before).
   pending_approvals: { cols: ["description", "comment", "execution_summary"], defaults: { description: "" }, redact: ["execution_summary"] },

@@ -90,7 +90,7 @@ Deno.test("filtering or sorting by an encrypted column is refused, by name", asy
 
 Deno.test("every listed table and column", () => {
   assertEquals(Object.keys(ENCRYPTED_COLUMNS).length, 16);
-  assertEquals(Object.values(ENCRYPTED_COLUMNS).reduce((n, s) => n + s.cols.length, 0), 43);
+  assertEquals(Object.values(ENCRYPTED_COLUMNS).reduce((n, s) => n + s.cols.length, 0), 51);
 });
 
 Deno.test("agent events: the payload is encrypted, its ok/ref/original_event_id flags stay filterable in their own columns", async () => {

@@ -57,6 +57,9 @@ keys inside the functions (`_shared/field-crypto.ts`); the value itself is never
    select * from encryption_report();
    ```
    `keys` shows how many values are on each key id (the 8 characters after `v2:`). Wait for `left` 0 and only the new id in `keys`.
+   The governance backups are re-encrypted with the new key by the next daily backup run (60 files per run, so up to four
+   runs for 30 days of backups). Check with the restore drill on the oldest day before going on:
+   `POST governance-backup-export {"action": "verify", "date": "<oldest date>"}` must answer `"ok": true`.
 5. Delete `DATA_KEY_PREVIOUS`. Redeploy the same functions.
 
 Check: open a project (its fingerprint shows), refresh a linked one (it says "unchanged" when the source has not changed), and
@@ -70,8 +73,8 @@ A missing, misnamed or too short `DATA_KEY` stops each of those functions at sta
 
 **Never lose this key.** Outer Control content (tasks, replies, results, memory, evaluations), website form submissions,
 connected-account snapshots, agent runs and events, Generator requests, knowledge-base entries, the /respond API's context,
-cache and questions, and approvals' text are stored encrypted with it; without it that content can not be read (the governance
-backups keep it encrypted too). Keep a copy in your password manager.
+cache and questions, approvals' text and the governance backup files are stored encrypted with it; without it that content can
+not be read and the backups can not be restored. Keep a copy in your password manager.
 
 ## RESEND_WEBHOOK_SECRET (verifies Resend's email events)
 

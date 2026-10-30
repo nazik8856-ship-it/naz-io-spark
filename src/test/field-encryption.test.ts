@@ -36,19 +36,50 @@ function reach(file: string, seen = new Set<string>()): Set<string> {
 const touchesTables = (file: string) => TABLES.some((t) => read(file).includes(`"${t}"`));
 
 describe("Outer Control content is encrypted by every edge function that reaches it", () => {
-  it("lists the sixteen tables and 43 columns", () => {
+  it("lists the sixteen tables and 51 columns", () => {
     expect(TABLES.length).toBe(16);
-    expect(Object.values(REGISTRY).flat().length).toBe(43);
+    expect(Object.values(REGISTRY).flat().length).toBe(51);
   });
 
   it("the code and the migration encrypt the same columns", () => {
     const sql = [
       "20261103010000_encrypt_outer_control.sql", "20261103020000_encrypt_visitor_and_integration_data.sql", "20261103030000_encrypt_agent_runs_and_events.sql",
-      "20261103040000_encrypt_missions_kb_api_data.sql", "20261103050000_encrypt_pending_approvals.sql",
+      "20261103040000_encrypt_missions_kb_api_data.sql", "20261103050000_encrypt_pending_approvals.sql", "20261104010000_encryption_front5.sql",
     ].map((f) => read(join(ROOT, "supabase/migrations", f))).join("\n");
     const inSql = [...sql.matchAll(/\('(\w+)', '(\w+)'\)/g)].filter((m) => REGISTRY[m[1]]).map((m) => `${m[1]}.${m[2]}`).sort();
     const inCode = Object.entries(REGISTRY).flatMap(([t, cols]) => cols.map((c) => `${t}.${c}`)).sort();
     expect([...new Set(inSql)]).toEqual(inCode);
+  });
+
+  // Data encryption, front 5: a new text or JSON column on a table that holds encrypted content must be encrypted (listed in
+  // ENCRYPTED_COLUMNS, with its _enc twin) or exempt with a reason (an ('table', 'column', 'reason') row for
+  // encryption_exempt_columns). Checked on every migration from front 5 on; encryption_weekly_check() checks the live schema.
+  const CONTENT_TABLES = [...TABLES, "imported_projects"];
+  const MIGRATIONS = join(ROOT, "supabase/migrations");
+  const migrationSql = readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql")).sort().map((f) => ({ f, sql: read(join(MIGRATIONS, f)) }));
+  const EXEMPT = new Set(migrationSql.flatMap(({ sql }) => [...sql.matchAll(/\('(\w+)', '(\w+)', '[^']{10,}'\)/g)].map((m) => `${m[1]}.${m[2]}`)));
+  function uncoveredColumns(sql: string): string[] {
+    const out: string[] = [];
+    for (const alter of sql.matchAll(/ALTER TABLE (?:IF EXISTS )?(?:ONLY )?(?:public\.)?"?(\w+)"?([^;]*);/gi)) {
+      if (!CONTENT_TABLES.includes(alter[1])) continue;
+      for (const add of alter[2].matchAll(/ADD COLUMN (?:IF NOT EXISTS )?"?(\w+)"?\s+(text|jsonb|json|varchar|character varying)\b/gi)) {
+        const col = add[1];
+        if (col.endsWith("_enc") || (REGISTRY[alter[1]] ?? []).includes(col) || EXEMPT.has(`${alter[1]}.${col}`)) continue;
+        out.push(`${alter[1]}.${col}`);
+      }
+    }
+    return out;
+  }
+
+  it("finds an uncovered content column (the guard itself works)", () => {
+    expect(uncoveredColumns("ALTER TABLE public.outer_control_sessions ADD COLUMN IF NOT EXISTS reviewer_note text, ADD COLUMN step_no int;")).toEqual(["outer_control_sessions.reviewer_note"]);
+    expect(uncoveredColumns("ALTER TABLE public.outer_control_sessions ADD COLUMN status_detail text;")).toEqual(["outer_control_sessions.status_detail"]);
+    expect(uncoveredColumns("ALTER TABLE public.outer_control_sessions ADD COLUMN handoff_enc text; ALTER TABLE public.profiles ADD COLUMN bio text;")).toEqual([]);
+  });
+
+  it("every text or JSON column a migration adds to a content table is encrypted or exempt with a reason", () => {
+    const bad = migrationSql.filter(({ f }) => f >= "20261104010000").flatMap(({ f, sql }) => uncoveredColumns(sql).map((c) => `${f}: ${c}`));
+    expect(bad).toEqual([]);
   });
 
   const fns = readdirSync(FUNCTIONS).filter((d) => !d.startsWith("_") && d !== "mcp" && existsSync(join(FUNCTIONS, d, "index.ts")));

@@ -799,17 +799,21 @@ Deno.serve(async (req) => {
       // later. There's no edit endpoint for entries today (an edit is a
       // delete + recreate), so DELETE is the only write path this needs
       // to cover. `sources` is a jsonb array of {id, excerpt} objects
-      // (see response-context.ts's summarizeSourcesUsed) -- .contains()
-      // matches any cache row whose sources array has an element with
-      // this id, regardless of its excerpt text. Best-effort, same
-      // posture as the gap-resolution cleanup just above: never blocks
-      // the entry deletion itself.
+      // (see response-context.ts's summarizeSourcesUsed), stored encrypted
+      // (data encryption, front 5), so the database can't match it: this
+      // key's cached answers are read (decrypted) and the ones whose sources
+      // include this entry are deleted by id. The cache holds at most a day
+      // of answers per key. Best-effort, same posture as the gap-resolution
+      // cleanup just above: never blocks the entry deletion itself.
       try {
-        await admin
+        const { data: cached } = await admin
           .from("api_response_cache")
-          .delete()
-          .eq("api_key_id", keyId)
-          .contains("sources", [{ id: entryId }]);
+          .select("id, sources")
+          .eq("api_key_id", keyId);
+        const stale = ((cached ?? []) as { id: string; sources: unknown }[])
+          .filter((r) => Array.isArray(r.sources) && r.sources.some((s) => (s as { id?: unknown })?.id === entryId))
+          .map((r) => r.id);
+        if (stale.length) await admin.from("api_response_cache").delete().in("id", stale);
       } catch { /* never blocks the entry deletion itself */ }
 
       const { error } = await admin
