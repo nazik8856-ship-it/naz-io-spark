@@ -21,6 +21,7 @@ import { buildInstruction, buildToolRequest, parseToolReply, type RuleLine, type
 import { AGENT_FAILURE_TEXT, readAgentRun } from "./outer-control-task.ts";
 import { mcpCall } from "./outer-control-mcp.ts";
 import { gatewayAi, REPORT_TOOL_URL, writeReport, type ReportResult } from "./outer-control-report.ts";
+import { askStarter, gatewayStarterAi, isStarterUrl, starterAllowed, STARTER_USED_UP, type StarterAi } from "./outer-control-starter.ts";
 import type { ReportDoc } from "./outer-control-report-doc.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
 import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.ts";
@@ -80,6 +81,8 @@ export type SessionDeps = {
   goalAi?: (prompt: { system: string; user: string }) => Promise<string | null>;
   /** The AI judge for meaning rules; absent or null answers mean "not available" (then a person decides). */
   judgeAi?: JudgeAi;
+  /** NazAI's own AI behind the starter tools of a new account ("NazAI does it for me"). */
+  starterAi?: StarterAi;
 };
 
 const denoEnv = (k: string): string => {
@@ -100,6 +103,7 @@ export const defaultSessionDeps = (): SessionDeps => ({
   report: (admin, s) => writeReport(admin, s, { ai: gatewayAi, now: Date.now }),
   goalAi: gatewayAi,
   judgeAi: gatewayAi,
+  starterAi: gatewayStarterAi,
 });
 
 const LEASE_MS = 150_000;
@@ -554,7 +558,12 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
 
       // 4. The destination is checked again on every call (DNS can change).
       // (A NazAI agent is run internally and has no outside address.)
-      if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL)) {
+      // A starter tool (NazAI's own AI for a new account) has no outside address; it answers for the account's first Tasks only.
+      if (isStarterUrl(tool.endpoint_url) && !(await starterAllowed(admin, s))) {
+        await finish(admin, s, "stopped", `${STARTER_USED_UP} Nothing was sent.`, deps);
+        return { status: "stopped", steps };
+      }
+      if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isStarterUrl(tool.endpoint_url)) {
         const urlCheck = await deps.validateUrl(tool.endpoint_url);
         if (!urlCheck.ok) { await finish(admin, s, "failed", `The tool's address is not allowed: ${urlCheck.reason}.`, deps); return { status: "failed", steps }; }
         // A loop that keeps asking would spend the person's own provider key: one tool is asked at most this many times a day.
@@ -630,6 +639,11 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           res = reportResult.ok
             ? new Response(JSON.stringify({ status: "done", answer: reportResult.text }), { status: 200 })
             : new Response(JSON.stringify({ error: reportResult.code }), { status: 200 });
+        } else if (isStarterUrl(tool.endpoint_url)) {
+          // A starter tool answers with NazAI's own AI, from its own angle; its reply is checked like any other tool's.
+          const answer = deps.starterAi ? await askStarter(deps.starterAi, tool.endpoint_url, buildInstruction(reqInput)) : null;
+          if (answer === null) throw new Error("unreachable");
+          res = new Response(JSON.stringify({ status: "done", answer }), { status: 200 });
         } else if (tool.request_format === "mcp") {
           // An MCP server is spoken to in MCP: handshake, find the tool, call it with the step's text. What it returns is the reply.
           const text = [reqInput.objective, reqInput.context ? `Context:\n${reqInput.context}` : "", reqInput.answer ? `Answer from a person:\n${reqInput.answer}` : ""].filter(Boolean).join("\n\n").slice(0, 12_000);

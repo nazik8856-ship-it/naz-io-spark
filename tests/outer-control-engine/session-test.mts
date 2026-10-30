@@ -1912,4 +1912,37 @@ await t("credit: a Task that ends as failed asks for its credit back once; one t
     assert.equal(rpcs.filter((n) => n === "refund_workflow_credit").length, expectRefund, fails ? "asked once when failed" : "not asked when completed");
   }
 });
+// ---- first-value onboarding: NazAI's starter AI answers a new account's first Tasks, and its replies are checked like any tool's
+function starterSetup(wf = "wf-1") {
+  setup();
+  Object.assign(H.table("external_tools")[0], { name: "NazAI Writer", endpoint_url: "nazai-internal://starter/writer", credentials_secret_id: null });
+  sess().workflow_id = wf;
+}
+await t("starter AI: answers with NazAI's own AI, nothing is fetched, and a secret in its reply is removed", async () => {
+  starterSetup();
+  const asked: string[] = [];
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, starterAi: async (system: string, user: string) => { asked.push(system + "\n" + user); return `Use ${SECRET} to connect.`; } });
+  assert.equal(r.status, "completed"); assert.equal(calls.length, 0, "no outside address was called");
+  assert.equal(asked.length, 1); assert.ok(asked[0].includes("Summarise the refund policy")); assert.ok(asked[0].includes("clear, practical writer"));
+  assert.equal(steps()[0].verdict, "modify"); assert.ok(!sess().final_output.includes(SECRET)); assert.ok(sess().final_output.includes("[REDACTED:secrets]"));
+});
+await t("starter AI: a third Task is stopped before anything is asked, with the reason; the first two may use it", async () => {
+  starterSetup("wf-3");
+  const earlier = (id: string, wf: string, at: string) => H.table("outer_control_sessions").push({ ...sess(), id, workflow_id: wf, started_at: at, status: "completed" });
+  earlier("e1", "wf-1", "2026-10-30T09:00:00Z"); earlier("e2", "wf-2", "2026-10-30T09:10:00Z");
+  sess().started_at = "2026-10-30T09:20:00Z";
+  let asked = 0;
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, starterAi: async () => { asked++; return "fine"; } });
+  assert.equal(r.status, "stopped"); assert.equal(asked, 0); assert.equal(calls.length, 0);
+  assert.match(sess().stop_reason, /Your 2 free NazAI tasks are used\. Connect your own AI/);
+  starterSetup("wf-2");
+  earlier("e1", "wf-1", "2026-10-30T09:00:00Z");
+  const ok = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, starterAi: async () => "fine" });
+  assert.equal(ok.status, "completed", "the second Task still may");
+});
+await t("starter AI: when NazAI's AI does not answer, the step fails like an unreachable tool and nothing is invented", async () => {
+  starterSetup();
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, starterAi: async () => null });
+  assert.notEqual(r.status, "completed"); assert.equal(sess().final_output, null); assert.equal(calls.length, 0);
+});
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1);

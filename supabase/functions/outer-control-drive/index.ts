@@ -41,6 +41,7 @@ import { applyEditedReply, contactRuleStopping } from "../_shared/outer-control-
 import { acceptGoal, cancelWorkflow, continueSession, driveSession, extendGoal, progressWorkflow, resumeAndDrive, startFollowUp, startGoal, startTask, startWorkflow } from "../_shared/outer-control-workflow.ts";
 import { encodeChoice, findOption, type Handoff } from "../_shared/outer-control-handoff.ts";
 import { createAgentTool, ensureReportTool, removeTool, updateToolKey } from "../_shared/outer-control-tools.ts";
+import { ensureStarterTools, isStarterUrl, STARTER_TASKS, STARTER_USED_UP, starterTasksUsed } from "../_shared/outer-control-starter.ts";
 import { buildPlanPrompt, cleanCount, cleanStyles, delegateInstruction, gatewayAi, improveInstruction, multistepInstruction, NEEDS_AI, parsePlan, REPORT_TOOL_URL, routeRequest, ROUTING_TEXT, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
 import { ACTION_INFO, MAX_BACKGROUND, REPORT_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
@@ -171,8 +172,8 @@ Deno.serve(async (req) => {
         await admin.from("external_tools").update({ last_checked_at: new Date().toISOString(), last_ok_at: ok ? new Date().toISOString() : tool.last_ok_at, last_error: ok ? null : "The agent no longer exists." }).eq("id", tool.id);
         return json({ ok, error: ok ? null : "The agent no longer exists." });
       }
-      if (String(tool.endpoint_url).startsWith(REPORT_TOOL_URL)) {
-        // Internal tool: what can be checked is that the AI which analyses the answers is configured.
+      if (String(tool.endpoint_url).startsWith(REPORT_TOOL_URL) || isStarterUrl(tool.endpoint_url)) {
+        // Internal tool: what can be checked is that NazAI's own AI is configured.
         const ok = pickAiGateway() !== null;
         const error = ok ? null : "The AI that analyses the answers is not configured.";
         await admin.from("external_tools").update({ last_checked_at: new Date().toISOString(), last_ok_at: ok ? new Date().toISOString() : tool.last_ok_at, last_error: error }).eq("id", tool.id);
@@ -293,9 +294,12 @@ Deno.serve(async (req) => {
         plan = raw === null ? null : parsePlan(raw, kind, ids.length);
         if (!plan) return json({ error: "plan_failed", message: `NazAI could not ${kind === "multistep" ? "break the goal into steps" : "split the task into parts"} right now. Nothing was charged. Try again or describe it differently.` }, 503);
       }
+      // NazAI's starter AI answers a new account's first Tasks; a Task asked only of it is free.
+      const starterChosen = rows.filter((r) => isStarterUrl(r.endpoint_url)).length;
+      if (starterChosen && await starterTasksUsed(admin, accountId) >= STARTER_TASKS) return json({ error: "starter_used_up", message: STARTER_USED_UP }, 409);
       const writer = await ensureReportTool(admin, accountId);
       if (!writer.ok) return json({ error: "internal_error", message: writer.message }, 500);
-      const cost = TASK_CREDITS[kind];
+      const cost = starterChosen === rows.length ? 0 : TASK_CREDITS[kind];
       for (let c = 0; c < cost; c++) {
         const credit = await consumeGenerationCredit(accountId);
         if (!credit.ok) {
@@ -331,7 +335,8 @@ Deno.serve(async (req) => {
         return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
       }
       // Marks the Task as paid for, so that if it ends without a result the credit goes back (once).
-      await admin.from("outer_control_workflows").update({ credit_charged: true, ...(project ? { project_id: project.id } : {}) }).eq("id", started.workflowId);
+      // (A free starter Task was not charged, so nothing is given back for it.)
+      await admin.from("outer_control_workflows").update({ credit_charged: cost > 0, ...(project ? { project_id: project.id } : {}) }).eq("id", started.workflowId);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, task_id: started.workflowId, steps: steps.length });
     }
@@ -375,6 +380,15 @@ Deno.serve(async (req) => {
       if (!more.ok) return json({ error: "not_blocked", message: more.message }, 409);
       inBackground(Promise.all(more.started.map((id) => driveSession(admin, id))));
       return json({ ok: true });
+    }
+
+    // ---- starter_tools: "NazAI does it for me" (first-value onboarding). NazAI's own AI as three tools, free for the first Tasks ----
+    if (action === "starter_tools") {
+      if (pickAiGateway() === null) return json({ error: "ai_unavailable", message: "NazAI's AI is not available right now. Try again in a moment, or connect your own AI." }, 503);
+      const used = await starterTasksUsed(admin, accountId);
+      if (used >= STARTER_TASKS) return json({ error: "starter_used_up", message: STARTER_USED_UP }, 409);
+      const made = await ensureStarterTools(admin, accountId, MAX_TOOLS_PER_ACCOUNT);
+      return made.ok ? json({ ok: true, tools: made.tools, used, free: STARTER_TASKS }) : json({ error: made.code, message: made.message }, made.status);
     }
 
     // ---- create_agent_tool: one of the account's own NazAI agents as a step -------------------------

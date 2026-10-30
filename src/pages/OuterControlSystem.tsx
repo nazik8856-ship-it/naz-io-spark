@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { useProjectList } from "@/hooks/useProjectList";
+import { isFirstValueUser } from "@/lib/first-value";
+import FirstValueBanner from "@/components/onboarding/FirstValueBanner";
 import { ArrowLeft, Globe2, ShieldCheck, KeyRound, Lock, Plug, ScanEye } from "lucide-react";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
@@ -128,7 +132,7 @@ function Sparkline({ values, accent }: { values: (number | null)[]; accent: stri
   );
 }
 
-function Header({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
+function Header({ navigate, focused = false }: { navigate: ReturnType<typeof useNavigate>; focused?: boolean }) {
   return (
     <header className="flex items-center gap-3 px-6 py-4 border-b border-white/5">
       <button
@@ -140,7 +144,8 @@ function Header({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
         <span className="text-sm font-mono uppercase tracking-wider">Back</span>
       </button>
 
-      <div className="ml-2 flex items-center rounded-full border border-white/10 bg-white/5 p-1 text-[11px] font-mono uppercase tracking-wider">
+      {/* First-value onboarding keeps to one thing: the Inner / Outer switch appears with the full interface. */}
+      {!focused && <div className="ml-2 flex items-center rounded-full border border-white/10 bg-white/5 p-1 text-[11px] font-mono uppercase tracking-wider">
         <button
           onClick={() => navigate("/control-system")}
           className="rounded-full px-3 py-1 text-zinc-400 hover:text-white transition-colors"
@@ -153,7 +158,7 @@ function Header({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
         >
           Outer
         </button>
-      </div>
+      </div>}
 
       <div className="ml-auto flex items-center gap-2 text-xs text-zinc-400">
         <Globe2 className="h-4 w-4 text-cyan-300" />
@@ -243,8 +248,23 @@ function SetupRequired({ navigate }: { navigate: ReturnType<typeof useNavigate> 
 export default function OuterControlSystem() {
   const navigate = useNavigate();
   const { accountId } = useActiveAccount();
+  // First-value onboarding: a new account with nothing in it yet sees only its first tasks here, without the API key step.
+  const { user } = useAuth();
+  const projectList = useProjectList();
+  const isNew = !projectList.loading && isFirstValueUser(user, projectList.items.length);
+  // Once shown, the focused view stays for this visit (finishing marks the account, which would otherwise switch it mid-view).
+  const [seenNew, setSeenNew] = useState(false);
+  useEffect(() => { if (isNew) setSeenNew(true); }, [isNew]);
+  const firstValue = isNew || seenNew;
+  const startFirstTask = (which: "first" | "again") => navigate(`/control-system/outer?start=${which === "first" ? "first" : "task"}`, { replace: true });
+  const finishFirstValue = useCallback(() => { void supabase.auth.updateUser({ data: { first_value_done: true } }).catch(() => undefined); }, []);
+  const openFullNazai = async () => {
+    await supabase.auth.updateUser({ data: { first_value_done: true } }).catch(() => undefined);
+    navigate("/dashboard", { state: { firstValueDone: true } });
+  };
   const [loading, setLoading] = useState(true);
-  const [hasApiKey, setHasApiKey] = useState(false);
+  /** An API key, or a connected tool: either opens the live page instead of the setup step. */
+  const [hasAccess, setHasAccess] = useState(false);
   const [rows, setRows] = useState<EvaluationRow[]>([]);
   // GAP 2 (Outer Control Full Activation, 2026-10-10): a registered api key
   // that has NEVER sent anything to POST /outer-control/evaluate is
@@ -289,6 +309,8 @@ export default function OuterControlSystem() {
     let cancelled = false;
     setLoading(true);
     (async () => {
+      // Tools already connected (or NazAI's starter AI) also open the page: their tasks are shown even without an API key.
+      const toolsRes = await anyDb.from("external_tools").select("id", { count: "exact", head: true }).eq("user_id", accountId).is("removed_at", null);
       const [keysRes, evalRes, keyActivityRes, hardRulesRes, safetyRulesRes] = await Promise.all([
         anyDb
           .from("api_keys")
@@ -322,7 +344,7 @@ export default function OuterControlSystem() {
       ]);
       if (cancelled) return;
       const keys = (keysRes.data ?? []) as { id: string; name: string }[];
-      setHasApiKey(keys.length > 0);
+      setHasAccess(keys.length > 0 || Number(toolsRes?.count ?? 0) > 0);
       const lastSeenByKey = new Map<string, string>();
       for (const row of (keyActivityRes.data ?? []) as { api_key_id: string; created_at: string }[]) {
         if (!lastSeenByKey.has(row.api_key_id)) lastSeenByKey.set(row.api_key_id, row.created_at);
@@ -399,30 +421,38 @@ export default function OuterControlSystem() {
 
   return (
     <div className="circuit-bg min-h-screen w-full text-white">
-      <Header navigate={navigate} />
+      <Header navigate={navigate} focused={firstValue} />
 
       {loading && (
         <div className="mx-auto max-w-6xl px-6 py-16 text-center text-sm text-zinc-500">Loading…</div>
       )}
 
-      {!loading && !hasApiKey && <SetupRequired navigate={navigate} />}
+      {!loading && !hasAccess && !firstValue && <SetupRequired navigate={navigate} />}
 
-      {!loading && hasApiKey && (
+      {!loading && !hasAccess && firstValue && (
         <div className="mx-auto max-w-4xl px-6 py-8 space-y-5">
+          <FirstValueBanner accountId={accountId} onStartTask={startFirstTask} onOpenFull={openFullNazai} onFinished={finishFirstValue} />
+          <ActiveSessionsCard accountId={accountId} />
+        </div>
+      )}
+
+      {!loading && hasAccess && (
+        <div className="mx-auto max-w-4xl px-6 py-8 space-y-5">
+          {firstValue && <FirstValueBanner accountId={accountId} onStartTask={startFirstTask} onOpenFull={openFullNazai} onFinished={finishFirstValue} />}
           {/* 1. Status */}
-          <OuterStatusBar
+          {!firstValue && <OuterStatusBar
             trust={stats.avgTrust}
             health={healthText({ total7d: stats.total, nonAllow7d: stats.nonAllow, anyEver: rows.length > 0 })}
             attention={attention}
             onOpenAdvanced={() => setAdvancedOpen(true)}
             onApiDocs={() => navigate("/control-system/api-docs")}
-          />
+          />}
 
           {/* 2. Connected tools (the main focus) */}
           <ActiveSessionsCard accountId={accountId} />
 
           {/* 3. Recent decisions */}
-          <RecentDecisions rows={rows} onOpenApprovals={() => navigate("/control-system/approvals")} />
+          {!firstValue && <RecentDecisions rows={rows} onOpenApprovals={() => navigate("/control-system/approvals")} />}
 
           {/* Advanced: a closable window, opened from the button in the status bar */}
           <Dialog open={advancedOpen} onOpenChange={setAdvancedOpen}>

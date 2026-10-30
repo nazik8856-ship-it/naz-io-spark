@@ -24,6 +24,8 @@ class Q {
   is(c: string, v: any) { this.filters.push((r) => (r[c] ?? null) === v); return this; }
   in(c: string, vs: any[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
   neq(c: string, v: any) { this.filters.push((r) => r[c] !== v); return this; }
+  /** SQL LIKE with % and _ wildcards (case-sensitive, as in Postgres). */
+  like(c: string, p: string) { const re = new RegExp(`^${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`, "s"); this.filters.push((r) => typeof r[c] === "string" && re.test(r[c])); return this; }
   /** not(col, "is", null) and not(col, "like", "prefix%"), as PostgREST reads them. */
   not(c: string, op: string, v: any) {
     if (op === "is") this.filters.push((r) => (r[c] ?? null) !== v);

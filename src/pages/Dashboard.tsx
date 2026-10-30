@@ -1,6 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { forgetChoices } from "@/lib/inner-projects";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, FolderKanban, LogOut, type MessageSquare, Settings, ShieldCheck, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -162,7 +162,9 @@ export default function Dashboard() {
   // Projects is always the third card: with no project yet it opens on the import.
   const projectList = useProjectList();
   // First-value onboarding: a new account with nothing in it yet sees one window and goes straight to its first controlled task.
-  const [skipped, setSkipped] = useState(false);
+  // Arriving from "Open full NazAI": the account marker may still be on its way, so the window is not shown again meanwhile.
+  const location = useLocation();
+  const [skipped, setSkipped] = useState(() => (location.state as { firstValueDone?: boolean } | null)?.firstValueDone === true);
   const firstValue = !skipped && !projectList.loading && isFirstValueUser(user, projectList.items.length);
   // While the projects load, a new account does not see the full interface flash up before the window.
   const holdCards = firstValue || (!skipped && projectList.loading && isFirstValueUser(user, 0));
