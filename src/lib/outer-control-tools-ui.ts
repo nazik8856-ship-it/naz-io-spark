@@ -185,7 +185,9 @@ export function buildActivity(i: {
 // Multi-AI report
 
 /** Internal tools (the NazAI report writer, your agents) are not connections the person manages as tools. */
-export const isInternalTool = (endpoint: string) => endpoint.startsWith("nazai-internal://");
+/** NazAI's own AI as tools for a new account's first Tasks ("NazAI does it for me"): internal, but asked like any tool. */
+export const isStarterTool = (endpoint: string) => endpoint.startsWith("nazai-internal://starter/");
+export const isInternalTool = (endpoint: string) => endpoint.startsWith("nazai-internal://") && !isStarterTool(endpoint);
 
 // ---------------------------------------------------------------------------------------
 // Start task: one blank box; NazAI reads the request and picks one of the multi-tool actions (see ReportKind)

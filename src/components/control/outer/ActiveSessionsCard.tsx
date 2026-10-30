@@ -13,9 +13,10 @@ import { honestStatus } from "@/lib/outer-control-status";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems, type Tone } from "@/lib/outer-control-ui";
-import { describeClosure, describeRecord, describeUsage, healthSummary, isInternalTool, toolHealth, toolRecord, type ActivityStep, type ToolRecord, type ToolRecordRow, type ToolUsage } from "@/lib/outer-control-tools-ui";
+import { describeClosure, describeRecord, describeUsage, healthSummary, isInternalTool, isStarterTool, toolHealth, toolRecord, type ActivityStep, type ToolRecord, type ToolRecordRow, type ToolUsage } from "@/lib/outer-control-tools-ui";
 import TaskTracker from "./TaskTracker";
 import TaskPanel, { type TaskProject, type TaskRequest } from "./TaskPanel";
+import FirstTaskChoice from "@/components/onboarding/FirstTaskChoice";
 import { ACTION_INFO } from "@/lib/outer-control-report-doc";
 import ConnectToolPanel, { type ConnectPayload } from "./ConnectToolPanel";
 import SessionActivity from "./SessionActivity";
@@ -133,6 +134,22 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       const next = new URLSearchParams(params); next.delete("project"); setParams(next, { replace: true });
     })();
   }, [params, accountId, setParams]);
+  // First-value onboarding: "?start=first" asks who runs the first task (NazAI, or the person's own AI); "?start=task" opens Start task.
+  const [showChoice, setShowChoice] = useState(false);
+  useEffect(() => {
+    const start = params.get("start");
+    if (!start || !accountId) return;
+    if (start === "first") setShowChoice(true);
+    else if (start === "task") setShowReport(true);
+    const next = new URLSearchParams(params); next.delete("start"); setParams(next, { replace: true });
+  }, [params, accountId, setParams]);
+  const chooseNazai = async () => {
+    setShowChoice(false);
+    const r = await callDrive("starter_tools", {});
+    if (!r.ok) { toast.error(r.message || "NazAI's AI is not available right now. Connect your own AI instead."); setShowConnect(true); return; }
+    await load();
+    setShowReport(true);
+  };
   // Poll while anything is open, so a running session visibly moves and an approval resumes it on screen.
   const anyOpen = sessions.some((s) => isOpen(s.status));
   useEffect(() => {
@@ -411,6 +428,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
         </div>
       </div>
       <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} onTest={(t) => runTest(t.id, t.name)} testingId={busy?.startsWith("test-") ? busy.slice(5) : null} />
+      <FirstTaskChoice open={showChoice} onNazai={chooseNazai} onManual={() => { setShowChoice(false); setShowConnect(true); }} onClose={() => setShowChoice(false)} />
       <TaskPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startTask} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }} project={taskProject} onClearProject={() => setTaskProject(null)} records={records} />
 
       <div className="mt-4 space-y-2">
@@ -436,7 +454,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                       <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`} aria-hidden /> {st.label}
                     </span>
                   </div>
-                  <div className="mt-0.5 text-xs text-zinc-500">{t.endpoint_url.startsWith("nazai-agent://") ? "Your NazAI agent" : hostOf(t.endpoint_url)}</div>
+                  <div className="mt-0.5 text-xs text-zinc-500">{t.endpoint_url.startsWith("nazai-agent://") ? "Your NazAI agent" : isStarterTool(t.endpoint_url) ? "NazAI's own AI · free for your first 2 tasks" : hostOf(t.endpoint_url)}</div>
                   {describeUsage(usage.get(t.id)) && <div className="mt-1.5 flex items-center gap-1.5 text-xs text-zinc-300" data-testid="tool-usage"><Activity className="h-3 w-3 text-cyan-300/80" aria-hidden />{describeUsage(usage.get(t.id))}</div>}
                   {describeRecord(records.get(t.id)) && <div className="mt-1 flex items-center gap-1.5 text-xs text-zinc-400" data-testid="tool-record" title="Track record over the last 30 days"><Gauge className="h-3 w-3 text-amber-300/80" aria-hidden />{describeRecord(records.get(t.id))}</div>}
                 </div>
@@ -456,9 +474,9 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
               {more && (
                 <div className="mt-3 border-t border-white/5 pt-3">
                   <div className="flex flex-wrap gap-2">
-                    <button onClick={() => { setKeyFor(keyFor === t.id ? null : t.id); setNewKey(""); }} className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/10">
+                    {!isStarterTool(t.endpoint_url) && <button onClick={() => { setKeyFor(keyFor === t.id ? null : t.id); setNewKey(""); }} className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/10">
                       Update key
-                    </button>
+                    </button>}
                     <button disabled={busy === `remove-${t.id}`} onClick={() => remove(t)} className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-xs text-rose-300 hover:bg-rose-500/10 disabled:opacity-40">
                       {busy === `remove-${t.id}` ? "Removing…" : "Remove"}
                     </button>

@@ -8,7 +8,7 @@ import { BookOpen, Coins, FileEdit, Gauge, Lightbulb, ListChecks, ListOrdered, L
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { callDrive } from "@/lib/outer-control-drive";
 import { ACTION_INFO, MAX_STYLES, REPORT_KINDS, ROUTING_TEXT, TASK_CREDITS, TASK_LIMITS, type ReportKind } from "@/lib/outer-control-report-doc";
-import { checkTaskForm, describeRecord, LABEL_PRESETS, START_LABEL, suggestTools, toolHealth, toolsHint, type ToolHealthInput, type ToolRecord } from "@/lib/outer-control-tools-ui";
+import { checkTaskForm, describeRecord, isStarterTool, LABEL_PRESETS, START_LABEL, suggestTools, toolHealth, toolsHint, type ToolHealthInput, type ToolRecord } from "@/lib/outer-control-tools-ui";
 import ToolPlanBox, { useToolPlan } from "./ToolPlanBox";
 
 const inputCls = "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500/50";
@@ -114,6 +114,10 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
 
   // A different action may take fewer tools: keep the first ones, in order.
   useEffect(() => { if (lim) setPicked((p) => p.slice(0, lim.maxTools)); }, [lim]);
+  // A new account's first tasks (only NazAI's starter AI is there): its tools are ticked for the person, and the task is free.
+  const starterOnly = tools.length > 0 && tools.every((t) => isStarterTool(t.endpoint_url ?? ""));
+  useEffect(() => { if (lim && starterOnly) setPicked((p) => (p.length ? p : tools.slice(0, lim.maxTools).map((t) => t.id))); }, [lim, starterOnly, tools]);
+  const freeStarter = picked.length > 0 && picked.every((id) => isStarterTool(tools.find((t) => t.id === id)?.endpoint_url ?? ""));
   // Styles, roles and audiences are different lists: a switch to another kind of list starts from what NazAI read for it, if anything.
   const listKind = lim?.labels ?? null;
   useEffect(() => {
@@ -331,7 +335,7 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
           <div className="space-y-1.5">
             {kind && (
               <p className="flex items-center justify-center gap-1.5 text-[11px] text-zinc-500">
-                <Coins className="h-3 w-3 text-amber-300/80" /> Uses {TASK_CREDITS[kind]} credit{TASK_CREDITS[kind] === 1 ? "" : "s"} · given back if no result comes
+                <Coins className="h-3 w-3 text-amber-300/80" /> {freeStarter ? "Free · one of your 2 free NazAI tasks" : <>Uses {TASK_CREDITS[kind]} credit{TASK_CREDITS[kind] === 1 ? "" : "s"} · given back if no result comes</>}
               </p>
             )}
             <button type="button" disabled={busy || !kind || !!problem || reading} onClick={start} data-testid="task-start"
