@@ -1940,6 +1940,16 @@ await t("starter AI: a third Task is stopped before anything is asked, with the 
   const ok = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, starterAi: async () => "fine" });
   assert.equal(ok.status, "completed", "the second Task still may");
 });
+await t("starter AI: a reply in the reply format (or in a code fence) is unpacked: only the plain answer is kept and shown", async () => {
+  const plainAnswer = "The claim has two parts.\n\n1. Finished in 1889: correct.\n2. In Berlin: wrong, it is in Paris.";
+  for (const wrap of [(j: string) => j, (j: string) => "```json\n" + j + "\n```"]) {
+    starterSetup();
+    const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, starterAi: async () => wrap(JSON.stringify({ status: "done", answer: plainAnswer, question: "" })) });
+    assert.equal(r.status, "completed");
+    assert.equal(sess().final_output, plainAnswer);
+    assert.ok(!String(steps()[0].reply_text).includes('"status"'), "no reply-format text in what is shown");
+  }
+});
 await t("starter AI: when NazAI's AI does not answer, the step fails like an unreachable tool and nothing is invented", async () => {
   starterSetup();
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, starterAi: async () => null });
