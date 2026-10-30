@@ -158,7 +158,7 @@ describe("TaskTracker", () => {
     state.workflows = [{ id: "t1", objective: "Research: AI safety evaluation", status: "completed", started_at: "x", stop_reason: null, final_artifact: taskArt(), project_id: "p1" }];
     state.legs = [leg(1, "a", "failed"), leg(2, "b", "completed"), leg(3, "w", "completed", [1, 2])];
     state.projects = [{ id: "p1", name: "Launch", source_mode: "snapshot", write_back: false }];
-    state.steps = [{ session_id: "l2", project_check: { ran: true, contradictions: [{ reply_quote: "We launch on 3 June", project_quote: "The launch is on 12 May", why: "Different date." }] } }];
+    state.steps = [{ session_id: "l2", decision: { project_check: { ran: true, contradictions: [{ reply_quote: "We launch on 3 June", project_quote: "The launch is on 12 May", why: "Different date." }] } } }];
     render(<TaskTracker accountId="u1" />);
     expect((await screen.findByTestId("project-contradiction")).textContent).toBe("Claude: “We launch on 3 June” — the project says “The launch is on 12 May” (Different date.)");
     expect(screen.getByTestId("project-check").textContent).toMatch(/1 statement contradicts the project[\s\S]*Flagged only/);
@@ -168,11 +168,11 @@ describe("TaskTracker", () => {
     state.workflows = [{ id: "t1", objective: "Research: AI safety evaluation", status: "completed", started_at: "x", stop_reason: null, final_artifact: taskArt(), project_id: "p1" }];
     state.legs = [leg(1, "a", "failed"), leg(2, "b", "completed"), leg(3, "w", "completed", [1, 2])];
     state.projects = [{ id: "p1", name: "Launch", source_mode: "snapshot", write_back: false }];
-    state.steps = [{ session_id: "l2", project_check: { ran: true, contradictions: [] } }];
+    state.steps = [{ session_id: "l2", decision: { project_check: { ran: true, contradictions: [] } } }];
     const { unmount } = render(<TaskTracker accountId="u1" />);
     expect((await screen.findByTestId("project-check")).textContent).toBe(" Checked against the project: no answer contradicts it.");
     unmount();
-    state.steps = [{ session_id: "l2", project_check: { ran: false, contradictions: [] } }];
+    state.steps = [{ session_id: "l2", decision: { project_check: { ran: false, contradictions: [] } } }];
     render(<TaskTracker accountId="u1" />);
     expect((await screen.findByTestId("project-check")).textContent).toMatch(/Not checked against the project/);
   });

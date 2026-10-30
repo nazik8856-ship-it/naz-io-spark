@@ -1,7 +1,8 @@
 // Real tests for the governance-backup-export pure helpers.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/governance-backup_test.ts
-import { backupObjectPath, BACKUP_TABLES, isExpiredBackupFolder, todayUtcDateString } from "./governance-backup.ts";
+import { backupFileAction, backupObjectPath, backupStoragePath, BACKUP_TABLES, encryptedBackupPath, isExpiredBackupFolder, openBackup, sealBackup, todayUtcDateString } from "./governance-backup.ts";
+import { importFieldKeys, toB64 } from "./field-crypto.ts";
 
 function assertEquals<T>(actual: T, expected: T, msg?: string): void {
   if (actual !== expected) {
@@ -55,4 +56,46 @@ Deno.test("isExpiredBackupFolder: ignores non-date-named entries", () => {
   assertEquals(isExpiredBackupFolder(".emptyFolderPlaceholder", now, 30), false);
   assertEquals(isExpiredBackupFolder("not-a-date", now, 30), false);
   assertEquals(isExpiredBackupFolder("2026-13-99", now, 30), false);
+});
+
+// ---- Data encryption, front 5: encrypted backup files ----
+
+const KEYS = (await importFieldKeys(toB64(new Uint8Array(32).fill(7))))!;
+const OTHER = (await importFieldKeys(toB64(new Uint8Array(32).fill(8))))!;
+const ROTATED = (await importFieldKeys(toB64(new Uint8Array(32).fill(8)), toB64(new Uint8Array(32).fill(7))))!;
+async function rejects(p: Promise<unknown>, what: string) { try { await p; } catch { return; } throw new Error(`expected a failure: ${what}`); }
+
+Deno.test("an encrypted backup file is only ciphertext and opens back to the same JSON", async () => {
+  const path = encryptedBackupPath("2026-10-30", "pending_approvals");
+  assertEquals(path, "2026-10-30/pending_approvals.json.enc");
+  const json = JSON.stringify([{ id: "a1", description: "Refund order 1042 to jane@example.com" }]);
+  const stored = await sealBackup(KEYS, path, json);
+  assertEquals(stored.startsWith("v2:"), true);
+  assertEquals(stored.includes("jane") || stored.includes("Refund"), false, "no plain text in the file");
+  assertEquals(await openBackup(KEYS, path, stored + "\n"), json);
+});
+
+Deno.test("a backup file does not open at another path, with another key, or when changed", async () => {
+  const path = encryptedBackupPath("2026-10-30", "hard_rules");
+  const stored = await sealBackup(KEYS, path, "[]");
+  await rejects(openBackup(KEYS, encryptedBackupPath("2026-10-29", "hard_rules"), stored), "another path");
+  await rejects(openBackup(OTHER, path, stored), "another key");
+  await rejects(openBackup(KEYS, path, stored.slice(0, -4) + "AAAA"), "changed");
+  assertEquals(await openBackup(ROTATED, path, stored), "[]", "still opens during a rotation, with the old key as previous");
+});
+
+Deno.test("backupFileAction: plain files are encrypted, files on an old key re-encrypted, current ones left alone", async () => {
+  const current = await sealBackup(KEYS, "x", "[]");
+  assertEquals(backupFileAction(KEYS, "hard_rules.json", null), "encrypt");
+  assertEquals(backupFileAction(KEYS, "hard_rules.json.enc", current.slice(0, 40)), null);
+  assertEquals(backupFileAction(ROTATED, "hard_rules.json.enc", current.slice(0, 40)), "rekey");
+  assertEquals(backupFileAction(KEYS, "notes.txt", null), null, "anything this job did not write is left alone");
+});
+
+Deno.test("backupStoragePath: a downloaded file is opened at the path it was stored at", () => {
+  assertEquals(backupStoragePath("/home/me/Downloads/backups/2026-10-30/hard_rules.json.enc"), "2026-10-30/hard_rules.json.enc");
+  assertEquals(backupStoragePath("C:\\backups\\2026-10-30\\agent_decisions.json.enc"), "2026-10-30/agent_decisions.json.enc");
+  let threw = false;
+  try { backupStoragePath("hard_rules.json.enc"); } catch { threw = true; }
+  assertEquals(threw, true, "a file outside its dated folder is refused");
 });

@@ -128,8 +128,11 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
       // What each tool's answer showed when it was compared with the project.
       const legIds = allLegs.filter((x) => mine.some((m) => m.id === x.workflow_id && m.project_id)).map((x) => x.id);
       if (legIds.length) {
-        const st = await anyDb.from("outer_control_session_steps").select("session_id, project_check:decision->project_check").in("session_id", legIds).order("step_no").order("attempt");
-        setChecks(st?.error ? [] : ((Array.isArray(st?.data) ? st.data : []) as ProjectCheckRow[]));
+        // A step's decision is stored encrypted (data encryption, front 5): it is read through the server and the project check
+        // taken out of it here.
+        const st = await ocRead("outer_control_session_steps").select("session_id, decision").in("session_id", legIds).order("step_no").order("attempt");
+        const stepRows = (Array.isArray(st?.data) ? st.data : []) as { session_id: string; decision?: { project_check?: unknown } | null }[];
+        setChecks(st?.error ? [] : stepRows.map((r) => ({ session_id: r.session_id, project_check: r.decision?.project_check ?? null }) as ProjectCheckRow));
       }
     }
     setTools(allTools);

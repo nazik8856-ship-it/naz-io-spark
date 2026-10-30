@@ -42,10 +42,10 @@ The report and the lock run only as the server (`service_role`).
 | Table | Columns | Since |
 | --- | --- | --- |
 | `imported_projects` | `content` (with `PROJECTS_KEY`) | before front 2 |
-| `outer_control_sessions` | objective, context, correction, history, next_input, final_output, pending_question, pending_answer, final_artifact | front 3 |
-| `outer_control_session_steps` | request, reply_text, note | front 3 |
-| `outer_control_evaluations` | input_excerpt, output_text, summary, next_step, changes | front 3 |
-| `outer_control_workflows` | objective, context, summary, final_output, final_artifact, goal_pool | front 3 |
+| `outer_control_sessions` | objective, context, correction, history, next_input, final_output, pending_question, pending_answer, final_artifact; handoff (front 5) | front 3 |
+| `outer_control_session_steps` | request, reply_text, note; decision (front 5) | front 3 |
+| `outer_control_evaluations` | input_excerpt, output_text, summary, next_step, changes; execution_summary, matches, shadow_matches (front 5: the matched text a rule quotes) | front 3 |
+| `outer_control_workflows` | objective, context, summary, final_output, final_artifact, goal_pool; done_criteria, criteria_state (front 5) | front 3 |
 | `outer_control_memory` | summary, data | front 3 |
 | `outer_control_completion_checks` | summary | front 3 |
 | `website_form_submissions` | fields, submitter_ip (what visitors type into a generated site's forms, and their address) | front 4 |
@@ -55,7 +55,7 @@ The report and the lock run only as the server (`service_role`).
 | `missions` | directive (what a Generator request asked for) | front 4 |
 | `knowledge_base_entries` | entry_text | front 4 |
 | `api_key_context_entries` | entry_text (the /respond API's context) | front 4 |
-| `api_response_cache` | message, answer (cached /respond questions and answers) | front 4 |
+| `api_response_cache` | message, answer (cached /respond questions and answers); sources (front 5: the knowledge excerpts behind an answer) | front 4 |
 | `api_response_generations` | message (logged /respond questions) | front 4 |
 | `pending_approvals` | description, comment, execution_summary (what an approval asks, the approver's comment, what the action reported) | front 4 |
 
@@ -84,8 +84,8 @@ How these columns work (all but `imported_projects`):
   `list_resolvable_gap_candidates_v2`. Similarity search is unchanged: embeddings are not encrypted.
 - **Secret scrubbing:** an approval's `execution_summary` is scrubbed of secrets by the server before it is encrypted (what the
   database trigger did while it was stored in the clear).
-- **Backups:** the daily governance backup copies rows exactly as stored, so these columns stay encrypted in its files
-  (restorable with `DATA_KEY`).
+- **Backups:** the daily governance backup copies rows exactly as stored, and each file is encrypted as a whole as well (see
+  "Backups" below).
 - **The /respond cache key** (`api_response_cache.message_hash`) is a keyed fingerprint (`DATA_KEY`). Entries saved before with a
   plain SHA-256 are simply not matched and expire on their own.
 - **Existing rows** are converted by the session sweep every five minutes, a batch per column, using the report.
@@ -100,7 +100,44 @@ How these columns work (all but `imported_projects`):
 Checks: `src/test/field-encryption.test.ts` (every function uses the encrypting client, the code and migration list the
 same columns, no screen reads or writes an encrypted column directly), the engine tests run a second time with every client
 going through the wrapper, `supabase/functions/_shared/encrypted-db_test.ts` and `encrypted-write_test.ts`, and
-`supabase/tests/secrets/encrypt_outer_control_test.sql` and `encrypt_front4_test.sql`.
+`supabase/tests/secrets/encrypt_outer_control_test.sql`, `encrypt_front4_test.sql` and `encrypt_front5_test.sql`.
+
+## Backups
+
+`governance-backup-export` (daily, 02:00 UTC) writes each table to `governance-backups/<date>/<table>.json.enc`, encrypted
+with `DATA_KEY` before upload (AES-256-GCM, bound to that path: a file moved or renamed does not decrypt). The bucket is private,
+with no policy for signed-in users or visitors; folders older than 30 days are deleted.
+
+- **Leftovers:** every run also converts files from before: a plain `.json` is encrypted, the new file is downloaded and
+  decrypted to check it holds exactly the same content, and only then is the plain file deleted (at most 60 per run). During a
+  `DATA_KEY` rotation, files on the previous key are re-encrypted with the new one the same way.
+- **Restore:** download the file keeping its dated folder, then
+  `DATA_KEY=<key> deno run --allow-env --allow-read --allow-write scripts/decrypt-backup.ts 2026-10-30/hard_rules.json.enc out.json`.
+- **Restore drill:** `POST governance-backup-export {"action": "verify", "date": "YYYY-MM-DD"}` (server key) decrypts that day's
+  files and returns how many rows each holds, never their content; `ok` is false when a file is missing, plain or does not
+  decrypt.
+
+## Files
+
+- `governance-backups`: private, encrypted files (above).
+- `mission-assets` (public): generated website images (`website-images/…`), which published sites show to everyone, and files
+  users attach to a prompt, a clarification answer or the brand canvas. An attached image's address is given to the AI and can be
+  placed in the generated site as it is, so it must keep working without signing in; a link that expires would break those sites.
+  Each file sits at a random, unguessable path under the user's own folder, uploads are limited to that folder, and the bucket can
+  not be listed by visitors or other users (checked: listing returns nothing). Nothing else is stored there.
+
+## Every content column is encrypted or exempt
+
+`encryption_exempt_columns` lists every other text or JSON column of a table that holds encrypted content, with the reason it
+stays readable to the database: statuses and types, ids and fingerprints, names of actions and rules, rule data the gate reads,
+error text (scrubbed of secrets before it is stored), and action parameters (the same data as `agent_decisions.params`, which the
+signed decision trail verifies in the database; decisions and rules are not encrypted by NazAI for that reason).
+
+- `select * from encryption_coverage_report();` lists any content column that is neither encrypted nor exempt.
+- **On every change:** `src/test/field-encryption.test.ts` fails when a migration adds a text or JSON column to one of these tables
+  without listing it in `ENCRYPTED_COLUMNS` (with its `_enc` twin) or exempting it with a reason.
+- **Every Monday (03:43 UTC):** `encryption_weekly_check()` opens a platform incident (`encryption_check`) when a listed column
+  still holds plain values or a content column is uncovered, naming them; it closes the incident once both are clear.
 
 ## What is deliberately not encrypted
 
