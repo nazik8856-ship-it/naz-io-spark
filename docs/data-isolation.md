@@ -69,5 +69,8 @@ What the report and the function register show today; fronts 2–4 close them.
 
 ## Files
 
-`mission-assets` keeps each user's uploads under their own folder (`<user id>/…`); uploads are limited to that folder and the
-bucket can not be listed. `governance-backups` is private (server only). See `docs/data-encryption.md`.
+Files users attach are in the private `user-uploads` bucket, under their own folder (`<user id>/…`): only the owner can upload,
+open, replace or delete them, and they are shared as signed links that expire. The site generator publishes only the user's own
+files that a generated site places (a copy in `mission-assets/website-images/<user>/<site>/uploads/`); a link to another account's
+file is never published. `mission-assets` (generated site images) is written by the server only. `governance-backups` is private
+(server only). See `docs/data-encryption.md`. Build check: `src/test/data-isolation.test.ts` ("uploads stay private").

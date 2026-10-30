@@ -120,11 +120,13 @@ with no policy for signed-in users or visitors; folders older than 30 days are d
 ## Files
 
 - `governance-backups`: private, encrypted files (above).
-- `mission-assets` (public): generated website images (`website-images/…`), which published sites show to everyone, and files
-  users attach to a prompt, a clarification answer or the brand canvas. An attached image's address is given to the AI and can be
-  placed in the generated site as it is, so it must keep working without signing in; a link that expires would break those sites.
-  Each file sits at a random, unguessable path under the user's own folder, uploads are limited to that folder, and the bucket can
-  not be listed by visitors or other users (checked: listing returns nothing). Nothing else is stored there.
+- `user-uploads` (private): files users attach to a prompt, a clarification answer, a mission or the brand canvas. Each sits
+  under its owner's folder (`<user id>/…`); only the owner can upload, open, replace or delete it, nobody can list anyone else's,
+  and it is shared as a signed link that expires (a day for prompt and canvas files, 7 days for missions and clarifications).
+- `mission-assets` (public): generated website images (`website-images/<user>/<site>/…`), which published sites show to
+  everyone. Only the server writes there. When a generated site places one of the user's attached images, the site generator
+  copies just that file to `website-images/<user>/<site>/uploads/` and the page points at the copy: what the user puts in a
+  site is public, nothing else they upload is (`supabase/functions/_shared/uploaded-assets.ts`).
 
 ## Every content column is encrypted or exempt
 

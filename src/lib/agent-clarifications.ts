@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { DAY, uploadPrivate } from "@/lib/private-upload"; // attachments are private (user & data isolation)
 import { ocWrite } from "@/lib/encrypted-write"; // encrypted content is written through the server (data encryption, front 3)
 
 /**
@@ -68,16 +69,12 @@ export function pendingClarification(events: EventLike[], agentId: string): Clar
   return null;
 }
 
-/** Upload an operator-supplied file and return its public URL. */
+/** Upload an operator-supplied file and return a link the agent can use for a week (the file itself stays private). */
 export async function uploadClarificationFile(agentId: string, file: File): Promise<string> {
   const { data: auth } = await supabase.auth.getUser();
-  const uid = auth.user?.id || "anon";
+  if (!auth.user?.id) throw new Error("Sign in to attach a file.");
   const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `${uid}/clarifications/${agentId}/${Date.now()}-${safe}`;
-  const { error } = await supabase.storage.from("mission-assets").upload(path, file, { upsert: true });
-  if (error) throw error;
-  const { data } = supabase.storage.from("mission-assets").getPublicUrl(path);
-  return data.publicUrl;
+  return await uploadPrivate(auth.user.id, `clarifications/${agentId}/${Date.now()}-${safe}`, file, { expiresIn: 7 * DAY, upsert: true });
 }
 
 /**
