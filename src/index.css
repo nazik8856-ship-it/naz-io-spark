@@ -355,3 +355,12 @@
 @media (prefers-reduced-motion: reduce) {
   .oc-scan::after, .oc-flow, .oc-ring, .oc-in, .oc-glow { animation: none; }
 }
+
+/* First-value onboarding: the messy lanes drift, a light runs along the clean lane. Both stop for reduced-motion. */
+@keyframes fv-drift { to { stroke-dashoffset: -44; } }
+@keyframes fv-run { to { stroke-dashoffset: -64; } }
+.fv-messy { animation: fv-drift 2.4s linear infinite; }
+.fv-clean { animation: fv-run 1.6s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .fv-messy, .fv-clean { animation: none; }
+}

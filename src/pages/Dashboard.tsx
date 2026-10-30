@@ -7,6 +7,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { isFirstVisit } from "@/lib/welcome";
 import { useProjectList } from "@/hooks/useProjectList";
 import { projectStatus, sourceBadge, type ProjectItem } from "@/lib/projects";
+import { useState } from "react";
+import { FIRST_VALUE_START, isFirstValueUser } from "@/lib/first-value";
+import FirstValueWelcome from "@/components/onboarding/FirstValueWelcome";
 
 /**
  * NAZAI DASHBOARD — MINIMAL V1
@@ -158,6 +161,15 @@ export default function Dashboard() {
   const firstVisit = isFirstVisit(user);
   // Projects is always the third card: with no project yet it opens on the import.
   const projectList = useProjectList();
+  // First-value onboarding: a new account with nothing in it yet sees one window and goes straight to its first controlled task.
+  const [skipped, setSkipped] = useState(false);
+  const firstValue = !skipped && !projectList.loading && isFirstValueUser(user, projectList.items.length);
+  // While the projects load, a new account does not see the full interface flash up before the window.
+  const holdCards = firstValue || (!skipped && projectList.loading && isFirstValueUser(user, 0));
+  const skipFirstValue = () => {
+    setSkipped(true);
+    void supabase.auth.updateUser({ data: { first_value_done: true } }).catch(() => undefined);
+  };
 
   // Choosing an interface ends the first visit; the marker lives on the account so it holds on every device.
   const choose = (route: string) => {
@@ -230,6 +242,9 @@ export default function Dashboard() {
           <div className="absolute bottom-[-10rem] left-1/3 h-80 w-[26rem] rounded-full bg-blue-600/15 blur-[120px]" />
         </div>
 
+        <FirstValueWelcome open={firstValue} onStart={() => navigate(FIRST_VALUE_START)} onSkip={skipFirstValue} />
+
+        {!holdCards && (<>
         <div className="relative mb-9 md:mb-12 text-center">
           <h1 className="welcome-in text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight">
             Welcome to <span className="text-[#00f2ff]" style={{ textShadow: "0 0 30px rgba(0,242,255,0.45)" }}>NazAI</span>
@@ -328,6 +343,7 @@ export default function Dashboard() {
         <p className="relative mt-8 text-center text-[11px] text-slate-600" data-testid="welcome-illustration-note">
           The Generator and Control previews are illustrations with sample content; Projects shows your real projects.
         </p>
+        </>)}
       </main>
     </div>
   );

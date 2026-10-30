@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { isFirstVisit } from "@/lib/welcome";
+import { isFirstValueUser } from "@/lib/first-value";
 
 const state = vi.hoisted(() => ({ user: null as unknown, updateUser: vi.fn(async () => ({ data: {}, error: null })), projects: [] as unknown[], loading: false }));
 vi.mock("@/hooks/useProjectList", () => ({ useProjectList: () => ({ items: state.projects, count: state.projects.length, loading: state.loading, reload: vi.fn() }) }));
@@ -33,6 +34,7 @@ const renderPage = () => render(
       <Route path="/generator-home" element={<div>generator page</div>} />
       <Route path="/control-system" element={<div>control page</div>} />
       <Route path="/projects" element={<div>projects page</div>} />
+      <Route path="/control-system/outer" element={<div>outer control page</div>} />
     </Routes>
   </MemoryRouter>,
 );
@@ -51,7 +53,8 @@ describe("Welcome screen", () => {
   });
 
   it("a new user sees a badge and a 'choose this when' line on each card", () => {
-    state.user = { email: "a@b.c", created_at: new Date().toISOString(), user_metadata: {} };
+    // Past the first-value window (they finished or skipped it): the guided cards.
+    state.user = { email: "a@b.c", created_at: new Date().toISOString(), user_metadata: { first_value_done: true } };
     renderPage();
     expect(screen.getAllByTestId("first-time-badge").map((e) => e.textContent)).toEqual(["Start here", "Next step", "Your work"]);
     expect(screen.getAllByTestId("first-time-when").map((e) => e.textContent)).toEqual([
@@ -60,7 +63,7 @@ describe("Welcome screen", () => {
   });
 
   it("choosing a card routes as before and, on a first visit, remembers it on the account", () => {
-    state.user = { email: "a@b.c", created_at: new Date().toISOString(), user_metadata: {} };
+    state.user = { email: "a@b.c", created_at: new Date().toISOString(), user_metadata: { first_value_done: true } };
     renderPage();
     fireEvent.click(screen.getByTestId("card-generator"));
     expect(screen.getByText("generator page")).toBeTruthy();
@@ -127,5 +130,55 @@ describe("Welcome screen", () => {
     state.projects = [{ key: "imported:p1", id: "p1", name: "Brand guide", origin: "imported", kind: "imported", updated_at: "x", href: "/projects/p1", imported: { source_mode: "linked", source_kind: "notion", sync_error: "Notion refused", write_back: false, last_synced_at: null, created_at: "x" } }];
     renderPage();
     expect(screen.getByTestId("preview-projects-status").textContent).toBe("● 1 project · 1 needs attention");
+  });
+});
+
+describe("first-value onboarding", () => {
+  beforeEach(() => { state.updateUser.mockClear(); state.projects = []; state.loading = false; });
+
+  it("is only for a recent account with nothing in it that has not finished or skipped it", () => {
+    expect(isFirstValueUser({ created_at: ago(0.01), user_metadata: {} }, 0, NOW)).toBe(true);
+    expect(isFirstValueUser({ created_at: ago(0.01), user_metadata: {} }, 1, NOW)).toBe(false);
+    expect(isFirstValueUser({ created_at: ago(0.01), user_metadata: { first_value_done: true } }, 0, NOW)).toBe(false);
+    expect(isFirstValueUser({ created_at: ago(30), user_metadata: {} }, 0, NOW)).toBe(false);
+    expect(isFirstValueUser(null, 0, NOW)).toBe(false);
+  });
+
+  it("a new user with no projects sees only the window; Start now opens Outer Control's Start a task", () => {
+    state.user = { email: "a@b.c", created_at: new Date().toISOString(), user_metadata: {} };
+    renderPage();
+    expect(screen.getByTestId("first-value-welcome").textContent).toMatch(/Try your first controlled AI task/);
+    expect(screen.queryByTestId("card-generator")).toBeNull();
+    fireEvent.click(screen.getByTestId("first-value-start"));
+    expect(screen.getByText("outer control page")).toBeTruthy();
+  });
+
+  it("Skip shows the full interface and is remembered on the account", () => {
+    state.user = { email: "a@b.c", created_at: new Date().toISOString(), user_metadata: {} };
+    renderPage();
+    fireEvent.click(screen.getByTestId("first-value-skip"));
+    expect(screen.getByTestId("card-generator")).toBeTruthy();
+    expect(state.updateUser).toHaveBeenCalledWith({ data: { first_value_done: true } });
+  });
+
+  it("a new user who already has a project, or an older account, never sees it", () => {
+    state.user = { email: "a@b.c", created_at: new Date().toISOString(), user_metadata: {} };
+    state.projects = [{ key: "website:1" }];
+    const { unmount } = renderPage();
+    expect(screen.queryByTestId("first-value-welcome")).toBeNull();
+    expect(screen.getByTestId("card-generator")).toBeTruthy();
+    unmount();
+    state.projects = [];
+    state.user = { email: "a@b.c", created_at: ago(40), user_metadata: {} };
+    renderPage();
+    expect(screen.queryByTestId("first-value-welcome")).toBeNull();
+  });
+
+  it("while the projects load, a new account sees neither the cards nor the window yet", () => {
+    state.user = { email: "a@b.c", created_at: new Date().toISOString(), user_metadata: {} };
+    state.loading = true;
+    renderPage();
+    expect(screen.queryByTestId("card-generator")).toBeNull();
+    expect(screen.queryByTestId("first-value-welcome")).toBeNull();
   });
 });
