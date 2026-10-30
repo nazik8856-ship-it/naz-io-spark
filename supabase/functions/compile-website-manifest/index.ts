@@ -2,6 +2,7 @@
 // Input: { prompt: string, save?: boolean }
 // Output: { manifest, website_id?, pages? }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { createUploadAliases, publishUploadsInPages, type UploadAliases } from "../_shared/uploaded-assets.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
@@ -858,13 +859,15 @@ async function reviseManifestWithIssues(
   }
 }
 
-serve(async (req) => {
+async function handleRequest(req: Request, uploadAliases: UploadAliases): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const gw = pickAiGateway();
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
-    const body = await req.json().catch(() => ({}));
+    const rawBody = await req.json().catch(() => ({}));
+    // Signed links to the user's private uploads become short stand-ins for the AI; the saved pages get public copies.
+    const body = rawBody && typeof rawBody === "object" ? JSON.parse(uploadAliases.text(JSON.stringify(rawBody))) : rawBody;
     const { prompt, save = true, previousWebsiteId, refine = false, recentTurns = [], attachments = [], requestId = null } = body || {};
     // Generator UX (2026-10-12): the user's structure choice, Strict Mode,
     // the stage-1 outline step, and the staged-flow marker. All optional --
@@ -1058,9 +1061,9 @@ serve(async (req) => {
 
       await reportProgress(admin, requestId, user.id, "saving");
       await snapshotWebsiteVersion(supabase, String(previousWebsiteId), user.id, "Before professional pass", siteRow, pageRows);
-      const rows = polished.pages.map((p, i) => ({
+      const { rows } = await publishUploadsInPages(admin, Deno.env.get("SUPABASE_URL")!, uploadAliases, user.id, String(previousWebsiteId), polished.pages.map((p, i) => ({
         website_id: previousWebsiteId, slug: p.slug, title: p.title, seo_description: p.seo_description ?? null, sections: p.sections, order_index: i,
-      }));
+      })));
       const { error: upErr } = await supabase.from("website_pages").upsert(rows, { onConflict: "website_id,slug" });
       if (upErr) return json({ error: upErr.message }, 500);
       const keepSlugs = new Set(polished.pages.map((p) => p.slug));
@@ -1148,7 +1151,7 @@ serve(async (req) => {
               content: visualAttachments.length
                 ? [
                     { type: "text", text: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}${accountRulesBlock}\n\nAttached images are shown below — copy their exact URLs byte-for-byte into the target section/item's asset_url so they render in the site. First infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, identifiedEdits, summary, manifest }.${loopClause}` },
-                    ...visualAttachments.map((a: any) => ({ type: "image_url", image_url: { url: a.assetUrl || a.url } })),
+                    ...visualAttachments.map((a: any) => ({ type: "image_url", image_url: { url: uploadAliases.real(a.assetUrl || a.url) } })),
                   ]
                 : `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}${accountRulesBlock}\n\nFirst infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, identifiedEdits, summary, manifest }.${loopClause}`,
             },
@@ -1334,12 +1337,12 @@ serve(async (req) => {
         `Edit: ${refined.intent || "mixed"}`, existing, existingPages || [],
       );
 
-      const pageRows = finalManifest.pages.map((p, i) => ({
+      const { rows: pageRows } = await publishUploadsInPages(admin, Deno.env.get("SUPABASE_URL")!, uploadAliases, user.id, String(previousWebsiteId), finalManifest.pages.map((p, i) => ({
         website_id: previousWebsiteId,
         slug: p.slug, title: p.title,
         seo_description: p.seo_description ?? null,
         sections: p.sections, order_index: i,
-      }));
+      })));
       // Upsert first so a failed refinement can never delete the currently
       // visible website. Only stale pages are removed after replacements exist.
       const { data: pagesOut, error: pagesErr } = await supabase
@@ -1671,14 +1674,14 @@ serve(async (req) => {
         );
       }
 
-      const rebuildRows = manifest.pages.map((p, i) => ({
+      const { rows: rebuildRows } = await publishUploadsInPages(admin, Deno.env.get("SUPABASE_URL")!, uploadAliases, user.id, String(rebuildWebsiteId), manifest.pages.map((p, i) => ({
         website_id: rebuildWebsiteId,
         slug: p.slug,
         title: p.title,
         seo_description: p.seo_description ?? null,
         sections: p.sections,
         order_index: i,
-      }));
+      })));
       const { error: upErr } = await supabase
         .from("website_pages")
         .upsert(rebuildRows, { onConflict: "website_id,slug" });
@@ -1756,14 +1759,14 @@ serve(async (req) => {
       return json({ manifest, error: siteErr?.message ?? "failed to save website" }, 500);
     }
 
-    const pageRows = manifest.pages.map((p, i) => ({
+    const { rows: pageRows } = await publishUploadsInPages(admin, Deno.env.get("SUPABASE_URL")!, uploadAliases, user.id, String(siteRow.id), manifest.pages.map((p, i) => ({
       website_id: siteRow.id,
       slug: p.slug,
       title: p.title,
       seo_description: p.seo_description ?? null,
       sections: p.sections,
       order_index: i,
-    }));
+    })));
 
     const { data: pagesOut, error: pagesErr } = await supabase
       .from("website_pages")
@@ -1804,4 +1807,13 @@ serve(async (req) => {
     console.error("compile-website-manifest error", e);
     return json({ error: (e as Error).message }, 500);
   }
+}
+
+// Files the user attached are private signed links; inside a request they travel as short stand-ins (_shared/uploaded-assets.ts).
+// What goes back to the browser has each stand-in turned into its public copy (when the saved pages use it) or its signed link.
+serve(async (req) => {
+  const uploadAliases = createUploadAliases(Deno.env.get("SUPABASE_URL")!);
+  const res = await handleRequest(req, uploadAliases);
+  if (!uploadAliases.paths().size) return res;
+  return new Response(uploadAliases.restore(await res.text()), { status: res.status, headers: res.headers });
 });

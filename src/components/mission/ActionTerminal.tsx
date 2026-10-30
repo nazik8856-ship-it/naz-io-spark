@@ -21,6 +21,7 @@ import AttachmentChip, { type Attachment } from "./AttachmentChip";
 import { useMissions } from "@/hooks/useMissions";
 import { PROCESS_MISSION_FUNCTION } from "@/constants";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
+import { DAY, uploadPrivate } from "@/lib/private-upload"; // attachments are private (user & data isolation)
 
 interface ActionTerminalProps {
   activeSection: string;
@@ -222,13 +223,10 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     setUploading(true);
     addLog(`INITIALIZING_UPLOAD // ${file.name.toUpperCase()}...`);
     const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${file.name.split(".").pop()}`;
-    const filePath = `${session.user.id}/${fileName}`;
 
     try {
-      const { error } = await supabase.storage.from("mission-assets").upload(filePath, file);
-      if (error) throw error;
-      const { data: urlData } = supabase.storage.from("mission-assets").getPublicUrl(filePath);
-      setAttachments((prev) => [...prev, { name: file.name, url: urlData.publicUrl, type: file.type }]);
+      const url = await uploadPrivate(session.user.id, `missions/${fileName}`, file, { expiresIn: 7 * DAY });
+      setAttachments((prev) => [...prev, { name: file.name, url, type: file.type }]);
       addLog(`ASSET_SYNCHRONIZED // ${file.name.toUpperCase()}`);
     } catch (err: any) {
       addLog(`UPLOAD_FAILED // ${err.message?.toUpperCase()}`, "error");

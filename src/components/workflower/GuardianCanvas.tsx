@@ -16,6 +16,7 @@ import {
   snapToGrid,
   GRID_COLUMNS,
 } from "@/lib/brand-engine";
+import { DAY, uploadPrivate } from "@/lib/private-upload"; // attachments are private (user & data isolation)
 
 const SPRING = { type: "spring" as const, damping: 22, stiffness: 320, mass: 0.8 };
 
@@ -50,11 +51,12 @@ const GuardianCanvas: React.FC = () => {
       setUploading(true);
       const newAssets: BrandAsset[] = [];
       for (const file of Array.from(files)) {
-        const path = `${user.id}/guardian/${Date.now()}-${file.name}`;
-        const { data, error } = await supabase.storage.from("mission-assets").upload(path, file);
-        if (error) continue;
-        const { data: pub } = supabase.storage.from("mission-assets").getPublicUrl(data.path);
-        const url = pub.publicUrl;
+        let url: string;
+        try {
+          url = await uploadPrivate(user.id, `guardian/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]+/g, "-")}`, file, { expiresIn: DAY });
+        } catch {
+          continue;
+        }
         const dominantColor = await extractDominantColor(url);
         const img = new Image();
         const aspect = await new Promise<number>((res) => {

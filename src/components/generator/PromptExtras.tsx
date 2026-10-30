@@ -5,6 +5,7 @@ import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import ConnectToolPanel from "@/components/control/outer/ConnectToolPanel";
+import { DAY, uploadPrivate } from "@/lib/private-upload"; // attachments are private (user & data isolation)
 
 export type Attachment = {
   id: string;
@@ -147,14 +148,10 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
         }
         try {
           const safeName = f.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
-          const path = `${user.id}/prompt-inputs/${crypto.randomUUID()}-${safeName}`;
-          const { error } = await supabase.storage.from("mission-assets").upload(path, f, {
-            contentType: f.type || undefined,
-            upsert: false,
+          // Private to the user; a site that places it gets its own public copy when it is saved.
+          const assetUrl = await uploadPrivate(user.id, `prompt-inputs/${crypto.randomUUID()}-${safeName}`, f, {
+            expiresIn: DAY, contentType: f.type || undefined,
           });
-          if (error) throw error;
-          const { data } = supabase.storage.from("mission-assets").getPublicUrl(path);
-          const assetUrl = data.publicUrl;
           next.push({
             id: crypto.randomUUID(),
             label: `${f.type.startsWith("image/") ? "Image" : "File"} · ${f.name}`,
