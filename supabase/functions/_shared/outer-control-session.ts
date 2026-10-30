@@ -643,7 +643,10 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           // A starter tool answers with NazAI's own AI, from its own angle; its reply is checked like any other tool's.
           const answer = deps.starterAi ? await askStarter(deps.starterAi, tool.endpoint_url, buildInstruction(reqInput)) : null;
           if (answer === null) throw new Error("unreachable");
-          res = new Response(JSON.stringify({ status: "done", answer }), { status: 200 });
+          // The AI answers in the reply format it was asked for (status / answer / question, sometimes in a code fence): it is
+          // unpacked here, so only the plain answer is shown and checked, never the format around it.
+          const r = parseToolReply(answer);
+          res = new Response(JSON.stringify({ status: r.status, answer: r.answer, ...(r.question ? { question: r.question } : {}) }), { status: 200 });
         } else if (tool.request_format === "mcp") {
           // An MCP server is spoken to in MCP: handshake, find the tool, call it with the step's text. What it returns is the reply.
           const text = [reqInput.objective, reqInput.context ? `Context:\n${reqInput.context}` : "", reqInput.answer ? `Answer from a person:\n${reqInput.answer}` : ""].filter(Boolean).join("\n\n").slice(0, 12_000);
