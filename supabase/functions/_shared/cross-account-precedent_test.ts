@@ -74,7 +74,7 @@ const stat = (over: Partial<CrossAccountStat> = {}): CrossAccountStat => ({
   provider: "Gmail",
   total_count: 10,
   non_allow_count: 3,
-  contributing_account_count: 3,
+  contributing_account_count: MIN_CONTRIBUTING_ACCOUNTS,
   ...over,
 });
 
@@ -93,8 +93,8 @@ Deno.test("evaluateCoarsePrecedentLookup: enough accounts but too small a sample
 });
 
 Deno.test("evaluateCoarsePrecedentLookup: enough accounts and enough sample returns the real share", () => {
-  const result = evaluateCoarsePrecedentLookup(stat({ contributing_account_count: 4, total_count: 20, non_allow_count: 5 }));
-  assertEquals(result, { available: true, nonAllowShare: 0.25, totalCount: 20, contributingAccountCount: 4 });
+  const result = evaluateCoarsePrecedentLookup(stat({ contributing_account_count: MIN_CONTRIBUTING_ACCOUNTS + 1, total_count: 20, non_allow_count: 5 }));
+  assertEquals(result, { available: true, nonAllowShare: 0.25, totalCount: 20, contributingAccountCount: MIN_CONTRIBUTING_ACCOUNTS + 1 });
 });
 
 // ---- summarizeCoarsePrecedentLookup ----

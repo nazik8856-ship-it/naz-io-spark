@@ -83,7 +83,7 @@ a team viewer, a member of two accounts and a visitor).
 - **The owner of a row can not be changed** by a signed-in user (`prevent_owner_change` on every table with a registered owner
   column). Team-owner rules only check membership of the account a row ends up in, so a team owner of two accounts could have moved a
   rule, webhook or spend cap from one to the other.
-- **Cross-account stats** (`cross_account_precedent_stats`) show a row only once at least 2 accounts contributed; before, only the
+- **Cross-account stats** (`cross_account_precedent_stats`) show a row only once at least **5** accounts contributed (it was 2; with 2 contributors each could work out the other's numbers). The database rule, the server and the website use the same number, and a test keeps them equal. Before, only the
   server held back the rest while the browser read the table directly.
 - **`can_access(owner, min_role[, permission])` is the one helper for "the owner, or a team member at this role"** (and, for changes,
   the permission category). Every team rule calls it (`20261105030000_policies_use_can_access.sql`: 58 rules rewritten in place; the
@@ -120,6 +120,13 @@ files that a generated site places (a copy in `mission-assets/website-images/<si
 file is never published. `mission-assets` (generated site images) is written by the server only, under the site's id: a public image address does not say
 whose it is (sites generated before 2026-11-05 still have the owner's id in their image addresses; see below). `governance-backups` is private
 (server only). See `docs/data-encryption.md`. Build check: `src/test/data-isolation.test.ts` ("uploads stay private").
+
+**Files outlive nothing.** `site-images-cleanup-sweep` (daily, server key) removes the files of things that no longer exist: the public
+pictures of a site that was deleted (both folder layouts, and the published copies of uploads), and a deleted account's private
+`user-uploads` files. It leaves a folder alone while its site/account exists, while a page, a saved version or a shared copy still points
+at it (`site_image_folder_in_use`), and while any file is newer than the grace period (1 day for pictures, 7 for private uploads); a lookup
+that fails keeps the files and stops the run. At most 500 files per bucket per run; `{ "dry_run": true }` lists what it would remove.
+Pause switch: `platform_settings.consequential_sweeps_paused`. Planning logic and tests: `_shared/orphan-files.ts`.
 
 Known limit: the 8 sites that existed before the folder change (32 image files) keep the owner's id in their public image addresses.
 Moving them means copying each file and rewriting the address everywhere it is stored (pages, saved versions, shared copies); that is

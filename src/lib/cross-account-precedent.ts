@@ -14,7 +14,7 @@ export type CrossAccountStat = {
   contributing_account_count: number;
 };
 
-export const MIN_CONTRIBUTING_ACCOUNTS = 2;
+export const MIN_CONTRIBUTING_ACCOUNTS = 5;
 export const MIN_TOTAL_SAMPLE = 5;
 
 export type CoarsePrecedentLookup =

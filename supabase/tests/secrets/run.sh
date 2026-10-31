@@ -25,4 +25,6 @@ run -f encrypt_front5_test.sql
 run -f isolation_register_test.sql
 run -f isolation_front2_test.sql
 run -f isolation_can_access_test.sql
+run -f isolation_precedent_min_test.sql
+run -f site_images_cleanup_test.sql
 echo "secrets database tests: all passed"
