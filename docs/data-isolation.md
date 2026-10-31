@@ -86,7 +86,7 @@ a team viewer, a member of two accounts and a visitor).
 - **Cross-account stats** (`cross_account_precedent_stats`) show a row only once at least 2 accounts contributed; before, only the
   server held back the rest while the browser read the table directly.
 - **`can_access(owner, min_role[, permission])` is the one helper for "the owner, or a team member at this role"** (and, for changes,
-  the permission category). Every team rule calls it (`20261105030000_policies_use_can_access.sql`: 57 rules rewritten in place; the
+  the permission category). Every team rule calls it (`20261105030000_policies_use_can_access.sql`: 58 rules rewritten in place; the
   test asks four people the same questions before and after and the answers match). One rule is left as it was on purpose:
   `knowledge_base_entries` "Team owners can manage ...", which gives the owner no direct write access (the migration only rewrites a
   rule when the owner has the same access through another rule, and stops if any other rule still calls `is_account_member()`).
