@@ -10,6 +10,7 @@
 
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
+import { timingSafeEqual } from "../_shared/timing-safe.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,13 +50,20 @@ function humanMetric(provider: string, metric: string) {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  // Scheduled job: only the server key may start it (the schedule sends it). Anyone else, with any other key, is refused.
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!serviceKey || !timingSafeEqual(token, serviceKey)) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    serviceKey,
   );
 
   try {
+    // The caller is the server (checked above), so it may scope a run to one account; the schedule sends no body.
     let scopedUserId: string | null = null;
     try {
       const body = await req.json();

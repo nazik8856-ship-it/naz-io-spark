@@ -8,7 +8,7 @@
 //   public   reachable without signing in, on purpose; `reason` says why and what protects it
 //
 // `checkedBy` names the function the caller's token is passed on to, which verifies it (the test checks both).
-// `gap` records a known problem that front 3 fixes; the test fails when a gap is fixed but still listed, or a new one appears.
+// `gap` records a known problem; the test fails when a gap is fixed but still listed, or a new one appears. (None are open since front 3.)
 export type FunctionAccess = { access: "user" | "api_key" | "system" | "public"; reason?: string; checkedBy?: string; gap?: string };
 
 const USER: FunctionAccess = { access: "user" };
@@ -66,10 +66,10 @@ export const FUNCTION_ACCESS: Record<string, FunctionAccess> = {
   "outer-control": { access: "api_key" },
 
   // Scheduled jobs and server-to-server calls
-  "agent-scheduler": { access: "system", gap: "no check on incoming requests: anyone can trigger a scheduler run (front 3)" },
+  "agent-scheduler": SYSTEM,
   "approval-escalation-sweep": SYSTEM,
   "auto-resolution-share-sweep": SYSTEM,
-  "calibrate-confidence": { access: "system", gap: "no caller check, and the account comes from the request body (front 3)" },
+  "calibrate-confidence": SYSTEM,
   "content-gap-backlog-sweep": SYSTEM,
   "content-gap-triage-sweep": SYSTEM,
   "control-api-abuse-sweep": SYSTEM,
@@ -86,7 +86,7 @@ export const FUNCTION_ACCESS: Record<string, FunctionAccess> = {
   "incident-escalation-sweep": SYSTEM,
   "integration-revocation-sweep": SYSTEM,
   "knowledge-base-auto-draft-sweep": SYSTEM,
-  "measure-decision-outcomes": { access: "system", gap: "no caller check, and the account comes from the request body (front 3)" },
+  "measure-decision-outcomes": SYSTEM,
   "outcome-quality-sweep": SYSTEM,
   "outer-control-session-sweep": SYSTEM,
   "precedent-pipeline-health-sweep": SYSTEM,

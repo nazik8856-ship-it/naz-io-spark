@@ -23,7 +23,13 @@ vi.mock("@/integrations/supabase/client", () => {
     return q;
   };
   return {
-    supabase: { auth: { getSession: async () => ({ data: { session: null } }) }, from: builder, functions: { invoke: vi.fn() } },
+    // A visitor (or the owner) opens the site through the one-site lookup, which returns the site with its pages.
+    supabase: {
+      auth: { getSession: async () => ({ data: { session: null } }) }, from: builder, functions: { invoke: vi.fn() },
+      rpc: async (fn: string, args: { _ref: string; _meta_only?: boolean }) => ({
+        data: fn === "get_public_site" && args._ref === SID ? { ...site, images_status: "done", ...(args._meta_only ? {} : { pages: livePages }) } : null, error: null,
+      }),
+    },
     SUPABASE_FUNCTIONS_URL: "https://x.supabase.co/functions/v1",
     SUPABASE_ANON: "anon",
     SUPABASE_URL: "https://x.supabase.co",

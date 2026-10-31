@@ -233,8 +233,9 @@ serve(async (req) => {
       const { data: owner } = await supabase
         .from("agent_decisions").select("user_id").eq("id", decisionId).maybeSingle();
       if (!owner) return json({ error: "Decision not found", found: false, verified: false }, 404);
+      // Someone else's decision answers exactly like a missing one, so ids of other accounts can not be probed.
       if ((owner as { user_id?: string }).user_id !== userId) {
-        return json({ error: "Not authorized for this decision" }, 403);
+        return json({ error: "Decision not found", found: false, verified: false }, 404);
       }
       const { data, error } = await supabase.rpc("verify_decision_signature", { _id: decisionId });
       if (error) return json({ error: error.message }, 500);
@@ -341,7 +342,7 @@ serve(async (req) => {
       if (dErr) return json({ error: dErr.message }, 500);
       if (!decision) return json({ error: "Decision not found" }, 404);
       if ((decision as { user_id?: string }).user_id !== userId) {
-        return json({ error: "Not authorized for this decision" }, 403);
+        return json({ error: "Decision not found" }, 404);
       }
 
       const [{ data: outcomes }, { data: overrides }] = await Promise.all([
@@ -449,7 +450,7 @@ serve(async (req) => {
         .from("pending_approvals").select("*").eq("id", approvalId).maybeSingle();
       const ap = apRow as Record<string, unknown> | null;
       if (!ap) return json({ ok: false, error: "not_found" }, 404);
-      if (ap.user_id !== userId) return json({ ok: false, error: "forbidden" }, 403);
+      if (ap.user_id !== userId) return json({ ok: false, error: "not_found" }, 404);
 
       if (ap.executed_at) {
         return json({
@@ -558,7 +559,7 @@ serve(async (req) => {
         .from("agent_decisions").select("*").eq("id", decisionId).maybeSingle();
       const orig = origRow as Record<string, unknown> | null;
       if (!orig) return json({ ok: false, error: "not_found" }, 404);
-      if (orig.user_id !== userId) return json({ ok: false, error: "forbidden" }, 403);
+      if (orig.user_id !== userId) return json({ ok: false, error: "not_found" }, 404);
 
       const eligibleSource = orig.source === "hard_rule" || orig.source === "safety_scanner";
       const isBlock = String(orig.decision || "").startsWith("BLOCK ");
@@ -958,7 +959,7 @@ serve(async (req) => {
       const { data: agent } = await supabase
         .from("agents").select("confidence_threshold, user_id").eq("id", agentId).maybeSingle();
       if (agent && (agent as { user_id?: string }).user_id !== accountId) {
-        return json({ error: "Not authorized for this agent" }, 403);
+        return json({ error: "Agent not found" }, 404);
       }
       const t = Number((agent as { confidence_threshold?: number } | null)?.confidence_threshold);
       if (Number.isFinite(t)) baseThreshold = Math.max(0, Math.min(100, Math.round(t)));

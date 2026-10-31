@@ -5,8 +5,9 @@
 // generated site to Slack, iMessage, or social always shows "NazAI — Launch
 // Your AI Business in Minutes" instead of the business's own name and
 // tagline. This middleware rewrites those tags for that one route before the
-// SPA shell is served, using the site's name/tagline from Supabase (now
-// publicly readable by id — see the public_read_shared_websites migration).
+// SPA shell is served, using the site's name/tagline from get_public_site():
+// the database lookup of one published site by its link, which returns only
+// what the public preview shows (the tables themselves are owner-only).
 export const config = {
   matcher: ["/website-preview/:id"],
 };
@@ -31,14 +32,12 @@ export default async function middleware(request: Request) {
 
   let site: { name?: string; tagline?: string } | null = null;
   try {
-    const resp = await fetch(
-      `${SUPABASE_URL}/rest/v1/websites?id=eq.${encodeURIComponent(id)}&select=name,tagline`,
-      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } },
-    );
-    if (resp.ok) {
-      const rows = (await resp.json()) as { name?: string; tagline?: string }[];
-      site = rows?.[0] || null;
-    }
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_public_site`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({ _ref: id, _meta_only: true }),
+    });
+    if (resp.ok) site = ((await resp.json()) as { name?: string; tagline?: string } | null) || null;
   } catch {
     // Network hiccup talking to Supabase from the edge — fall through and
     // let the default NazAI meta tags serve rather than fail the request.

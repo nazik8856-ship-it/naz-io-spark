@@ -13,6 +13,7 @@ const src = (fn: string) => readFileSync(join(FUNCTIONS, fn, "index.ts"), "utf8"
 /** The caller is checked: a sign-in token is verified, or the query runs as the caller (their Authorization on the client). */
 const checksUser = (s: string) =>
   /auth\.getUser\(|getClaims\(/.test(s)
+  || (/from "\.\.\/_shared\/caller\.ts"/.test(s) && /requireCaller\(/.test(s)) // the shared helper verifies the token (_shared/caller.ts)
   || /global:\s*\{\s*headers:\s*\{\s*Authorization:\s*(authHeader|`Bearer \$\{ctx\.getToken\(\)\}`)/.test(s);
 /** The request must carry the server key (compared with the incoming Authorization header). */
 const checksServerKey = (s: string) =>
@@ -35,7 +36,8 @@ describe("every edge function says how it decides who is calling", () => {
     expect(checksUser(src("delete-project"))).toBe(true);
     expect(checksUser(src("outer-control-read"))).toBe(true);
     expect(checksServerKey(src("retention-sweep"))).toBe(true);
-    expect(checksServerKey(src("agent-scheduler"))).toBe(false); // sends the key on its own calls, never checks incoming ones
+    expect(checksServerKey(src("agent-scheduler"))).toBe(true); // sends the key on its own calls and now also checks incoming ones
+    expect(checksServerKey('const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"); await fetch(url, { headers: { Authorization: `Bearer ${key}` } });')).toBe(false); // sending the key is not checking it
     expect(checksApiKey(src("control-api"))).toBe(true);
   });
 
@@ -54,9 +56,20 @@ describe("every edge function says how it decides who is calling", () => {
     expect(failing(fn)).toBe(false);
   });
 
-  it("the known gaps are still gaps (remove the entry's gap once fixed)", () => {
+  it("a listed gap is still a gap (remove the entry's gap once fixed), and none are open", () => {
     const listed = Object.entries(FUNCTION_ACCESS).filter(([, a]) => a.gap).map(([f]) => f).sort();
     expect(listed.filter((f) => !failing(f))).toEqual([]);
-    expect(listed).toEqual(["agent-scheduler", "calibrate-confidence", "measure-decision-outcomes"]);
+    expect(listed).toEqual([]);
+  });
+
+  it("the three scheduled jobs that used to answer anyone now need the server key", () => {
+    for (const fn of ["agent-scheduler", "calibrate-confidence", "measure-decision-outcomes"]) {
+      expect(FUNCTION_ACCESS[fn].access).toBe("system");
+      expect(checksServerKey(src(fn)), fn).toBe(true);
+      // the check comes before anything is read or written
+      const s = src(fn);
+      expect(s.indexOf("timingSafeEqual(token, serviceKey)"), fn).toBeGreaterThan(0);
+      expect(s.indexOf("timingSafeEqual(token, serviceKey)"), fn).toBeLessThan(s.indexOf(".from("));
+    }
   });
 });
