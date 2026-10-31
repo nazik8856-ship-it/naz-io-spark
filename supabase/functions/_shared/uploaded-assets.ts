@@ -1,7 +1,7 @@
 // User & data isolation: files a user attaches (prompt images, clarification answers, brand assets) are stored in the private
 // `user-uploads` bucket, under the user's own folder, and passed around as short-lived signed links. When a generated site
 // places one of them, the site generator copies just that file next to the site's own public images (`mission-assets/
-// website-images/<user>/<site>/uploads/…`) and points the page at the copy: only what the user publishes becomes public.
+// website-images/<site>/uploads/…`) and points the page at the copy: only what the user publishes becomes public.
 //
 // While the site is generated, each signed link is swapped for a short stand-in address, so the AI copies a short link into the
 // pages exactly as before (a long signed link could be cut short); the AI still sees the image itself through the signed link.
@@ -59,9 +59,9 @@ export function createUploadAliases(supabaseUrl: string): UploadAliases {
   };
 }
 
-/** The public copy's path for an upload placed in a site. */
-export function publishedPath(userId: string, websiteId: string, uploadPath: string): string {
-  return `website-images/${userId}/${websiteId}/uploads/${uploadPath.split("/").pop()}`;
+/** The public copy's path for an upload placed in a site: under the site's id, never the owner's (the address does not say whose it is). */
+export function publishedPath(websiteId: string, uploadPath: string): string {
+  return `website-images/${websiteId}/uploads/${uploadPath.split("/").pop()}`;
 }
 
 type StorageLike = {
@@ -82,7 +82,7 @@ export async function publishUploadsInPages<T>(
     if (!json.includes(alias)) continue;
     let replacement = "";
     if (path.split("/")[0] === userId) {
-      const dest = publishedPath(userId, websiteId, path);
+      const dest = publishedPath(websiteId, path);
       const { error } = await admin.storage.from(UPLOADS_BUCKET).copy(path, dest, { destinationBucket: PUBLIC_ASSETS_BUCKET });
       // Already published for this site (an earlier save placed it too): the copy is there.
       if (!error || /exist/i.test(error.message)) {

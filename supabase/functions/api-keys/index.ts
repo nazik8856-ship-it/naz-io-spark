@@ -37,6 +37,7 @@ import { reportEdgeException } from "../_shared/sentry.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { putSigningSecret } from "../_shared/signing-secrets.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -74,12 +75,10 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-  const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: userData, error: userErr } = await userClient.auth.getUser();
-  if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
-  const userId = userData.user.id;
+  const authed = await requireCaller(req, (h) => createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: h } } }));
+  if (!authed.ok) return json({ error: "unauthorized" }, 401);
+  const userClient = authed.caller.userClient;
+  const userId = authed.caller.userId;
 
   const admin = createClient(supabaseUrl, serviceKey);
   const url = new URL(req.url);

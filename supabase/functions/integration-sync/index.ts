@@ -23,6 +23,7 @@ import { readSecret } from "../_shared/integration-secrets.ts";
 import { SHOPIFY_API_VERSION } from "../_shared/shopify.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -416,12 +417,10 @@ Deno.serve(async (req) => {
     }
 
     // Authed path: one user
-    const auth = req.headers.get("Authorization") || "";
-    const authed = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: auth } } });
-    const { data: { user }, error: userErr } = await authed.auth.getUser();
-    if (userErr || !user) return j(401, { error: "Not authenticated" });
+    const callerAuth = await requireCaller(req, (h) => createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: h } } }));
+    if (!callerAuth.ok) return j(401, { error: "Not authenticated" });
 
-    const rate = await checkRateLimit(admin, user.id, "integration-sync", RATE_LIMIT_PER_MINUTE, 60);
+    const rate = await checkRateLimit(admin, callerAuth.caller.userId, "integration-sync", RATE_LIMIT_PER_MINUTE, 60);
     if (!rate.allowed) {
       return j(429, {
         error: "rate_limited",
@@ -432,7 +431,7 @@ Deno.serve(async (req) => {
     let q = admin
       .from("agent_integrations")
       .select("id, user_id, agent_id, provider, credentials_secret_id")
-      .eq("user_id", user.id)
+      .eq("user_id", callerAuth.caller.userId)
       .eq("status", "connected");
     if (providerFilter) q = q.eq("provider", providerFilter);
     if (agentIdFilter) q = q.eq("agent_id", agentIdFilter);

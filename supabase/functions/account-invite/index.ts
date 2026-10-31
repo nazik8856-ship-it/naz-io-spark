@@ -4,6 +4,7 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isValidAccountRole, isValidEmail } from "../_shared/account-members.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,13 +26,10 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-  const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: userData, error: userErr } = await userClient.auth.getUser();
-  if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
-  const ownerId = userData.user.id;
-  const ownerEmail = userData.user.email ?? null;
+  const authed = await requireCaller(req, (h) => createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: h } } }));
+  if (!authed.ok) return json({ error: "unauthorized" }, 401);
+  const ownerId = authed.caller.userId;
+  const ownerEmail = authed.caller.email ?? null;
 
   const body = await req.json().catch(() => ({}));
   const email = String(body?.email || "").trim().toLowerCase();

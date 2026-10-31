@@ -2,6 +2,7 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,12 +33,11 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "no AI key" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
-    const { data: authData } = await userClient.auth.getUser();
-    const userId = authData?.user?.id;
-    if (!userId) {
+    const authed = await requireCaller(req, (h) => createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: h } } }));
+    if (!authed.ok) {
       return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    const userId = authed.caller.userId;
 
     const { question } = await req.json().catch(() => ({}));
     const q = typeof question === "string" ? question.trim() : "";

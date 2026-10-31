@@ -11,6 +11,7 @@ import { ruleMatchesAction, selectRulesForAgent } from "../_shared/rule-matching
 import { scanWithRules, BUILTIN_SAFETY_RULES, type SafetyRule } from "../_shared/safety-scanner.ts";
 import { projectVerdict } from "../_shared/rule-simulator-logic.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,14 +47,13 @@ Deno.serve(async (req) => {
   const authHeader = req.headers.get("Authorization") || "";
   if (!authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
 
-  const userClient = createClient(
+  const authed = await requireCaller(req, (h) => createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: authHeader } } },
-  );
-  const { data: userData, error: userErr } = await userClient.auth.getUser();
-  if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
-  const userId = userData.user.id;
+    { global: { headers: { Authorization: h } } }));
+  if (!authed.ok) return json({ error: "unauthorized" }, 401);
+  const userClient = authed.caller.userClient;
+  const userId = authed.caller.userId;
 
   // increment_rate_limit is service_role-only -- a separate admin client is
   // needed purely for this check, the rest of the handler stays on userClient

@@ -14,6 +14,7 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { checkRateLimit } from '../_shared/rate-limit.ts'
+import { requireCaller } from "../_shared/caller.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -90,12 +91,11 @@ Deno.serve(async (req) => {
   const token = authHeader.replace(/^Bearer\s+/i, '')
   if (!token) return json({ error: 'unauthorized' }, 401)
 
-  const userClient = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  })
-  const { data: userData, error: userErr } = await userClient.auth.getUser()
-  if (userErr || !userData?.user) return json({ error: 'unauthorized' }, 401)
-  const userId = userData.user.id
+  const authed = await requireCaller(req, (h) => createClient(SUPABASE_URL, ANON_KEY, {
+    global: { headers: { Authorization: h } },
+  }))
+  if (!authed.ok) return json({ error: 'unauthorized' }, 401)
+  const userId = authed.caller.userId
 
   const admin = createClient(SUPABASE_URL, SERVICE_KEY)
 

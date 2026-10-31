@@ -17,6 +17,7 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ROOT_CAUSE_CATEGORIES, isValidRootCauseCategory } from "../_shared/incidents.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,14 +33,13 @@ Deno.serve(async (req) => {
   const authHeader = req.headers.get("Authorization") || "";
   if (!authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
 
-  const userClient = createClient(
+  const authed = await requireCaller(req, (h) => createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: authHeader } } },
-  );
-  const { data: userData, error: userErr } = await userClient.auth.getUser();
-  if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
-  const userId = userData.user.id;
+    { global: { headers: { Authorization: h } } }));
+  if (!authed.ok) return json({ error: "unauthorized" }, 401);
+  const userClient = authed.caller.userClient;
+  const userId = authed.caller.userId;
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const url = new URL(req.url);

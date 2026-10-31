@@ -24,4 +24,5 @@ run -f encrypt_front4_test.sql
 run -f encrypt_front5_test.sql
 run -f isolation_register_test.sql
 run -f isolation_front2_test.sql
+run -f isolation_can_access_test.sql
 echo "secrets database tests: all passed"

@@ -7,6 +7,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { fetchPublicHttps } from "../_shared/url-safety.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,15 +21,14 @@ serve(async (req) => {
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
     const { prompt = "", url: urlIn, reuseLatest = false } = await req.json().catch(() => ({}));
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const supabase = createClient(
+    const authed = await requireCaller(req, (h) => createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } },
-    );
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData?.user;
-    if (!user) return json({ error: "Not authenticated" }, 401);
+      { global: { headers: { Authorization: h } } },
+    ));
+    if (!authed.ok) return json({ error: "Not authenticated" }, 401);
+    const supabase = authed.caller.userClient;
+    const user = { id: authed.caller.userId };
 
     if (reuseLatest) {
       const { data: existing } = await supabase

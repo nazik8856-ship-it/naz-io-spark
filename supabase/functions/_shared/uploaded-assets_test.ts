@@ -34,10 +34,11 @@ Deno.test("saving pages publishes the uploads they place, and only those", async
   const admin = fakeAdmin();
   const rows = [{ website_id: SITE, sections: [{ type: "hero", asset_url: used }] }];
   const out = await publishUploadsInPages(admin, BASE, a, ME, SITE, rows);
-  const publicUrl = `${BASE}/storage/v1/object/public/mission-assets/website-images/${ME}/${SITE}/uploads/1cf0-car.webp`;
+  const publicUrl = `${BASE}/storage/v1/object/public/mission-assets/website-images/${SITE}/uploads/1cf0-car.webp`;
   assertEquals(out.rows[0].sections[0].asset_url, publicUrl);
-  assertEquals(admin.copies, [{ from: `${ME}/prompt-inputs/1cf0-car.webp`, to: publishedPath(ME, SITE, `${ME}/prompt-inputs/1cf0-car.webp`), bucket: "mission-assets" }]);
+  assertEquals(admin.copies, [{ from: `${ME}/prompt-inputs/1cf0-car.webp`, to: publishedPath(SITE, `${ME}/prompt-inputs/1cf0-car.webp`), bucket: "mission-assets" }]);
   assertEquals(out.published, [`${ME}/prompt-inputs/1cf0-car.webp`]);
+  assertEquals(out.rows[0].sections[0].asset_url.includes(ME), false, "the public address does not say whose upload it is");
   // What goes back to the browser: the published image as its public copy, the reference photo as its (private) signed link.
   const reply = a.restore(JSON.stringify({ hero: used, ref: "https://uploads.nazai.invalid/2/2bb1-passport.jpg" }));
   assertEquals(JSON.parse(reply), { hero: publicUrl, ref: signed(`${ME}/prompt-inputs/2bb1-passport.jpg`) });

@@ -9,6 +9,7 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { validWrite, type Signoff } from "../_shared/encrypted-write.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,7 +27,9 @@ Deno.serve(async (req) => {
   if (problem) return json({ data: null, error: { message: problem } }, 400);
   try {
     // The signed-in user's own client: their row level security applies, as for a direct write.
-    const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
+    const authed = await requireCaller(req, (h) => createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: h } } }));
+    if (!authed.ok) return json({ error: "unauthorized" }, 401);
+    const db = authed.caller.userClient;
     if (body.ops[0].m === "signoff") {
       const x = body.ops[0].a[0] as Signoff;
       // As the approver: the database function checks they may sign off and applies the quorum, exactly as before.

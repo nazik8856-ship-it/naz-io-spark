@@ -20,6 +20,7 @@ import {
   buildVerifyPrompt, businessSubject, describeGuardTally, emptyTally, kindLabel, parseVerifyResponse, reinforcePrompt,
   subjectMatchesBusiness, withoutImageGuardNotes, type VerifyResult,
 } from "../_shared/image-guard.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
@@ -194,7 +195,8 @@ async function run(admin: AnyAdmin, gw: GatewayConfig, opts: { verify: boolean; 
           if (!result.ok || !result.parsed) { failed++; lastFailure = result.detail ?? "failed"; dropAfterMismatch(); break; }
           const file = await toBytes(result.parsed).catch(() => null);
           if (!file) { failed++; lastFailure = "could not read image"; dropAfterMismatch(); break; }
-          const path = `website-images/${site.user_id}/${site.id}/${crypto.randomUUID()}.${extensionForMime(file.mime)}`;
+          // The folder is the site's id (random, never guessable), not the owner's: a public image address says nothing about whose it is.
+          const path = `website-images/${site.id}/${crypto.randomUUID()}.${extensionForMime(file.mime)}`;
           const { error: upErr } = await admin.storage.from(BUCKET).upload(path, file.bytes, { contentType: file.mime, upsert: false });
           if (upErr) { failed++; lastFailure = upErr.message; dropAfterMismatch(); break; }
 
@@ -264,10 +266,9 @@ Deno.serve(async (req) => {
     const isService = authHeader === `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`;
     let userId: string | null = null;
     if (!isService) {
-      const userClient = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
-      const { data: userData, error: userErr } = await userClient.auth.getUser();
-      if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
-      userId = userData.user.id;
+      const authed = await requireCaller(req, (h) => createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: h } } }));
+      if (!authed.ok) return json({ error: "unauthorized" }, 401);
+      userId = authed.caller.userId;
     }
 
     const body = await req.json().catch(() => ({}));

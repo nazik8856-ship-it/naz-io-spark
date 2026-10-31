@@ -19,6 +19,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CONTROL_SCENARIOS } from "../_shared/control-scenarios.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { findRegressions } from "../_shared/self-audit-diff.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -160,12 +161,9 @@ Deno.serve(async (req) => {
   }
 
   // Real user JWT: run the self-audit for just that caller ("run now" button).
-  const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: userData, error: userErr } = await userClient.auth.getUser();
-  if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
+  const authed = await requireCaller(req, (h) => createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: h } } }));
+  if (!authed.ok) return json({ error: "unauthorized" }, 401);
 
-  const outcome = await auditOrg(admin, supabaseUrl, serviceKey, userData.user.id, "manual");
+  const outcome = await auditOrg(admin, supabaseUrl, serviceKey, authed.caller.userId, "manual");
   return json(outcome, outcome.error ? 502 : 200);
 });
