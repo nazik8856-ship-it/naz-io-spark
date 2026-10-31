@@ -51,6 +51,39 @@ describe("an account or user id sent with the request is only used after it is v
   });
 });
 
+// --- 1b. who is calling comes from requireCaller ----------------------------------------------------------------------------------
+// Every function a signed-in user calls identifies them through requireCaller (_shared/caller.ts): the user id comes from the verified
+// token and nothing else. These keep their own check, each for a recorded reason; a new function is not added here without one.
+const OWN_CHECK: Record<string, string> = {
+  "agent-approval": "verifies the raw token with auth.getClaims, then rate limits and acts as that user",
+  "agent-runtime": "also runs scheduled agents for agent-scheduler (server key plus the agent's owner, read from the agent row)",
+  "analyze-inputs": "sign-in is optional: a signed-in caller gets their integration snapshot, anyone else gets none; the user's own client is used",
+  "compile-agent-manifest": "sign-in is optional (try-before-signup flow); the user's own client is used, saved data needs a user",
+  "compile-website-manifest": "sign-in is optional (try-before-signup flow); the user's own client is used, saved data needs a user",
+  "control-engine": "accepts a user token (auth.getUser) or the server key with a named user, sent by agent-runtime and control-api",
+  "control-test-suite": "passes the caller's token on to control-engine for every scenario (checkedBy in function-access.ts)",
+  "delete-project": "verifies the raw token with auth.getClaims on purpose (see its header), then deletes with an explicit owner filter",
+  "mcp": "generated MCP bundle: every tool runs with the caller's own token",
+};
+const userFunctions = Object.entries(FUNCTION_ACCESS).filter(([, a]) => a.access === "user").map(([fn]) => fn);
+
+describe("a function a signed-in user calls identifies them through requireCaller", () => {
+  it.each(userFunctions)("%s", (fn) => {
+    const src = readFileSync(join(ROOT, fn, "index.ts"), "utf8");
+    const uses = /requireCaller\(/.test(src) && /_shared\/caller\.ts/.test(src);
+    if (OWN_CHECK[fn]) {
+      // an exception must stay true: it is removed once the function adopts requireCaller
+      expect(uses, `${fn} uses requireCaller now: drop it from OWN_CHECK`).toBe(false);
+    } else {
+      expect(uses, `${fn} must identify the caller with requireCaller (_shared/caller.ts), or be listed in OWN_CHECK with the reason`).toBe(true);
+    }
+  });
+
+  it("every exception names a function that exists", () => {
+    for (const fn of Object.keys(OWN_CHECK)) expect(userFunctions, fn).toContain(fn);
+  });
+});
+
 // --- 2. queries by id with the full-access key ----------------------------------------------------------------------------------------
 const register = readFileSync(join(MIGRATIONS, "20261104020000_isolation_register.sql"), "utf8");
 const ownerColumn = new Map<string, string>(

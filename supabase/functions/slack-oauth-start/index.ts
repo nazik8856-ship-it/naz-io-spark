@@ -7,6 +7,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { buildAuthUrl, isConfigured, scopesForGroups, SLACK_DEFAULT_GROUPS } from "../_shared/slack.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { runInBackground } from "../_shared/background.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,13 +28,10 @@ function randomState(): string {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
+    const authed = await requireCaller(req, (h) => createClient(Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: req.headers.get("Authorization") || "" } } },
-    );
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) {
+      { global: { headers: { Authorization: h } } }));
+    if (!authed.ok) {
       return new Response(JSON.stringify({ error: "Not authenticated" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -43,7 +41,7 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    const rate = await checkRateLimit(admin, user.id, "slack-oauth-start", RATE_LIMIT_PER_MINUTE, 60);
+    const rate = await checkRateLimit(admin, authed.caller.userId, "slack-oauth-start", RATE_LIMIT_PER_MINUTE, 60);
     if (!rate.allowed) {
       return new Response(JSON.stringify({
         error: "rate_limited",
@@ -75,7 +73,7 @@ Deno.serve(async (req) => {
     );
     const { error: txErr } = await admin.from("slack_oauth_transactions").insert({
       state,
-      user_id: user.id,
+      user_id: authed.caller.userId,
       scope_groups: requestedGroups,
       request_origin: origin || null,
     });

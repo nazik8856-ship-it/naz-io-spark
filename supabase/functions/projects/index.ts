@@ -32,6 +32,7 @@ import { MIN_PASSPHRASE_CHARS, projectKeysFromEnv } from "../_shared/project-cry
 import { dataKeysFromEnv } from "../_shared/field-crypto.ts";
 import { optionalSecret, requireSecret } from "../_shared/require-secret.ts";
 import { gatewayAi } from "../_shared/outer-control-report.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -158,9 +159,9 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") || "";
     if (!authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
-    const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
+    const authed = await requireCaller(req, (h) => createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: h } } }));
+    if (!authed.ok) return json({ error: "unauthorized" }, 401);
+    const userClient = authed.caller.userClient;
     const admin = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return json({ error: "too_large", message: "That is too much to import at once. Nothing was stored." }, 413);
@@ -172,8 +173,8 @@ Deno.serve(async (req) => {
     const action = String(body.action ?? "");
     // Reading is for every team member; everything else needs an owner.
     const accountId = READ_ACTIONS.has(action)
-      ? await readScope(userClient, userData.user.id, body.account_id)
-      : await resolveAccountScope(userClient, userData.user.id, body.account_id, "integrations");
+      ? await readScope(userClient, authed.caller.userId, body.account_id)
+      : await resolveAccountScope(userClient, authed.caller.userId, body.account_id, "integrations");
     if (!accountId) return json({ error: "forbidden", message: READ_ACTIONS.has(action) ? "You are not a member of that account." : "View only: only an owner of this account can change its projects." }, 403);
     const rate = await checkRateLimit(admin, accountId, "projects", RATE_LIMIT_PER_MINUTE, 60);
     if (!rate.allowed) return json({ error: "rate_limited", message: "Too many requests. Try again shortly." }, 429);
@@ -182,7 +183,7 @@ Deno.serve(async (req) => {
       if (!daily.allowed) return json({ error: "import_quota", message: `At most ${IMPORTS_PER_DAY} imports a day. Try again tomorrow.` }, 429);
     }
 
-    const r = await handleProjectsAction(admin, accountId, userData.user.id, body, { fetchUrl, checkUrl: checkLink, notion, now: Date.now, key: await keyPromise, fingerprintKeys: await dataKeyPromise, judge: gatewayAi, github });
+    const r = await handleProjectsAction(admin, accountId, authed.caller.userId, body, { fetchUrl, checkUrl: checkLink, notion, now: Date.now, key: await keyPromise, fingerprintKeys: await dataKeyPromise, judge: gatewayAi, github });
     return json(r.body, r.status);
   } catch (e) {
     console.error("projects failed:", e instanceof Error ? e.message : e);

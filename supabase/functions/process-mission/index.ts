@@ -2,6 +2,7 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts"
+import { requireCaller } from "../_shared/caller.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -25,9 +26,8 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
-    const token = authHeader.replace('Bearer ', '')
-    const { data: { user } } = await supabaseClient.auth.getUser(token)
-    if (!user) {
+    const authed = await requireCaller(req, (h) => createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_ANON_KEY") ?? "", { global: { headers: { Authorization: h } } }));
+    if (!authed.ok) {
       return new Response(JSON.stringify({ error: 'Not authenticated' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -38,7 +38,7 @@ serve(async (req) => {
     const { data: profile } = await supabaseClient
       .from('profiles')
       .select('credits')
-      .eq('id', user.id)
+      .eq('id', authed.caller.userId)
       .single()
 
     if (!profile || profile.credits <= 0) {
@@ -96,7 +96,7 @@ Return ONLY valid JSON. No markdown, no code fences.`
     if (!aiText) throw new Error('No response from AI')
 
     // Deduct credit
-    await supabaseClient.rpc('deduct_credit', { user_id: user.id })
+    await supabaseClient.rpc('deduct_credit', { user_id: authed.caller.userId })
 
     // Parse and return
     let parsed

@@ -98,3 +98,44 @@ describe("public sites are opened by link only", () => {
     expect(Number(m?.[1])).toBe(Number(min![1]));
   });
 });
+
+// "The owner, or a member of the owner's team" is written one way in a rule: can_access() (20261105030000). A rule that calls
+// is_account_member() itself is how the same check ended up spelled five ways; new rules use the helper.
+describe("team rules use can_access", () => {
+  const policySql = (sql: string) => [...sql.matchAll(/(?:CREATE|ALTER) POLICY[^;]*;/gi)].map((m) => m[0]);
+  const direct = (sql: string) => policySql(sql).filter((p) => /is_account_member\s*\(/i.test(p));
+
+  it("finds a hand-written team check in a rule (the guard itself works)", () => {
+    expect(direct(`CREATE POLICY "x" ON public.t FOR SELECT USING (is_account_member(user_id));`)).toHaveLength(1);
+    expect(direct(`CREATE POLICY "x" ON public.t FOR SELECT USING (public.can_access(user_id));`)).toHaveLength(0);
+    expect(direct(`CREATE FUNCTION f() RETURNS boolean AS $$ SELECT is_account_member(x) $$;`)).toHaveLength(0);
+  });
+
+  it("no rule written after the move calls is_account_member() directly", () => {
+    const bad = all.filter(({ f }) => f > "20261105030000").flatMap(({ f, sql }) => direct(sql).map((p) => `${f}: ${p.slice(0, 80)}`));
+    expect(bad).toEqual([]);
+  });
+
+  it("the move itself exists and keeps the one rule it leaves", () => {
+    const move = all.find(({ f }) => f.startsWith("20261105030000"))!.sql;
+    expect(move).toMatch(/ALTER POLICY/);
+    expect(move).toMatch(/c\.relname = 'knowledge_base_entries'/);
+  });
+});
+
+// A public image address says nothing about whose it is: the folder is the site's id, never the owner's (user & data isolation).
+describe("public image addresses do not carry the owner", () => {
+  const FUNCTIONS = join(__dirname, "../../supabase/functions");
+  const generator = readFileSync(join(FUNCTIONS, "generate-site-images/index.ts"), "utf8");
+  const uploads = readFileSync(join(FUNCTIONS, "_shared/uploaded-assets.ts"), "utf8");
+
+  it("generated images are stored under the site's id", () => {
+    expect(generator).toMatch(/website-images\/\$\{site\.id\}\//);
+    expect(generator).not.toMatch(/website-images\/\$\{[^}]*user[^}]*\}/);
+  });
+
+  it("published copies of uploads are stored under the site's id", () => {
+    expect(uploads).toMatch(/website-images\/\$\{websiteId\}\/uploads\//);
+    expect(uploads).not.toMatch(/website-images\/\$\{userId\}/);
+  });
+});

@@ -15,6 +15,7 @@ import { buildCapabilityBlock } from "../_shared/capability-registry.ts";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -117,15 +118,13 @@ serve(async (req) => {
     const gw = pickAiGateway();
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
-    const authHeader = req.headers.get("Authorization") || "";
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    const token = authHeader.replace("Bearer ", "");
-    const { data: userData } = await supabase.auth.getUser(token);
-    const userId = userData?.user?.id;
-    if (!userId) return json({ error: "Not authenticated" }, 401);
+    const authed = await requireCaller(req, (h) => createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: h } } }));
+    if (!authed.ok) return json({ error: "Not authenticated" }, 401);
+    const userId = authed.caller.userId;
 
     const body = await req.json().catch(() => ({}));
     const message = String(body?.message || "").trim();
@@ -142,11 +141,7 @@ serve(async (req) => {
     // its own); resolving it here too so this function's OWN context
     // (recent decisions, connected integrations) matches the account the
     // decision itself will actually run against.
-    const userClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } },
-    );
+    const userClient = authed.caller.userClient;
     const requestedAccountId = body?.account_id;
     const accountId = await resolveAccountScope(userClient, userId, requestedAccountId);
     if (!accountId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);

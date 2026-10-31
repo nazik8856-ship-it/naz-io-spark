@@ -8,6 +8,7 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { validRead } from "../_shared/outer-control-read.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,7 +26,9 @@ Deno.serve(async (req) => {
   if (problem) return json({ data: null, error: { message: problem } }, 400);
   try {
     // The signed-in user's own client: their row level security applies, as for a direct read.
-    const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
+    const authed = await requireCaller(req, (h) => createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: h } } }));
+    if (!authed.ok) return json({ error: "unauthorized" }, 401);
+    const db = authed.caller.userClient;
     // deno-lint-ignore no-explicit-any
     let q: any = db.from(body.table);
     for (const o of body.ops as { m: string; a: unknown[] }[]) q = q[o.m](...o.a);

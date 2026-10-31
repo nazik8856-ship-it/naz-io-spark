@@ -10,10 +10,10 @@
 import { resolveAccountScope, type AccountScopeClient } from "./account-scope.ts";
 
 export type CallerClient = AccountScopeClient & {
-  auth: { getUser: () => Promise<{ data: { user: { id: string } | null }; error: unknown }> };
+  auth: { getUser: () => Promise<{ data: { user: { id: string; email?: string | null } | null }; error: unknown }> };
 };
 
-export type Caller<C extends CallerClient = CallerClient> = { userId: string; authHeader: string; userClient: C };
+export type Caller<C extends CallerClient = CallerClient> = { userId: string; email: string | null; authHeader: string; userClient: C };
 export type CallerResult<C extends CallerClient = CallerClient> = { ok: true; caller: Caller<C> } | { ok: false; status: 401; error: "unauthorized" };
 
 /** makeClient builds a client that sends the caller's Authorization header (anon key + their token), as the functions already do. */
@@ -24,7 +24,7 @@ export async function requireCaller<C extends CallerClient>(req: Request, makeCl
     const userClient = makeClient(authHeader);
     const { data, error } = await userClient.auth.getUser();
     if (error || !data?.user?.id) return { ok: false, status: 401, error: "unauthorized" };
-    return { ok: true, caller: { userId: data.user.id, authHeader, userClient } };
+    return { ok: true, caller: { userId: data.user.id, email: data.user.email ?? null, authHeader, userClient } };
   } catch {
     return { ok: false, status: 401, error: "unauthorized" };
   }

@@ -50,6 +50,7 @@ import { projectContextFor } from "../_shared/projects.ts";
 import { projectKeysFromEnv } from "../_shared/project-crypto.ts";
 
 import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 /** How many requests NazAI's AI reads per account per day (route_task). */
 const ROUTE_DAILY_CAP = 200;
@@ -102,14 +103,14 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") || "";
     if (!authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
-    const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
+    const authed = await requireCaller(req, (h) => createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: h } } }));
+    if (!authed.ok) return json({ error: "unauthorized" }, 401);
+    const userClient = authed.caller.userClient;
     const admin = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") return json({ error: "invalid_json", message: "The request body must be a JSON object." }, 400);
-    const accountId = await resolveAccountScope(userClient, userData.user.id, body.account_id, "integrations");
+    const accountId = await resolveAccountScope(userClient, authed.caller.userId, body.account_id, "integrations");
     if (!accountId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
 
     const rate = await checkRateLimit(admin, accountId, "outer-control-drive", RATE_LIMIT_PER_MINUTE, 60);

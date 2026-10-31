@@ -29,6 +29,7 @@ import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";
 import { disconnectIntegration } from "../_shared/integration-disconnect.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { SHOPIFY_API_VERSION } from "../_shared/shopify.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -209,14 +210,13 @@ Deno.serve(async (req) => {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const auth = req.headers.get("Authorization") || "";
-    const supabase = createClient(SUPABASE_URL, ANON_KEY, {
-      global: { headers: { Authorization: auth } },
-    });
+    const authed = await requireCaller(req, (h) => createClient(SUPABASE_URL, ANON_KEY, {
+      global: { headers: { Authorization: h } },
+    }));
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    const { data: { user }, error: userErr } = await supabase.auth.getUser();
-    if (userErr || !user) return j(401, { error: "Not authenticated" });
+    if (!authed.ok) return j(401, { error: "Not authenticated" });
+    const supabase = authed.caller.userClient;
 
     const body = await req.json().catch(() => ({}));
     const action = (body.action as string) || "verify";
@@ -231,7 +231,7 @@ Deno.serve(async (req) => {
       const { data, error } = await supabase
         .from("agent_integrations")
         .select("provider, status, metadata, last_verified_at, last_error, agent_id")
-        .eq("user_id", user.id);
+        .eq("user_id", authed.caller.userId);
       if (error) return j(500, { error: error.message });
       return j(200, { integrations: data || [] });
     }
@@ -240,7 +240,7 @@ Deno.serve(async (req) => {
 
     if (action === "disconnect") {
       // The token is cancelled at the provider first, then the row (and with it the stored token) is deleted.
-      const r = await disconnectIntegration(admin, supabase, { userId: user.id, provider, agentId }, { fetchImpl: fetch, env: (n) => Deno.env.get(n) });
+      const r = await disconnectIntegration(admin, supabase, { userId: authed.caller.userId, provider, agentId }, { fetchImpl: fetch, env: (n) => Deno.env.get(n) });
       if (!r.ok) return j(500, { error: r.error });
       return j(200, { ok: true });
     }
@@ -252,7 +252,7 @@ Deno.serve(async (req) => {
     let existQ = admin
       .from("agent_integrations")
       .select("id, credentials_secret_id")
-      .eq("user_id", user.id)
+      .eq("user_id", authed.caller.userId)
       .eq("provider", provider);
     existQ = agentId ? existQ.eq("agent_id", agentId) : existQ.is("agent_id", null);
     const { data: existing } = await existQ.maybeSingle();
@@ -262,14 +262,14 @@ Deno.serve(async (req) => {
       if (secretId) {
         await updateSecret(admin, secretId, credentials);
       } else {
-        secretId = await createSecret(admin, credentials, `${provider}-${user.id}-${agentId ?? "global"}`);
+        secretId = await createSecret(admin, credentials, `${provider}-${authed.caller.userId}-${agentId ?? "global"}`);
       }
     } catch (e) {
       return j(500, { error: e instanceof Error ? e.message : "Vault write failed" });
     }
 
     const row = {
-      user_id: user.id,
+      user_id: authed.caller.userId,
       agent_id: agentId,
       provider,
       credentials_secret_id: secretId,

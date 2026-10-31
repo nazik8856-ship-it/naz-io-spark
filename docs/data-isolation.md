@@ -85,8 +85,12 @@ a team viewer, a member of two accounts and a visitor).
   rule, webhook or spend cap from one to the other.
 - **Cross-account stats** (`cross_account_precedent_stats`) show a row only once at least 2 accounts contributed; before, only the
   server held back the rest while the browser read the table directly.
-- `can_access(owner, min_role)` is the one helper for "the owner, or a team member at this role"; the new rules use it. The older
-  rules still spell it out by hand; moving them to the helper is a refactor to do with the two-user test suite (front 5) in place.
+- **`can_access(owner, min_role[, permission])` is the one helper for "the owner, or a team member at this role"** (and, for changes,
+  the permission category). Every team rule calls it (`20261105030000_policies_use_can_access.sql`: 58 rules rewritten in place; the
+  test asks four people the same questions before and after and the answers match). One rule is left as it was on purpose:
+  `knowledge_base_entries` "Team owners can manage ...", which gives the owner no direct write access (the migration only rewrites a
+  rule when the owner has the same access through another rule, and stops if any other rule still calls `is_account_member()`).
+  `src/test/data-isolation.test.ts` fails a new rule that calls `is_account_member()` itself.
 - The other database functions visitors can call were re-checked: OAuth state, webhook secrets, decision signatures and approvals
   all check the caller; the rest are pure text helpers.
 
@@ -95,8 +99,13 @@ a team viewer, a member of two accounts and a visitor).
   server key, which the schedule already sends. No gap is open in `function-access.ts`.
 - `_shared/caller.ts`: `requireCaller` (the user comes only from the verified token, with a client that runs as them),
   `resolveCallerAccount` / `resolveCallerReadAccount` (a team account named in the request is used only after the membership check) and
-  `assertOwned` (a row of another account answers like a missing one). `capability-status` uses them; the other functions keep their own,
-  equivalent token check (registered and tested in `function-access.ts`).
+  `assertOwned` (a row of another account answers like a missing one). **Every function a signed-in user calls identifies them with
+  `requireCaller`**, except nine that keep their own check, each for a recorded reason (`OWN_CHECK` in
+  `src/test/function-ownership.test.ts`): `agent-approval` and `delete-project` (verify the raw token with `getClaims`), `agent-runtime`
+  and `control-engine` (also accept the server key for a named user), `control-test-suite` (passes the token on),
+  `compile-agent-manifest`, `compile-website-manifest` and `analyze-inputs` (sign-in is optional in the try-before-signup flow) and
+  `mcp` (generated bundle; every tool runs with the caller's own token). The test fails a function that is not on that list and does not
+  use `requireCaller`, and one on the list that now does.
 - Someone else's decision, approval, event, incident or agent now answers **404 "not found"**, not 403, so ids of other accounts can
   not be probed (`control-engine`, `agent-approval`, `control-incidents`). A team member who may see an incident but not act on it is
   still told 403.
@@ -107,6 +116,11 @@ a team viewer, a member of two accounts and a visitor).
 
 Files users attach are in the private `user-uploads` bucket, under their own folder (`<user id>/…`): only the owner can upload,
 open, replace or delete them, and they are shared as signed links that expire. The site generator publishes only the user's own
-files that a generated site places (a copy in `mission-assets/website-images/<user>/<site>/uploads/`); a link to another account's
-file is never published. `mission-assets` (generated site images) is written by the server only. `governance-backups` is private
+files that a generated site places (a copy in `mission-assets/website-images/<site>/uploads/`); a link to another account's
+file is never published. `mission-assets` (generated site images) is written by the server only, under the site's id: a public image address does not say
+whose it is (sites generated before 2026-11-05 still have the owner's id in their image addresses; see below). `governance-backups` is private
 (server only). See `docs/data-encryption.md`. Build check: `src/test/data-isolation.test.ts` ("uploads stay private").
+
+Known limit: the 8 sites that existed before the folder change (32 image files) keep the owner's id in their public image addresses.
+Moving them means copying each file and rewriting the address everywhere it is stored (pages, saved versions, shared copies); that is
+a data change on live content and is left for an explicit decision.

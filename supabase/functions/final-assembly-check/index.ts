@@ -20,6 +20,7 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { checkAgentAssembly, checkWebsiteAssembly } from "../_shared/final-assembly-check.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,14 +38,13 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") || "";
     if (!authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
 
-    const supabase = createClient(
+    const authed = await requireCaller(req, (h) => createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } },
-    );
-    const { data: userData, error: userErr } = await supabase.auth.getUser();
-    if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
-    const userId = userData.user.id;
+      { global: { headers: { Authorization: h } } }));
+    if (!authed.ok) return json({ error: "unauthorized" }, 401);
+    const supabase = authed.caller.userClient;
+    const userId = authed.caller.userId;
 
     const body = await req.json().catch(() => ({}));
     if (body?.kind === "website" && typeof body?.website_id === "string") {

@@ -27,6 +27,7 @@ import { evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts
 import { isNonAllowDecision, ABUSE_LOOKBACK_MINUTES } from "../_shared/control-api-abuse.ts";
 import { loadStoredEmbeddingLiteral, findPrecedent } from "../_shared/precedent-search.ts";
 import { BAD_OUTCOME_LOOKBACK_DAYS } from "../_shared/policy-downgrade.ts";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -480,12 +481,9 @@ Deno.serve(async (req) => {
   }
 
   // Real user JWT: sweep just that one caller ("verify now" equivalent).
-  const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: userData, error: userErr } = await userClient.auth.getUser();
-  if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
+  const authed = await requireCaller(req, (h) => createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: h } } }));
+  if (!authed.ok) return json({ error: "unauthorized" }, 401);
 
-  const outcome = await sweepOrg(admin, userData.user.id, from, to, "manual");
+  const outcome = await sweepOrg(admin, authed.caller.userId, from, to, "manual");
   return json(outcome, outcome.error ? 502 : 200);
 });
