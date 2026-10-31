@@ -58,7 +58,7 @@ export function aggregateCrossAccountStats(rows: CrossAccountDecisionRow[]): Cro
 }
 
 /** Never share a stat contributed by fewer than this many distinct accounts -- a lone contributor's own real numbers must never be exposed as if they were a cross-account pattern. */
-export const MIN_CONTRIBUTING_ACCOUNTS = 2;
+export const MIN_CONTRIBUTING_ACCOUNTS = 5;
 /** Below this many total decisions, even with enough contributing accounts, the share is too noisy to call a real pattern. */
 export const MIN_TOTAL_SAMPLE = 5;
 

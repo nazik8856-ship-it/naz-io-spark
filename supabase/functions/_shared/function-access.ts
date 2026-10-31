@@ -97,6 +97,7 @@ export const FUNCTION_ACCESS: Record<string, FunctionAccess> = {
   "retention-sweep": SYSTEM,
   "rule-auto-draft-sweep": SYSTEM,
   "site-images-backfill-sweep": SYSTEM,
+  "site-images-cleanup-sweep": SYSTEM,
   "stuck-approval-sweep": SYSTEM,
   "webhook-retry-sweep": SYSTEM,
 

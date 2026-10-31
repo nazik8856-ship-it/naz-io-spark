@@ -89,13 +89,19 @@ describe("public sites are opened by link only", () => {
     expect(part2).toMatch(/CREATE OR REPLACE FUNCTION public\.has_role[\s\S]*auth\.uid\(\)/);
   });
 
-  it("the cross-account stats rule uses the same minimum as the server", () => {
-    const m = part2.match(/contributing_account_count >= (\d+)/);
-    // read from the server's file as text (importing it would pull a server module into the website's type check)
+  it("the cross-account stats rule uses the same minimum as the server and the website", () => {
+    // the newest migration that sets the rule decides what is live
+    const latest = [...all].reverse().find(({ sql }) => /contributing_account_count >= \d+/.test(sql))!;
+    const m = latest.sql.match(/contributing_account_count >= (\d+)/);
+    // read from the files as text (importing a server module would pull it into the website's type check)
     const server = readFileSync(join(__dirname, "../../supabase/functions/_shared/cross-account-precedent.ts"), "utf8");
+    const browser = readFileSync(join(__dirname, "../lib/cross-account-precedent.ts"), "utf8");
     const min = server.match(/export const MIN_CONTRIBUTING_ACCOUNTS = (\d+)/);
+    const minBrowser = browser.match(/export const MIN_CONTRIBUTING_ACCOUNTS = (\d+)/);
     expect(min).not.toBeNull();
     expect(Number(m?.[1])).toBe(Number(min![1]));
+    expect(Number(minBrowser?.[1])).toBe(Number(min![1]));
+    expect(Number(min![1])).toBeGreaterThanOrEqual(5);
   });
 });
 
