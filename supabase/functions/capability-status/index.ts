@@ -15,6 +15,7 @@
 // no rows, exactly like ControlChangeLog.tsx et al.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireCaller, resolveCallerReadAccount } from "../_shared/caller.ts";
 import { CAPABILITY_REGISTRY, buildCapabilityBlock, canOfferTool } from "../_shared/capability-registry.ts";
 
 const corsHeaders = {
@@ -31,22 +32,22 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "GET" && req.method !== "POST") return json({ error: "GET or POST only" }, 405);
 
-  const authHeader = req.headers.get("Authorization") || "";
-  if (!authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
-
-  const supabase = createClient(
+  // The caller comes from the sign-in token only; the client runs as them, so row level security applies as well.
+  const who = await requireCaller(req, (authHeader) => createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_ANON_KEY")!,
     { global: { headers: { Authorization: authHeader } } },
-  );
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
-  const userId = userData.user.id;
+  ));
+  if (!who.ok) return json({ error: "unauthorized" }, 401);
+  const supabase = who.caller.userClient;
+  const userId = who.caller.userId;
 
   const url = new URL(req.url);
   const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
   const requestedAccountId = body?.account_id ?? url.searchParams.get("account_id");
-  const accountId = typeof requestedAccountId === "string" && requestedAccountId ? requestedAccountId : userId;
+  // An account named in the request is only used when the caller is a member of it; anyone else gets "not found", as for a missing one.
+  const accountId = await resolveCallerReadAccount(who.caller, requestedAccountId);
+  if (!accountId) return json({ error: "not_found" }, 404);
   const requestedAgentId = body?.agent_id ?? url.searchParams.get("agent_id");
   const agentId = typeof requestedAgentId === "string" && requestedAgentId ? requestedAgentId : null;
 

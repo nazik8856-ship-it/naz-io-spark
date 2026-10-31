@@ -2,6 +2,7 @@ import { Component, createContext, useContext, useEffect, useMemo, useRef, useSt
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchPublicSite } from "@/lib/public-site";
 
 type Palette = {
   bg: string; surface: string; text: string; accent: string;
@@ -468,21 +469,19 @@ export default function WebsitePreview() {
           return;
         }
 
-        const [siteResult, pagesResult] = await Promise.all([
-          supabase.from("websites").select("id, name, tagline, theme").eq("id", id).maybeSingle(),
-          supabase.from("website_pages").select("id, slug, title, seo_description, sections, order_index").eq("website_id", id).order("order_index", { ascending: true }),
-        ]);
+        // One lookup by the link returns the site and its pages, and only what this page shows.
+        const found = await fetchPublicSite(id);
         if (cancelled) return;
-        if (siteResult.error) throw siteResult.error;
-        if (pagesResult.error) throw pagesResult.error;
-        if (!siteResult.data) throw new Error("Website not found or you no longer have access to it");
+        if (!found) throw new Error("Website not found or you no longer have access to it");
 
-        setSite(siteResult.data as unknown as Website);
-        setPages((pagesResult.data ?? []) as unknown as Page[]);
+        const website = { id: found.id, name: found.name, tagline: found.tagline, theme: found.theme } as unknown as Website;
+        const sitePages = (found.pages ?? []) as unknown as Page[];
+        setSite(website);
+        setPages(sitePages);
         try {
           localStorage.setItem(
             `nazai_website_preview_${id}`,
-            JSON.stringify({ website: siteResult.data, pages: pagesResult.data ?? [], cachedAt: Date.now() }),
+            JSON.stringify({ website, pages: sitePages, cachedAt: Date.now() }),
           );
         } catch {
           // Cache is best-effort; a successful database render does not depend on it.
@@ -513,11 +512,7 @@ export default function WebsitePreview() {
     let polls = 0;
     let wasRunning = false;
     const refreshPages = async () => {
-      const { data: rows } = await supabase
-        .from("website_pages")
-        .select("id, slug, title, seo_description, sections, order_index")
-        .eq("website_id", id)
-        .order("order_index", { ascending: true });
+      const rows = (await fetchPublicSite(id))?.pages;
       if (cancelled || !rows) return;
       setPages(rows as unknown as Page[]);
       try {
@@ -527,9 +522,9 @@ export default function WebsitePreview() {
     };
     const tick = async () => {
       try {
-        const { data } = await (supabase as any).from("websites").select("images_status").eq("id", id).maybeSingle();
+        const data = await fetchPublicSite(id, true); // only the status; the pages are fetched below when pictures are being made
         if (cancelled) return;
-        const status = (data?.images_status as string | null) ?? null;
+        const status = data?.images_status ?? null;
         setImagesStatus(status);
         if (status === "running" || status === "pending") {
           wasRunning = true;

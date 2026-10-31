@@ -69,7 +69,8 @@ serve(async (req) => {
       .select("id, agent_id, run_id, user_id, kind, payload")
       .eq("id", eventId).maybeSingle();
     if (evtErr || !evt) return json({ error: "Event not found" }, 404);
-    if (evt.user_id !== userId) return json({ error: "Forbidden" }, 403);
+    // Someone else's event answers exactly like a missing one, so ids of other accounts can not be probed.
+    if (evt.user_id !== userId) return json({ error: "Event not found" }, 404);
     if (evt.kind !== "pending_approval") return json({ error: "Not a pending_approval" }, 400);
 
     // Idempotency: atomically claim this event row before doing anything

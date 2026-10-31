@@ -28,6 +28,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, type SupabaseClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { runInBackground } from "../_shared/background.ts";
+import { timingSafeEqual } from "../_shared/timing-safe.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,10 +37,16 @@ const corsHeaders = {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  // Scheduled job: only the server key may start it (the schedule sends it). Anyone else, with any other key, is refused.
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!serviceKey || !timingSafeEqual(token, serviceKey)) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      serviceKey,
     );
     const nowIso = new Date().toISOString();
     const { data: due, error } = await supabase
@@ -52,7 +59,6 @@ serve(async (req) => {
     if (error) return json({ error: error.message }, 500);
 
     const fnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/agent-runtime`;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const results: { id: string; dispatched: boolean }[] = [];
     for (const a of due || []) {

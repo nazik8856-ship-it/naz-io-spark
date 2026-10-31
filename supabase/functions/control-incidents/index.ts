@@ -62,7 +62,11 @@ Deno.serve(async (req) => {
     if (!row?.id) return { row: null, forbidden: false };
     if (row.user_id === userId) return { row, forbidden: false };
     const { data: isMember } = await userClient.rpc("is_account_member", { _account_owner_id: row.user_id, _min_role: "approver" });
-    return { row, forbidden: !isMember };
+    if (isMember) return { row, forbidden: false };
+    // A member who may see the account's incidents but not act on this one is told so (403). Someone with no part in the account at
+    // all gets the same answer as for an id that does not exist, so ids of other accounts can not be probed.
+    const { data: isViewer } = await userClient.rpc("is_account_member", { _account_owner_id: row.user_id, _min_role: "viewer" });
+    return isViewer ? { row, forbidden: true } : { row: null, forbidden: false };
   }
 
   const acknowledgeMatch = url.pathname.match(/\/([0-9a-fA-F-]{36})\/acknowledge\/?$/);

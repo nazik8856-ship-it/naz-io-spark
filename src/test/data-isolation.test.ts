@@ -50,3 +50,51 @@ describe("uploads stay private", () => {
     expect(sql).toMatch(/DROP POLICY IF EXISTS "Authenticated users can upload to own folder"/);
   });
 });
+
+// Front 2: a published site is opened through get_public_site(), never by reading the tables, and the database holds the line.
+describe("public sites are opened by link only", () => {
+  const read = (name: string) => readFileSync(join(MIGRATIONS, name), "utf8");
+  const part1 = read("20261105010000_public_site_lookup.sql");
+  const part2 = read("20261105020000_isolation_close_gaps.sql");
+
+  it("the lookup returns only what the public preview shows", () => {
+    const body = part1.slice(part1.indexOf("CREATE OR REPLACE FUNCTION public.get_public_site"), part1.indexOf("REVOKE ALL ON FUNCTION public.get_public_site"));
+    expect(body.length).toBeGreaterThan(300);
+    for (const secret of ["prompt", "generation_notes", "trust_score", "user_id", "html"]) expect(body, secret).not.toMatch(new RegExp(`\\b${secret}\\b`));
+    expect(part1).toMatch(/GRANT EXECUTE ON FUNCTION public\.get_public_site\(text, boolean\) TO anon, authenticated, service_role/);
+  });
+
+  it("the three read-everything rules are dropped, and nothing re-creates one", () => {
+    for (const p of ["Anyone can view a website by its link", "Anyone can view pages of a website by its link", "Anyone can view shared websites"]) {
+      expect(part2).toContain(`DROP POLICY IF EXISTS "${p}"`);
+    }
+    const later = all.filter(({ f }) => f > "20261105020000_isolation_close_gaps.sql").map(({ sql }) => sql).join("\n");
+    expect(later).not.toMatch(/CREATE POLICY[^;]*ON\s+(public\.)?(websites|website_pages|shared_websites)[^;]*USING\s*\(\s*true\s*\)/i);
+  });
+
+  it("the website reads a site through the lookup, not the tables", () => {
+    const preview = readFileSync(join(__dirname, "../pages/WebsitePreview.tsx"), "utf8");
+    expect(preview).toContain("fetchPublicSite(");
+    expect(preview).not.toMatch(/\.from\("(websites|website_pages|shared_websites)"\)/);
+    const middleware = readFileSync(join(__dirname, "../../middleware.ts"), "utf8");
+    expect(middleware).toContain("/rest/v1/rpc/get_public_site");
+    expect(middleware).not.toMatch(/rest\/v1\/(websites|website_pages|shared_websites)/);
+  });
+
+  it("the seven server-only functions are closed to the browser, and has_role checks the caller", () => {
+    for (const fn of ["build_policy_snapshot", "delete_expired_agent_events", "get_active_policy_version", "increment_clean_allow_count", "increment_ip_rate_limit", "increment_rate_limit", "sweep_stale_generation_progress"]) {
+      expect(part2, fn).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]*\\) FROM PUBLIC, anon, authenticated`));
+      expect(part2, fn).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\([^)]*\\) TO service_role`));
+    }
+    expect(part2).toMatch(/CREATE OR REPLACE FUNCTION public\.has_role[\s\S]*auth\.uid\(\)/);
+  });
+
+  it("the cross-account stats rule uses the same minimum as the server", () => {
+    const m = part2.match(/contributing_account_count >= (\d+)/);
+    // read from the server's file as text (importing it would pull a server module into the website's type check)
+    const server = readFileSync(join(__dirname, "../../supabase/functions/_shared/cross-account-precedent.ts"), "utf8");
+    const min = server.match(/export const MIN_CONTRIBUTING_ACCOUNTS = (\d+)/);
+    expect(min).not.toBeNull();
+    expect(Number(m?.[1])).toBe(Number(min![1]));
+  });
+});

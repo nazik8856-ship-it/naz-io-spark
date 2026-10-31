@@ -25,7 +25,7 @@ rule, the register that applies it to every table and function, and how gaps are
 | --- | --- | --- |
 | `team` | owner, or a team member at the table's role | agents, rules, approvals, Outer Control, API keys, webhooks, projects imported for Outer Control |
 | `owner` | the owner only | Generator requests, agent runs, credits, form submissions, website versions |
-| `public_by_link` | one item opened by its link; owner-only otherwise | websites, website pages, shared websites |
+| `public_by_link` | one item opened by its link through a database function; the tables themselves are owner/team only | websites, website pages, shared websites |
 | `self` | a person's own row | profiles, user roles |
 | `membership` | the team owner and the member | account members, notification preferences |
 | `platform` | NazAI staff (`has_role`) | platform incidents, scheduled job log; the kill switch every screen reads (`read_all_reason`) |
@@ -36,6 +36,9 @@ Edge functions are registered in `supabase/functions/_shared/function-access.ts`
 or the query runs as the caller), `api_key` (the account comes from the NazAI API key), `system` (requires the server key) or
 `public` (reachable without signing in on purpose, with the reason and what protects it: OAuth callbacks trust only their one-time
 state, the Resend webhook only a valid signature, website forms are stored for the site owner only, …).
+
+Database functions that visitors may call on purpose are listed in `isolation_public_functions` with the reason (today only
+`get_public_site`); the report skips exactly those.
 
 ## Finding gaps
 
@@ -49,23 +52,56 @@ state, the Resend webhook only a valid signature, website forms are stored for t
 | `no_identity_check` | a policy for visitors or signed-in users checks neither the caller, their team, nor their role |
 | `system_table_exposed` | a `system_only` table has a policy that lets visitors or signed-in users in |
 | `owner_nullable` | the owner column of an `owner`, `team` or `public_by_link` table can be empty |
-| `unchecked_function` | a `SECURITY DEFINER` database function (it bypasses row level security) that visitors or signed-in users can call and that never checks who is calling |
+| `owner_unguarded` | a signed-in user could change the owner of a row: the table has a registered owner column but no `prevent_owner_change` trigger |
+| `unchecked_function` | a `SECURITY DEFINER` database function (it bypasses row level security) that visitors or signed-in users can call, that never checks who is calling and is not registered as public on purpose |
 
-Build checks: `src/test/data-isolation.test.ts` (a table created by a migration must be registered) and
-`src/test/function-access.test.ts` (every edge function is registered, and its code checks its caller the way its entry says).
-Database test: `supabase/tests/secrets/isolation_register_test.sql`.
+Build checks:
+- `src/test/data-isolation.test.ts`: a table created by a migration must be registered; the public-site lookup returns only what the
+  preview shows; nothing re-creates a read-everything rule on the website tables; the website reads sites through the lookup; the
+  closed functions stay closed.
+- `src/test/function-access.test.ts`: every edge function is registered, and its code checks its caller the way its entry says (no
+  open gaps).
+- `src/test/function-ownership.test.ts`: a function may read an account or user id from the request only after verifying it, and a
+  server function gaining a query by id with the full-access key and no owner filter fails until it is reviewed.
 
-## Known gaps (front 1 baseline)
+Database tests: `supabase/tests/secrets/isolation_register_test.sql` and `isolation_front2_test.sql` (signs in as an owner, a stranger,
+a team viewer, a member of two accounts and a visitor).
 
-What the report and the function register show today; fronts 2–4 close them.
+## What fronts 2 and 3 changed
 
-- `read_all` on `websites`, `website_pages` and `shared_websites`: every site, with its prompt and notes, can be listed by anyone.
-  Front 2 replaces this with a lookup of one published site by its link that returns only what the page shows.
-- `unchecked_function`: database functions that take a user id and never check the caller (`get_active_policy_version`,
-  `build_policy_snapshot`, `delete_expired_agent_events`, the rate-limit counters, `has_role`, `sweep_stale_generation_progress`).
-  Front 2 limits them to the server or makes them check the caller.
-- Edge functions: `agent-scheduler` (no check on incoming requests), `calibrate-confidence` and `measure-decision-outcomes` (the
-  account comes from the request body). Front 3.
+**Database (front 2).** `isolation_report()` returns no rows.
+- **Websites are opened by link through `get_public_site(_ref, _meta_only)`**: one site by its id, subdomain or custom domain, with
+  only what the public preview renders (name, tagline, theme, picture status, pages). It never returns `prompt`,
+  `generation_notes`, `trust_score` or the owner, and it can not list sites. The read-everything rules on `websites`,
+  `website_pages` and `shared_websites` are gone; owners read their own rows and team members (viewer and above) their account's.
+  The preview page and the share-link title tags (`middleware.ts`) use the lookup.
+- **Seven database functions are server-only**: the rate-limit counters (`increment_rate_limit`, `increment_ip_rate_limit`,
+  `increment_clean_allow_count`), `delete_expired_agent_events`, `sweep_stale_generation_progress`, `build_policy_snapshot` and
+  `get_active_policy_version`. Until now anyone could bump another account's counter until it was locked out, or delete another
+  account's old events by passing its id.
+- **`has_role` answers only about the caller** for visitors and signed-in users; the server key and database jobs may ask about anyone.
+- **The owner of a row can not be changed** by a signed-in user (`prevent_owner_change` on every table with a registered owner
+  column). Team-owner rules only check membership of the account a row ends up in, so a team owner of two accounts could have moved a
+  rule, webhook or spend cap from one to the other.
+- **Cross-account stats** (`cross_account_precedent_stats`) show a row only once at least 2 accounts contributed; before, only the
+  server held back the rest while the browser read the table directly.
+- `can_access(owner, min_role)` is the one helper for "the owner, or a team member at this role"; the new rules use it. The older
+  rules still spell it out by hand; moving them to the helper is a refactor to do with the two-user test suite (front 5) in place.
+- The other database functions visitors can call were re-checked: OAuth state, webhook secrets, decision signatures and approvals
+  all check the caller; the rest are pure text helpers.
+
+**Server functions (front 3).**
+- The three scheduled jobs that answered anyone (`agent-scheduler`, `calibrate-confidence`, `measure-decision-outcomes`) now need the
+  server key, which the schedule already sends. No gap is open in `function-access.ts`.
+- `_shared/caller.ts`: `requireCaller` (the user comes only from the verified token, with a client that runs as them),
+  `resolveCallerAccount` / `resolveCallerReadAccount` (a team account named in the request is used only after the membership check) and
+  `assertOwned` (a row of another account answers like a missing one). `capability-status` uses them; the other functions keep their own,
+  equivalent token check (registered and tested in `function-access.ts`).
+- Someone else's decision, approval, event, incident or agent now answers **404 "not found"**, not 403, so ids of other accounts can
+  not be probed (`control-engine`, `agent-approval`, `control-incidents`). A team member who may see an incident but not act on it is
+  still told 403.
+- Every query by id with the full-access key on an owner table was reviewed (`function-ownership.test.ts` records why each group is
+  safe) and the guard stops a new unreviewed one.
 
 ## Files
 
