@@ -99,3 +99,29 @@ Deno.test("oauthCallbackPage: falls back to the redirect if window.opener itself
   const catchBlock = htmlOut.slice(htmlOut.indexOf("} catch(e){"));
   assert(catchBlock.includes("fallbackRedirect"));
 });
+
+// ---- text from the web address or a provider is never page markup ----
+
+Deno.test("oauthCallbackPage: text in the title or message is escaped, so a crafted ?error= value stays text", () => {
+  const out = oauthCallbackPage({ title: "Slack <b>cancelled</b>", message: '<img src=x onerror=alert(1)></script><script>alert(2)</script>', ok: false, source: "nazai-slack-oauth" });
+  assertFalse(out.includes("<img src=x"), "no injected tag in the body");
+  assertFalse(out.includes("<b>cancelled</b>"), "no injected tag in the title");
+  assert(out.includes("&lt;img src=x onerror=alert(1)&gt;"), "shown as text");
+  // the only script blocks are the page's own: one opening, one closing
+  assertEquals(out.split("<script>").length - 1, 1);
+  assertEquals(out.split("</script>").length - 1, 1);
+});
+
+Deno.test("oauthCallbackPage: a value that contains </script> can not end the page's own script early", () => {
+  const out = oauthCallbackPage({ title: "t", message: "x</script><script>alert(1)//", ok: false, source: "s", extra: { team: "</script>" } });
+  assertEquals(out.split("</script>").length - 1, 1);
+  assert(out.includes("\\u003c/script\\u003e"), "the script data carries it escaped");
+});
+
+Deno.test("oauthCallbackPage: the result is sent only to our own app's origin when it is known, otherwise to nobody in particular", () => {
+  const known = oauthCallbackPage({ title: "t", message: "m", ok: true, source: "s", redirectOrigin: "https://nazai.net" });
+  assert(known.includes('"https://nazai.net");'), "posted to the app origin");
+  const unknown = oauthCallbackPage({ title: "t", message: "m", ok: false, source: "s", redirectOrigin: "https://evil.com" });
+  assert(unknown.includes(', "*");'), "an unrecognised origin falls back to the wildcard, with no account details in the message");
+  assertFalse(unknown.includes("https://evil.com"), "an attacker origin is never used");
+});

@@ -39,6 +39,16 @@ export function safeRedirectOrigin(origin: string | null | undefined): string {
   return isAllowedRedirectOrigin(origin) ? (origin as string) : KNOWN_APP_ORIGINS[0];
 }
 
+/** Text for the page body: the title and message can carry text from the web address (?error=…) or from a provider, so none of it is trusted as HTML. */
+export function escapeHtml(text: string): string {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+/** JSON that is safe inside a <script> block: a "</script>" (or a line separator) in a value can not end the block early. */
+export function scriptJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+}
+
 export type OAuthCallbackPageOptions = {
   title: string;
   message: string;
@@ -59,9 +69,12 @@ export type OAuthCallbackPageOptions = {
  */
 export function oauthCallbackPage(opts: OAuthCallbackPageOptions): string {
   const redirectOrigin = safeRedirectOrigin(opts.redirectOrigin);
-  const payload = JSON.stringify({ source: opts.source, ok: opts.ok, message: opts.message, ...(opts.extra || {}) });
+  const payload = scriptJson({ source: opts.source, ok: opts.ok, message: opts.message, ...(opts.extra || {}) });
+  // The page tells only the app that opened it: the origin captured at OAuth-start when it is one of ours, otherwise nobody in particular
+  // (an invalid or expired link carries no account details).
+  const messageTarget = isAllowedRedirectOrigin(opts.redirectOrigin) ? (opts.redirectOrigin as string) : "*";
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>${opts.title}</title>
+<html><head><meta charset="utf-8"><title>${escapeHtml(opts.title)}</title>
 <style>
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#0a0a0a;color:#e5e5e5;
        display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center}
@@ -70,17 +83,17 @@ export function oauthCallbackPage(opts: OAuthCallbackPageOptions): string {
   p{margin:0;font-size:14px;line-height:1.5;color:#a3a3a3}
   p.status{margin-top:8px;font-size:12px;color:#71717a}
 </style></head>
-<body><div class="card"><h1>${opts.title}</h1><p>${opts.message}</p><p class="status" id="oauth-callback-status"></p></div>
+<body><div class="card"><h1>${escapeHtml(opts.title)}</h1><p>${escapeHtml(opts.message)}</p><p class="status" id="oauth-callback-status"></p></div>
 <script>
 var statusEl = document.getElementById("oauth-callback-status");
-var REDIRECT_TARGET = ${JSON.stringify(redirectOrigin)};
+var REDIRECT_TARGET = ${scriptJson(redirectOrigin)};
 function fallbackRedirect(){
   if (statusEl) statusEl.textContent = "Redirecting you back to NazAI…";
   window.location.href = REDIRECT_TARGET;
 }
 try {
   if (window.opener) {
-    window.opener.postMessage(${payload}, "*");
+    window.opener.postMessage(${payload}, ${scriptJson(messageTarget)});
     if (statusEl) statusEl.textContent = "You can close this window.";
     setTimeout(function(){
       window.close();

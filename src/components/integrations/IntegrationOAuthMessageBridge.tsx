@@ -22,6 +22,20 @@ const SOURCE_TO_PROVIDER: Record<string, string> = {
 
 const subscribers = new Set<OAuthMessageSubscriber>();
 
+/**
+ * The connection page that reports "connected" is served by our own backend (the address every function call goes to), so only a
+ * message that came from that origin counts. Any other window can post a message to this one; without this check it could make the
+ * app show a tool as connected (or as failed) that is not.
+ */
+export function isTrustedOAuthOrigin(origin: string, backend: string | undefined = import.meta.env.VITE_SUPABASE_URL as string | undefined): boolean {
+  if (!origin || !backend) return false;
+  try {
+    return new URL(backend).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
 function providerFromSource(source: string): string | null {
   const known = SOURCE_TO_PROVIDER[source];
   if (known) return known;
@@ -73,6 +87,7 @@ export default function IntegrationOAuthMessageBridge() {
     listenerAttached.current = true;
 
     const handler = (event: MessageEvent) => {
+      if (!isTrustedOAuthOrigin(event.origin)) return;
       const info = parseIntegrationOAuthMessage(event.data);
       if (!info) return;
       subscribers.forEach((subscriber) => subscriber(info));

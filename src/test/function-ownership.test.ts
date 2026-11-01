@@ -200,3 +200,40 @@ describe("a query by id with the full-access key does not appear without a revie
     expect(over).toEqual([]);
   });
 });
+
+// --- 3. connecting a tool (front 4) --------------------------------------------------------------------------------------------------
+// A tool is connected to the account that STARTED the connection: the start function stores a one-time state for the signed-in user, the
+// public callback consumes that state (single use, short life, server only) and takes the account from it, never from the address.
+const providers = functions.filter((f) => f.endsWith("-oauth-callback")).map((f) => f.replace("-oauth-callback", ""));
+
+describe("connecting a tool belongs to the account that started it", () => {
+  it("there is a start and a callback for each provider", () => {
+    expect(providers.sort()).toEqual(["canva", "figma", "gmail", "notion", "shopify", "slack"]);
+    for (const p of providers) expect(functions).toContain(`${p}-oauth-start`);
+  });
+
+  it.each(providers)("%s: the callback consumes the one-time state and takes the account from it", (p) => {
+    const src = source(`${p}-oauth-callback`);
+    expect(src, "consumes the state").toMatch(new RegExp(`rpc\\(\\s*"consume_${p}_oauth_transaction"`));
+    // the account comes from the stored one-time state, or from a signed state (verifyState: HMAC + expiry) that is also single use
+    expect(src, "the account comes from the state").toMatch(/const userId = (?:tx|txn|transaction|row)\w*\.user_id|verifyState\([\s\S]*const userId = parsed\.u\b/);
+    expect(readsIdentityFromRequest(src), "no account or user id from the address").toEqual([]);
+    // nothing is written for the account before the state has been consumed
+    expect(src.indexOf("consume_")).toBeGreaterThan(-1);
+    const firstWrite = src.search(/\.from\("agent_integrations"\)\s*\.(?:insert|update|upsert)|createSecret\(|updateSecret\(/);
+    expect(firstWrite === -1 || src.indexOf("consume_") < firstWrite).toBe(true);
+  });
+
+  it.each(providers)("%s: the start stores the state for the signed-in user", (p) => {
+    const src = source(`${p}-oauth-start`);
+    expect(src).toMatch(/requireCaller\(/);
+    expect(src).toMatch(/user_id:\s*authed\.caller\.userId/);
+  });
+
+  it("the callback page escapes what it shows and addresses its message to our app", () => {
+    const page = readFileSync(join(ROOT, "_shared/oauth-callback-page.ts"), "utf8");
+    expect(page).toMatch(/\$\{escapeHtml\(opts\.title\)\}/);
+    expect(page).toMatch(/\$\{escapeHtml\(opts\.message\)\}/);
+    expect(page).not.toMatch(/postMessage\(\$\{payload\}, "\*"\)/);
+  });
+});
