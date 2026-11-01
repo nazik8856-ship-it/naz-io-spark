@@ -145,3 +145,24 @@ describe("public image addresses do not carry the owner", () => {
     expect(uploads).not.toMatch(/website-images\/\$\{userId\}/);
   });
 });
+
+// Live updates (front 4): a table pushed live to subscribers must be an owner, team, self or membership table.
+describe("live updates only carry owner and team tables", () => {
+  const accessOf = new Map(all.flatMap(({ sql }) => [...sql.matchAll(new RegExp(`\\('(\\w+)', '(${ACCESS})'`, "g"))].map((m) => [m[1], m[2]] as [string, string])));
+  const published = (sql: string) => [...sql.matchAll(/ALTER\s+PUBLICATION\s+supabase_realtime\s+ADD\s+TABLE\s+(?:ONLY\s+)?(?:public\.)?"?(\w+)"?/gi)].map((m) => m[1]);
+
+  it("finds a table added to live updates (the guard itself works)", () => {
+    expect(published("ALTER PUBLICATION supabase_realtime ADD TABLE public.agent_events;")).toEqual(["agent_events"]);
+    expect(published("ALTER PUBLICATION other ADD TABLE public.x;")).toEqual([]);
+  });
+
+  it("every table a migration adds to live updates is an owner, team, self or membership table", () => {
+    const bad = all.flatMap(({ f, sql }) => published(sql).filter((t) => !["owner", "team", "self", "membership"].includes(accessOf.get(t) ?? "")).map((t) => `${f}: ${t} (${accessOf.get(t) ?? "not registered"})`));
+    expect(bad).toEqual([]);
+  });
+
+  it("the app uses table changes only: no broadcast or presence channels", () => {
+    const src = walk(join(__dirname, "..")).filter((f) => !f.includes(join("src", "test")) && !f.endsWith(".archive")).map((f) => readFileSync(f, "utf8")).join("\n");
+    expect(src).not.toMatch(/\.track\(|type:\s*["']broadcast["']|\.presence\(|config:\s*\{\s*broadcast/);
+  });
+});
