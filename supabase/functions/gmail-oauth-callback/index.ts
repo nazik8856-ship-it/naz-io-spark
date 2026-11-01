@@ -6,13 +6,16 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { verifyState, exchangeCode, fetchUserInfo } from "../_shared/gmail.ts";
 import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
-import { oauthCallbackPage } from "../_shared/oauth-callback-page.ts";
+import { oauthGate, oauthResponse } from "../_shared/oauth-completion.ts";
 
 // Rate-limits repeated completions against the same account, keyed on the
 // userId verifyState resolves once the signature checks out.
 const RATE_LIMIT_PER_MINUTE = 10;
 
 Deno.serve(async (req) => {
+  // A connection is finished only by the account that started it (see _shared/oauth-completion.ts).
+  const gate = await oauthGate(req, { provider: "gmail", originFromState: async (st) => { const v = await verifyState(st); return typeof v?.o === "string" ? v.o : null; } });
+  if (gate) return gate;
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -22,10 +25,7 @@ Deno.serve(async (req) => {
   // window.opener (see oauth-callback-page.ts's own doc comment for why).
   let redirectOrigin: string | null = null;
   const respond = (title: string, msg: string, ok: boolean, status = 200, service: string | null = null) =>
-    new Response(
-      oauthCallbackPage({ title, message: msg, ok, source: "nazai-gmail-oauth", redirectOrigin, extra: { service } }),
-      { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
-    );
+    oauthResponse(req, { title, message: msg, ok, source: "nazai-gmail-oauth", redirectOrigin, extra: { service } }, status);
 
   if (errParam) return respond("Gmail connection cancelled", errParam, false, 400);
   if (!code || !state) return respond("Invalid callback", "Missing code or state.", false, 400);

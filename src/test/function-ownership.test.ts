@@ -223,6 +223,22 @@ describe("connecting a tool belongs to the account that started it", () => {
     expect(firstWrite === -1 || src.indexOf("consume_") < firstWrite).toBe(true);
   });
 
+  it.each(providers)("%s: the callback only finishes a connection for the account that started it (gate first, before anything else)", (p) => {
+    const src = source(`${p}-oauth-callback`);
+    expect(src).toMatch(new RegExp(`oauthGate\\(req, \\{ provider: "${p}"`));
+    expect(src.indexOf("oauthGate(")).toBeLessThan(src.indexOf("consume_"));
+    expect(src, "answers through oauthResponse (HTML for the provider's redirect, JSON for the app)").toMatch(/oauthResponse\(req,/);
+    expect(src).not.toMatch(/new Response\(\s*oauthCallbackPage/);
+  });
+
+  it("the gate hands the provider's redirect back to the app, and finishes only for the account that started the connection", () => {
+    const gate = readFileSync(join(ROOT, "_shared/oauth-completion.ts"), "utf8");
+    expect(gate).toMatch(/peek_oauth_transaction/);
+    expect(gate, "a different account is refused").toMatch(/started\.user_id !== me/);
+    expect(gate, "a failed lookup stops the request").toMatch(/503/);
+    expect(gate, "the redirect never consumes the state").not.toMatch(/consume_/);
+  });
+
   it.each(providers)("%s: the start stores the state for the signed-in user", (p) => {
     const src = source(`${p}-oauth-start`);
     expect(src).toMatch(/requireCaller\(/);

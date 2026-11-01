@@ -29,4 +29,5 @@ run -f isolation_precedent_min_test.sql
 run -f site_images_cleanup_test.sql
 run -f realtime_checks_test.sql
 run -f two_user_isolation_test.sql
+run -f oauth_peek_test.sql
 echo "secrets database tests: all passed"
