@@ -23,6 +23,8 @@
 // token, still scoped to one specific org's own policy/rules/breakers.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { CONTROL_SCENARIOS, type Scenario, type Verdict } from "../_shared/control-scenarios.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -187,6 +189,13 @@ Deno.serve(async (req) => {
     return json({ error: "x-internal-user-id required for a service-role call" }, 400);
   }
   const downstreamApikey = isInternal ? serviceKey : anonKey;
+
+  // A person's own call is checked here, before any scenario runs: a made-up or public key is turned away at the door instead of
+  // costing 30 downstream calls that each answer "not authenticated".
+  if (!isInternal) {
+    const authed = await requireCaller(req, (h) => createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: h } } }));
+    if (!authed.ok) return json({ error: "unauthorized" }, 401);
+  }
 
   const body = await req.json().catch(() => ({}));
   const dryRun = body?.dry_run === false ? false : true;

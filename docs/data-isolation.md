@@ -100,10 +100,9 @@ a team viewer, a member of two accounts and a visitor).
 - `_shared/caller.ts`: `requireCaller` (the user comes only from the verified token, with a client that runs as them),
   `resolveCallerAccount` / `resolveCallerReadAccount` (a team account named in the request is used only after the membership check) and
   `assertOwned` (a row of another account answers like a missing one). **Every function a signed-in user calls identifies them with
-  `requireCaller`**, except nine that keep their own check, each for a recorded reason (`OWN_CHECK` in
+  `requireCaller`**, except eight that keep their own check, each for a recorded reason (`OWN_CHECK` in
   `src/test/function-ownership.test.ts`): `agent-approval` and `delete-project` (verify the raw token with `getClaims`), `agent-runtime`
-  and `control-engine` (also accept the server key for a named user), `control-test-suite` (passes the token on),
-  `compile-agent-manifest`, `compile-website-manifest` and `analyze-inputs` (sign-in is optional in the try-before-signup flow) and
+  and `control-engine` (also accept the server key for a named user), `compile-agent-manifest`, `compile-website-manifest` and `analyze-inputs` (sign-in is optional in the try-before-signup flow) and
   `mcp` (generated bundle; every tool runs with the caller's own token). The test fails a function that is not on that list and does not
   use `requireCaller`, and one on the list that now does.
 - Someone else's decision, approval, event, incident or agent now answers **404 "not found"**, not 403, so ids of other accounts can
@@ -131,3 +130,36 @@ Pause switch: `platform_settings.consequential_sweeps_paused`. Planning logic an
 Known limit: the 8 sites that existed before the folder change (32 image files) keep the owner's id in their public image addresses.
 Moving them means copying each file and rewriting the address everywhere it is stored (pages, saved versions, shared copies); that is
 a data change on live content and is left for an explicit decision.
+
+## Front 4: connected tools and live updates
+
+- **Connecting a tool belongs to the account that started it.** Each `*-oauth-start` stores a one-time state for the signed-in user
+  (`requireCaller`); the public `*-oauth-callback` consumes it (single use, 10 minutes, server only) and takes the account from the
+  state, never from the address. Gmail and Figma also sign the state (HMAC). Guards: `function-ownership.test.ts`.
+- **The callback page** (`_shared/oauth-callback-page.ts`) escapes the title and message (a crafted `?error=` value used to be printed as raw
+  HTML; the project domain serves it as plain text with a locked-down policy, so it was not exploitable there), keeps its script data safe
+  (`</script>` in a value can not end the block) and posts its result only to our own app's origin when known. The website accepts that
+  message only from our own backend's origin (`isTrustedOAuthOrigin`), so another window can not make a tool look connected.
+- **Live updates:** four tables are pushed live (`agent_decisions`, `agent_events`, `agent_runs`, `outer_control_evaluations`), all owner/team
+  tables with read rules; the app uses table changes only (no broadcast or presence). `isolation_report()` now flags `realtime_exposed` (a
+  published table that is not owner/team/self/membership) and `realtime_broadcast_open` (an open rule on `realtime.messages`).
+- Audited and found sound: outbound webhooks (account scope, https + public address check at creation and at every delivery, redirects not
+  followed, signing secret shown once), the MCP bundle (every tool runs with the caller's own token), the public account search (fixed hosts,
+  strictly checked store name, per-IP limit) and the website form endpoint (the owner comes from the site record).
+- **Known limit, not fixed:** a connection can be started by one account and completed in another person's browser if that person is
+  tricked into approving it at the provider (the tool then attaches to the starter's account). Closing it means moving the code
+  exchange behind a call that is signed in as the starter, across all six providers and the website; it needs the connect flows tested
+  end to end by the owner, so it is a separate decision.
+
+## Front 5: the two-user proof
+
+- `supabase/tests/secrets/two_user_isolation_test.sql` (CI): for every registered owner/team/self table that exists, a row for A is created,
+  then a stranger (B) and a team viewer (V) try to read, change, give away, delete and create rows for A; A is the control. Skipped tables are
+  listed, never silently passed; the run fails on a leak or if too few tables could be tested.
+- `supabase/tests/live/two_user_check.sql` (live, run by hand): the same questions on real rows, inside one statement that always ends in an
+  error, so nothing is kept. 2026-11-01: 40 tables with rows, 360 questions, 0 leaks, the owner could read their own rows in all 40 (35
+  registered tables had no rows yet).
+- `supabase/tests/live/functions_refuse_strangers.sql` (live, run by hand): posts an empty body with only the public key to every user,
+  API-key and scheduled function; every answer must be 400/401/403/404/405/429. 2026-11-01: 72 of 73 refused; `control-test-suite`
+  answered 200 with 30 "not authenticated" scenario errors (no data, no action) and now checks the caller first. Left out on purpose: the
+  public functions, `analyze-inputs`, `compile-agent-manifest`, `compile-website-manifest` (sign-in optional) and the generated `mcp` bundle.

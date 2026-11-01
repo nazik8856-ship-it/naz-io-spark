@@ -47,7 +47,9 @@ BEGIN
     SELECT p INTO B FROM unnest(people) p WHERE p <> A ORDER BY p LIMIT 1;
     SELECT p INTO V FROM unnest(people) p WHERE p <> A AND p <> B ORDER BY p LIMIT 1;
     DELETE FROM public.account_members WHERE account_owner_id = A AND member_id IN (B, V);
-    INSERT INTO public.account_members (account_owner_id, member_id, email, role, status) VALUES (A, V, 'viewer@check.invalid', 'viewer', 'active');
+    -- a trigger on account_members records who invited: act as A for this insert
+    PERFORM set_config('request.jwt.claim.sub', A::text, true);
+    INSERT INTO public.account_members (account_owner_id, member_id, email, role, status, invited_by) VALUES (A, V, 'viewer@check.invalid', 'viewer', 'active', A);
     -- a copy of one of A's rows to try to create as someone else
     EXECUTE format('SELECT to_jsonb(r) FROM %s r WHERE %s = %L LIMIT 1', fq, oc, A) INTO rowjson;
     has_id := rowjson ? 'id' AND jsonb_typeof(rowjson -> 'id') = 'string' AND (rowjson ->> 'id') ~ '^[0-9a-f-]{36}$';
