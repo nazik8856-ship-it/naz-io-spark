@@ -36,7 +36,7 @@ export const FUNCTION_ACCESS: Record<string, FunctionAccess> = {
   "control-system-decide": USER,
   "control-test-suite": {
     access: "user", checkedBy: "control-engine",
-    reason: "passes the caller's token on to control-engine for every scenario; also runs as an internal check with the server key",
+    reason: "checks the caller with requireCaller before any scenario runs, then passes the token on to control-engine for every scenario; also runs as an internal check with the server key",
   },
   "delete-project": USER,
   "encrypted-write": { access: "user", reason: "runs the write as the signed-in user, so row level security decides" },

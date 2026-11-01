@@ -61,7 +61,6 @@ const OWN_CHECK: Record<string, string> = {
   "compile-agent-manifest": "sign-in is optional (try-before-signup flow); the user's own client is used, saved data needs a user",
   "compile-website-manifest": "sign-in is optional (try-before-signup flow); the user's own client is used, saved data needs a user",
   "control-engine": "accepts a user token (auth.getUser) or the server key with a named user, sent by agent-runtime and control-api",
-  "control-test-suite": "passes the caller's token on to control-engine for every scenario (checkedBy in function-access.ts)",
   "delete-project": "verifies the raw token with auth.getClaims on purpose (see its header), then deletes with an explicit owner filter",
   "mcp": "generated MCP bundle: every tool runs with the caller's own token",
 };
