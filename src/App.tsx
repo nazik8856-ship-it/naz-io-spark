@@ -55,6 +55,7 @@ const Generating = lazyWithReload(() => import("./pages/Generating"));
 const Pricing = lazyWithReload(() => import("./pages/Pricing"));
 const Unsubscribe = lazyWithReload(() => import("./pages/Unsubscribe"));
 const OAuthConsent = lazyWithReload(() => import("./pages/OAuthConsent"));
+const OAuthComplete = lazyWithReload(() => import("./pages/OAuthComplete"));
 const WebsitePreview = lazyWithReload(() => import("./pages/WebsitePreview"));
 const GeneratedDashboard = lazyWithReload(() => import("./pages/GeneratedDashboard"));
 const Projects = lazyWithReload(() => import("./pages/Projects"));
@@ -162,6 +163,7 @@ const App = () => (
                   <Route path="/projects/:id" element={<ProjectView />} />
                 </Route>
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
+                <Route path="/oauth/complete" element={<OAuthComplete />} />
                 <Route path="/privacy" element={<Privacy />} />
                 <Route path="/terms" element={<Terms />} />
                 <Route path="/insights" element={<Insights />} />

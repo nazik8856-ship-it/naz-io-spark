@@ -7,7 +7,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";
 import { exchangeCode, fetchShopInfo, normalizeShop, verifyCallbackHmac } from "../_shared/shopify.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
-import { oauthCallbackPage } from "../_shared/oauth-callback-page.ts";
+import { oauthGate, oauthResponse } from "../_shared/oauth-completion.ts";
 
 // Confirmed zero rate-limit coverage. Public/unauthenticated endpoint, so
 // there's no real userId to key on until AFTER the one-time transaction is
@@ -15,6 +15,9 @@ import { oauthCallbackPage } from "../_shared/oauth-callback-page.ts";
 const RATE_LIMIT_PER_MINUTE = 10;
 
 Deno.serve(async (req) => {
+  // A connection is finished only by the account that started it (see _shared/oauth-completion.ts).
+  const gate = await oauthGate(req, { provider: "shopify" });
+  if (gate) return gate;
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -25,10 +28,7 @@ Deno.serve(async (req) => {
   // window.opener (see oauth-callback-page.ts's own doc comment for why).
   let redirectOrigin: string | null = null;
   const respond = (title: string, msg: string, ok: boolean, shop?: string, status = 200) =>
-    new Response(
-      oauthCallbackPage({ title, message: msg, ok, source: "nazai-shopify-oauth", redirectOrigin, extra: { shop: shop || "" } }),
-      { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
-    );
+    oauthResponse(req, { title, message: msg, ok, source: "nazai-shopify-oauth", redirectOrigin, extra: { shop: shop || "" } }, status);
 
   if (errParam) return respond("Shopify connection cancelled", errParam, false, shopParam || undefined, 400);
   if (!code || !state || !shopParam) {

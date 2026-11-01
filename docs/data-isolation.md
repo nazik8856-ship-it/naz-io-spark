@@ -146,10 +146,16 @@ a data change on live content and is left for an explicit decision.
 - Audited and found sound: outbound webhooks (account scope, https + public address check at creation and at every delivery, redirects not
   followed, signing secret shown once), the MCP bundle (every tool runs with the caller's own token), the public account search (fixed hosts,
   strictly checked store name, per-IP limit) and the website form endpoint (the owner comes from the site record).
-- **Known limit, not fixed:** a connection can be started by one account and completed in another person's browser if that person is
-  tricked into approving it at the provider (the tool then attaches to the starter's account). Closing it means moving the code
-  exchange behind a call that is signed in as the starter, across all six providers and the website; it needs the connect flows tested
-  end to end by the owner, so it is a separate decision.
+- **A connection is finished only by the account that started it** (`_shared/oauth-completion.ts`, `20261106020000_oauth_peek.sql`,
+  `src/pages/OAuthComplete.tsx`). The provider's redirect (GET) no longer finishes anything: the callback hands the browser back to the
+  app's `/oauth/complete` page with the same parameters and uses nothing up. That page finishes the connection with a POST signed in as the
+  person in that browser; the callback looks up who started the connection (`peek_oauth_transaction`, server only) and refuses with 403
+  unless it is the same account, leaving the state unused. Nobody signed in gets 401, a failed lookup stops the request (503). Before this,
+  someone could start a connection and get another person to approve it at the provider, and that person's Slack, Gmail, Notion, Canva,
+  Figma or Shopify was attached to the starter's account. The rest of each callback is unchanged; the old result page is still the answer
+  to a bare GET. Guards: `function-ownership.test.ts` (gate first, answers through `oauthResponse`), `oauth-completion_test.ts`,
+  `oauth_peek_test.sql`, `src/test/oauth-complete.test.ts`.
+  Rollback: re-pin the six `*-oauth-callback` functions to the commit before this change.
 
 ## Front 5: the two-user proof
 

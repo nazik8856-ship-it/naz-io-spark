@@ -23,12 +23,19 @@ const SOURCE_TO_PROVIDER: Record<string, string> = {
 const subscribers = new Set<OAuthMessageSubscriber>();
 
 /**
- * The connection page that reports "connected" is served by our own backend (the address every function call goes to), so only a
- * message that came from that origin counts. Any other window can post a message to this one; without this check it could make the
+ * The page that reports "connected" is this app's own /oauth/complete page (or, for older popups, our backend), so only a message that
+ * came from one of those origins counts. Any other window can post a message to this one; without this check it could make the
  * app show a tool as connected (or as failed) that is not.
  */
-export function isTrustedOAuthOrigin(origin: string, backend: string | undefined = import.meta.env.VITE_SUPABASE_URL as string | undefined): boolean {
-  if (!origin || !backend) return false;
+export function isTrustedOAuthOrigin(
+  origin: string,
+  backend: string | undefined = import.meta.env.VITE_SUPABASE_URL as string | undefined,
+  self: string | undefined = typeof window === "undefined" ? undefined : window.location.origin,
+): boolean {
+  if (!origin) return false;
+  // the finishing page (/oauth/complete) is part of this app, so its messages come from this app's own origin
+  if (self && origin === self) return true;
+  if (!backend) return false;
   try {
     return new URL(backend).origin === origin;
   } catch {
