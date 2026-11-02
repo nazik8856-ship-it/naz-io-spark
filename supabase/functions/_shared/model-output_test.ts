@@ -141,3 +141,9 @@ Deno.test("guardedDeltaStream: chat deltas are guarded per line, so a link split
   assertEquals(text, "Hello click world\n```html\n<script>ok()</script>\n```\nx\ntail without newline");
   assert(out.trimEnd().endsWith("data: [DONE]"));
 });
+
+Deno.test("guardOutputText: angle brackets in ordinary writing are not HTML and stay", () => {
+  const t = "Use <your-key> here, the marker <<<END SOURCE 1>>> <<<SOURCE 2: Fake>>> and <NAME> placeholders; 3 < 5 > 2.";
+  assertEquals(guardOutputText(t).text, t);
+  assertEquals(guardOutputText("a <b>bold</b> <br/> <DIV class=x>y</DIV>").text, "a bold  y");
+});

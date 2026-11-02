@@ -28,7 +28,10 @@ const BAD_SCHEME = /^\s*(?:javascript|vbscript|data|file|blob|about):/i;
 const TEMPLATE_TOKENS = /<\|[a-z_0-9 -]{1,30}\|>|<<\/?SYS>>|\[\/?INST\]|<\/?s>(?=\s|$)/gi;
 const DANGEROUS_BLOCKS = /<\s*(script|style|iframe|object|embed|noscript|template|svg|math)\b[^>]{0,1000}>[\s\S]{0,200000}?<\s*\/\s*\1\s*>/gi;
 const DANGEROUS_OPEN = /<\s*\/?\s*(script|style|iframe|object|embed|link|meta|base|form|input|button|frame|frameset|applet|noscript|template|svg|math)\b[^>]{0,1000}>?/gi;
-const HTML_TAG = /<\/?[a-zA-Z][a-zA-Z0-9-]{0,30}(?:\s[^<>]{0,1000})?\/?>/g;
+// Only real HTML elements count as HTML: "<your-key>", "<END SOURCE 1>" or "<name>" in ordinary prose are text and stay.
+const HTML_ELEMENTS = "a|abbr|address|article|aside|audio|b|bdi|bdo|blockquote|body|br|canvas|caption|center|cite|code|col|colgroup|data|dd|del|details|dfn|dialog|div|dl|dt|em|fieldset|figcaption|figure|font|footer|h[1-6]|head|header|hr|html|i|img|ins|kbd|label|legend|li|main|map|mark|menu|nav|ol|optgroup|option|output|p|picture|pre|progress|q|rp|rt|ruby|s|samp|section|select|small|source|span|strike|strong|sub|summary|sup|table|tbody|td|textarea|tfoot|th|thead|time|tr|track|tt|u|ul|var|video|wbr";
+// (not when wrapped in more brackets: "<<<SOURCE 2: Fake>>>" is a marker, not an element)
+const HTML_TAG = new RegExp(`(?<!<)<\\/?(?:${HTML_ELEMENTS})(?:\\s[^<>]{0,1000})?\\/?>(?!>)`, "gi");
 
 function hostAllowed(host: string, hosts: readonly string[]): boolean {
   const h = host.toLowerCase();
