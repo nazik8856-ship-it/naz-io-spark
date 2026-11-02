@@ -1,4 +1,7 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { parseModelJson } from "../_shared/model-output.ts"
+import { guardOutputText } from "../_shared/output-guard.ts"
+import { array, object, text, withDefault } from "../_shared/schema.ts"
 import { readJson } from "../_shared/input.ts"
 import { cleanText } from "../_shared/clean-text.ts"
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
@@ -10,6 +13,12 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 }
+
+const missionReply = object({
+  solution: withDefault(text({ max: 4000, clip: true }), ''),
+  explanation: withDefault(text({ max: 4000, clip: true }), ''),
+  actions: withDefault(array(text({ min: 1, max: 400, clip: true }), { max: 12, clip: true, dropInvalid: true }), [] as string[]),
+})
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
@@ -107,13 +116,12 @@ Return ONLY valid JSON. No markdown, no code fences.`
     await supabaseClient.rpc('deduct_credit', { user_id: authed.caller.userId })
 
     // Parse and return
-    let parsed
-    try {
-      const cleaned = aiText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-      parsed = JSON.parse(cleaned)
-    } catch {
-      parsed = { solution: aiText, explanation: '', actions: [] }
-    }
+    // the reply must fit {solution, explanation, actions}; anything else the model wrote is dropped, and text that is not JSON is the solution
+    const checked = parseModelJson(String(aiText), missionReply)
+    const guardText = (t: string) => guardOutputText(t).text
+    const parsed = checked.ok
+      ? { solution: guardText(checked.value.solution), explanation: guardText(checked.value.explanation), actions: checked.value.actions.map(guardText) }
+      : { solution: guardText(cleanText(String(aiText), { max: 4000 })), explanation: '', actions: [] as string[] }
 
     return new Response(JSON.stringify(parsed), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

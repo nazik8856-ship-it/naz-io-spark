@@ -1,4 +1,6 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { parseModelJson } from "../_shared/model-output.ts";
+import { array, object, text, withDefault } from "../_shared/schema.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
@@ -21,6 +23,10 @@ function similar(a: string, b: string): boolean {
   const jac = inter / (A.size + B.size - inter);
   return jac >= 0.55;
 }
+
+const insightsReply = object({
+  insights: withDefault(array(object({ insight: text({ min: 1, max: 600, clip: true }) }, { unknown: "keep" }), { max: 12, clip: true, dropInvalid: true }), []),
+});
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -107,9 +113,9 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "ai_failed", status: resp.status, details: t }), { status: resp.status === 429 || resp.status === 402 ? resp.status : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const data = await resp.json();
-    let parsed: { insights?: Insight[] } = {};
-    try { parsed = JSON.parse(data?.choices?.[0]?.message?.content ?? "{}"); } catch { /* noop */ }
-    const insights = (parsed.insights || []).filter((i) => i && typeof i.insight === "string" && i.insight.trim().length > 12).slice(0, 6);
+    // each insight: short text, a small evidence list; anything else the model wrote is dropped
+    const checked = parseModelJson(String(data?.choices?.[0]?.message?.content ?? ""), insightsReply);
+    const insights = ((checked.ok ? checked.value.insights : []) as unknown as Insight[]).filter((i) => i && typeof i.insight === "string" && i.insight.trim().length > 12).slice(0, 6);
 
     if (insights.length === 0) {
       return new Response(JSON.stringify({ ok: true, inserted: 0, updated: 0, reason: "no_insights_extracted" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

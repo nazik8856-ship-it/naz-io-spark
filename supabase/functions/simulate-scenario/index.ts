@@ -1,4 +1,7 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { parseModelJson } from "../_shared/model-output.ts";
+import { guardOutputText } from "../_shared/output-guard.ts";
+import { array, object, oneOf, text, withDefault } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -16,6 +19,13 @@ type ScenarioResponse = {
   confidence: "high" | "medium" | "low";
   caveats: string[];
 };
+
+const scenarioReply = object({
+  analysis: withDefault(text({ max: 6000, clip: true }), ""),
+  key_factors_considered: withDefault(array(text({ min: 1, max: 400, clip: true }), { max: 12, clip: true, dropInvalid: true }), [] as string[]),
+  confidence: withDefault(oneOf(["high", "medium", "low"] as const), "low" as const),
+  caveats: withDefault(array(text({ min: 1, max: 400, clip: true }), { max: 8, clip: true, dropInvalid: true }), [] as string[]),
+});
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -94,14 +104,15 @@ Rules:
     }
 
     const data = await resp.json();
-    let parsed: Partial<ScenarioResponse> = {};
-    try { parsed = JSON.parse(data?.choices?.[0]?.message?.content ?? "{}"); } catch { /* noop */ }
-
+    // checked against the shape the screen shows: text cut, lists capped, a wrong confidence becomes "low", HTML and unsafe links removed
+    const checked = parseModelJson(String(data?.choices?.[0]?.message?.content ?? ""), scenarioReply);
+    const parsed = checked.ok ? checked.value : null;
+    const safe = (t: string) => guardOutputText(t).text;
     const response: ScenarioResponse = {
-      analysis: typeof parsed.analysis === "string" ? parsed.analysis : "No analysis returned.",
-      key_factors_considered: Array.isArray(parsed.key_factors_considered) ? parsed.key_factors_considered.filter((s) => typeof s === "string").slice(0, 12) : [],
-      confidence: (["high", "medium", "low"].includes(parsed.confidence as string) ? parsed.confidence : "low") as ScenarioResponse["confidence"],
-      caveats: Array.isArray(parsed.caveats) ? parsed.caveats.filter((s) => typeof s === "string").slice(0, 8) : [],
+      analysis: parsed?.analysis ? safe(parsed.analysis) : "No analysis returned.",
+      key_factors_considered: (parsed?.key_factors_considered ?? []).map(safe),
+      confidence: parsed?.confidence ?? "low",
+      caveats: (parsed?.caveats ?? []).map(safe),
     };
 
     const { data: inserted, error: insErr } = await admin

@@ -102,7 +102,7 @@ export function jsonDepth(text: string, limit: number): number {
 }
 
 /** Cleans every string, drops "__proto__", and enforces the size limits while walking. Returns null when a limit is broken. */
-function walk(value: unknown, lim: Required<InputLimits>, state: { values: number }, depth = 0): { v: unknown } | { tooMany: true } {
+export function walk(value: unknown, lim: Required<InputLimits>, state: { values: number }, depth = 0): { v: unknown } | { tooMany: true } {
   if (++state.values > lim.maxValues) return { tooMany: true };
   if (typeof value === "string") return { v: scrubString(value) };
   if (value === null || typeof value !== "object") return { v: value };
@@ -125,6 +125,15 @@ function walk(value: unknown, lim: Required<InputLimits>, state: { values: numbe
 }
 
 // deno-lint-ignore no-explicit-any
+export const DEFAULT_LIMITS: Required<InputLimits> = { maxBytes: DEFAULT_MAX_BYTES, maxDepth: 12, maxArray: 2000, maxKeys: 500, maxValues: 20000 };
+
+/** Strings cleaned, "__proto__" dropped, sizes bounded: for JSON that did not come in as a request body (a model's reply, a fetched page). null = a limit was broken. */
+export function sanitizeJson(value: unknown, limits: InputLimits = {}): { value: unknown } | null {
+  const lim = { ...DEFAULT_LIMITS, ...limits };
+  const r = walk(value, lim, { values: 0 });
+  return "tooMany" in r ? null : { value: r.v };
+}
+
 export async function readJson<T = Record<string, any>>(req: Request, opts: InputOptions = {}): Promise<JsonRead<T>> {
   const lim: Required<InputLimits> = {
     maxBytes: opts.maxBytes ?? DEFAULT_MAX_BYTES, maxDepth: opts.maxDepth ?? 12, maxArray: opts.maxArray ?? 2000,

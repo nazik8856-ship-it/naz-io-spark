@@ -55,6 +55,53 @@ describe("no function reads a request body on its own", () => {
   });
 });
 
+// --- model output ------------------------------------------------------------------------------------------------------------------
+// What a model writes is untrusted input. Every place that reads JSON out of a model reply goes through _shared/model-output.ts
+// (parseModelJson / askForJson / parseModelObject / parseStrictObject). These are the JSON.parse calls that remain, each for a reason.
+const OWN_JSON: Record<string, string> = {
+  "governance-backup-export/index.ts": "our own encrypted backup file, opened with our key",
+  "compile-website-manifest/index.ts": "our own request body after upload aliases were swapped in (a copy of a body already read and bounded by readJson)",
+  "control-test-suite/index.ts": "the answer of our own control-api, read back inside the test run",
+  "analyze-inputs/index.ts": "the shape of an attached JSON file, only to describe it; inside try, size bounded by the 256 KB request cap",
+  "resend-events/index.ts": "a webhook whose signature was verified, after a 1 MB read cap",
+  "agent-runtime/index.ts": "an external webhook body, after a 1 MB read cap; falls back to plain text",
+  "mcp/index.ts": "the text our own function returned",
+  "_shared/field-crypto.ts": "a value we encrypted ourselves",
+  "_shared/figma.ts": "a signed token we issued",
+  "_shared/gmail.ts": "a signed token we issued",
+  "_shared/generation-quality.ts": "a deep copy of a value already in memory",
+  "_shared/uploaded-assets.ts": "a deep copy of our own pages",
+  "_shared/webhooks.ts": "the body we stored for a webhook delivery",
+  "_shared/outer-control-mcp.ts": "an MCP tool server's reply, parsed by the Outer Control tool reader whose result then goes through parseToolReply",
+  "_shared/outer-control-session.ts": "a tool's raw HTTP body, only to find the answer text; the answer then goes through parseToolReply",
+  "_shared/outer-control-tool-test.ts": "the connection test of a tool: a tool's raw HTTP body, only to find the answer text",
+  "_shared/projects.ts": "a GitHub directory listing, shown as names only inside try",
+  "_shared/model-output.ts": "the reader itself",
+  "_shared/input.ts": "the reader itself",
+  "_shared/safe-fetch.ts": "the reader itself (after depth and size checks)",
+  "_shared/output-guard.ts": "the event stream the gateway sent, one line at a time",
+};
+const modelFiles = [
+  ...functions.map((f) => `${f}/index.ts`),
+  ...readdirSync(join(ROOT, "_shared")).filter((f) => f.endsWith(".ts") && !f.endsWith("_test.ts")).map((f) => `_shared/${f}`),
+];
+
+describe("JSON read out of a model reply goes through the shared reader", () => {
+  it.each(modelFiles)("%s", (f) => {
+    const src = code(readFileSync(join(ROOT, f), "utf8"));
+    const parses = src.split("\n").filter((l) => /\bJSON\.parse\(/.test(l));
+    if (!parses.length) return;
+    expect(OWN_JSON[f], `${f} calls JSON.parse (${parses[0].trim().slice(0, 80)}); read model output with parseModelJson / askForJson / parseModelObject from _shared/model-output.ts, or record why this one is safe in OWN_JSON`).toBeTruthy();
+  });
+
+  it("every exception is still needed", () => {
+    for (const f of Object.keys(OWN_JSON)) {
+      expect(modelFiles, f).toContain(f);
+      expect(/\bJSON\.parse\(/.test(code(readFileSync(join(ROOT, f), "utf8"))), `${f} no longer calls JSON.parse; remove it from OWN_JSON`).toBe(true);
+    }
+  });
+});
+
 describe("a refusal is built from headers that exist", () => {
   it.each(functions)("%s", (fn) => {
     const src = source(fn);

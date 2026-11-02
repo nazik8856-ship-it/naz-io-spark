@@ -93,12 +93,17 @@ describe("sends to a customer's address never follow a redirect", () => {
 });
 
 describe("pages read from a typed-in address use the https-only fetch", () => {
+  it("safeFetchText is built on the https-only fetch", () => {
+    expect(code(read("supabase/functions/_shared/safe-fetch.ts"))).toContain("fetchPublicHttps(");
+  });
+
   it.each([
     ["supabase/functions/business-context-researcher/index.ts", 1],
     ["supabase/functions/agent-runtime/index.ts", 2],
     ["supabase/functions/analyze-inputs/index.ts", 1],
   ])("%s", (file, calls) => {
-    expect(code(read(file)).match(/fetchPublicHttps\(/g)?.length ?? 0).toBeGreaterThanOrEqual(calls);
+    // safeFetchText (_shared/safe-fetch.ts) is fetchPublicHttps plus a time, size and content-type limit
+    expect(code(read(file)).match(/(?:fetchPublicHttps|safeFetchText)\(/g)?.length ?? 0).toBeGreaterThanOrEqual(calls);
   });
 });
 

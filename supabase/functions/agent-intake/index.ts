@@ -6,11 +6,24 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { readJson } from "../_shared/input.ts";
 import { cleanText } from "../_shared/clean-text.ts";
+import { parseModelJson } from "../_shared/model-output.ts";
+import { guardOutputText } from "../_shared/output-guard.ts";
+import { array, object, optional, text, withDefault } from "../_shared/schema.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// What the screen shows for each question (at most 3); anything else in the reply is dropped.
+const intakeReply = object({
+  questions: withDefault(array(object({
+    id: withDefault(text({ max: 40, clip: true, multiline: false }), ""),
+    question: text({ min: 1, max: 240, clip: true }),
+    options: optional(array(text({ min: 1, max: 80, clip: true, multiline: false }), { max: 5, clip: true, dropInvalid: true })),
+    placeholder: optional(text({ max: 120, clip: true })),
+  }), { max: 3, clip: true, dropInvalid: true }), []),
+});
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -52,26 +65,18 @@ Rules:
     if (!resp.ok) return json({ error: `AI gateway ${resp.status}` }, 500);
     const data = await resp.json();
     const raw = data?.choices?.[0]?.message?.content ?? "";
-    const parsed = extractJson(raw) ?? { questions: [] };
-    const qs = Array.isArray((parsed as { questions?: unknown[] }).questions)
-      ? ((parsed as { questions: Record<string, unknown>[] }).questions).slice(0, 3).map((q, i) => ({
-        id: typeof q.id === "string" ? q.id : `q${i + 1}`,
-        question: String(q.question || "").slice(0, 240),
-        options: Array.isArray(q.options) ? (q.options as string[]).slice(0, 5) : undefined,
-        placeholder: typeof q.placeholder === "string" ? q.placeholder.slice(0, 120) : undefined,
-      })).filter((q) => q.question)
-      : [];
+    // The reply is checked against the shape the screen expects. An unreadable reply means "no questions" (this step is optional,
+    // so it is not retried): the form carries on without it, as before.
+    const parsed = parseModelJson(raw, intakeReply);
+    const qs = (parsed.ok ? parsed.value.questions : []).map((q, i) => ({
+      id: q.id || `q${i + 1}`,
+      question: guardOutputText(q.question).text,
+      options: q.options?.map((o) => guardOutputText(o).text).filter(Boolean),
+      placeholder: q.placeholder ? guardOutputText(q.placeholder).text : undefined,
+    })).filter((q) => q.question);
     return json({ questions: qs });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
   }
 });
 function json(b: unknown, s = 200) { return new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
-function extractJson(raw: string): Record<string, unknown> | null {
-  if (!raw) return null;
-  const c = raw.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
-  try { return JSON.parse(c); } catch { /* */ }
-  const m = c.match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  try { return JSON.parse(m[0]); } catch { return null; }
-}

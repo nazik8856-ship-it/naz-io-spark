@@ -1,3 +1,4 @@
+import { attachmentName, headerValue, recipientList } from "./outbound.ts";
 // Shared Gmail OAuth + API helpers.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { readSecret, updateSecret } from "./integration-secrets.ts";
@@ -365,7 +366,8 @@ function buildMimeMessage(
   from: string, to: string, subject: string, body: string,
   attachments: EmailAttachment[], extraHeaders: string[] = [],
 ): string {
-  const baseHeaders = [`From: ${from}`, `To: ${to}`, `Subject: ${subject}`, ...extraHeaders];
+  // header values are single lines: a line break in a recipient or subject would start a new header (a hidden Bcc)
+  const baseHeaders = [`From: ${headerValue(from)}`, `To: ${recipientList(to)}`, `Subject: ${headerValue(subject)}`, ...extraHeaders.map((h) => headerValue(h))];
   if (attachments.length === 0) {
     return [
       ...baseHeaders,
@@ -391,9 +393,9 @@ function buildMimeMessage(
     const mimeType = att.mimeType || guessAttachmentMimeType(att.filename);
     lines.push(
       `--${boundary}`,
-      `Content-Type: ${mimeType}; name="${att.filename}"`,
+      `Content-Type: ${headerValue(mimeType, 120).replace(/[^\w./+-]/g, "")}; name="${attachmentName(att.filename)}"`,
       "Content-Transfer-Encoding: base64",
-      `Content-Disposition: attachment; filename="${att.filename}"`,
+      `Content-Disposition: attachment; filename="${attachmentName(att.filename)}"`,
       "",
       standardBase64Utf8(att.content),
       "",

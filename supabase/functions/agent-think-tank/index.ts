@@ -11,6 +11,9 @@
 // generate-business-plan. It runs in parallel as an opt-in "think process".
 
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { parseModelJson } from "../_shared/model-output.ts";
+import { object } from "../_shared/schema.ts";
+import { cleanText } from "../_shared/clean-text.ts";
 import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -123,13 +126,10 @@ const callAgent = async (
   }
   const data = await resp.json();
   const raw: string = data.choices?.[0]?.message?.content ?? "";
-  let parsed: any = null;
-  try {
-    const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    parsed = JSON.parse(cleaned);
-  } catch {
-    parsed = { _unparsed: raw };
-  }
+  // bounded and cleaned; an unusable reply is kept as plain text (cut at 20,000 characters), as before
+  const checked = parseModelJson(raw, object({}, { unknown: "keep" }));
+  // deno-lint-ignore no-explicit-any
+  const parsed: any = checked.ok ? checked.value : { _unparsed: cleanText(raw, { max: 20000 }) };
   return { raw, parsed };
 };
 

@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkIpRateLimit } from "../_shared/rate-limit.ts";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { readJson } from "../_shared/input.ts";
+import { guardedDeltaStream, leakFragments } from "../_shared/output-guard.ts";
 import { array, object, oneOf, text, withDefault } from "../_shared/schema.ts";
 
 // This endpoint is intentionally reachable without a signed-in session --
@@ -111,7 +112,12 @@ serve(async (req) => {
       });
     }
 
-    return new Response(response.body, {
+    // The model's words are guarded line by line as they stream: raw HTML, unsafe links, pictures from outside hosts, template markers
+    // and echoed system instructions are removed; code blocks pass untouched.
+    const guarded = response.body
+      ? guardedDeltaStream(response.body, { leakFragments: leakFragments(SYSTEM_PROMPTS[chatMode]) })
+      : response.body;
+    return new Response(guarded, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {

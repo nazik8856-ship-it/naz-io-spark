@@ -9,6 +9,8 @@
 //     agent_decisions logging. No decision logic is duplicated here.
 //  2) Anything else -> normal conversational reply.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { parseModelJson } from "../_shared/model-output.ts";
+import { object } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
@@ -112,6 +114,8 @@ function formatTextReviewReply(result: Awaited<ReturnType<typeof evaluateExterna
   }
   return lines.join("\n");
 }
+
+const toolArguments = object({}, { unknown: "keep" });
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -242,7 +246,7 @@ serve(async (req) => {
     const msg = data?.choices?.[0]?.message;
     const call = msg?.tool_calls?.[0];
     let parsed: Record<string, unknown> = {};
-    try { parsed = JSON.parse(call?.function?.arguments || "{}"); } catch { /* fall through */ }
+    { const r = parseModelJson(call?.function?.arguments || "{}", toolArguments); if (r.ok) parsed = r.value as Record<string, unknown>; } // bounded and cleaned; unusable arguments read as empty, as before
 
     if (call?.function?.name === "review_external_text") {
       const content = String(parsed.content || "").slice(0, 8000);

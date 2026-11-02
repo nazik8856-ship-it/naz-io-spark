@@ -13,17 +13,17 @@ The fields are found by reading the code (names used on the parsed body), so tre
 | `account-invite` | user | readJson | 256 KB | `email`, `role` | — | `authorization` |
 | `account-invite-accept` | user | readJson | 256 KB | `token` | `token` | `authorization` |
 | `agent-approval` | user | readJson | 256 KB | `action`, `eventId`, `note`, `payload` | — | `authorization` |
-| `agent-intake` | public | readJson | 256 KB | `profile`, `prompt`, `role` | — | — |
-| `agent-runtime` | user | readCapped (raw) | 1024 * 1024 | `accept`, `action`, `agentId`, `at`, `attachments`, `body_markdown`, `company`, `constraints`, `context`, `decision`, `description`, `doc_id`, `email`, `end`, `end_iso`, `error`, `expression`, `focus`, `id`, `input`, `input_type`, `instruction`, `key`, `kind`, `max`, `message_id`, `missing`, `mode`, `name`, `note`, `notes`, `objective`, `options`, `outerSessionId`, `outerTaskId`, `payload`, `property_id`, `provider`, `q`, `query`, `question`, `range`, `rationale`, `reason`, `risk`, `rows`, `run_at_iso`, `severity`, `sheet_id`, `start`, `start_iso`, `subject`, `summary`, `tags`, `thought`, `thread_id`, `title`, `to`, `tool`, `trigger`, `url`, `userInstruction` | `agentId`, `trigger` | `authorization`, `content-type`, `x-scheduler-user-id`, `x-webhook-secret` |
+| `agent-intake` | public | readJson | 256 KB | `profile`, `prompt`, `questions`, `role` | — | — |
+| `agent-runtime` | user | readCapped (raw) | 1024 * 1024 | `accept`, `action`, `agentId`, `at`, `attachments`, `body_markdown`, `company`, `constraints`, `context`, `decision`, `description`, `doc_id`, `email`, `end`, `end_iso`, `error`, `expression`, `focus`, `id`, `input`, `input_type`, `instruction`, `key`, `kind`, `max`, `message_id`, `missing`, `mode`, `name`, `note`, `notes`, `objective`, `options`, `outerSessionId`, `outerTaskId`, `payload`, `property_id`, `provider`, `q`, `query`, `question`, `range`, `rationale`, `reason`, `risk`, `rows`, `run_at_iso`, `severity`, `sheet_id`, `start`, `start_iso`, `subject`, `summary`, `tags`, `thought`, `thread_id`, `title`, `to`, `tool`, `trigger`, `url`, `userInstruction` | `agentId`, `trigger` | `authorization`, `x-scheduler-user-id`, `x-webhook-secret` |
 | `agent-scheduler` | system | no body | — | — | — | `authorization` |
 | `agent-think-tank` | user | readJson | 256 KB | `directive` | — | `authorization` |
-| `analyze-inputs` | user | readJson | 256 KB | `attachments`, `kind`, `prompt`, `tone` | — | `authorization`, `content-type` |
-| `analyze-org-insights` | user | no body | — | `insights` | — | `authorization` |
+| `analyze-inputs` | user | readJson | 1024 * 1024 | `attachments`, `kind`, `prompt`, `tone` | — | `authorization` |
+| `analyze-org-insights` | user | no body | — | — | — | `authorization` |
 | `api-keys` | user | readJson | 256 KB | `account_id`, `action_type_pattern`, `ai_spend_cap_usd`, `allow_outer_control_execute`, `answer_text`, `callback_fallback`, `callback_secret`, `callback_timeout_seconds`, `callback_url`, `confidence_threshold`, `enabled`, `entry_id`, `entry_text`, `expires_at`, `fallback_message`, `is_test`, `match_type`, `name`, `on_gate_error`, `on_uncertain`, `rate_limit_per_minute`, `respond_rate_limit_per_minute`, `response_persona`, `rule_id`, `scope`, `shadow_on_uncertain`, `trigger_phrase` | `account_id` | `authorization` |
 | `approval-escalation-sweep` | system | no body | — | — | — | `authorization` |
 | `audit-integrity-sweep` | user | no body | — | — | — | `authorization` |
 | `auto-resolution-share-sweep` | system | no body | — | — | — | `authorization` |
-| `business-context-researcher` | user | readJson | 256 KB | `audience`, `channels`, `company_name`, `industry`, `inferred_kpis`, `offers`, `one_liner`, `prompt`, `reuseLatest`, `tone`, `url` | — | — |
+| `business-context-researcher` | user | readJson | 1024 * 1024 | `audience`, `channels`, `company_name`, `industry`, `inferred_kpis`, `offers`, `one_liner`, `prompt`, `reuseLatest`, `tone`, `url` | — | — |
 | `calibrate-confidence` | system | readJson | 256 KB | `user_id` | — | `authorization` |
 | `canva-oauth-callback` | public | no body | — | — | `code`, `error`, `state` | — |
 | `canva-oauth-start` | user | readJson | 256 KB | `groups`, `origin` | — | — |

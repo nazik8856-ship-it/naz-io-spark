@@ -2,6 +2,9 @@
 // Business-aware: loads business profile + memory; supports remember/ask_user/request_approval tools.
 // Input: { agentId: string, trigger?: "manual"|"cron"|"webhook", userInstruction?: string }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { parseModelJson } from "../_shared/model-output.ts";
+import { object } from "../_shared/schema.ts";
+import { safeFetchText } from "../_shared/safe-fetch.ts";
 import { readCapped } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, type SupabaseClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
@@ -30,7 +33,7 @@ import { recordAiSpend, estimateCostUsd } from "../_shared/spend-guard.ts";
 import { pickAiGateway, callAiGateway, type GatewayConfig } from "../_shared/ai-gateway.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { fetchPublicHttps, validateOutboundUrl } from "../_shared/url-safety.ts";
+import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
 import { deriveRunOutcome, type AgentEvent } from "../_shared/agent-outcome.ts";
 
@@ -3996,12 +3999,9 @@ Reply with ONE fenced JSON block:
 function json(b: unknown, s = 200) { return new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
 
 function extractAction(raw: string): Record<string, unknown> | null {
-  if (!raw) return null;
-  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const body = fence ? fence[1] : raw;
-  const obj = body.match(/\{[\s\S]*\}/);
-  if (!obj) return null;
-  try { return JSON.parse(obj[0]); } catch { return null; }
+  // found inside fences and prose; bounded (size, depth, list lengths) and cleaned of control characters
+  const r = parseModelJson(raw, object({}, { unknown: "keep" }));
+  return r.ok ? (r.value as Record<string, unknown>) : null;
 }
 
 
@@ -4033,14 +4033,12 @@ async function executeTool(
       const url = String(input.url || tool.config?.url || "");
       if (!/^https?:\/\//.test(url)) return { summary: "Invalid URL.", error: true };
       // Read over https only (an http:// address is upgraded), every redirect re-checked: never plain http, never an internal address.
-      let resp: Response;
-      try { resp = await fetchPublicHttps(url, { headers: { "User-Agent": "NazAI-Agent/1.0" } }); } catch (e) {
-        return { summary: `Fetch failed: ${e instanceof Error ? e.message : "unknown"}`, error: true };
-      }
-      const ct = resp.headers.get("content-type") || "";
-      const text = await resp.text();
-      const body = ct.includes("application/json") ? text.slice(0, 1200) : stripHtml(text).slice(0, 1200);
-      return { summary: `HTTP ${resp.status} (${ct.split(";")[0] || "text"})\n${body}` };
+      // 10 seconds, at most 2 MB (the rest is cut), pages, text and JSON only
+      const got = await safeFetchText(url, { headers: { "User-Agent": "NazAI-Agent/1.0" }, types: ["html", "text", "json"], onTooLarge: "truncate" });
+      if (!got.ok) return { summary: `Fetch failed: ${got.message}`, error: true };
+      const ct = got.contentType;
+      const body = ct.includes("application/json") ? got.text.slice(0, 1200) : stripHtml(got.text).slice(0, 1200);
+      return { summary: `HTTP ${got.status} (${ct.split(";")[0] || "text"})\n${body}` };
     }
     if (tool.kind === "calc") {
       const expr = String(input.expression || "").replace(/[^0-9+\-*/().\s]/g, "");
@@ -4088,9 +4086,9 @@ async function executeTool(
       let pageText = "";
       try {
         // Read over https only, every redirect re-checked (as http_get).
-        const r = await fetchPublicHttps(url, { headers: { "User-Agent": "NazAI-Agent/1.0" } });
-        const t = await r.text();
-        pageText = stripHtml(t).slice(0, 8000);
+        const r = await safeFetchText(url, { headers: { "User-Agent": "NazAI-Agent/1.0" }, types: ["html", "text", "json"], maxBytes: 1024 * 1024, onTooLarge: "truncate" });
+        if (!r.ok) throw new Error(r.message);
+        pageText = stripHtml(r.text).slice(0, 8000);
       } catch (e) {
         return { summary: `Fetch failed: ${e instanceof Error ? e.message : "unknown"}`, error: true };
       }

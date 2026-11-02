@@ -12,6 +12,7 @@
 //   blocked    rounds used up, no progress, criteria that cannot be checked
 
 import { checkGoal, fingerprintOf, similarity } from "./outer-control-judgement.ts";
+import { parseModelObject } from "./model-output.ts";
 
 export const MAX_CRITERIA = 5;
 export const MAX_CRITERION_CHARS = 200;
@@ -102,8 +103,8 @@ export type Verdict = { id: string; met: boolean; evidence: string | null };
  */
 export function parseJudgement(raw: string, criteria: Criterion[], results: ResultText[]): Verdict[] | null {
   const unfenced = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  let o: unknown;
-  try { o = JSON.parse(unfenced); } catch { return null; }
+  const o: unknown = parseModelObject(unfenced);
+  if (!o) return null;
   const list = (o && typeof o === "object" ? (o as { criteria?: unknown }).criteria : undefined);
   if (!Array.isArray(list)) return null;
   const byId = new Map<string, { met?: unknown; evidence?: unknown }>();
@@ -180,8 +181,8 @@ export function templateRequest(i: { goal: string; unmet: CriterionState[]; tool
 /** The AI's plan, or null when it is not usable (no question, too long, or a tool that is not in the Task's pool). */
 export function parsePlan(raw: string, toolCount: number): NextRequest | null {
   const unfenced = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  let o: unknown;
-  try { o = JSON.parse(unfenced); } catch { return null; }
+  const o: unknown = parseModelObject(unfenced);
+  if (!o) return null;
   if (!o || typeof o !== "object" || Array.isArray(o)) return null;
   const q = (o as { question?: unknown }).question;
   const t = (o as { tool?: unknown }).tool;

@@ -3,6 +3,7 @@
 // and which one Outer Control recommends. Pure; the driver stores and resumes it.
 import type { FailureClass } from "./outer-control-recovery.ts";
 import { humanRetriesAt, renderMemoryCounted, type MemoryEntry } from "./outer-control-memory.ts";
+import { parseStrictObject } from "./model-output.ts";
 
 export type HandoffKind = "rule_exhausted" | "tool_failed" | "goal_unmet" | "no_result";
 export type HandoffOptionId = "retry" | "stop" | "edit";
@@ -144,7 +145,7 @@ export function encodeChoice(optionId: "retry" | "stop", note: string | null): s
 export function decodeChoice(raw: string | null | undefined): { option: "retry" | "stop"; note: string | null } | null {
   if (!raw) return null;
   try {
-    const o = JSON.parse(raw) as { option?: unknown; note?: unknown };
+    const o = (parseStrictObject(raw) ?? {}) as { option?: unknown; note?: unknown };
     if (o.option !== "retry" && o.option !== "stop") return null;
     return { option: o.option, note: typeof o.note === "string" && o.note.trim() ? o.note : null };
   } catch { return null; }

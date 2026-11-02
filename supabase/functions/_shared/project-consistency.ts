@@ -5,6 +5,7 @@
 // step says the check did not run.
 import { quotePattern, type JudgeAi } from "./meaning-judge.ts";
 import { PROJECT_CLOSE, PROJECT_OPEN } from "./projects.ts";
+import { parseModelObject } from "./model-output.ts";
 
 export type Contradiction = { reply_quote: string; project_quote: string; why: string };
 export type ConsistencyResult = { ran: boolean; contradictions: Contradiction[]; discarded: number };
@@ -40,7 +41,7 @@ export function parseConsistency(raw: string | null, project: string, reply: str
   if (raw === null) return { ran: false, contradictions: [], discarded: 0 };
   const start = raw.indexOf("{"), end = raw.lastIndexOf("}");
   let parsed: { contradictions?: unknown } | null = null;
-  try { parsed = start >= 0 && end > start ? JSON.parse(raw.slice(start, end + 1)) : null; } catch { parsed = null; }
+  parsed = parseModelObject(raw) as typeof parsed;
   if (!parsed || !Array.isArray(parsed.contradictions)) return { ran: false, contradictions: [], discarded: 0 };
   const out: Contradiction[] = [];
   let discarded = 0;
