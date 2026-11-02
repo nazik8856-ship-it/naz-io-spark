@@ -8,6 +8,7 @@
 // are never touched. A site whose images all fail keeps the existing
 // illustration fallback AND gets a visible generation note -- never silent.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { OUT_OF_CREDITS, openIncidentOnce, OUTAGE_SUMMARY, PROVIDER_OUTAGE_KIND } from "../_shared/provider-health.ts";
 import { pickAiGateway, aiGatewayHeaders, type GatewayConfig } from "../_shared/ai-gateway.ts";
@@ -271,7 +272,9 @@ Deno.serve(async (req) => {
       userId = authed.caller.userId;
     }
 
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const websiteId = typeof body?.website_id === "string" ? body.website_id : "";
     if (!/^[0-9a-f-]{36}$/i.test(websiteId)) return json({ error: "website_id required" }, 400);
 

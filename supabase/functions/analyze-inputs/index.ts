@@ -3,10 +3,13 @@
 // prompt block so downstream compilers (websites, agents, future kinds) work off
 // real understanding of what the user provided — not just raw appended text.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { safeFetchText } from "../_shared/safe-fetch.ts";
+import { parseModelJson } from "../_shared/model-output.ts";
+import { array, bool, object, optional, text, withDefault, type Infer } from "../_shared/schema.ts";
+import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
-import { fetchPublicHttps } from "../_shared/url-safety.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,23 +20,18 @@ const json = (b: unknown, s = 200) =>
 
 type InAtt = { id?: string; label?: string; contextText?: string; url?: string; assetUrl?: string; mimeType?: string; kind?: string };
 
-function stripFences(s: string) {
-  return s.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
-}
 
 async function fetchUrlText(url: string): Promise<string> {
   try {
     // https only (an http:// link is upgraded), every redirect re-checked: never plain http, never an internal address.
-    const r = await fetchPublicHttps(url, {
+    // at most 1 MB (the rest is cut), 8 seconds, pages and text only
+    const r = await safeFetchText(url, {
       headers: { "User-Agent": "Mozilla/5.0 NazAI-Analyzer/1.0" },
-      signal: AbortSignal.timeout(8000),
+      types: ["html", "text", "json"], maxBytes: 1024 * 1024, onTooLarge: "truncate", timeoutMs: 8000,
     });
-    if (!r.ok) return `(fetch failed ${r.status})`;
-    const ct = r.headers.get("content-type") || "";
-    if (!ct.includes("text") && !ct.includes("json") && !ct.includes("xml")) {
-      return `(non-text content: ${ct})`;
-    }
-    const raw = await r.text();
+    if (!r.ok) return r.reason === "bad_type" ? `(non-text content)` : `(fetch error: ${r.message})`;
+    if (!r.httpOk) return `(fetch failed ${r.status})`;
+    const raw = r.text;
     // Strip scripts/styles then tags
     const cleaned = raw
       .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -47,13 +45,23 @@ async function fetchUrlText(url: string): Promise<string> {
   }
 }
 
+const line = (max: number) => optional(text({ max, clip: true }));
+const list = (max: number, item = 300) => withDefault(array(text({ min: 1, max: item, clip: true }), { max, clip: true, dropInvalid: true }), [] as string[]);
+// What the analyzer may hand to the next step: a handful of short fields. Anything else the model wrote is dropped.
+const analysisShape = object({
+  intent: line(600), entities: list(40, 120), brand_voice: line(400), palette_hints: list(12, 80), layout_hints: list(12, 160),
+  data_summary: line(800), key_facts: list(12, 400), requirements: list(20, 400), user_specified_style: optional(bool),
+});
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const gw = pickAiGateway();
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const prompt: string = String(body?.prompt ?? "").trim();
     const tone: string | null = body?.tone ?? null;
     const kind: string = String(body?.kind ?? "generic");
@@ -153,7 +161,7 @@ Rules:
         ]
       : userMsg;
 
-    let analysis: Record<string, unknown> | null = null;
+    let analysis: Infer<typeof analysisShape> | null = null;
     try {
       const resp = await callAiGateway({
         model: gw.model,
@@ -169,7 +177,9 @@ Rules:
       if (resp.ok) {
         const data = await resp.json();
         const raw = data?.choices?.[0]?.message?.content ?? "{}";
-        analysis = JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw)));
+        // checked against the analysis shape: long text cut, lists capped, unknown fields dropped; an unreadable reply falls back below
+        const parsedAnalysis = parseModelJson(typeof raw === "string" ? raw : JSON.stringify(raw), analysisShape);
+        analysis = parsedAnalysis.ok ? parsedAnalysis.value : null;
       }
     } catch (e) {
       console.error("analyze-inputs AI failure", e);

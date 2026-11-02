@@ -6,6 +6,7 @@
 //   POST { table, ops: [{ m: "select", a: ["id, objective, status"] }, { m: "eq", a: ["user_id", "…"] }, { m: "order", a: ["started_at", { ascending: false }] }, …] }
 //   → { data, error }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { validRead } from "../_shared/outer-control-read.ts";
 import { requireCaller } from "../_shared/caller.ts";
@@ -21,7 +22,9 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   const authHeader = req.headers.get("Authorization") || "";
   if (!authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
-  const body = await req.json().catch(() => null);
+  const inputRead = await readJson(req, { headers: corsHeaders, errorBody: ({ message }) => ({ data: null, error: { message } }) });
+  if (!inputRead.ok) return inputRead.response;
+  const body = inputRead.value;
   const problem = validRead(body);
   if (problem) return json({ data: null, error: { message: problem } }, 400);
   try {

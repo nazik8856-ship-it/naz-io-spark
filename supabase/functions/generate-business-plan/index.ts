@@ -1,4 +1,5 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway, type GatewayConfig } from "../_shared/ai-gateway.ts";
@@ -40,7 +41,9 @@ serve(async (req) => {
       });
     }
 
-    const { prompt, model, style, systemPrompt } = await req.json();
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const { prompt, model, style, systemPrompt } = inputRead.value;
     const gw = pickAiGateway();
     if (!gw) throw new Error("Missing OPENAI_API_KEY (or LOVABLE_API_KEY)");
 

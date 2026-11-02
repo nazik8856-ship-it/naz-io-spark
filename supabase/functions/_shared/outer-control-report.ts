@@ -9,6 +9,7 @@
 import { callAiGateway, pickAiGateway } from "./ai-gateway.ts";
 import { officialOutput, extractLinks, type ArtifactLink, type SessionArtifact } from "./outer-control-artifact.ts";
 import { ACTION_INFO, composeReportText, TITLE_PREFIX, MAX_STYLES, REPORT_KINDS, TASK_LIMITS, VERDICTS, type ComparisonRow, type DecisionOption, type LabeledItem, type MissingTool, type ReportDoc, type ReportKind, type RewriteVersion, type Verdict } from "./outer-control-report-doc.ts";
+import { parseModelObject } from "./model-output.ts";
 export { TASK_LIMITS, MAX_STYLES, NEEDS_AI, ROUTING_TEXT } from "./outer-control-report-doc.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -208,7 +209,7 @@ const asStrings = (v: unknown, max: number): string[] | null =>
 export function parseAnalysis(raw: string, sourceCount: number): Analysis | null {
   const unfenced = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   let o: Record<string, unknown>;
-  try { o = JSON.parse(unfenced) as Record<string, unknown>; } catch { return null; }
+  { const parsedObj = parseModelObject(unfenced); if (!parsedObj) return null; o = parsedObj; }
   if (!o || typeof o !== "object" || Array.isArray(o)) return null;
   const summary = typeof o.summary === "string" ? o.summary.trim() : "";
   const conclusion = typeof o.conclusion === "string" ? o.conclusion.trim() : "";
@@ -255,7 +256,7 @@ export function parseCompare(raw: string, sourceCount: number): CompareAnalysis 
   const base = parseAnalysis(raw, sourceCount);
   if (!base) return null;
   let o: Record<string, unknown>;
-  try { o = JSON.parse(unfence(raw)) as Record<string, unknown>; } catch { return null; }
+  { const parsedObj = parseModelObject(unfence(raw)); if (!parsedObj) return null; o = parsedObj; }
   if (!Array.isArray(o.comparison) || o.comparison.length === 0) return null;
   const rows: ComparisonRow[] = [];
   for (const r of o.comparison.slice(0, 8)) {
@@ -283,7 +284,7 @@ export function buildFactcheckPrompt(claim: string, opinions: Opinion[], backgro
 
 export function parseFactcheck(raw: string, sourceCount: number): FactcheckAnalysis | null {
   let o: Record<string, unknown>;
-  try { o = JSON.parse(unfence(raw)) as Record<string, unknown>; } catch { return null; }
+  { const parsedObj = parseModelObject(unfence(raw)); if (!parsedObj) return null; o = parsedObj; }
   if (!o || typeof o !== "object" || Array.isArray(o)) return null;
   const verdict = typeof o.verdict === "string" ? o.verdict.trim().toLowerCase() : "";
   if (!(VERDICTS as readonly string[]).includes(verdict)) return null;
@@ -357,7 +358,7 @@ export function buildResearchPrompt(topic: string, opinions: Opinion[], backgrou
 
 export function parseResearch(raw: string, sourceCount: number): ResearchAnalysis | null {
   let o: Record<string, unknown>;
-  try { o = JSON.parse(unfence(raw)) as Record<string, unknown>; } catch { return null; }
+  { const parsedObj = parseModelObject(unfence(raw)); if (!parsedObj) return null; o = parsedObj; }
   if (!o || typeof o !== "object" || Array.isArray(o)) return null;
   const summary = typeof o.summary === "string" ? o.summary.trim() : "";
   const conclusion = typeof o.conclusion === "string" ? o.conclusion.trim() : "";
@@ -383,7 +384,7 @@ export function buildDecisionPrompt(question: string, opinions: Opinion[], backg
 
 export function parseDecision(raw: string, sourceCount: number): DecisionAnalysis | null {
   let o: Record<string, unknown>;
-  try { o = JSON.parse(unfence(raw)) as Record<string, unknown>; } catch { return null; }
+  { const parsedObj = parseModelObject(unfence(raw)); if (!parsedObj) return null; o = parsedObj; }
   if (!o || typeof o !== "object" || Array.isArray(o)) return null;
   const summary = typeof o.summary === "string" ? o.summary.trim() : "";
   const recommendation = typeof o.recommendation === "string" ? o.recommendation.trim() : "";
@@ -420,7 +421,7 @@ export function buildPlanPrompt(kind: "multistep" | "delegate", text: string, pa
 /** The plan, or null when it is not in the required form (multistep: 2 to 5 steps; delegate: exactly `parts` parts). */
 export function parsePlan(raw: string, kind: "multistep" | "delegate", parts: number): PlanItem[] | null {
   let o: Record<string, unknown>;
-  try { o = JSON.parse(unfence(raw)) as Record<string, unknown>; } catch { return null; }
+  { const parsedObj = parseModelObject(unfence(raw)); if (!parsedObj) return null; o = parsedObj; }
   const list = o && typeof o === "object" ? (o as Record<string, unknown>)[kind === "multistep" ? "steps" : "parts"] : null;
   if (!Array.isArray(list)) return null;
   const items: PlanItem[] = [];
@@ -450,7 +451,7 @@ export function buildCombinePrompt(kind: "multistep" | "delegate", text: string,
 
 export function parseCombine(raw: string, sourceCount: number, requireEvery: boolean): CombineAnalysis | null {
   let o: Record<string, unknown>;
-  try { o = JSON.parse(unfence(raw)) as Record<string, unknown>; } catch { return null; }
+  { const parsedObj = parseModelObject(unfence(raw)); if (!parsedObj) return null; o = parsedObj; }
   if (!o || typeof o !== "object" || Array.isArray(o)) return null;
   const summary = typeof o.summary === "string" ? o.summary.trim() : "";
   const result = typeof o.result === "string" ? o.result.trim() : "";
@@ -519,7 +520,7 @@ export async function routeRequest(request: string, ai: ReportAi | null): Promis
   const raw = await ai(buildRoutePrompt(req));
   if (raw === null) return rules();
   let o: Record<string, unknown>;
-  try { o = JSON.parse(unfence(raw)) as Record<string, unknown>; } catch { return rules(); }
+  { const parsedObj = parseModelObject(unfence(raw)); if (!parsedObj) return rules(); o = parsedObj; }
   const kind = (REPORT_KINDS as string[]).includes(String(o.kind)) ? String(o.kind) as ReportKind : o.kind === "unclear" ? "unclear" : null;
   if (!kind) return rules();
   // The text and the background must be the person's own words: a part the AI did not copy from the request is not used.

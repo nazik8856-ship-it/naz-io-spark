@@ -12,6 +12,7 @@
 //   goal_matched      the result answers the goal (or a person decided it)
 //   output_stored     the stored result was read back and is identical to what was checked
 
+import { parseStrictObject } from "./model-output.ts";
 export const COMPLETION_VERSION = 1;
 
 export type CriterionId =
@@ -76,7 +77,7 @@ export function assessOutput(text: string | null | undefined, objective: string)
   // A structured "done" with no answer comes through as the raw JSON of the reply itself.
   if (visible.startsWith("{")) {
     try {
-      const o = JSON.parse(visible) as Record<string, unknown>;
+      const o = (parseStrictObject(visible) ?? {}) as Record<string, unknown>;
       if (o && typeof o === "object" && typeof o.status === "string" && ["done", "continue", "need_info"].includes(o.status)
         && !(typeof o.answer === "string" && o.answer.trim())) {
         return { usable: false, code: "status_only", detail: "the reply carried a status but no answer" };

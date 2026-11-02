@@ -16,6 +16,8 @@
 // account metadata + fetch time so the agent still has concrete numbers to
 // reason about instead of "unknown".
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readResponseJson } from "../_shared/safe-fetch.ts";
+import { readJson } from "../_shared/input.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient, type SupabaseClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { ensureAccessToken, gmailList } from "../_shared/gmail.ts";
@@ -55,8 +57,8 @@ async function syncStripe(c: Credentials): Promise<SyncResult> {
     fetch("https://api.stripe.com/v1/balance", { headers }),
     fetch("https://api.stripe.com/v1/charges?limit=10", { headers }),
   ]);
-  const bal = await balR.json().catch(() => ({}));
-  const ch = await chR.json().catch(() => ({}));
+  const bal = await readResponseJson<Record<string, any>>(balR, {});
+  const ch = await readResponseJson<Record<string, any>>(chR, {});
   if (!balR.ok) return { ok: false, kind: "sales", data: {}, error: bal?.error?.message || `Stripe ${balR.status}` };
   const charges = (ch.data || []) as Array<{ amount: number; currency: string; created: number; status: string }>;
   const currency = charges[0]?.currency || bal.available?.[0]?.currency || "usd";
@@ -83,12 +85,13 @@ async function syncShopify(c: Credentials): Promise<SyncResult> {
   if (!shopifyCheck.ok) return { ok: false, kind: "commerce", data: {}, error: `store_url is not allowed: ${shopifyCheck.reason}` };
   const h = { "X-Shopify-Access-Token": token, "Content-Type": "application/json" };
   const [ordersR, productsR] = await Promise.all([
-    fetch(ordersUrl, { headers: h, redirect: "manual" }),
-    fetch(productsUrl, { headers: h, redirect: "manual" }),
+    fetch(ordersUrl, { headers: h, redirect: "manual", signal: AbortSignal.timeout(10_000) }),
+    fetch(productsUrl, { headers: h, redirect: "manual", signal: AbortSignal.timeout(10_000) }),
   ]);
-  const orders = await ordersR.json().catch(() => ({}));
-  const products = await productsR.json().catch(() => ({}));
-  if (!ordersR.ok) return { ok: false, kind: "commerce", data: {}, error: orders?.errors || `Shopify ${ordersR.status}` };
+  // the store is the customer's own server: its answer is size-capped and cleaned like any other outside input
+  const orders = await readResponseJson<Record<string, any>>(ordersR, {});
+  const products = await readResponseJson<Record<string, any>>(productsR, {});
+  if (!ordersR.ok) return { ok: false, kind: "commerce", data: {}, error: String(orders?.errors ?? "").slice(0, 200) || `Shopify ${ordersR.status}` };
   const rows = (orders.orders || []) as Array<{ total_price: string; currency: string; created_at: string; financial_status: string }>;
   const revenue = rows.reduce((s, o) => s + parseFloat(o.total_price || "0"), 0);
   const currency = rows[0]?.currency || "USD";
@@ -113,9 +116,9 @@ async function syncWoo(c: Credentials): Promise<SyncResult> {
   const wooCheck = await validateOutboundUrl(wooUrl);
   if (!wooCheck.ok) return { ok: false, kind: "commerce", data: {}, error: `store_url is not allowed: ${wooCheck.reason}` };
   const auth = btoa(`${key}:${secret}`);
-  const r = await fetch(wooUrl, { headers: { Authorization: `Basic ${auth}` }, redirect: "manual" });
-  const rows = await r.json().catch(() => []);
-  if (!r.ok) return { ok: false, kind: "commerce", data: {}, error: rows?.message || `Woo ${r.status}` };
+  const r = await fetch(wooUrl, { headers: { Authorization: `Basic ${auth}` }, redirect: "manual", signal: AbortSignal.timeout(10_000) });
+  const rows = await readResponseJson<any>(r, []);
+  if (!r.ok) return { ok: false, kind: "commerce", data: {}, error: String(rows?.message ?? "").slice(0, 200) || `Woo ${r.status}` };
   const list = (rows || []) as Array<{ total: string; currency: string; date_created: string; status: string }>;
   const revenue = list.reduce((s, o) => s + parseFloat(o.total || "0"), 0);
   return {
@@ -134,8 +137,9 @@ async function syncSlack(c: Credentials): Promise<SyncResult> {
   if (!token) return simulate("slack", c);
   const r = await fetch("https://slack.com/api/conversations.list?limit=50&exclude_archived=true", {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(10_000),
   });
-  const data = await r.json().catch(() => ({}));
+  const data = await readResponseJson<Record<string, any>>(r, {});
   if (!data?.ok) return { ok: false, kind: "messaging", data: {}, error: data?.error || "Slack error" };
   const channels = (data.channels || []) as Array<{ name: string; num_members: number }>;
   return {
@@ -155,8 +159,8 @@ async function syncHubSpot(c: Credentials): Promise<SyncResult> {
     fetch("https://api.hubapi.com/crm/v3/objects/contacts?limit=1&archived=false", { headers: h }),
     fetch("https://api.hubapi.com/crm/v3/objects/deals?limit=10&properties=amount,dealstage,closedate&archived=false", { headers: h }),
   ]);
-  const contacts = await contactsR.json().catch(() => ({}));
-  const deals = await dealsR.json().catch(() => ({}));
+  const contacts = await readResponseJson<Record<string, any>>(contactsR, {});
+  const deals = await readResponseJson<Record<string, any>>(dealsR, {});
   if (!contactsR.ok) return { ok: false, kind: "crm", data: {}, error: contacts?.message || `HubSpot ${contactsR.status}` };
   const dealsList = (deals.results || []) as Array<{ properties: { amount?: string; dealstage?: string } }>;
   const pipeline = dealsList.reduce((s, d) => s + parseFloat(d.properties?.amount || "0"), 0);
@@ -186,7 +190,7 @@ async function syncGA4(c: Credentials): Promise<SyncResult> {
       }),
     },
   );
-  const data = await r.json().catch(() => ({}));
+  const data = await readResponseJson<Record<string, any>>(r, {});
   if (!r.ok) return { ok: false, kind: "analytics", data: {}, error: data?.error?.message || `GA4 ${r.status}` };
   const row = data?.rows?.[0]?.metricValues || [];
   return {
@@ -387,7 +391,9 @@ Deno.serve(async (req) => {
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const cron = body?.cron === true;
     const providerFilter: string | null = body?.provider || null;
     const agentIdFilter: string | null = body?.agentId || null;

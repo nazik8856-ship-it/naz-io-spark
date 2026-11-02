@@ -6,6 +6,9 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient, type SupabaseClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
+import { readJson } from "../_shared/input.ts";
+import { cleanText } from "../_shared/clean-text.ts";
+import { UUID_RE } from "../_shared/schema.ts";
 
 // Inlined from _shared/rate-limit.ts's checkIpRateLimit -- kept local so this
 // single-shared-dep function can deploy as one file. Same fixed-window
@@ -65,13 +68,16 @@ Deno.serve(async (req) => {
     return json({ error: "rate_limited", message: "Too many submissions — please try again later." }, 429);
   }
 
-  const body = await req.json().catch(() => ({}));
-  const websiteId = String(body?.websiteId || "");
-  const pageSlug = body?.pageSlug ? String(body.pageSlug).slice(0, 200) : null;
-  const sectionKind = String(body?.sectionKind || "");
+  const input = await readJson(req, { headers: corsHeaders });
+  if (!input.ok) return input.response;
+  const body = input.value;
+  const websiteId = typeof body.websiteId === "string" ? body.websiteId.trim() : "";
+  const pageSlug = typeof body.pageSlug === "string" && body.pageSlug ? cleanText(body.pageSlug, { max: 200, multiline: false }) : null;
+  const sectionKind = typeof body.sectionKind === "string" ? body.sectionKind : "";
   const rawFields = body?.fields;
 
   if (!websiteId) return json({ error: "websiteId is required" }, 400);
+  if (!UUID_RE.test(websiteId)) return json({ error: "not_found" }, 404);
   if (!ALLOWED_KINDS.has(sectionKind)) return json({ error: "invalid sectionKind" }, 400);
   if (!rawFields || typeof rawFields !== "object" || Array.isArray(rawFields)) {
     return json({ error: "fields must be an object" }, 400);
@@ -80,7 +86,10 @@ Deno.serve(async (req) => {
   if (!entries.length) return json({ error: "fields is empty" }, 400);
   const fields: Record<string, string> = {};
   for (const [k, v] of entries) {
-    fields[String(k).slice(0, 200)] = String(v ?? "").slice(0, MAX_FIELD_LEN);
+    // a visitor's text: control characters and bidi tricks out, then cut (the stored JSON and the owner's email never carry them)
+    const key = cleanText(k, { max: 200, multiline: false });
+    if (!key) continue;
+    fields[key] = cleanText(typeof v === "object" && v !== null ? JSON.stringify(v) : v, { max: MAX_FIELD_LEN });
   }
 
   const { data: website, error: siteErr } = await admin

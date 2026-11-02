@@ -8,6 +8,7 @@
 // that fails or is unsure keeps the files. Bounded per run. Send { "dry_run": true } to see what it would remove without removing it.
 // Server key only (daily schedule, see 20261105050000_site_images_cleanup.sql).
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 import { siteFolders, topFolders, planRemovals, type PlanItem } from "../_shared/orphan-files.ts";
@@ -37,7 +38,9 @@ Deno.serve(async (req) => {
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
   if (await areConsequentialSweepsPaused(admin)) return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });
 
-  const body = await req.json().catch(() => ({}));
+  const inputRead = await readJson(req, { headers: corsHeaders });
+  if (!inputRead.ok) return inputRead.response;
+  const body = inputRead.value;
   const dryRun = body?.dry_run === true;
 
   // Removes up to MAX_FILES_PER_RUN files of the folders the plan marked for removal; the rest waits for the next run.

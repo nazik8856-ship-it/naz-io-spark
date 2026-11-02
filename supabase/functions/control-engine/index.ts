@@ -5,6 +5,9 @@
 // helpers agent-runtime uses, returns Allow / Modify / Block, and logs every
 // verdict to agent_decisions.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { parseModelJson } from "../_shared/model-output.ts";
+import { object } from "../_shared/schema.ts";
+import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { resolveAccountScope } from "../_shared/account-scope.ts";
@@ -150,6 +153,8 @@ const CHECK_TOOL = {
   },
 };
 
+
+const toolArguments = object({}, { unknown: "keep" });
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -385,7 +390,9 @@ serve(async (req) => {
 
     if (req.method === "GET") return json({ error: "Unsupported GET path" }, 404);
 
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
 
     // "15 more items" plan, item 3: the policy-version routes below
     // (/replay, /replay-real, /policy/:id/activate) all filtered
@@ -1119,7 +1126,7 @@ serve(async (req) => {
 
     const call = data?.choices?.[0]?.message?.tool_calls?.[0];
     let parsed: Record<string, unknown> = {};
-    try { parsed = JSON.parse(call?.function?.arguments || "{}"); } catch { /* fall through */ }
+    { const r = parseModelJson(call?.function?.arguments || "{}", toolArguments); if (r.ok) parsed = r.value as Record<string, unknown>; } // bounded and cleaned; unusable arguments read as empty, as before
 
     const riskTier = ["low", "medium", "high"].includes(String(parsed.risk_tier))
       ? String(parsed.risk_tier) : "medium";

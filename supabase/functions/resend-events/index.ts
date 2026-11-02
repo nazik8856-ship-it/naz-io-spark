@@ -15,6 +15,7 @@
 // email.bounced/email.complained are Resend's equivalent of what Lovable's
 // own Go service used to forward to handle-email-suppression (now retired).
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readCapped } from "../_shared/input.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { verifySvixSignature, webhookSecrets } from "../_shared/svix-verify.ts";
 import { optionalSecret, requireSecret } from "../_shared/require-secret.ts";
@@ -52,7 +53,10 @@ Deno.serve(async (request: Request) => {
     return json({ error: "Server configuration error" }, 500);
   }
 
-  const rawBody = await request.text();
+  // read at most 1 MB before the signature is checked: an unsigned caller can not make us hold more
+  const bodyBytes = await readCapped(request, 1024 * 1024);
+  if (bodyBytes === null) return json({ error: "The request is too large." }, 413);
+  const rawBody = new TextDecoder().decode(bodyBytes);
 
   const failReason = await verifySvixSignature(
     secrets,

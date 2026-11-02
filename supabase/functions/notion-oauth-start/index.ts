@@ -3,6 +3,7 @@
 // back to notion-oauth-callback with ?code & ?state. Notion capabilities are
 // fixed on the integration itself, so we don't request per-scope consent.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { buildAuthUrl, isConfigured } from "../_shared/notion.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
@@ -54,7 +55,9 @@ Deno.serve(async (req) => {
         error: "Notion OAuth is not configured yet. Add NOTION_CLIENT_ID and NOTION_CLIENT_SECRET in Project Settings → Secrets.",
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const origin = typeof body.origin === "string" ? body.origin : "";
 
     const state = randomState();

@@ -7,6 +7,7 @@ import { redactWithChanges } from "./outer-control-scoring.ts";
 import { storableText } from "./outer-control-text-review.ts";
 import { BUILTIN_SAFETY_RULES, type SafetyMatch } from "./safety-scanner.ts";
 import type { Foundation } from "./outer-control-brain.ts";
+import { parseModelObject } from "./model-output.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -62,7 +63,7 @@ export function parseJudge(raw: string | null, rules: MeaningRule[], reply: stri
   if (raw === null) return { unavailable: true, findings: [], discarded: 0 };
   const start = raw.indexOf("{"), end = raw.lastIndexOf("}");
   let parsed: { violations?: unknown } | null = null;
-  try { parsed = start >= 0 && end > start ? JSON.parse(raw.slice(start, end + 1)) : null; } catch { parsed = null; }
+  parsed = parseModelObject(raw) as typeof parsed;
   if (!parsed || !Array.isArray(parsed.violations)) return { unavailable: true, findings: [], discarded: 0 };
   const findings: MeaningFinding[] = [];
   let discarded = 0;

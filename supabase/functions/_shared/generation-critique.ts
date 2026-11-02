@@ -25,6 +25,7 @@
 //      check can't do) -- just the classes of fabrication this kind of
 //      check catches reliably.
 import type { GatewayConfig } from "./ai-gateway.ts";
+import { parseModelObject } from "./model-output.ts";
 
 export const QUALITY_RUBRIC_PROMPT = `You are a strict quality reviewer for AI-generated business artifacts. Judge the given JSON against this rubric:
 1. SPECIFICITY: content is tailored to the actual business (uses its real name/industry/offers when provided), not generic placeholder text that could apply to any business.
@@ -36,13 +37,7 @@ Return STRICT JSON only: {"pass": boolean, "issues": string[]}. "issues" lists O
 export type CritiqueResult = { pass: boolean; issues: string[] };
 
 function parseJsonObject(raw: string): Record<string, unknown> | null {
-  try {
-    const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
-    const obj = JSON.parse(cleaned);
-    return obj && typeof obj === "object" && !Array.isArray(obj) ? obj as Record<string, unknown> : null;
-  } catch {
-    return null;
-  }
+  return parseModelObject(raw);
 }
 
 /**

@@ -17,6 +17,7 @@
 // capability-status/index.ts already established for a comparable
 // JWT-scoped read/write endpoint.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { checkAgentAssembly, checkWebsiteAssembly } from "../_shared/final-assembly-check.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
@@ -46,7 +47,9 @@ Deno.serve(async (req) => {
     const supabase = authed.caller.userClient;
     const userId = authed.caller.userId;
 
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     if (body?.kind === "website" && typeof body?.website_id === "string") {
       const report = await checkWebsiteAssembly(supabase, userId, body.website_id);
       return json(report, report.ok ? 200 : 404);

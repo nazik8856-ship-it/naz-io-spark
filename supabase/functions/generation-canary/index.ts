@@ -17,6 +17,7 @@
 // Service-role only. Honors the consequential-sweep pause switch because it
 // spends provider credit.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { aiGatewayHeaders, pickAiGateway } from "../_shared/ai-gateway.ts";
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
@@ -49,7 +50,9 @@ Deno.serve(async (req) => {
   const admin = createClient(url, serviceKey);
   if (await areConsequentialSweepsPaused(admin)) return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });
 
-  const body = await req.json().catch(() => ({}));
+  const inputRead = await readJson(req);
+  if (!inputRead.ok) return inputRead.response;
+  const body = inputRead.value;
   const mode = body?.mode === "generation" ? "generation" : "provider";
   const gw = pickAiGateway();
   const started = Date.now();

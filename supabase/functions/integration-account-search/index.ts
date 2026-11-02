@@ -7,6 +7,7 @@
 // If found=false the client shows "Account doesn't exist — try another".
 
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkIpRateLimit } from "../_shared/rate-limit.ts";
@@ -307,7 +308,9 @@ Deno.serve(async (req) => {
         });
       }
     }
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const provider = String(body.provider || "").trim();
     const query = String(body.query || "").trim();
     if (!provider) return j(400, { error: "Missing provider" });

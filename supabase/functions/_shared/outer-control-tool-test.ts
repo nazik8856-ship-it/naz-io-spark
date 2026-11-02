@@ -4,6 +4,7 @@ import { buildToolRequest, type ToolFormat } from "./outer-control-tool-request.
 import { extractExternalText } from "./outer-control-intake.ts";
 import { readGenericPayload } from "./outer-control-session.ts";
 import { mcpTest } from "./outer-control-mcp.ts";
+import { parseStrictObject } from "./model-output.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -41,7 +42,7 @@ export function readTestReply(payload: unknown): { ok: true; text: string } | { 
   if (!intake.ok) return { ok: false, error: `The tool answered, but its reply could not be read (${intake.code}).` };
   let text = intake.text;
   try {
-    const o = JSON.parse(text) as { answer?: unknown };
+    const o = (parseStrictObject(text) ?? {}) as { answer?: unknown };
     if (o && typeof o.answer === "string") text = o.answer;
   } catch { /* plain text */ }
   if (!text.trim() || !/[\p{L}\p{N}]/u.test(text)) return { ok: false, error: "The tool answered, but the reply was empty." };

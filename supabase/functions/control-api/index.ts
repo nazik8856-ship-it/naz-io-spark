@@ -39,6 +39,7 @@
 // trips, the rest of the batch is reported as skipped rather than each
 // one paying for its own DB round trip to learn the same thing.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
@@ -733,7 +734,9 @@ Deno.serve(async (req) => {
   const resolveMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/resolve\/?$/);
   if (req.method === "POST" && resolveMatch) {
     const decisionId = resolveMatch[1];
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const resolution = body?.resolution === "approved" ? "approved" : body?.resolution === "rejected" ? "rejected" : null;
     if (!resolution) return json({ error: "resolution must be 'approved' or 'rejected'" }, 400);
 
@@ -827,7 +830,9 @@ Deno.serve(async (req) => {
       }, 429);
     }
 
-    const body = await req.json().catch(() => ({}));
+    const inputRead2 = await readJson(req, { headers: corsHeaders });
+    if (!inputRead2.ok) return inputRead2.response;
+    const body = inputRead2.value;
     const parsed = parseControlApiAction(body);
     if ("error" in parsed) return json({ error: parsed.error }, 400);
 
@@ -1292,7 +1297,9 @@ Deno.serve(async (req) => {
       return json({ ok: true, already_open: true, approval_id: existing!.id, status: existing!.status });
     }
 
-    const body = await req.json().catch(() => ({} as Record<string, unknown>));
+    const inputRead3 = await readJson(req, { headers: corsHeaders });
+    if (!inputRead3.ok) return inputRead3.response;
+    const body = inputRead3.value;
     const callerReason = typeof body?.reason === "string" ? body.reason.slice(0, 800) : null;
     const reasonText = buildDisputeReasonText(callerReason, decisionRow.decision);
 
@@ -1383,7 +1390,9 @@ Deno.serve(async (req) => {
       }, 429);
     }
 
-    const body = await req.json().catch(() => ({}));
+    const inputRead4 = await readJson(req, { headers: corsHeaders });
+    if (!inputRead4.ok) return inputRead4.response;
+    const body = inputRead4.value;
     const parsed = parseRespondRequest(body);
     if ("error" in parsed) return json({ error: parsed.error }, 400);
 
@@ -1923,7 +1932,9 @@ Deno.serve(async (req) => {
         message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
       }, 429);
     }
-    const body = await req.json().catch(() => ({} as Record<string, unknown>));
+    const inputRead5 = await readJson(req, { headers: corsHeaders });
+    if (!inputRead5.ok) return inputRead5.response;
+    const body = inputRead5.value;
     const note = String(body?.note || "").slice(0, 2000);
     if (body?.root_cause_category !== undefined && body.root_cause_category !== null && !isValidRootCauseCategory(body.root_cause_category)) {
       return json({ error: `root_cause_category must be one of: ${ROOT_CAUSE_CATEGORIES.join(", ")}` }, 400);
@@ -1988,7 +1999,9 @@ Deno.serve(async (req) => {
     );
   }
 
-  const body = await req.json().catch(() => ({}));
+  const inputRead6 = await readJson(req, { headers: corsHeaders });
+  if (!inputRead6.ok) return inputRead6.response;
+  const body = inputRead6.value;
 
   // ---- Batch mode: `{ actions: [...] }` instead of one action -------------
   if (Array.isArray(body?.actions)) {

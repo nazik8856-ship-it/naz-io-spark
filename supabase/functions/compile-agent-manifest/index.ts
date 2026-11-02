@@ -4,6 +4,9 @@
 // Input: { plan: string, businessProfileId?: string, userPrompt?: string,
 //          intakeAnswers?: Record<string,string>, role?: string }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { parseModelJson } from "../_shared/model-output.ts";
+import { object } from "../_shared/schema.ts";
+import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
@@ -229,7 +232,9 @@ serve(async (req) => {
     const gw = pickAiGateway();
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
-    const body = await req.json();
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint, existingAgentId = null, recentTurns = [], requestId = null } = body || {};
     if (!plan || typeof plan !== "string") return json({ error: "plan required" }, 400);
 
@@ -907,13 +912,12 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
 // (with real test coverage) for the same reason as pickRole above.
 
 function json(b: unknown, s = 200) { return new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
+// A model's reply as an object: found inside fences and prose, bounded (size, depth, list lengths) and cleaned of control characters.
+// The pieces are checked field by field where they are used; an unusable reply is null, as before.
+const looseReply = object({}, { unknown: "keep" });
 function extractJson(raw: string): Record<string, unknown> | null {
-  if (!raw) return null;
-  const c = raw.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
-  try { return JSON.parse(c); } catch { /* */ }
-  const m = c.match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  try { return JSON.parse(m[0]); } catch { return null; }
+  const r = parseModelJson(raw, looseReply);
+  return r.ok ? (r.value as Record<string, unknown>) : null;
 }
 
 type Tool = { name: string; description: string; kind: string; config: Record<string, unknown> };

@@ -1,4 +1,6 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts"
+import { cleanText } from "../_shared/clean-text.ts"
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { requireCaller } from "../_shared/caller.ts"
@@ -30,7 +32,14 @@ serve(async (req) => {
       })
     }
 
-    const { prompt, targetModel } = await req.json()
+    const inputRead = await readJson(req, { headers: corsHeaders, maxBytes: 128 * 1024 })
+    if (!inputRead.ok) return inputRead.response
+    const prompt = cleanText(inputRead.value.prompt, { max: 20000 })
+    // a model name is a short token (letters, digits and . _ / : -), never free text
+    const targetModel = typeof inputRead.value.targetModel === 'string' && /^[A-Za-z0-9._/:-]{1,80}$/.test(inputRead.value.targetModel.trim()) ? inputRead.value.targetModel.trim() : undefined
+    if (!prompt) {
+      return new Response(JSON.stringify({ error: 'prompt is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
     const openRouterApiKey = Deno.env.get('OPENROUTER_API_KEY')
 
     if (!openRouterApiKey) {

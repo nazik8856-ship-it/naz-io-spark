@@ -3,6 +3,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkIpRateLimit } from "../_shared/rate-limit.ts";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
+import { readJson } from "../_shared/input.ts";
+import { guardedDeltaStream, leakFragments } from "../_shared/output-guard.ts";
+import { array, object, oneOf, text, withDefault } from "../_shared/schema.ts";
 
 // This endpoint is intentionally reachable without a signed-in session --
 // /generation-workspace is a public, unauthenticated try-before-signup
@@ -19,6 +22,13 @@ const corsHeaders = {
 };
 
 type Mode = "plan" | "build" | "ask";
+
+// What a visitor may send (this endpoint is public): only their own turns and the assistant's earlier ones -- a "system" message in
+// the history is dropped, never passed on to the model -- the newest 40, each cut at 30,000 characters.
+const chatBody = object({
+  messages: array(object({ role: oneOf(["user", "assistant"] as const), content: text({ min: 1, max: 30000, clip: true }) }), { max: 40, clip: true, dropInvalid: true, keep: "last" }),
+  mode: withDefault(oneOf(["plan", "build", "ask"] as const), "build"),
+});
 
 const SYSTEM_PROMPTS: Record<Mode, string> = {
   plan: `You are NazAI in PLAN mode. Carefully read the user's request and produce a clear, structured plan.
@@ -56,8 +66,11 @@ serve(async (req) => {
       );
     }
 
-    const { messages, mode } = await req.json();
-    const chatMode: Mode = (mode as Mode) ?? "build";
+    const input = await readJson(req, { headers: corsHeaders });
+    if (!input.ok) return input.response;
+    const parsedChat = chatBody(input.value);
+    const messages = parsedChat.ok ? parsedChat.value.messages : [];
+    const chatMode: Mode = parsedChat.ok ? parsedChat.value.mode : "build";
 
     const gw = pickAiGateway();
     if (!gw) throw new Error("Missing OPENAI_API_KEY (or LOVABLE_API_KEY)");
@@ -99,7 +112,12 @@ serve(async (req) => {
       });
     }
 
-    return new Response(response.body, {
+    // The model's words are guarded line by line as they stream: raw HTML, unsafe links, pictures from outside hosts, template markers
+    // and echoed system instructions are removed; code blocks pass untouched.
+    const guarded = response.body
+      ? guardedDeltaStream(response.body, { leakFragments: leakFragments(SYSTEM_PROMPTS[chatMode]) })
+      : response.body;
+    return new Response(guarded, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {

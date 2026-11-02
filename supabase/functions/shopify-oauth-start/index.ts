@@ -2,6 +2,7 @@
 // short-lived server-side transaction keyed by a random state, and returns
 // the Shopify authorization URL for the client to open in a popup.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { buildAuthUrl, isConfigured, normalizeShop, SHOPIFY_SCOPES } from "../_shared/shopify.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
@@ -56,7 +57,9 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const shop = normalizeShop(body.shop);
     if (!shop) {
       return new Response(JSON.stringify({

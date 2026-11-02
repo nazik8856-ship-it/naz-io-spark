@@ -6,6 +6,8 @@
 // invoked from unauthenticated signup contexts (no session yet).
 
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from '../_shared/input.ts'
+import { cleanText } from '../_shared/clean-text.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -151,18 +153,12 @@ Deno.serve(async (req) => {
     })
   }
 
-  let payload: { email?: string; name?: string } = {}
-  try {
-    payload = await req.json()
-  } catch {
-    return new Response(JSON.stringify({ error: 'invalid_json' }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  }
+  const input = await readJson<{ email?: unknown; name?: unknown }>(req, { headers: corsHeaders, errorBody: () => ({ error: 'invalid_json' }) })
+  if (!input.ok) return input.response
+  const payload = input.value
 
-  const email = typeof payload.email === 'string' ? payload.email.trim() : ''
-  const name = typeof payload.name === 'string' ? payload.name.trim() : ''
+  const email = typeof payload.email === 'string' ? cleanText(payload.email, { max: 254, multiline: false }) : ''
+  const name = typeof payload.name === 'string' ? cleanText(payload.name, { max: 100, multiline: false }) : ''
 
   if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
     return new Response(JSON.stringify({ error: 'invalid_email' }), {

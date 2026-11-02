@@ -17,6 +17,7 @@
 // (it stands in for a real external AI such as ChatGPT). If the AI is not available it falls back to "Stub tool answer."
 // Requires "Authorization: Bearer stub-token". It holds no data and calls nothing else.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAiGateway, pickAiGateway } from "../_shared/ai-gateway.ts";
 import { checkIpRateLimit } from "../_shared/rate-limit.ts";
@@ -58,7 +59,9 @@ async function answerWithAi(req: { objective: string; context: string }): Promis
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   if ((req.headers.get("Authorization") ?? "") !== "Bearer stub-token") return json({ error: "unauthorized" }, 401);
-  const body = await req.json().catch(() => ({}));
+  const read = await readJson(req);
+  if (!read.ok) return read.response;
+  const body = read.value;
   const all = textOf(body);
   const format = new URL(req.url).searchParams.get("format") ?? "generic";
   const rejected = all.includes("Your previous reply was rejected");

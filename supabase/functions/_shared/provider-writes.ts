@@ -1,3 +1,4 @@
+import { slackText } from "./outbound.ts";
 // ============================================================================
 // Real, verified write executors for Slack, Notion, Canva and Shopify.
 //
@@ -77,7 +78,7 @@ export async function slackPostMessage(
   admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
 ): Promise<WriteResult> {
   const channel = String(input.channel || "").trim();
-  const text = String(input.text || "").trim();
+  const text = slackText(input.text).trim();
   const threadTs = input.thread_ts ? String(input.thread_ts) : undefined;
   if (!channel || !text) return fail("slack_post_message requires both channel and text.");
 

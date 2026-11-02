@@ -22,6 +22,7 @@
 // control-self-audit run this suite on a schedule with no human's session
 // token, still scoped to one specific org's own policy/rules/breakers.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { CONTROL_SCENARIOS, type Scenario, type Verdict } from "../_shared/control-scenarios.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCaller } from "../_shared/caller.ts";
@@ -197,7 +198,9 @@ Deno.serve(async (req) => {
     if (!authed.ok) return json({ error: "unauthorized" }, 401);
   }
 
-  const body = await req.json().catch(() => ({}));
+  const inputRead = await readJson(req, { headers: corsHeaders });
+  if (!inputRead.ok) return inputRead.response;
+  const body = inputRead.value;
   const dryRun = body?.dry_run === false ? false : true;
   const ids: string[] = Array.isArray(body?.ids) ? body.ids.map(String) : [];
   const categories: string[] = Array.isArray(body?.categories) ? body.categories.map(String) : [];

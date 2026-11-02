@@ -2,6 +2,7 @@
 // Input: { prompt: string, save?: boolean }
 // Output: { manifest, website_id?, pages? }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createUploadAliases, publishUploadsInPages, type UploadAliases } from "../_shared/uploaded-assets.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
@@ -9,6 +10,9 @@ import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 import { loadSafetyRules, scanWithRules, type SafetyMatch, type SafetyRule } from "../_shared/safety-scanner.ts";
 import { computeTrustScore, isRedactableMatch } from "../_shared/outer-control-scoring.ts";
+import { parseModelJson } from "../_shared/model-output.ts";
+import { object } from "../_shared/schema.ts";
+import { sanitizeSectionContent, plainField } from "../_shared/site-content-guard.ts";
 import { enforceImageRelevance, collectAssetUrls } from "../_shared/image-relevance.ts";
 import { repairContent } from "../_shared/repair-engine.ts";
 import { critiqueAndRevise, findUngroundedFacts } from "../_shared/generation-critique.ts";
@@ -73,6 +77,15 @@ function detectRepeatedRequest(prompt: string, recentTurns: unknown[]): boolean 
 // applied, nothing visibly changed, user asks again" loop.
 function manifestsEquivalent(a: Manifest, b: Manifest): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+// A model's reply as an object: the JSON is found inside fences and prose, bounded (size, depth, list lengths) and cleaned of control
+// characters. The pieces are checked field by field in normalize(); an unusable reply throws, and every caller already treats that as "generation failed".
+const looseReply = object({}, { unknown: "keep" });
+function parseLoose(raw: string): Record<string, unknown> {
+  const r = parseModelJson(raw, looseReply);
+  if (!r.ok) throw new Error(`model reply unusable: ${r.reason}`);
+  return r.value as Record<string, unknown>;
 }
 
 const SECTION_TYPES = [
@@ -259,9 +272,6 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function stripFences(s: string) {
-  return s.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-}
 
 function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "page";
@@ -542,8 +552,8 @@ function applySafetyGate(manifest: Manifest, rules: SafetyRule[]): { manifest: M
 
 function normalize(raw: unknown, prompt: string): Manifest {
   const r = (raw ?? {}) as Record<string, unknown>;
-  const name = typeof r.name === "string" && r.name.trim() ? r.name.trim() : "Untitled Site";
-  const tagline = typeof r.tagline === "string" && r.tagline.trim() ? r.tagline.trim() : prompt.slice(0, 80);
+  const name = plainField(r.name, 120) || "Untitled Site";
+  const tagline = plainField(r.tagline, 240) || prompt.slice(0, 80);
   const themeRaw = (r.theme ?? {}) as Record<string, unknown>;
   const paletteRaw = (themeRaw.palette ?? {}) as Record<string, string>;
   const fontRaw = (themeRaw.font ?? {}) as Record<string, string>;
@@ -606,7 +616,8 @@ function normalize(raw: unknown, prompt: string): Manifest {
         const ss = (s ?? {}) as Record<string, unknown>;
         const t = String(ss.type ?? "").toLowerCase();
         if (!SECTION_TYPES.includes(t as SectionType)) return null;
-        const content = (ss.content as Record<string, unknown>) ?? {};
+        // every value is checked by what it is (link, picture, embed, text) before it can be stored or rendered
+        const content = sanitizeSectionContent(ss.content);
         // The AI occasionally emits a section with a valid type but empty
         // content (seen live: "custom"/"gallery" sections shipped as
         // content: {}) -- no section type renders anything meaningful with
@@ -615,17 +626,17 @@ function normalize(raw: unknown, prompt: string): Manifest {
         if (Object.keys(content).length === 0) return null;
         return {
           type: t as SectionType,
-          variant: typeof ss.variant === "string" ? ss.variant : undefined,
+          variant: typeof ss.variant === "string" && /^[a-z0-9-]{1,40}$/i.test(ss.variant) ? ss.variant : undefined,
           content,
         };
       })
       .filter((x): x is Section => !!x);
-    const title = typeof pp.title === "string" && pp.title.trim() ? pp.title.trim() : (idx === 0 ? name : `Page ${idx + 1}`);
+    const title = plainField(pp.title, 120) || (idx === 0 ? name : `Page ${idx + 1}`);
     const slug = idx === 0 ? "home" : dedupeSlug(slugify(String(pp.slug ?? title)), idx);
     return {
       slug,
       title,
-      seo_description: typeof pp.seo_description === "string" ? pp.seo_description.slice(0, 200) : `${name} — ${tagline}`.slice(0, 160),
+      seo_description: typeof pp.seo_description === "string" && plainField(pp.seo_description, 200) ? plainField(pp.seo_description, 200) : `${name} — ${tagline}`.slice(0, 160),
       sections,
     };
   });
@@ -746,7 +757,7 @@ Rules:
     }, gw);
     if (!resp.ok) return fallback;
     const data = await resp.json();
-    const parsed = JSON.parse(stripFences(String(data?.choices?.[0]?.message?.content ?? "{}")));
+    const parsed = parseLoose(String(data?.choices?.[0]?.message?.content ?? "{}"));
     const route = parsed?.route === "rebuild" || parsed?.route === "new" ? parsed.route : "edit";
     const brief = typeof parsed?.brief === "string" && parsed.brief.trim().length > 12 ? parsed.brief.trim() : prompt;
     return { route, brief: route === "edit" ? prompt : brief, reason: String(parsed?.reason || "") };
@@ -820,7 +831,7 @@ async function proposeOutline(
     if (!resp.ok) throw new Error(`gateway ${resp.status}`);
     const data = await resp.json();
     const raw = data?.choices?.[0]?.message?.content ?? "{}";
-    const outline = sanitizeOutline(JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw))));
+    const outline = sanitizeOutline(parseLoose(typeof raw === "string" ? raw : JSON.stringify(raw)));
     if (!outline) throw new Error("unusable outline");
     if (findOutlineTemplateIssues(outline, structure).length) {
       return { ...base, outline: fallback, source: "default", note: `The suggested pages didn't fit the "${label}" structure, so the standard ${label} outline is shown. Adjust it below.` };
@@ -853,7 +864,7 @@ async function reviseManifestWithIssues(
     if (!reviseResp.ok) return null;
     const data = await reviseResp.json();
     const raw = data?.choices?.[0]?.message?.content ?? "{}";
-    return normalize(JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw))), brief);
+    return normalize(parseLoose(typeof raw === "string" ? raw : JSON.stringify(raw)), brief);
   } catch {
     return null;
   }
@@ -865,7 +876,9 @@ async function handleRequest(req: Request, uploadAliases: UploadAliases): Promis
     const gw = pickAiGateway();
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
-    const rawBody = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const rawBody = inputRead.value;
     // Signed links to the user's private uploads become short stand-ins for the AI; the saved pages get public copies.
     const body = rawBody && typeof rawBody === "object" ? JSON.parse(uploadAliases.text(JSON.stringify(rawBody))) : rawBody;
     const { prompt, save = true, previousWebsiteId, refine = false, recentTurns = [], attachments = [], requestId = null } = body || {};
@@ -1167,7 +1180,7 @@ async function handleRequest(req: Request, uploadAliases: UploadAliases): Promis
         if (!resp.ok) throw new Error(`gateway ${resp.status}`);
         const data = await resp.json();
         const raw = data?.choices?.[0]?.message?.content ?? "{}";
-        refined = JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw)));
+        refined = parseLoose(typeof raw === "string" ? raw : JSON.stringify(raw));
       } catch (err) {
         console.error("refine AI failure", err);
         const msg = err instanceof Error ? err.message : String(err);
@@ -1465,7 +1478,7 @@ async function handleRequest(req: Request, uploadAliases: UploadAliases): Promis
       if (!resp.ok) throw new Error(`gateway ${resp.status}`);
       const data = await resp.json();
       const raw = data?.choices?.[0]?.message?.content ?? "{}";
-      const parsed = JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw)));
+      const parsed = parseLoose(typeof raw === "string" ? raw : JSON.stringify(raw));
       manifest = normalize(parsed, compilePrompt);
     } catch (err) {
       console.error("compile-website-manifest AI failure", err);

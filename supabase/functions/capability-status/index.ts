@@ -14,6 +14,7 @@
 // actually enforces this: a bogus/unauthorized account_id simply returns
 // no rows, exactly like ControlChangeLog.tsx et al.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCaller, resolveCallerReadAccount } from "../_shared/caller.ts";
 import { CAPABILITY_REGISTRY, buildCapabilityBlock, canOfferTool } from "../_shared/capability-registry.ts";
@@ -43,7 +44,12 @@ Deno.serve(async (req) => {
   const userId = who.caller.userId;
 
   const url = new URL(req.url);
-  const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+  let body: Record<string, any> = {};
+  if (req.method === "POST") {
+    const inputRead = await readJson(req, { headers: corsHeaders, maxBytes: 16 * 1024 });
+    if (!inputRead.ok) return inputRead.response;
+    body = inputRead.value;
+  }
   const requestedAccountId = body?.account_id ?? url.searchParams.get("account_id");
   // An account named in the request is only used when the caller is a member of it; anyone else gets "not found", as for a missing one.
   const accountId = await resolveCallerReadAccount(who.caller, requestedAccountId);

@@ -12,6 +12,8 @@
 // its own copy of the catalog -- mirrors src/lib/credit-packs.ts and
 // src/lib/credit-tiers.ts exactly; keep both in sync if the catalog changes.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts"
+import { cleanText } from "../_shared/clean-text.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { checkRateLimit } from '../_shared/rate-limit.ts'
 import { requireCaller } from "../_shared/caller.ts"
@@ -107,11 +109,18 @@ Deno.serve(async (req) => {
     return json({ error: 'rate_limited', message: `Too many purchase attempts — ${rate.count} in the last hour (limit ${rate.limit}).` }, 429)
   }
 
-  let payload: Payload
-  try {
-    payload = await req.json()
-  } catch {
-    return json({ error: 'invalid_json' }, 400)
+  const input = await readJson(req, { headers: corsHeaders, errorBody: () => ({ error: 'invalid_json' }) })
+  if (!input.ok) return input.response
+  // each field is the type it should be before anything below calls a string method on it
+  const raw = input.value
+  const word = (v: unknown, max: number) => (typeof v === 'string' ? cleanText(v, { max, multiline: false }) : undefined)
+  const payload: Payload = {
+    kind: raw.kind,
+    packId: word(raw.packId, 80),
+    tierId: word(raw.tierId, 80),
+    annual: raw.annual === true,
+    promoCode: word(raw.promoCode, 60),
+    metadata: raw.metadata && typeof raw.metadata === 'object' && !Array.isArray(raw.metadata) ? raw.metadata : undefined,
   }
 
   if (payload.kind !== 'pack' && payload.kind !== 'plan') {
@@ -121,7 +130,7 @@ Deno.serve(async (req) => {
   const promoPct = payload.promoCode ? PROMOS[payload.promoCode.trim().toUpperCase()] ?? 0 : 0
 
   if (payload.kind === 'pack') {
-    const pack = payload.packId ? CREDIT_PACKS[payload.packId] : undefined
+    const pack = payload.packId && Object.prototype.hasOwnProperty.call(CREDIT_PACKS, payload.packId) ? CREDIT_PACKS[payload.packId] : undefined
     if (!pack) return json({ error: 'invalid_pack' }, 400)
     const amount = pack.credits + pack.bonus
     const priceUsd = +(pack.salePrice * (1 - promoPct)).toFixed(2)

@@ -12,6 +12,7 @@
 // Everything here is pure; the model calls live in generate-site-images.
 
 import { GUARD_PREFIX } from "./generation-quality.ts";
+import { parseModelObject } from "./model-output.ts";
 
 export const IMAGE_NOTE_PREFIX = `${GUARD_PREFIX}Image — `;
 /**
@@ -89,7 +90,7 @@ export function parseVerifyResponse(json: unknown): VerifyResult {
   const m = content.match(/\{[\s\S]*\}/);
   if (!m) return { match: null, reason: "" };
   try {
-    const o = JSON.parse(m[0]) as { match?: unknown; reason?: unknown };
+    const o = (parseModelObject(m[0]) ?? {}) as { match?: unknown; reason?: unknown };
     const reason = typeof o.reason === "string" ? o.reason.replace(/\s+/g, " ").trim().slice(0, 140) : "";
     if (o.match === true) return { match: true, reason };
     if (o.match === false) return { match: false, reason };
