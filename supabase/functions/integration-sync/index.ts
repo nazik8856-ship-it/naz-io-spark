@@ -16,6 +16,7 @@
 // account metadata + fetch time so the agent still has concrete numbers to
 // reason about instead of "unknown".
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient, type SupabaseClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { ensureAccessToken, gmailList } from "../_shared/gmail.ts";
@@ -387,7 +388,9 @@ Deno.serve(async (req) => {
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const cron = body?.cron === true;
     const providerFilter: string | null = body?.provider || null;
     const agentIdFilter: string | null = body?.agentId || null;

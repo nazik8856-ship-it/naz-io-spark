@@ -6,6 +6,7 @@
 // gate enforces with (ruleMatchesAction, scanWithRules) so the simulator
 // can never drift from what actually decides.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ruleMatchesAction, selectRulesForAgent } from "../_shared/rule-matching.ts";
 import { scanWithRules, BUILTIN_SAFETY_RULES, type SafetyRule } from "../_shared/safety-scanner.ts";
@@ -71,7 +72,9 @@ Deno.serve(async (req) => {
     }, 429);
   }
 
-  const body = await req.json().catch(() => ({}));
+  const inputRead = await readJson(req, { headers: corsHeaders });
+  if (!inputRead.ok) return inputRead.response;
+  const body = inputRead.value;
   const actionType = String(body?.action_type || "").trim();
   const provider = String(body?.provider || "unknown").trim() || "unknown";
   const description = String(body?.description || "").trim();

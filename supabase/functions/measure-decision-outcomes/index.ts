@@ -9,6 +9,7 @@
 // This job never changes agent behaviour — it only collects and surfaces data.
 
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
 
@@ -66,7 +67,9 @@ Deno.serve(async (req) => {
     // The caller is the server (checked above), so it may scope a run to one account; the schedule sends no body.
     let scopedUserId: string | null = null;
     try {
-      const body = await req.json();
+      const inputRead = await readJson(req, { headers: corsHeaders });
+      if (!inputRead.ok) return inputRead.response;
+      const body = inputRead.value;
       if (body && typeof body.userId === "string") scopedUserId = body.userId;
     } catch { /* cron sends no body */ }
 

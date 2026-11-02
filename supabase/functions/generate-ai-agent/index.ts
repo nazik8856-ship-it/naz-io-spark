@@ -2,6 +2,8 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkIpRateLimit } from "../_shared/rate-limit.ts";
+import { readJson } from "../_shared/input.ts";
+import { array, object, optional, text } from "../_shared/schema.ts";
 
 // This endpoint is intentionally reachable without a signed-in session --
 // /generation-workspace is a public, unauthenticated try-before-signup
@@ -17,6 +19,15 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
   "Access-Control-Expose-Headers": "X-Agent-Provider",
 };
+
+// What a visitor may send (this endpoint is public). Over-long text is cut, not refused, so the screen behaves as before.
+const requestBody = object({
+  prompt: optional(text({ max: 12000, clip: true })),
+  messages: optional(array(object({ content: optional(text({ max: 12000, clip: true })) }, { unknown: "drop" }), { max: 40, clip: true, dropInvalid: true, keep: "last" })),
+  industry: optional(text({ max: 200, clip: true, multiline: false })),
+  challenges: optional(text({ max: 2000, clip: true })),
+  previousSpec: optional(text({ max: 30000, clip: true })),
+});
 
 const SYSTEM_PROMPT = `You are NazAI Agent Forge.
 
@@ -232,7 +243,10 @@ serve(async (req) => {
       );
     }
 
-    const { prompt, messages, industry, challenges, previousSpec } = await req.json();
+    const input = await readJson(req, { headers: corsHeaders });
+    if (!input.ok) return input.response;
+    const fields = requestBody(input.value);
+    const { prompt, messages, industry, challenges, previousSpec } = fields.ok ? fields.value : {} as Record<string, never>;
 
     const rawPrompt: string =
       (typeof prompt === "string" && prompt.trim()) ||

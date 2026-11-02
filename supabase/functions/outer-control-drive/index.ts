@@ -30,6 +30,7 @@
 // never returned. Sessions run in the background (EdgeRuntime.waitUntil); the dashboard
 // polls, and outer-control-session-sweep picks up anything that was left mid-way.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
@@ -108,8 +109,9 @@ Deno.serve(async (req) => {
     const userClient = authed.caller.userClient;
     const admin = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    const body = await req.json().catch(() => null);
-    if (!body || typeof body !== "object") return json({ error: "invalid_json", message: "The request body must be a JSON object." }, 400);
+    const inputRead = await readJson(req, { headers: corsHeaders, requireBody: true, errorBody: ({ code, message }) => ({ error: code === "body_too_large" ? "body_too_large" : "invalid_json", message: code === "body_too_large" || code === "too_many_items" ? message : "The request body must be a JSON object." }) });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const accountId = await resolveAccountScope(userClient, authed.caller.userId, body.account_id, "integrations");
     if (!accountId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
 

@@ -14,6 +14,7 @@
 //                                            an optional root_cause_category /
 //                                            related_incident_id
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ROOT_CAUSE_CATEGORIES, isValidRootCauseCategory } from "../_shared/incidents.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
@@ -102,7 +103,9 @@ Deno.serve(async (req) => {
     if (forbidden) return json({ error: "forbidden" }, 403);
     if (row.status === "resolved") return json({ error: "already_resolved" }, 409);
 
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     // Omitted or absent entirely -> claim it for the caller (the common
     // case, one click). Explicit null -> unassign. Any other id must
     // resolve to a real, active approver+ member of this incident's
@@ -143,7 +146,9 @@ Deno.serve(async (req) => {
   const resolveMatch = url.pathname.match(/\/([0-9a-fA-F-]{36})\/resolve\/?$/);
   if (req.method === "POST" && resolveMatch) {
     const incidentId = resolveMatch[1];
-    const body = await req.json().catch(() => ({}));
+    const inputRead2 = await readJson(req, { headers: corsHeaders });
+    if (!inputRead2.ok) return inputRead2.response;
+    const body = inputRead2.value;
     const note = String(body?.note || "").slice(0, 2000);
     if (body?.root_cause_category !== undefined && body.root_cause_category !== null && !isValidRootCauseCategory(body.root_cause_category)) {
       return json({ error: `root_cause_category must be one of: ${ROOT_CAUSE_CATEGORIES.join(", ")}` }, 400);

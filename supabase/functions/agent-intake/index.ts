@@ -4,6 +4,8 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
+import { readJson } from "../_shared/input.ts";
+import { cleanText } from "../_shared/clean-text.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,7 +17,12 @@ serve(async (req) => {
   try {
     const gw = pickAiGateway();
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
-    const { prompt = "", profile = {}, role = "" } = await req.json().catch(() => ({}));
+    const input = await readJson(req, { headers: corsHeaders });
+    if (!input.ok) return input.response;
+    // public endpoint: text is cleaned and cut here (cut, not refused, so the screen behaves as before)
+    const prompt = cleanText(input.value.prompt, { max: 8000 });
+    const role = cleanText(input.value.role, { max: 100, multiline: false });
+    const profile = input.value.profile && typeof input.value.profile === "object" ? input.value.profile : {};
 
     const resp = await callAiGateway({
         model: gw.model,

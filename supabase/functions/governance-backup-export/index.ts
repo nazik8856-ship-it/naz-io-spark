@@ -10,6 +10,7 @@
 // re-encrypted with the current one. POST { "action": "verify", "date": "YYYY-MM-DD" } is the restore drill: it decrypts that
 // day's files and returns how many rows each holds (never their content).
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 // The plain client on purpose: the backup copies rows as stored, so encrypted content stays encrypted in the backup files
 // (restorable with DATA_KEY), never written out decrypted (data encryption, front 4).
 import { createPlainClient as createClient } from "../_shared/encrypted-client.ts";
@@ -44,7 +45,9 @@ Deno.serve(async (req) => {
   if (!keys) return json({ error: "DATA_KEY is not configured" }, 500);
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
   const storage = admin.storage.from(BUCKET);
-  const body = await req.json().catch(() => ({})) as { action?: string; date?: string };
+  const inputRead = await readJson(req, { headers: corsHeaders });
+  if (!inputRead.ok) return inputRead.response;
+  const body = inputRead.value as { action?: string; date?: string };
 
   const download = async (path: string): Promise<string> => {
     const { data, error } = await storage.download(path);

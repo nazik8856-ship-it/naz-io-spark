@@ -42,3 +42,5 @@ jobs:
           deno-version: v2.x
       - name: Backend tests (supabase/functions/**/*_test.ts)
         run: ./supabase/functions/run-tests.sh
+      - name: Undefined names in the server functions
+        run: ./supabase/functions/check-undefined-names.sh

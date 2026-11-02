@@ -2,6 +2,7 @@
 // pending account_members row and emails an accept link. Infrastructure
 // only — this does not yet gate any real enforcement path (Phase 2).
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isValidAccountRole, isValidEmail } from "../_shared/account-members.ts";
 import { requireCaller } from "../_shared/caller.ts";
@@ -31,7 +32,9 @@ Deno.serve(async (req) => {
   const ownerId = authed.caller.userId;
   const ownerEmail = authed.caller.email ?? null;
 
-  const body = await req.json().catch(() => ({}));
+  const inputRead = await readJson(req, { headers: corsHeaders });
+  if (!inputRead.ok) return inputRead.response;
+  const body = inputRead.value;
   const email = String(body?.email || "").trim().toLowerCase();
   const role = String(body?.role || "");
 

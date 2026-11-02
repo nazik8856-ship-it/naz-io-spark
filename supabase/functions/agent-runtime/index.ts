@@ -2,6 +2,7 @@
 // Business-aware: loads business profile + memory; supports remember/ask_user/request_approval tools.
 // Input: { agentId: string, trigger?: "manual"|"cron"|"webhook", userInstruction?: string }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readCapped } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, type SupabaseClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { readSecret } from "../_shared/integration-secrets.ts";
@@ -14,7 +15,7 @@ import {
   type Corrector,
 } from "../_shared/tool-retry.ts";
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
-import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
+import { runControlGate, createPendingApproval, recordBreakerAttempt } from "../_shared/control-gate.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
 import { repairParams, repairContent, verifyRepair } from "../_shared/repair-engine.ts";
 import { scanAction } from "../_shared/safety-scanner.ts";
@@ -135,7 +136,10 @@ serve(async (req) => {
     let bodyOuterSessionId = "";
     let rawBody: unknown = undefined;
     if (req.method === "POST") {
-      const text = await req.text();
+      // a webhook body can come from anyone who knows the address: read at most 1 MB of it
+      const bytes = await readCapped(req, 1024 * 1024);
+      if (bytes === null) return new Response(JSON.stringify({ error: "The request is too large." }), { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const text = new TextDecoder().decode(bytes);
       if (text) {
         try {
           const parsed = JSON.parse(text);

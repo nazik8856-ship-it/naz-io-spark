@@ -1,5 +1,7 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { readJson, readCapped } from '../_shared/input.ts'
+import { cleanText } from '../_shared/clean-text.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,7 +43,9 @@ Deno.serve(async (req) => {
     // etc.) send this when the user clicks "Unsubscribe" in the mail UI.
     const contentType = req.headers.get('content-type') ?? ''
     if (contentType.includes('application/x-www-form-urlencoded')) {
-      const formText = await req.text()
+      const formBytes = await readCapped(req, 8 * 1024)
+      if (formBytes === null) return jsonResponse({ error: 'The request is too large.' }, 413)
+      const formText = new TextDecoder().decode(formBytes)
       const params = new URLSearchParams(formText)
       // For one-click, token comes from query param (already set above).
       // Otherwise, token may be in the form body.
@@ -53,17 +57,15 @@ Deno.serve(async (req) => {
       }
     } else {
       // JSON body (from the app's unsubscribe page)
-      try {
-        const body = await req.json()
-        if (body.token) {
-          token = body.token
-        }
-      } catch {
-        // Fall through — token stays from query param
+      const input = await readJson(req, { headers: corsHeaders, maxBytes: 8 * 1024 })
+      if (!input.ok && input.status === 413) return input.response
+      if (input.ok && typeof input.value.token === 'string' && input.value.token) {
+        token = cleanText(input.value.token, { max: 200, multiline: false })
       }
     }
   }
 
+  token = token ? cleanText(token, { max: 200, multiline: false }) : null
   if (!token) {
     return jsonResponse({ error: 'Token is required' }, 400)
   }

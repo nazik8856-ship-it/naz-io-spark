@@ -60,6 +60,7 @@
 // Authorization: Bearer nazai_sk_... header via resolveApiKeyAuth, not a
 // Supabase session JWT.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { judgeStateless } from "../_shared/outer-control-judgement.ts";
 import { relayToTask, taskForKey } from "../_shared/outer-control-relay.ts";
 import { driveSession } from "../_shared/outer-control-workflow.ts";
@@ -359,18 +360,19 @@ async function handleTaskRoutes(req: Request, relay: boolean, taskId: string): P
     const r = await taskForKey(admin, auth, taskId);
     return json(r.body, r.status);
   }
-  let body: Record<string, unknown>;
-  try {
-    const parsed = await req.json();
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
-    body = parsed as Record<string, unknown>;
-  } catch {
-    return json({ error: "invalid_json", message: "The request body must be a JSON object." }, 400);
-  }
+  const inputRead = await readJson(req, { headers: corsHeaders, requireBody: true, errorBody: bodyError });
+  if (!inputRead.ok) return inputRead.response;
+  const body = inputRead.value as Record<string, unknown>;
   const dataKeys = (await dataKeyPromise)!;
   const r = await relayToTask(admin, auth, body, (ids) => inBackground(Promise.all(ids.map((id) => driveSession(admin, id)))), (t) => fingerprint(dataKeys, t));
   return json(r.body, r.status);
 }
+
+// The shape this API has always used for a body it can not read (the codes added by the shared reader map onto it).
+const bodyError = ({ code, message }: { code: string; message: string }) => ({
+  error: code === "body_too_large" ? "body_too_large" : "invalid_json",
+  message: code === "invalid_json" || code === "not_an_object" || code === "empty_body" ? "The request body must be a JSON object." : message,
+});
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -418,14 +420,9 @@ Deno.serve(async (req) => {
 
     // A body that is not valid JSON used to read as {} and surface as a
     // misleading "source_model_required".
-    let body: Record<string, unknown>;
-    try {
-      const parsed = await req.json();
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
-      body = parsed as Record<string, unknown>;
-    } catch {
-      return json({ error: "invalid_json", message: "The request body must be a JSON object." }, 400);
-    }
+    const inputRead2 = await readJson(req, { headers: corsHeaders, requireBody: true, errorBody: bodyError });
+    if (!inputRead2.ok) return inputRead2.response;
+    const body = inputRead2.value as Record<string, unknown>;
     const sourceModel = String(body?.source_model || "").trim().slice(0, 80);
     const agentId = typeof body?.agent_id === "string" ? body.agent_id : null;
     const contentKind = body?.content_kind === "action" ? "action" : "text";

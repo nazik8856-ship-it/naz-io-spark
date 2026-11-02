@@ -22,6 +22,7 @@
 // new is stored. Everything but "read" needs the owner of the account (or an owner-role team member with the integrations
 // permission); "read" is open to every active team member.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
@@ -164,12 +165,15 @@ Deno.serve(async (req) => {
     const userClient = authed.caller.userClient;
     const admin = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return json({ error: "too_large", message: "That is too much to import at once. Nothing was stored." }, 413);
-    const raw = await req.text();
-    if (raw.length > MAX_BODY_BYTES) return json({ error: "too_large", message: "That is too much to import at once. Nothing was stored." }, 413);
-    let body: Record<string, unknown> | null = null;
-    try { body = JSON.parse(raw); } catch { body = null; }
-    if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "invalid_json", message: "The request body must be a JSON object." }, 400);
+    // imports carry whole documents: the larger file cap applies, the shape rules (depth, list sizes, NUL bytes) always do
+    const inputRead = await readJson(req, {
+      headers: corsHeaders, maxBytes: MAX_BODY_BYTES, maxValues: 100_000, requireBody: true,
+      errorBody: ({ code, message }) => code === "body_too_large"
+        ? { error: "too_large", message: "That is too much to import at once. Nothing was stored." }
+        : { error: "invalid_json", message: code === "too_many_items" || code === "too_deep" ? message : "The request body must be a JSON object." },
+    });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value as Record<string, unknown>;
     const action = String(body.action ?? "");
     // Reading is for every team member; everything else needs an owner.
     const accountId = READ_ACTIONS.has(action)

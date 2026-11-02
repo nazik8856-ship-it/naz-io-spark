@@ -1,4 +1,5 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
@@ -39,7 +40,9 @@ serve(async (req) => {
     }
     const userId = authed.caller.userId;
 
-    const { question } = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const { question } = inputRead.value;
     const q = typeof question === "string" ? question.trim() : "";
     if (q.length < 5 || q.length > 2000) {
       return new Response(JSON.stringify({ error: "question must be 5–2000 chars" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });

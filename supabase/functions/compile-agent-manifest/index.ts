@@ -4,6 +4,7 @@
 // Input: { plan: string, businessProfileId?: string, userPrompt?: string,
 //          intakeAnswers?: Record<string,string>, role?: string }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
@@ -229,7 +230,9 @@ serve(async (req) => {
     const gw = pickAiGateway();
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
-    const body = await req.json();
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint, existingAgentId = null, recentTurns = [], requestId = null } = body || {};
     if (!plan || typeof plan !== "string") return json({ error: "plan required" }, 400);
 

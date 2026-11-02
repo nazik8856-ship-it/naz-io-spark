@@ -19,6 +19,7 @@
 // this can't just rely on RLS the way the frontend's plain SELECT can,
 // since every write here goes through the service-role admin client.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
@@ -87,7 +88,9 @@ Deno.serve(async (req) => {
   const revokeMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/revoke\/?$/);
   if (req.method === "POST" && revokeMatch) {
     const keyId = revokeMatch[1];
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
 
@@ -123,7 +126,9 @@ Deno.serve(async (req) => {
   const selfTestMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/self-test\/?$/);
   if (req.method === "POST" && selfTestMatch) {
     const keyId = selfTestMatch[1];
-    const body = await req.json().catch(() => ({}));
+    const inputRead2 = await readJson(req, { headers: corsHeaders });
+    if (!inputRead2.ok) return inputRead2.response;
+    const body = inputRead2.value;
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
 
@@ -170,7 +175,9 @@ Deno.serve(async (req) => {
   const rotateMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/rotate\/?$/);
   if (req.method === "POST" && rotateMatch) {
     const keyId = rotateMatch[1];
-    const body = await req.json().catch(() => ({}));
+    const inputRead3 = await readJson(req, { headers: corsHeaders });
+    if (!inputRead3.ok) return inputRead3.response;
+    const body = inputRead3.value;
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
 
@@ -215,7 +222,9 @@ Deno.serve(async (req) => {
   const policyMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/policy\/?$/);
   if (req.method === "POST" && policyMatch) {
     const keyId = policyMatch[1];
-    const body = await req.json().catch(() => ({}));
+    const inputRead4 = await readJson(req, { headers: corsHeaders });
+    if (!inputRead4.ok) return inputRead4.response;
+    const body = inputRead4.value;
     if (!isValidOnUncertainPolicy(body?.on_uncertain)) {
       return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow, auto_narrow, callback" }, 400);
     }
@@ -669,7 +678,13 @@ Deno.serve(async (req) => {
   const actionPoliciesMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/action-policies\/?$/);
   if (actionPoliciesMatch && (req.method === "GET" || req.method === "POST" || req.method === "DELETE")) {
     const keyId = actionPoliciesMatch[1];
-    const body = req.method === "GET" ? {} : await req.json().catch(() => ({}));
+    let inputRead5Value: Record<string, any> = {};
+    if (!(req.method === "GET")) {
+      const inputRead5 = await readJson(req, { headers: corsHeaders });
+      if (!inputRead5.ok) return inputRead5.response;
+      inputRead5Value = inputRead5.value;
+    }
+    const body = inputRead5Value;
     const accountId = req.method === "GET" ? url.searchParams.get("account_id") : (body?.account_id ?? null);
     const targetUserId = await resolveAccountScope(userClient, userId, accountId, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
@@ -750,7 +765,13 @@ Deno.serve(async (req) => {
   const contextMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/context\/?$/);
   if (contextMatch && (req.method === "GET" || req.method === "POST" || req.method === "DELETE")) {
     const keyId = contextMatch[1];
-    const body = req.method === "GET" ? {} : await req.json().catch(() => ({}));
+    let inputRead6Value: Record<string, any> = {};
+    if (!(req.method === "GET")) {
+      const inputRead6 = await readJson(req, { headers: corsHeaders });
+      if (!inputRead6.ok) return inputRead6.response;
+      inputRead6Value = inputRead6.value;
+    }
+    const body = inputRead6Value;
     const accountId = req.method === "GET" ? url.searchParams.get("account_id") : (body?.account_id ?? null);
     const targetUserId = await resolveAccountScope(userClient, userId, accountId, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
@@ -893,7 +914,13 @@ Deno.serve(async (req) => {
   const rulesMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/response-rules\/?$/);
   if (rulesMatch && (req.method === "GET" || req.method === "POST" || req.method === "DELETE")) {
     const keyId = rulesMatch[1];
-    const body = req.method === "GET" ? {} : await req.json().catch(() => ({}));
+    let inputRead7Value: Record<string, any> = {};
+    if (!(req.method === "GET")) {
+      const inputRead7 = await readJson(req, { headers: corsHeaders });
+      if (!inputRead7.ok) return inputRead7.response;
+      inputRead7Value = inputRead7.value;
+    }
+    const body = inputRead7Value;
     const accountId = req.method === "GET" ? url.searchParams.get("account_id") : (body?.account_id ?? null);
     const targetUserId = await resolveAccountScope(userClient, userId, accountId, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
@@ -1022,7 +1049,9 @@ Deno.serve(async (req) => {
 
   // ---- POST /api-keys ---------------------------------------------------
   if (req.method === "POST") {
-    const body = await req.json().catch(() => ({}));
+    const inputRead8 = await readJson(req, { headers: corsHeaders });
+    if (!inputRead8.ok) return inputRead8.response;
+    const body = inputRead8.value;
     const name = String(body?.name || "").trim().slice(0, 120);
     if (!name) return json({ error: "A name is required for the key (e.g. \"Production integration\")." }, 400);
     if (body?.on_uncertain !== undefined && !isValidOnUncertainPolicy(body.on_uncertain)) {

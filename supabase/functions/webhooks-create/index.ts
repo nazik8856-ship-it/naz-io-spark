@@ -13,6 +13,7 @@
 // function (service role) and the background delivery sweeps that sign
 // outbound payloads with it can still see it.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
@@ -54,7 +55,9 @@ Deno.serve(async (req) => {
 
   const admin = createClient(supabaseUrl, serviceKey);
 
-  const body = await req.json().catch(() => ({}));
+  const inputRead = await readJson(req, { headers: corsHeaders });
+  if (!inputRead.ok) return inputRead.response;
+  const body = inputRead.value;
   const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
   if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
 

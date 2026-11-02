@@ -8,6 +8,7 @@
 // a signal that the scoring prompt needs review.
 
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { flagBucketIfNew } from "../_shared/confidence-bucket-flags.ts";
@@ -58,7 +59,9 @@ Deno.serve(async (req) => {
     // The caller is the server (checked above), so it may scope a run to one account; the schedule sends no body.
     let scopedUserId: string | null = null;
     try {
-      const body = await req.json();
+      const inputRead = await readJson(req, { headers: corsHeaders });
+      if (!inputRead.ok) return inputRead.response;
+      const body = inputRead.value;
       if (body && typeof body.user_id === "string") scopedUserId = body.user_id;
     } catch { /* cron sends no body */ }
 

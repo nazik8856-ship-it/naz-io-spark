@@ -5,6 +5,7 @@
 // helpers agent-runtime uses, returns Allow / Modify / Block, and logs every
 // verdict to agent_decisions.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { resolveAccountScope } from "../_shared/account-scope.ts";
@@ -385,7 +386,9 @@ serve(async (req) => {
 
     if (req.method === "GET") return json({ error: "Unsupported GET path" }, 404);
 
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
 
     // "15 more items" plan, item 3: the policy-version routes below
     // (/replay, /replay-real, /policy/:id/activate) all filtered

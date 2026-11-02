@@ -4,6 +4,8 @@ import { renderAsync } from 'npm:@react-email/components@0.0.22'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { TEMPLATES } from '../_shared/transactional-email-templates/registry.ts'
 import { checkIpRateLimit } from '../_shared/rate-limit.ts'
+import { readJson } from '../_shared/input.ts'
+import { cleanText } from '../_shared/clean-text.ts'
 
 // Configuration baked in at scaffold time — do NOT change these manually.
 // To update, re-run the email domain setup flow.
@@ -92,14 +94,27 @@ Deno.serve(async (req) => {
   let messageId: string
   let templateData: Record<string, any> = {}
   try {
-    const body = await req.json()
-    templateName = body.templateName || body.template_name
-    recipientEmail = body.recipientEmail || body.recipient_email
+    const input = await readJson(req, {
+      headers: corsHeaders,
+      errorBody: ({ code, message }) => ({ error: code === 'invalid_json' ? 'Invalid JSON in request body' : message }),
+    })
+    if (!input.ok) return input.response
+    const body = input.value as Record<string, any>
+    // text fields are cleaned and bounded here: a recipient with a line break in it is how a mail header gets injected
+    const asText = (v: unknown, max: number) => (typeof v === 'string' ? cleanText(v, { max, multiline: false }) : '')
+    templateName = asText(body.templateName || body.template_name, 100)
+    recipientEmail = asText(body.recipientEmail || body.recipient_email, 254)
+    if (recipientEmail && !/^[^\s@,;<>"']+@[^\s@,;<>"']+\.[^\s@,;<>"']+$/.test(recipientEmail)) {
+      return new Response(JSON.stringify({ error: 'recipientEmail is not a valid email address' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
     messageId = crypto.randomUUID()
-    if (body.templateData && typeof body.templateData === 'object') {
+    if (body.templateData && typeof body.templateData === 'object' && !Array.isArray(body.templateData)) {
       templateData = body.templateData
     }
-    const suppliedKey = body.idempotencyKey || body.idempotency_key
+    const suppliedKey = asText(body.idempotencyKey || body.idempotency_key, 200)
     if (suppliedKey) {
       idempotencyKey = suppliedKey
     } else {
@@ -135,7 +150,8 @@ Deno.serve(async (req) => {
   }
 
   // 1. Look up template from registry (early — needed to resolve recipient)
-  const template = TEMPLATES[templateName]
+  // own entries only: 'constructor' or '__proto__' must not read as a template
+  const template = Object.prototype.hasOwnProperty.call(TEMPLATES, templateName) ? TEMPLATES[templateName] : undefined
 
   if (!template) {
     console.error('Template not found in registry', { templateName })

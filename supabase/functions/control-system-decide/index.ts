@@ -9,6 +9,7 @@
 //     agent_decisions logging. No decision logic is duplicated here.
 //  2) Anything else -> normal conversational reply.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { buildCapabilityBlock } from "../_shared/capability-registry.ts";
@@ -125,8 +126,12 @@ serve(async (req) => {
     const authed = await requireCaller(req, (h) => createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: h } } }));
     if (!authed.ok) return json({ error: "Not authenticated" }, 401);
     const userId = authed.caller.userId;
+    // the caller's own token, passed on to control-engine so it acts as the same person
+    const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
 
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const message = String(body?.message || "").trim();
     const agentId: string | null = body?.agentId ? String(body.agentId) : null;
     const dryRun = body?.dry_run === true;

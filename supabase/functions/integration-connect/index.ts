@@ -23,6 +23,7 @@
 // they are still usable by the agent runtime.
 
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";
@@ -218,7 +219,9 @@ Deno.serve(async (req) => {
     if (!authed.ok) return j(401, { error: "Not authenticated" });
     const supabase = authed.caller.userClient;
 
-    const body = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const body = inputRead.value;
     const action = (body.action as string) || "verify";
     const provider = (body.provider as string) || "";
     const agentId = (body.agentId as string) || null;

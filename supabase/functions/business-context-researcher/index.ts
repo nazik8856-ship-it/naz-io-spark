@@ -3,6 +3,7 @@
 // Input:  { prompt: string, url?: string, reuseLatest?: boolean }
 // Output: { profile: BusinessProfile, profileId: string, isNew: boolean }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
@@ -20,7 +21,9 @@ serve(async (req) => {
     const gw = pickAiGateway();
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
-    const { prompt = "", url: urlIn, reuseLatest = false } = await req.json().catch(() => ({}));
+    const inputRead = await readJson(req, { headers: corsHeaders });
+    if (!inputRead.ok) return inputRead.response;
+    const { prompt = "", url: urlIn, reuseLatest = false } = inputRead.value;
     const authed = await requireCaller(req, (h) => createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,

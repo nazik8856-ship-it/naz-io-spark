@@ -1,4 +1,6 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { readJson } from "../_shared/input.ts"
+import { cleanText } from "../_shared/clean-text.ts"
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts"
@@ -49,7 +51,13 @@ serve(async (req) => {
     }
 
     // Process directive with the AI gateway
-    const { directive } = await req.json()
+    const inputRead = await readJson(req, { headers: corsHeaders, maxBytes: 64 * 1024 })
+    if (!inputRead.ok) return inputRead.response
+    // a typed directive: cleaned, cut at 8,000 characters
+    const directive = cleanText(inputRead.value.directive, { max: 8000 })
+    if (!directive) {
+      return new Response(JSON.stringify({ error: 'directive is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
     const gw = pickAiGateway()
     if (!gw) throw new Error('Missing OPENAI_API_KEY (or LOVABLE_API_KEY)')
 
