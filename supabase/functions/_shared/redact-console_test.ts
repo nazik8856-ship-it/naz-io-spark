@@ -36,3 +36,15 @@ Deno.test("every console method that prints scrubs strings, errors and objects b
     Object.assign(console, saved);
   }
 });
+
+Deno.test("log lines: terminal escapes and control characters are removed, line breaks and tabs kept, length capped", async () => {
+  const { cleanLogString, MAX_LOG_STRING } = await import("./redact-console.ts");
+  const forged = "user said: hi\u001B[2J\u001B[1;31mFAKE ERROR\u001B[0m\u0000\u0007 done‮";
+  const out = cleanLogString(forged);
+  if (/\u001B|\u0000|\u0007|‮/.test(out)) throw new Error(`escape survived: ${JSON.stringify(out)}`);
+  if (out !== "user said: hiFAKE ERROR done") throw new Error(JSON.stringify(out));
+  if (cleanLogString("line 1\n\tline 2") !== "line 1\n\tline 2") throw new Error("line breaks and tabs must stay");
+  const huge = cleanLogString("x".repeat(MAX_LOG_STRING + 500));
+  if (!huge.endsWith("…(500 more characters cut)") || huge.length > MAX_LOG_STRING + 40) throw new Error("not capped");
+  if (!cleanLogString("key sk-" + "a".repeat(40)).includes("[REDACTED")) throw new Error("secrets must still be scrubbed");
+});

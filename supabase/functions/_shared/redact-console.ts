@@ -6,9 +6,25 @@ import { redactDeep, redactSecrets } from "./redact-secrets.ts";
 const MARK = Symbol.for("nazai.redact-console");
 type Patched = typeof globalThis & { [MARK]?: boolean };
 
+/** Longest single string written to the logs; the rest is cut and the cut is said (a huge pasted body can not flood the logs). */
+export const MAX_LOG_STRING = 10_000;
+// terminal escape sequences (colours, cursor moves, "clear screen") and control characters other than tab and line break: text from a
+// request or a model can not repaint a log viewer or hide what came before it
+// deno-lint-ignore no-control-regex
+const ANSI = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001B]*(?:\u0007|\u001B\\)|[@-Z\\-_])/g;
+// deno-lint-ignore no-control-regex
+const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/g;
+
+/** A string as it may appear in a log line: secrets scrubbed, escapes and control characters removed, length capped. */
+export function cleanLogString(s: string): string {
+  let out = redactSecrets(s).replace(ANSI, "").replace(CONTROL, "");
+  if (out.length > MAX_LOG_STRING) out = `${out.slice(0, MAX_LOG_STRING)}…(${out.length - MAX_LOG_STRING} more characters cut)`;
+  return out;
+}
+
 /** What a console argument becomes: strings scrubbed, errors kept as errors (message and stack scrubbed), objects scrubbed. */
 export function redactForLog(arg: unknown): unknown {
-  if (typeof arg === "string") return redactSecrets(arg);
+  if (typeof arg === "string") return cleanLogString(arg);
   return redactDeep(arg);
 }
 

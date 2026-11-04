@@ -37,6 +37,8 @@ serve(async (req) => {
     const prompt = cleanText(input.value.prompt, { max: 8000 });
     const role = cleanText(input.value.role, { max: 100, multiline: false });
     const profile = input.value.profile && typeof input.value.profile === "object" ? input.value.profile : {};
+    // nothing to ask about without a prompt: answer "no questions" without calling the model (it used to, for an empty or wrong-typed prompt)
+    if (!prompt) return json({ questions: [] });
 
     const resp = await callAiGateway({
         model: gw.model,

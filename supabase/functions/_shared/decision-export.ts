@@ -20,6 +20,10 @@ export function encodeExportCursor(c: DecisionExportCursor): string {
 
 /** Returns null for anything malformed or from an unrecognized cursor version -- callers must
  * treat that as "start from the beginning," never crash or silently misinterpret it. */
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?$/;
+// an id is letters, digits, dash and underscore only: none of the characters that mean something inside a filter ( , . ( ) : " )
+const CURSOR_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
 export function decodeExportCursor(raw: string | null | undefined): DecisionExportCursor | null {
   if (!raw || !raw.startsWith(CURSOR_PREFIX)) return null;
   try {
@@ -29,6 +33,9 @@ export function decodeExportCursor(raw: string | null | undefined): DecisionExpo
     const createdAt = decoded.slice(0, sep);
     const id = decoded.slice(sep + 1);
     if (!createdAt || !id) return null;
+    // Both parts are placed inside a filter string (exportCursorFilter), so they must be exactly a timestamp and an id: a cursor
+    // carrying "x,user_id.neq.0" would otherwise add its own conditions to the query.
+    if (!ISO_TIMESTAMP.test(createdAt) || !CURSOR_ID.test(id)) return null;
     return { createdAt, id };
   } catch {
     return null;
