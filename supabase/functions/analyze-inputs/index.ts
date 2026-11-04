@@ -4,6 +4,8 @@
 // real understanding of what the user provided — not just raw appended text.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { safeFetchText } from "../_shared/safe-fetch.ts";
+import { describeInjection, fenceAll, stripHiddenHtml, UNTRUSTED_DATA_RULE } from "../_shared/untrusted-input.ts";
+import { scanForInjection } from "../_shared/injection-scanner.ts";
 import { parseModelJson } from "../_shared/model-output.ts";
 import { array, bool, object, optional, text, withDefault, type Infer } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";
@@ -31,7 +33,7 @@ async function fetchUrlText(url: string): Promise<string> {
     });
     if (!r.ok) return r.reason === "bad_type" ? `(non-text content)` : `(fetch error: ${r.message})`;
     if (!r.httpOk) return `(fetch failed ${r.status})`;
-    const raw = r.text;
+    const raw = stripHiddenHtml(r.text); // text a page hides from people is not read
     // Strip scripts/styles then tags
     const cleaned = raw
       .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -128,9 +130,13 @@ serve(async (req) => {
     }
 
     // 4) Run Lovable AI to extract a structured analysis.
-    const inputsBlock = resolved
-      .map((r, i) => `# Attachment ${i + 1} — ${r.label} [${r.source}]\n${r.text}`)
-      .join("\n\n");
+    // Every attachment is outside text: a web page, an uploaded file, pasted notes. Each is fenced as data, and the system prompt says
+    // that what is inside a fence is never an instruction (see _shared/untrusted-input.ts).
+    const fenced = fenceAll(resolved.map((r, i) => ({ label: `Attachment ${i + 1} — ${r.label} [${r.source}]`.slice(0, 60), text: r.text, max: 12000 })), { maxTotal: 60_000 });
+    const inputsBlock = fenced.block;
+    const warnings: string[] = [];
+    const injectionNote = describeInjection(fenced.scan);
+    if (injectionNote) { warnings.push(injectionNote); console.warn("[analyze-inputs] injection signals:", fenced.scan.matches.map((m) => `${m.rule} in ${m.field}`).join(", ")); }
 
     const system = `You are an input analyst for NazAI. The user is about to generate a ${kind} (website, AI agent, or similar). Read their brief AND every attached input carefully, then extract a compact structured analysis they can rely on downstream.
 
@@ -150,7 +156,7 @@ Return ONLY valid JSON with this shape (omit fields you cannot infer):
 Rules:
 - Attribute facts to their source when useful.
 - Never invent data that isn't in the brief or attachments.
-- If attachments contradict the brief, prefer the brief and note the conflict in "requirements".`;
+- If attachments contradict the brief, prefer the brief and note the conflict in "requirements".` + UNTRUSTED_DATA_RULE;
 
     const userMsg = `USER BRIEF:\n${prompt}\n\n${tone ? `USER TONE PREFERENCE: ${tone}\n\n` : ""}ATTACHED INPUTS (${resolved.length}):\n\n${inputsBlock}`;
     const visualInputs = resolved.filter((r) => r.kind === "image" && r.assetUrl);
@@ -191,8 +197,10 @@ Rules:
     if (tone) lines.push(`Desired tone/style: ${tone}. Apply this tone to every piece of copy you write or rewrite.`);
     if (analysis) {
       if (analysis.intent) lines.push(`Intent: ${analysis.intent}`);
+      // A line the analysis took from an attachment that itself reads as an instruction to the AI is dropped, not passed on as a requirement.
+      const clean = (line: string) => !scanForInjection([{ field: "analysis", text: line }]).detected;
       const arr = (k: string) =>
-        Array.isArray((analysis as any)[k]) ? ((analysis as any)[k] as string[]).filter(Boolean) : [];
+        Array.isArray((analysis as any)[k]) ? ((analysis as any)[k] as string[]).filter(Boolean).filter(clean) : [];
       const entities = arr("entities");
       if (entities.length) lines.push(`Entities: ${entities.join(", ")}`);
       if (analysis.brand_voice) lines.push(`Brand voice: ${analysis.brand_voice}`);
@@ -272,7 +280,7 @@ Rules:
     }
 
 
-    return json({ analysis, enrichedPrompt: lines.join("\n") });
+    return json({ analysis, enrichedPrompt: lines.join("\n"), ...(warnings.length ? { warnings } : {}) });
 
   } catch (e) {
     console.error("analyze-inputs error", e);
