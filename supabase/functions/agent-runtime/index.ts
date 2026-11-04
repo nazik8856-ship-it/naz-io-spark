@@ -4025,7 +4025,7 @@ function extractAction(raw: string): Record<string, unknown> | null {
 
 
 // Tools whose result is our own bookkeeping, not text from outside; every other result is fenced as data before the model reads it.
-const INTERNAL_RESULT_KINDS = new Set(["calc", "notify", "remember", "ask_user", "make_plan", "sync_integrations"]);
+const INTERNAL_RESULT_KINDS = new Set(["calc", "notify", "remember", "ask_user", "make_plan"]);
 
 async function executeTool(
   tool: Tool, input: Record<string, unknown>, supabase: SupabaseClient,
