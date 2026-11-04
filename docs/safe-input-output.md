@@ -92,11 +92,15 @@ the database, an id already checked); a new one fails until it is reviewed, a st
 
 - **One hostile set** (`supabase/functions/_shared/hostile-corpus.ts`): broken JSON, a list or string instead of an object, cut-off JSON, 5,000-deep nesting, a 300 KB body, a 10,000-item list, 5,000 keys, wrong types, NUL and control characters, prototype keys,
   header injection, filter injection. None can start paid work: each is malformed, oversized or of the wrong type. Tests run every case through the shared reader.
-- **The live probe** (`hostile-probe-sweep`, server key only, daily at 04:17 UTC): sends every case to every public and API-key function of the live project, and an empty request with only the public key to every function that needs a user or the server key (the
-  "stranger" check that used to be run by hand). A 500, a time-out, a stack trace or a key in an answer, a public function accepting a request it must refuse, or a protected function answering a stranger opens one platform incident (`hostile_probe`) listing each
-  failure; a clean run closes it. `{ "only": ["nazai-chat"] }` limits a run (and records no incident). The three functions where signing in is optional and the MCP bundle are left out (with the reason in the code).
-  It sends 3 requests at a time; a request that gets no answer at all (a dropped connection, not a time-out) is tried up to 3 times before it counts, and each such failure records the error name, so a connection the probe itself loses is not reported as a broken
-  function (the first live run sent 8 at a time and lost 10 requests before they reached their function).
+- **The live probe** (`hostile-probe-sweep`, server key only, daily from 04:17 UTC): sends every case to every public and API-key function of the live project, and an empty request with only the public key to every function that needs a user or the server key (the
+  "stranger" check that used to be run by hand). A 500, a time-out, a stack trace or a key in an answer, a public function accepting a request it must refuse, or a protected function answering a stranger is a failure.
+  - **Batches.** Supabase limits how many calls one function may make to other functions of the project within one request chain; on this project the first live run was cut off after 30 calls ("RateLimitError: Rate limit exceeded for trace ..."). A full probe
+    is 331 calls (20 public functions x 13 cases, plus 71 stranger checks), so it runs as 18 batches of at most 20 calls (`PROBE_BATCHES`, `MAX_CALLS_PER_RUN` in the corpus). The scheduler starts one batch a minute, 04:17 to 04:34 UTC, each as its own
+    request. A run that would go over 20 calls is refused, and a test fails when a new function would push a batch over, so the budget is never silently exceeded.
+  - **Incidents.** Each batch opens its own platform incident (`hostile_probe:<n>of18`) listing its failures, and closes it when it next runs clean. A call cut off by the budget is reported as "the probe ran out of its call budget" (not as a broken function), and
+    still keeps the batch from counting as clean.
+  - **Dropped connections.** A request that gets no answer at all (not a time-out) is tried once more before it counts, and every failure records the error name.
+  - `{ "only": ["nazai-chat"] }` limits a run (batch 0 of 1 unless given; no incident). The three functions where signing in is optional, the probe itself and the MCP bundle are left out (`PROBE_SKIP`, with the reason in the code).
 - **The speed budget** (`supabase/functions/_shared/perf-budget_test.ts`, in CI): every check from fronts 1-4 is timed on a realistic input, 300 runs, and must stay under 5 ms at the 95th percentile; every hostile case must be handled in under 50 ms. Measured:
   reading and checking an 8 KB request 0.32 ms, guarding a 7 KB answer 0.13 ms, fencing an 8 KB page 0.29 ms, reading a model reply 0.03 ms, checking a website section 0.23 ms, cleaning a log line 0.20 ms; the slowest hostile case (5,000 keys) 1.7 ms.
 - The intake step no longer calls the model for an empty or wrong-typed prompt (it answers "no questions", as it did after the call).
