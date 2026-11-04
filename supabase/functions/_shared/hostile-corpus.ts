@@ -34,11 +34,69 @@ export const HOSTILE_CASES: HostileCase[] = [
   { name: "filter injection", body: JSON.stringify({ agent_id: "x,user_id.neq.0", account_id: "x,user_id.neq.0", websiteId: "x,user_id.neq.0", sectionKind: "contact", fields: { a: "b" } }), mustRefuse: false, readerStatus: null },
 ];
 
-export type ProbeResult = { fn: string; case: string; status: number | null; ms: number; problem: string | null };
+export type ProbeResult = { fn: string; case: string; status: number | null; ms: number; problem: string | null; error?: string };
+
+/** One attempt at a request: the status (null when no answer came back), the answer text, how long it took and why it failed. */
+export type Attempt = { status: number | null; text: string; ms: number; error?: string; budget?: boolean };
+
+// Supabase limits how many calls one function may make to other functions of the project within one request chain (a RateLimitError,
+// about 30 a minute here, measured on the live project). A full probe is several hundred calls, so it runs in batches, each started as
+// its own request by the scheduler (each request has its own budget: checked live with batches running side by side), and no single
+// run may make more than MAX_CALLS_PER_RUN calls.
+export const PROBE_BATCHES = 18;
+export const MAX_CALLS_PER_RUN = 20;
+
+// Left out of the probe. Signing in is optional for the first three: a stranger gets an answer with only what a stranger may see, so the
+// stranger check does not apply, and their valid requests start a generation, so the hostile set is not sent either. The probe does not
+// probe itself. The generated MCP bundle ("mcp") speaks the MCP protocol, not JSON bodies, and is not deployed as a function; it has its
+// own tests.
+export const PROBE_SKIP = new Set(["analyze-inputs", "compile-agent-manifest", "compile-website-manifest", "hostile-probe-sweep", "mcp"]);
+
+export type ProbeJob = { fn: string; kind: "hostile" | "stranger"; hostile: HostileCase | null };
+
+/** Every call of a full probe, in a fixed order: each hostile case to each public / API-key function, then one stranger call to each user / system function. */
+export function probeJobs(access: Record<string, { access: string }>, skip: Set<string>): ProbeJob[] {
+  const entries = Object.entries(access).filter(([fn]) => !skip.has(fn));
+  const jobs: ProbeJob[] = [];
+  for (const [fn, a] of entries) if (a.access === "public" || a.access === "api_key") for (const c of HOSTILE_CASES) jobs.push({ fn, kind: "hostile", hostile: c });
+  for (const [fn, a] of entries) if (a.access === "user" || a.access === "system") jobs.push({ fn, kind: "stranger", hostile: null });
+  return jobs;
+}
+
+/** The calls of one batch (every batches-th call starting at batch), so each batch mixes functions and stays the same size. */
+export function batchOf<T>(jobs: T[], batch: number, batches: number): T[] {
+  return jobs.filter((_, i) => i % batches === batch);
+}
+
+/**
+ * Runs a request and, when no answer came back at all (a dropped or refused connection, not a time-out), tries again after a short
+ * pause. A function that is really down fails both tries; a connection the probe itself lost on the way does not count against the
+ * function. A time-out is not retried: the function took too long, which is the finding.
+ */
+export async function withRetry(run: () => Promise<Attempt>, timeoutMs: number, tries = 2, pauseMs = 750, sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<Attempt & { tries: number }> {
+  let last: Attempt = { status: null, text: "", ms: 0 };
+  for (let i = 1; i <= tries; i++) {
+    last = await run();
+    // an answer, a time-out or the call budget running out (waiting a minute is not worth it; the next batch has its own) is final
+    if (last.status !== null || last.ms >= timeoutMs || last.budget || i === tries) return { ...last, tries: i };
+    await sleep(pauseMs * i);
+  }
+  return { ...last, tries };
+}
+
+/** A short, key-free description of a failed fetch (its error name and the first part of its message). */
+export function describeFetchError(e: unknown): string {
+  const name = e instanceof Error ? e.name : typeof e;
+  const msg = e instanceof Error ? e.message : String(e);
+  // deno-lint-ignore no-control-regex
+  // eslint-disable-next-line no-control-regex -- removing control characters is the point
+  return `${name}: ${msg}`.replace(SECRET_ANY, "[redacted]").replace(/[\u0000-\u001f\u007f]+/g, " ").slice(0, 160);
+}
 
 // A stack trace or a secret in an answer is a leak whatever the status.
 const STACK = /\n\s+at\s+\S+\s*\(?(?:file:|https?:|\/)[^\n]*:\d+:\d+|\bat\s+\S+\s+\(file:\/\//;
 const SECRET = /(sk-[A-Za-z0-9_-]{20,}|sb_secret_[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|service_role|-----BEGIN [A-Z ]*PRIVATE KEY-----)/;
+const SECRET_ANY = new RegExp(SECRET.source, "g");
 
 /** What was wrong with one answer, or null when it was a calm refusal (or a harmless answer to a case that allows one). */
 export function judge(c: HostileCase, status: number | null, body: string, ms: number, timeoutMs: number): string | null {

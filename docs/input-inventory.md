@@ -61,7 +61,7 @@ The fields are found by reading the code (names used on the parsed body), so tre
 | `governance-backup-export` | system | readJson | 256 KB | `action`, `date` | — | `authorization` |
 | `handle-email-suppression` | public | no body | — | — | — | — |
 | `handle-email-unsubscribe` | public | readJson | 8 * 1024 | `token` | `token` | `content-type` |
-| `hostile-probe-sweep` | system | readJson | 16 * 1024 | `only` | — | `authorization` |
+| `hostile-probe-sweep` | system | readJson | 16 * 1024 | `batch`, `batches`, `only` | — | `authorization` |
 | `identity-providers-lookup` | public | readJson | 256 KB | `email` | — | `cf-connecting-ip`, `x-forwarded-for` |
 | `incident-escalation-sweep` | system | no body | — | — | — | `authorization` |
 | `integration-account-search` | public | readJson | 256 KB | `provider`, `query` | — | `cf-connecting-ip`, `x-forwarded-for` |
