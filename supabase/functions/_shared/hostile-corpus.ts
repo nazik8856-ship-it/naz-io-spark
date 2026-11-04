@@ -41,7 +41,8 @@ export type Attempt = { status: number | null; text: string; ms: number; error?:
 
 // Supabase limits how many calls one function may make to other functions of the project within one request chain (a RateLimitError,
 // about 30 a minute here, measured on the live project). A full probe is several hundred calls, so it runs in batches, each started as
-// its own request by the scheduler, one a minute, and no single run may make more than MAX_CALLS_PER_RUN calls.
+// its own request by the scheduler (each request has its own budget: checked live with batches running side by side), and no single
+// run may make more than MAX_CALLS_PER_RUN calls.
 export const PROBE_BATCHES = 18;
 export const MAX_CALLS_PER_RUN = 20;
 

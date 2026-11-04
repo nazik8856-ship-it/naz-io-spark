@@ -6,7 +6,8 @@
 // request it must refuse, or a protected function answering a stranger opens one platform incident ("hostile_probe") naming each
 // failure; a clean run closes it. Nothing it sends can start paid work (see the corpus), and it changes no data.
 // Server key only. A full probe is several hundred calls, more than one request may make to other functions (see PROBE_BATCHES in the
-// corpus), so it runs in PROBE_BATCHES batches: { "batch": 0 } ... { "batch": 17 }, started one a minute by the scheduler from 04:17 UTC.
+// corpus), so it runs in PROBE_BATCHES batches: { "batch": 0 } ... { "batch": 17 }, all started together by the scheduler at 04:17 UTC,
+// each as its own request (job "hostile-probe-daily", logged per batch as "hostile-probe-daily:<n>"; see docs/safe-input-output.md).
 // Each batch keeps its own incident ("hostile_probe:<n>of<total>"). { "only": ["nazai-chat"], "batch": 0, "batches": 1 } limits a run
 // (and records no incident). A run that would make more than MAX_CALLS_PER_RUN calls is refused.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
