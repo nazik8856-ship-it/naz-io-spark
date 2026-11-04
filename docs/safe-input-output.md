@@ -59,6 +59,20 @@ when something was flagged), the **business researcher's** scraped page, and the
 Guards: `src/test/input-boundary.test.ts` fails a function that puts fetched or uploaded text in a prompt without the fence and the rule (exceptions are recorded with a reason). `untrusted-input_test.ts` runs a hostile corpus
 (17 attack styles, hidden characters, forged markers, speed on large and pathological pages) and checks normal text passes through word for word.
 
+## Front 4 -- what the browser renders and loads
+
+| Change | Why |
+|---|---|
+| The website calculator's formula is evaluated by a small arithmetic parser (`src/lib/safe-math.ts`), not `new Function` | A model writes the formula; the old character filter still let calls like `alert(1)` through, and it was the only reason the policy allowed `'unsafe-eval'`. Ordinary formulas give the same numbers (tested against the old code); `Math.round/floor/ceil/abs/sqrt/min/max/pow`, `**` and `%` work |
+| Content security policy (`vercel.json`, `public/_headers`): no `'unsafe-eval'`; `frame-src` is the app plus the embed hosts instead of any https address; `form-action 'self'` added | No page can run text as code; a frame can only show a place made to be embedded; a form can only post to the app |
+| One embed allowlist in three places: generation (`site-content-guard.ts`), display (`src/lib/safe-urls.ts`, used by the website preview and the downloadable export) and the policy | Sites saved before the server check are held to it when shown; the app's own origin is never framed (a same-origin frame with scripts would escape its sandbox) |
+| Pictures in markdown written by a model (chat answers, agent runs) load only from hosts we serve pictures from (`SafeMarkdownImage`); others show their description | A picture loads by itself, so a stranger's image address could carry the conversation away |
+| The map frames (preview and export) and the export's embed frame are sandboxed | Every frame is now sandboxed or loads the app's own React-rendered page |
+
+Guard: `src/test/browser-rendering.test.ts` checks the policy directives, that the three allowlists are identical, that no file in `src/` evaluates text as code, that `dangerouslySetInnerHTML` appears only in the two reviewed places (chart colours, mermaid in strict mode),
+and that every `<iframe>` is sandboxed or loads the app's own page. Checked in a real browser: the built app served with the new policy shows the landing, sign-in, pricing and generation pages with no policy errors.
+No live website uses a calculator, quote, embed or map section today, so no existing page depends on the changed code.
+
 ## Checks that came out of this work
 
 * `supabase/functions/check-undefined-names.sh` (run in CI) fails when a function uses a name it never defines. It found two live bugs on its first run:
@@ -66,7 +80,6 @@ Guards: `src/test/input-boundary.test.ts` fails a function that puts fetched or 
 
 ## Not covered here (later fronts)
 
-* Front 4: how the browser renders what the server stored (content security policy, sandboxing of generated pages, the `embed_url` frame sandbox).
 * Front 5: values placed into database filters and log lines (the `.or()` filter built from a tool id in `_shared/outer-control-tools.ts`).
 * Front 6: a standing hostile-input corpus run against the live system, and a latency budget (the checks here are plain string work, well under a millisecond for normal requests).
 

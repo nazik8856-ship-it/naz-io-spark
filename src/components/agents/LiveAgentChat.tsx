@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUp, ChevronDown, ChevronUp, Bot, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import SafeMarkdownImage from "@/components/chat/SafeMarkdownImage";
 import { cn } from "@/lib/utils";
 
 type AgentTurn = { role: "user" | "assistant"; content: string; node?: ReactNode };
@@ -147,7 +148,7 @@ export default function LiveAgentChat({
                   {t.node ? (
                     <div className="not-prose w-full">{t.node}</div>
                   ) : t.content ? (
-                    <ReactMarkdown>{t.content}</ReactMarkdown>
+                    <ReactMarkdown components={{ img: SafeMarkdownImage }}>{t.content}</ReactMarkdown>
                   ) : executionLog ? (
                     <div className="not-prose w-full">{executionLog}</div>
                   ) : (

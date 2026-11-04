@@ -11,6 +11,7 @@
 // submission away, which is the same "lead goes into a black hole" bug the
 // live preview had before it got a real backend.
 import { SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
+import { isAllowedEmbedUrl } from "@/lib/safe-urls";
 
 type Field = Record<string, unknown>;
 
@@ -75,10 +76,10 @@ function renderSection(section: Field, pages: { slug: string }[], websiteId: str
     case "custom": {
       const kind = str(c, "kind");
       if (kind === "map" && str(c, "address")) {
-        return `<section><h2>${esc(str(c, "heading") || "Find us")}</h2><iframe src="https://www.google.com/maps?q=${encodeURIComponent(str(c, "address"))}&output=embed" style="width:100%;height:360px;border:0" loading="lazy"></iframe></section>`;
+        return `<section><h2>${esc(str(c, "heading") || "Find us")}</h2><iframe src="https://www.google.com/maps?q=${encodeURIComponent(str(c, "address"))}&output=embed" style="width:100%;height:360px;border:0" loading="lazy" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="strict-origin-when-cross-origin"></iframe></section>`;
       }
       if (kind === "embed" && /^https:\/\//i.test(str(c, "embed_url"))) {
-        return `<section><h2>${esc(str(c, "heading") || "")}</h2><iframe src="${esc(str(c, "embed_url"))}" style="width:100%;height:480px;border:0" loading="lazy"></iframe></section>`;
+        return `<section><h2>${esc(str(c, "heading") || "")}</h2>${isAllowedEmbedUrl(str(c, "embed_url"), "") ? `<iframe src="${esc(str(c, "embed_url"))}" style="width:100%;height:480px;border:0" loading="lazy" sandbox="allow-scripts allow-same-origin allow-popups allow-forms" referrerpolicy="strict-origin-when-cross-origin"></iframe>` : ""}</section>`;
       }
       return `<section><h2>${esc(str(c, "heading") || kind)}</h2><p>${esc(str(c, "body"))}</p></section>`;
     }

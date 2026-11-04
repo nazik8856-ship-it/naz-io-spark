@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import MermaidDiagram from "./MermaidDiagram";
+import SafeMarkdownImage from "./SafeMarkdownImage";
 
 interface RichMarkdownProps {
   text: string;
@@ -29,6 +30,7 @@ const RichMarkdown = ({ text }: RichMarkdownProps) => {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          img: SafeMarkdownImage,
           h1: ({ children }) => (
             <h1
               className="text-[18px] font-semibold mt-5 mb-3 tracking-tight"
