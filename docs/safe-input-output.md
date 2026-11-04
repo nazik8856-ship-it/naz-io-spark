@@ -73,15 +73,36 @@ Guard: `src/test/browser-rendering.test.ts` checks the policy directives, that t
 and that every `<iframe>` is sandboxed or loads the app's own page. Checked in a real browser: the built app served with the new policy shows the landing, sign-in, pricing and generation pages with no policy errors.
 No live website uses a calculator, quote, embed or map section today, so no existing page depends on the changed code.
 
+## Front 5 -- values placed into queries, headers and logs
+
+| Change | Why |
+|---|---|
+| `capability-status` accepts an `agent_id` only if it is an id (400 otherwise) | It is placed inside a filter string (`.or(agent_id.eq.…)`); `x,user_id.neq.0` would have added its own condition (still inside the caller's account) |
+| The decision-export `cursor` is accepted only as a timestamp and a plain id | Its two parts go into a filter string the same way |
+| The Outer Control tool filter uses the id read back from the database | (done with front 4) |
+| Console output: terminal escape codes, control and bidi characters are removed and a string is cut at 10,000 characters (`redact-console.ts`, on top of the secret scrubbing) | Text from a request or a model can not repaint a log viewer, hide earlier lines or flood the logs |
+
+Checked and already safe: the dynamic SQL in database functions (`format()` with `%I` / `%L`, values passed with `USING`; `encryption_enforce` is server-key only, `rollback_config_change` takes column names from the catalog);
+the one redirect built from a request (OAuth completion: the origin comes from an allowlist, parameters are encoded by `URL`); email headers (front 3).
+
+Guard: `src/test/query-injection.test.ts` lists every filter string (`.or` / `.filter` / `.not` / `.textSearch` / like patterns), column list or sort order built from a non-literal, each recorded with what it is (a timestamp the server made, a constant, an id read back from
+the database, an id already checked); a new one fails until it is reviewed, a stale entry fails too. It also checks every `EXECUTE` in the migrations quotes what it builds.
+
+## Front 6 -- the standing hostile set, the live probe and the speed budget
+
+- **One hostile set** (`supabase/functions/_shared/hostile-corpus.ts`): broken JSON, a list or string instead of an object, cut-off JSON, 5,000-deep nesting, a 300 KB body, a 10,000-item list, 5,000 keys, wrong types, NUL and control characters, prototype keys,
+  header injection, filter injection. None can start paid work: each is malformed, oversized or of the wrong type. Tests run every case through the shared reader.
+- **The live probe** (`hostile-probe-sweep`, server key only, daily at 04:17 UTC): sends every case to every public and API-key function of the live project, and an empty request with only the public key to every function that needs a user or the server key (the
+  "stranger" check that used to be run by hand). A 500, a time-out, a stack trace or a key in an answer, a public function accepting a request it must refuse, or a protected function answering a stranger opens one platform incident (`hostile_probe`) listing each
+  failure; a clean run closes it. `{ "only": ["nazai-chat"] }` limits a run (and records no incident). The three functions where signing in is optional and the MCP bundle are left out (with the reason in the code).
+- **The speed budget** (`supabase/functions/_shared/perf-budget_test.ts`, in CI): every check from fronts 1-4 is timed on a realistic input, 300 runs, and must stay under 5 ms at the 95th percentile; every hostile case must be handled in under 50 ms. Measured:
+  reading and checking an 8 KB request 0.32 ms, guarding a 7 KB answer 0.13 ms, fencing an 8 KB page 0.29 ms, reading a model reply 0.03 ms, checking a website section 0.23 ms, cleaning a log line 0.20 ms; the slowest hostile case (5,000 keys) 1.7 ms.
+- The intake step no longer calls the model for an empty or wrong-typed prompt (it answers "no questions", as it did after the call).
+
 ## Checks that came out of this work
 
 * `supabase/functions/check-undefined-names.sh` (run in CI) fails when a function uses a name it never defines. It found two live bugs on its first run:
   `control-system-decide` had lost its `token` variable in #288 and `agent-runtime` never imported `recordBreakerAttempt`.
-
-## Not covered here (later fronts)
-
-* Front 5: values placed into database filters and log lines (the `.or()` filter built from a tool id in `_shared/outer-control-tools.ts`).
-* Front 6: a standing hostile-input corpus run against the live system, and a latency budget (the checks here are plain string work, well under a millisecond for normal requests).
 
 ## Known limits
 

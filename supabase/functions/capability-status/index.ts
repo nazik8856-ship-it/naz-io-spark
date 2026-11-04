@@ -14,6 +14,7 @@
 // actually enforces this: a bogus/unauthorized account_id simply returns
 // no rows, exactly like ControlChangeLog.tsx et al.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { UUID_RE } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCaller, resolveCallerReadAccount } from "../_shared/caller.ts";
@@ -55,7 +56,10 @@ Deno.serve(async (req) => {
   const accountId = await resolveCallerReadAccount(who.caller, requestedAccountId);
   if (!accountId) return json({ error: "not_found" }, 404);
   const requestedAgentId = body?.agent_id ?? url.searchParams.get("agent_id");
-  const agentId = typeof requestedAgentId === "string" && requestedAgentId ? requestedAgentId : null;
+  // An agent id is put inside a filter string below (.or(...)), so it must be an id and nothing else: a value like
+  // "x,user_id.neq.0" would otherwise add its own conditions to the filter.
+  const agentId = typeof requestedAgentId === "string" && UUID_RE.test(requestedAgentId.trim()) ? requestedAgentId.trim().toLowerCase() : null;
+  if (requestedAgentId && !agentId) return json({ error: "agent_id must be an id" }, 400);
 
   // With no agent_id, report every connected provider on the account (the
   // original account-wide behavior ControlCoverageGaps.tsx relies on). With

@@ -123,3 +123,12 @@ Deno.test("groupOutcomesByDecision: a decision with no outcome rows simply has n
   assertEquals(grouped.get("d1"), undefined);
   assertEquals(grouped.get("d1") ?? [], []);
 });
+
+Deno.test("decodeExportCursor: a cursor whose parts are not a timestamp and an id is no cursor (it is placed inside a filter string)", () => {
+  const enc = (s: string) => "dxc1:" + btoa(s);
+  for (const bad of ["2026-11-01T00:00:00Z|x),user_id.neq.(0", "x,user_id.neq.0|00000000-0000-0000-0000-000000000001", "2026-11-01T00:00:00Z|a.b", "2026-11-01T00:00:00Z|a,b", "now()|00000000-0000-0000-0000-000000000001"]) {
+    assertEquals(decodeExportCursor(enc(bad)), null, bad);
+  }
+  const ok = { createdAt: "2026-11-04T07:25:35.123456+00:00", id: "00000000-0000-0000-0000-0000000000a1" };
+  assertEquals(decodeExportCursor(encodeExportCursor(ok)), ok);
+});
