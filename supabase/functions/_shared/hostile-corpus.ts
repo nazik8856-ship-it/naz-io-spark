@@ -34,11 +34,37 @@ export const HOSTILE_CASES: HostileCase[] = [
   { name: "filter injection", body: JSON.stringify({ agent_id: "x,user_id.neq.0", account_id: "x,user_id.neq.0", websiteId: "x,user_id.neq.0", sectionKind: "contact", fields: { a: "b" } }), mustRefuse: false, readerStatus: null },
 ];
 
-export type ProbeResult = { fn: string; case: string; status: number | null; ms: number; problem: string | null };
+export type ProbeResult = { fn: string; case: string; status: number | null; ms: number; problem: string | null; error?: string };
+
+/** One attempt at a request: the status (null when no answer came back), the answer text, how long it took and why it failed. */
+export type Attempt = { status: number | null; text: string; ms: number; error?: string };
+
+/**
+ * Runs a request and, when no answer came back at all (a dropped or refused connection, not a time-out), tries again after a short
+ * pause. A function that is really down fails every try; a connection the probe itself lost on the way does not count against the
+ * function. A time-out is not retried: the function took too long, which is the finding.
+ */
+export async function withRetry(run: () => Promise<Attempt>, timeoutMs: number, tries = 3, pauseMs = 750, sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<Attempt & { tries: number }> {
+  let last: Attempt = { status: null, text: "", ms: 0 };
+  for (let i = 1; i <= tries; i++) {
+    last = await run();
+    if (last.status !== null || last.ms >= timeoutMs || i === tries) return { ...last, tries: i };
+    await sleep(pauseMs * i);
+  }
+  return { ...last, tries };
+}
+
+/** A short, key-free description of a failed fetch (its error name and the first part of its message). */
+export function describeFetchError(e: unknown): string {
+  const name = e instanceof Error ? e.name : typeof e;
+  const msg = e instanceof Error ? e.message : String(e);
+  return `${name}: ${msg}`.replace(SECRET_ANY, "[redacted]").replace(/[\u0000-\u001f\u007f]+/g, " ").slice(0, 160);
+}
 
 // A stack trace or a secret in an answer is a leak whatever the status.
 const STACK = /\n\s+at\s+\S+\s*\(?(?:file:|https?:|\/)[^\n]*:\d+:\d+|\bat\s+\S+\s+\(file:\/\//;
 const SECRET = /(sk-[A-Za-z0-9_-]{20,}|sb_secret_[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|service_role|-----BEGIN [A-Z ]*PRIVATE KEY-----)/;
+const SECRET_ANY = new RegExp(SECRET.source, "g");
 
 /** What was wrong with one answer, or null when it was a calm refusal (or a harmless answer to a case that allows one). */
 export function judge(c: HostileCase, status: number | null, body: string, ms: number, timeoutMs: number): string | null {

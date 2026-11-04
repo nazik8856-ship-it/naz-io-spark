@@ -11,14 +11,16 @@ import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
 import { FUNCTION_ACCESS } from "../_shared/function-access.ts";
-import { HOSTILE_CASES, judge, p95, type ProbeResult } from "../_shared/hostile-corpus.ts";
+import { HOSTILE_CASES, describeFetchError, judge, p95, withRetry, type Attempt, type ProbeResult } from "../_shared/hostile-corpus.ts";
 import { openIncidentOnce, resolveIncidents } from "../_shared/provider-health.ts";
 
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 const TIMEOUT_MS = 15_000;
-const CONCURRENCY = 8;
+// Few requests at a time: a burst of parallel calls from one function to the same project drops connections before they reach the
+// target (seen on the first live run), which would read as a broken function.
+const CONCURRENCY = 3;
 const INCIDENT = "hostile_probe";
 // Signing in is optional for these: a stranger gets an answer with only what a stranger may see, so the stranger check does not apply,
 // and their valid requests start a generation, so the hostile set is not sent either.
@@ -26,16 +28,19 @@ const SKIP = new Set(["analyze-inputs", "compile-agent-manifest", "compile-websi
 // The generated MCP bundle speaks the MCP protocol, not JSON bodies; it has its own tests.
 const NOT_DEPLOYED = new Set(["mcp"]);
 
-async function send(url: string, anonKey: string, body: string): Promise<{ status: number | null; text: string; ms: number }> {
+async function sendOnce(url: string, anonKey: string, body: string): Promise<Attempt> {
   const t0 = Date.now();
   try {
     const r = await fetch(url, { method: "POST", body, headers: { "Content-Type": "application/json", apikey: anonKey, Authorization: `Bearer ${anonKey}` }, signal: AbortSignal.timeout(TIMEOUT_MS) });
     const text = (await r.text().catch(() => "")).slice(0, 20_000);
     return { status: r.status, text, ms: Date.now() - t0 };
-  } catch {
-    return { status: null, text: "", ms: Date.now() - t0 };
+  } catch (e) {
+    return { status: null, text: "", ms: Date.now() - t0, error: describeFetchError(e) };
   }
 }
+
+// A request that got no answer at all is tried again (up to 3 times) before it counts as a failure; a time-out is not.
+const send = (url: string, anonKey: string, body: string) => withRetry(() => sendOnce(url, anonKey, body), TIMEOUT_MS);
 
 async function pool<T>(jobs: (() => Promise<T>)[], n: number): Promise<T[]> {
   const out: T[] = new Array(jobs.length);
@@ -62,7 +67,7 @@ Deno.serve(async (req) => {
 
   const jobs: (() => Promise<ProbeResult>)[] = [];
   for (const fn of hostileTargets) for (const c of HOSTILE_CASES) {
-    jobs.push(async () => { const r = await send(base + fn, anonKey, c.body); return { fn, case: c.name, status: r.status, ms: r.ms, problem: judge(c, r.status, r.text, r.ms, TIMEOUT_MS) }; });
+    jobs.push(async () => { const r = await send(base + fn, anonKey, c.body); return { fn, case: c.name, status: r.status, ms: r.ms, problem: judge(c, r.status, r.text, r.ms, TIMEOUT_MS), error: r.error }; });
   }
   for (const fn of strangerTargets) {
     jobs.push(async () => {
@@ -70,7 +75,7 @@ Deno.serve(async (req) => {
       const refused = r.status !== null && [400, 401, 403, 404, 405, 429].includes(r.status);
       const problem = refused ? judge({ name: "stranger", body: "{}", mustRefuse: true, readerStatus: null }, r.status, r.text, r.ms, TIMEOUT_MS)
         : r.status === null ? (r.ms >= TIMEOUT_MS ? "no answer within the time limit" : "the request failed (network)") : `answered a stranger with ${r.status}`;
-      return { fn, case: "stranger (public key only)", status: r.status, ms: r.ms, problem };
+      return { fn, case: "stranger (public key only)", status: r.status, ms: r.ms, problem, error: r.error };
     });
   }
   const results = await pool(jobs, CONCURRENCY);
@@ -80,7 +85,7 @@ Deno.serve(async (req) => {
     checked: results.length,
     functions: { hostile: hostileTargets.length, stranger: strangerTargets.length },
     p95_ms: p95(results.map((r) => r.ms)),
-    failures: failures.slice(0, 50).map((f) => ({ fn: f.fn, case: f.case, status: f.status, problem: f.problem })),
+    failures: failures.slice(0, 50).map((f) => ({ fn: f.fn, case: f.case, status: f.status, problem: f.problem, ...(f.error ? { error: f.error } : {}) })),
   };
 
   if (!only) {

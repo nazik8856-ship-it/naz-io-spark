@@ -1,4 +1,4 @@
-import { HOSTILE_CASES, judge, p95 } from "./hostile-corpus.ts";
+import { HOSTILE_CASES, describeFetchError, judge, p95, withRetry, type Attempt } from "./hostile-corpus.ts";
 import { readJson } from "./input.ts";
 function assert(c: unknown, m = "assertion failed"): asserts c { if (!c) throw new Error(m); }
 function assertEquals<T>(a: T, b: T, m?: string) { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(m ?? `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); }
@@ -42,4 +42,26 @@ Deno.test("p95", () => {
   assertEquals(p95([]), 0);
   assertEquals(p95(Array.from({ length: 100 }, (_, i) => i + 1)), 95);
   assertEquals(p95([7]), 7);
+});
+
+Deno.test("withRetry: a dropped connection is tried again; an answer or a time-out is final", async () => {
+  const noSleep = () => Promise.resolve();
+  const seq = (list: Attempt[]) => { let i = 0; return () => Promise.resolve(list[Math.min(i++, list.length - 1)]); };
+  const dropped: Attempt = { status: null, text: "", ms: 20, error: "TypeError: connection reset" };
+  const ok: Attempt = { status: 400, text: "{}", ms: 30 };
+  let r = await withRetry(seq([dropped, ok]), 15000, 3, 0, noSleep);
+  assertEquals([r.status, r.tries], [400, 2]);
+  r = await withRetry(seq([dropped, dropped, dropped, ok]), 15000, 3, 0, noSleep);
+  assertEquals([r.status, r.tries, r.error], [null, 3, "TypeError: connection reset"]);
+  r = await withRetry(seq([{ status: null, text: "", ms: 15000 }, ok]), 15000, 3, 0, noSleep);
+  assertEquals([r.status, r.tries], [null, 1]);
+  r = await withRetry(seq([{ status: 500, text: "", ms: 10 }, ok]), 15000, 3, 0, noSleep);
+  assertEquals([r.status, r.tries], [500, 1]);
+});
+
+Deno.test("describeFetchError: short, one line, no keys", () => {
+  const d = describeFetchError(new TypeError("error sending request\nBearer eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZSJ9.abcdefghijklmnop"));
+  assert(d.startsWith("TypeError: error sending request"), d);
+  assert(!d.includes("\n") && !d.includes("eyJhbGci"), d);
+  assert(describeFetchError("x".repeat(500)).length <= 160);
 });
