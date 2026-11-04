@@ -1,4 +1,6 @@
 import { Component, createContext, useContext, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
+import { safeCalc } from "@/lib/safe-math";
+import { isAllowedEmbedUrl } from "@/lib/safe-urls";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -319,19 +321,6 @@ function renderHeadline(text: string, palette: Palette, displayFont?: string): (
       </span>
     );
   });
-}
-
-// Simple safe formula: allow numbers, variable names, + - * / ( ) . spaces
-function safeCalc(formula: string, vars: Record<string, number>): number | null {
-  if (!formula) return null;
-  if (!/^[\s\w+\-*/().]+$/.test(formula)) return null;
-  const names = Object.keys(vars);
-  try {
-    // eslint-disable-next-line no-new-func
-    const fn = new Function(...names, `"use strict"; return (${formula});`);
-    const out = fn(...names.map((n) => vars[n] ?? 0));
-    return typeof out === "number" && isFinite(out) ? out : null;
-  } catch { return null; }
 }
 
 type CtaNav = {
@@ -1695,6 +1684,8 @@ function CustomBlock({
               src={`https://www.google.com/maps?q=${encodeURIComponent(address)}&output=embed`}
               className="w-full h-full border-0"
               loading="lazy"
+              sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+              referrerPolicy="strict-origin-when-cross-origin"
             />
           </div>
         ) : (
@@ -1706,7 +1697,8 @@ function CustomBlock({
 
   if (kind === "embed") {
     const embedUrl = fieldStr(c, "embed_url");
-    const isSafeEmbed = /^https:\/\//i.test(embedUrl);
+    // only places made to be embedded, never this app itself (see src/lib/safe-urls.ts); a site saved before the check is held to it here
+    const isSafeEmbed = isAllowedEmbedUrl(embedUrl);
     return (
       <section className={container} data-reveal>
         <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Embed"), palette, displayFont)}</h2>

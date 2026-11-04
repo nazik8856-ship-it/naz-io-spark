@@ -65,7 +65,7 @@ export async function removeTool(admin: AnyAdmin, accountId: string, toolId: str
   // works, so it keeps going without a fallback (a later failure then goes to a person instead of
   // switching tools).
   const { data: open } = await admin.from("outer_control_sessions").select("id, workflow_id, tool_id")
-    .eq("user_id", accountId).in("status", ["queued", "running", "awaiting_human"]).or(`tool_id.eq.${toolId},fallback_tool_id.eq.${toolId}`);
+    .eq("user_id", accountId).in("status", ["queued", "running", "awaiting_human"]).or(`tool_id.eq.${tool.id},fallback_tool_id.eq.${tool.id}`); // the id as stored, never the request text, inside a filter string
   const found = (open ?? []) as { id: string; workflow_id: string | null; tool_id: string }[];
   const rows = found.filter((r) => r.tool_id === toolId);
   const fallbackOnly = found.filter((r) => r.tool_id !== toolId);

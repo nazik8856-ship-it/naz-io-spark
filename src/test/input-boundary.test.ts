@@ -102,6 +102,42 @@ describe("JSON read out of a model reply goes through the shared reader", () => 
   });
 });
 
+// --- outside text going into a prompt (front 2) ----------------------------------------------------------------------------------
+// A function that reads a page, a file or a webhook body and puts it in a model prompt must fence it as data (fenceUntrusted / fenceAll)
+// and put UNTRUSTED_DATA_RULE in that call's system prompt. These are the functions that do, and the ones that fetch an address and have
+// a recorded reason not to.
+const FENCES_OUTSIDE_TEXT = ["agent-runtime", "analyze-inputs", "business-context-researcher", "agent-intake"];
+const FETCHES_WITHOUT_FENCE: Record<string, string> = {
+  "projects": "stores the page as a project snapshot and wraps it in PROJECT_OPEN / PROJECT_CLOSE markers whenever it is shown to a model (_shared/projects.ts)",
+  "integration-sync": "reads the customer's own shop numbers into stored snapshots; no model prompt is built from the raw response",
+  "integration-connect": "checks that a connection works; the response is never put in a prompt",
+};
+
+describe("outside text is fenced before a model reads it", () => {
+  it.each(FENCES_OUTSIDE_TEXT)("%s fences outside text and carries the rule", (fn) => {
+    const src = code(source(fn));
+    expect(/fenceUntrusted\(|fenceAll\(/.test(src), `${fn} puts outside text in a prompt without fenceUntrusted / fenceAll`).toBe(true);
+    expect(src.includes("UNTRUSTED_DATA_RULE"), `${fn} must add UNTRUSTED_DATA_RULE to its system prompt`).toBe(true);
+  });
+
+  it.each(functions)("%s: a function that fetches an address either fences or says why not", (fn) => {
+    const src = code(source(fn));
+    if (!/safeFetchText\(|safeFetchJson\(|fetchPublicHttps\(/.test(src)) return;
+    const ok = /fenceUntrusted\(|fenceAll\(/.test(src) || fn in FETCHES_WITHOUT_FENCE;
+    expect(ok, `${fn} fetches an address; fence what it reads before a model sees it (fenceUntrusted) or record why not in FETCHES_WITHOUT_FENCE`).toBe(true);
+  });
+
+  it("the webhook body of an agent run is data, not the operator's instruction", () => {
+    const src = code(source("agent-runtime"));
+    expect(src).toContain("instructionIsOutsideData");
+    expect(src).toMatch(/not an instruction from your operator/);
+  });
+
+  it("every exception is a real function", () => {
+    for (const fn of Object.keys(FETCHES_WITHOUT_FENCE)) expect(functions).toContain(fn);
+  });
+});
+
 describe("a refusal is built from headers that exist", () => {
   it.each(functions)("%s", (fn) => {
     const src = source(fn);
