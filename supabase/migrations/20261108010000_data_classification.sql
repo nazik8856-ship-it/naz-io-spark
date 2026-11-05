@@ -492,7 +492,7 @@ INSERT INTO public.data_classification (table_name, column_name, class) VALUES
 ('websites', 'title', 'PROJECT_CONTENT')
 ON CONFLICT (table_name, column_name) DO UPDATE SET class = EXCLUDED.class;
 
-DO 514
+DO $$
 DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['canva_oauth_transactions', 'figma_oauth_transactions', 'gmail_oauth_transactions', 'notion_oauth_transactions',
@@ -501,26 +501,26 @@ BEGIN
       EXECUTE format('REVOKE ALL ON public.%I FROM anon, authenticated', t);
     END IF;
   END LOOP;
-END 514;
+END $$;
 
 -- The columns that must have a class: text, JSON, array, binary and other non-scalar columns of public tables, except the "_enc"
 -- twins (they hold the ciphertext of a classified column).
 CREATE OR REPLACE FUNCTION public.classifiable_columns()
 RETURNS TABLE (table_name text, column_name text, data_type text)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
   SELECT c.table_name::text, c.column_name::text, c.data_type::text
     FROM information_schema.columns c
     JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE'
    WHERE c.table_schema = 'public'
      AND c.data_type IN ('text', 'jsonb', 'json', 'character varying', 'ARRAY', 'bytea', 'USER-DEFINED')
      AND c.column_name NOT LIKE '%\_enc'
-$;
+$fn$;
 REVOKE ALL ON FUNCTION public.classifiable_columns() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.classifiable_columns() TO service_role;
 
 CREATE OR REPLACE FUNCTION public.classification_report()
 RETURNS TABLE (problem text, table_name text, column_name text, detail text)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
   -- a column that holds content but has no class
   SELECT 'unclassified', l.table_name, l.column_name, l.data_type
     FROM public.classifiable_columns() l
@@ -552,27 +552,27 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $
     FROM public.encrypted_columns e
     JOIN public.data_classification d ON d.table_name = e.table_name AND d.column_name = e.column_name
    WHERE d.class NOT IN ('PROJECT_CONTENT', 'EXTERNAL_RESPONSE', 'PERSONAL')
-$;
+$fn$;
 REVOKE ALL ON FUNCTION public.classification_report() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.classification_report() TO service_role;
 
 -- Content columns that are neither encrypted nor exempt with a reason: the at-rest work list (task 3), not a failure.
 CREATE OR REPLACE FUNCTION public.classification_gaps()
 RETURNS TABLE (table_name text, column_name text, class text)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
   SELECT d.table_name, d.column_name, d.class
     FROM public.data_classification d
    WHERE d.class IN ('PROJECT_CONTENT', 'EXTERNAL_RESPONSE', 'PERSONAL')
      AND NOT EXISTS (SELECT 1 FROM public.encrypted_columns e WHERE e.table_name = d.table_name AND e.column_name = d.column_name)
      AND NOT EXISTS (SELECT 1 FROM public.encryption_exempt_columns x WHERE x.table_name = d.table_name AND x.column_name = d.column_name)
    ORDER BY 1, 2
-$;
+$fn$;
 REVOKE ALL ON FUNCTION public.classification_gaps() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.classification_gaps() TO service_role;
 
 CREATE OR REPLACE FUNCTION public.data_classification_weekly_check()
 RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
 DECLARE problems jsonb; gaps bigint; open_id uuid; result jsonb;
 BEGIN
   SELECT coalesce(jsonb_agg(to_jsonb(r)), '[]') INTO problems FROM public.classification_report() r;
@@ -592,12 +592,12 @@ BEGIN
     UPDATE public.platform_incidents SET resolved_at = now(), resolution_note = 'Every content column classified, no secret readable or exposed.' WHERE id = open_id;
   END IF;
   RETURN result;
-END $;
+END $fn$;
 REVOKE ALL ON FUNCTION public.data_classification_weekly_check() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.data_classification_weekly_check() TO service_role;
 
-DO 514
+DO $$
 BEGIN
   IF to_regnamespace('cron') IS NULL THEN RETURN; END IF;
   PERFORM cron.schedule('data-classification-weekly-check', '47 3 * * 1', 'SELECT public.data_classification_weekly_check()');
-END 514;
+END $$;
