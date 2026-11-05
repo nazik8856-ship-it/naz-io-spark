@@ -2,6 +2,7 @@
 // Business-aware: loads business profile + memory; supports remember/ask_user/request_approval tools.
 // Input: { agentId: string, trigger?: "manual"|"cron"|"webhook", userInstruction?: string }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { maskOutbound } from "../_shared/outbound-guard.ts"; // second: no request carries a credential to the wrong host
 import { parseModelJson } from "../_shared/model-output.ts";
 import { object } from "../_shared/schema.ts";
 import { safeFetchText } from "../_shared/safe-fetch.ts";
@@ -1929,7 +1930,11 @@ Rules:
         // the retry-with-repair loop produces a verified-clean repaired
         // version of a blocked tool call's input -- every other path leaves
         // this exactly as validation produced it.
-        let input = validation.data;
+        // Data in transit: whatever this tool sends out (a document, an email, a request to a connected service) never carries a
+        // provider credential or one of NazAI's own; the masked input is also what the control gate judges and the log records.
+        const maskedInput = maskOutbound(validation.data);
+        if (maskedInput.masked) console.log(`[outbound-guard] removed ${maskedInput.masked} credential(s) from a "${tool.kind}" call`);
+        let input = maskedInput.value;
 
         // Identical-action loop detection for tools the control gate never
         // sees (see UNGATED_TOOL_KINDS above). Hashes (kind, input) rather

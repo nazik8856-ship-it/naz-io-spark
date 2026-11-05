@@ -9,6 +9,7 @@
 // need to swap the URL/header/model — the body shape (messages, temperature,
 // response_format, tools, stream) carries over unchanged.
 import { fetchWithRetry } from "./fetch-retry.ts";
+import { maskOutbound, maskOutboundText, maskedJson } from "./outbound-guard.ts";
 
 export const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 export const OPENAI_MODEL = "gpt-4o-mini";
@@ -119,7 +120,8 @@ export async function callAiGateway(body: Record<string, unknown>, cfg: GatewayC
     const res = await fetchWithRetry(cfg.url, {
       method: "POST",
       headers: aiGatewayHeaders(cfg),
-      body: JSON.stringify(body),
+      // Data in transit: a model prompt never carries a provider credential or one of NazAI's own.
+      body: JSON.stringify(maskOutbound(body).value),
       signal,
     }, { attempts: 3, baseDelayMs: 300 });
     if (res.ok) recordProviderSuccess(cfg.provider);
@@ -156,14 +158,14 @@ export function pickEmbeddingGateway(): EmbeddingGatewayConfig | null {
 /** Returns the embedding vector, or null on any failure — callers treat embeddings as best-effort. */
 export async function callEmbeddingGateway(text: string, cfg: EmbeddingGatewayConfig): Promise<number[] | null> {
   try {
-    const body: Record<string, unknown> = { model: cfg.model, input: text };
+    const body: Record<string, unknown> = { model: cfg.model, input: maskOutboundText(text).text };
     if (cfg.provider === "openai") body.dimensions = EMBEDDING_DIMENSIONS;
     // Both providers' embeddings endpoints take a plain Bearer token (unlike
     // chat completions, where Lovable expects its own "Lovable-API-Key" header).
     const resp = await fetch(cfg.url, {
       method: "POST",
       headers: { Authorization: `Bearer ${cfg.key}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: maskedJson(body),
     });
     if (!resp.ok) return null;
     const data = await resp.json();

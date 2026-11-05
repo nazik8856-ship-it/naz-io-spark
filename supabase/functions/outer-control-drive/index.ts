@@ -30,6 +30,7 @@
 // never returned. Sessions run in the background (EdgeRuntime.waitUntil); the dashboard
 // polls, and outer-control-session-sweep picks up anything that was left mid-way.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { resolveAccountScope } from "../_shared/account-scope.ts";

@@ -16,6 +16,7 @@
 // account metadata + fetch time so the agent still has concrete numbers to
 // reason about instead of "unknown".
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readResponseJson } from "../_shared/safe-fetch.ts";
 import { readJson } from "../_shared/input.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";

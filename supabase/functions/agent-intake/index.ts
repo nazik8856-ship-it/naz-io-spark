@@ -2,6 +2,7 @@
 // Input:  { prompt: string, profile: object, role?: string }
 // Output: { questions: { id: string, question: string, options?: string[], placeholder?: string }[] }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { readJson } from "../_shared/input.ts";

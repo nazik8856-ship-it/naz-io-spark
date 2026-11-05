@@ -12,6 +12,7 @@
 // when nothing points at them; _shared/site-image-relocation.ts). A few sites per run; dry_run reports what it would move.
 // Server key only (daily schedule, see 20261105050000_site_images_cleanup.sql).
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";

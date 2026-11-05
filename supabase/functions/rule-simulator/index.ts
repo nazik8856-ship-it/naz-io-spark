@@ -6,6 +6,7 @@
 // gate enforces with (ruleMatchesAction, scanWithRules) so the simulator
 // can never drift from what actually decides.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ruleMatchesAction, selectRulesForAgent } from "../_shared/rule-matching.ts";

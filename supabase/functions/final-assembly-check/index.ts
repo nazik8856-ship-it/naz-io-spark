@@ -17,6 +17,7 @@
 // capability-status/index.ts already established for a comparable
 // JWT-scoped read/write endpoint.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { checkAgentAssembly, checkWebsiteAssembly } from "../_shared/final-assembly-check.ts";

@@ -2,6 +2,7 @@
 // We exchange the code for tokens and persist them in agent_integrations.
 // Renders a small HTML page that notifies the opener window and closes.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { verifyState, exchangeCode, fetchUserInfo } from "../_shared/gmail.ts";
 import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";

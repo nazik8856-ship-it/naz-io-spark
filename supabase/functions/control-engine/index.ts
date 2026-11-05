@@ -5,6 +5,7 @@
 // helpers agent-runtime uses, returns Allow / Modify / Block, and logs every
 // verdict to agent_decisions.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { maskedJson } from "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { parseModelJson } from "../_shared/model-output.ts";
 import { object } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";
@@ -1055,7 +1056,7 @@ serve(async (req) => {
     const res = await fetch(OPENAI_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({
+      body: maskedJson({
         model: MODEL,
         temperature: 0.2,
         tools: [CHECK_TOOL],

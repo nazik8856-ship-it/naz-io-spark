@@ -1,4 +1,5 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { maskedJson } from "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts"
 import { cleanText } from "../_shared/clean-text.ts"
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
@@ -56,7 +57,7 @@ serve(async (req) => {
         "Authorization": `Bearer ${openRouterApiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
+      body: maskedJson({
         "model": model,
         "messages": [
           { "role": "user", "content": prompt }

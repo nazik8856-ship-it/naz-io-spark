@@ -4,6 +4,7 @@
 // endpoint actually responded 2xx — same durability reasoning as
 // critical_alerts earlier this session: a silently-failing webhook (wrong
 // URL, endpoint down, timeout) must never be invisible.
+import { maskedJson } from "./outbound-guard.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isRetryEligible, isExhausted, computeNextRetryAt } from "./webhook-retry.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
@@ -148,7 +149,8 @@ export async function triggerWebhooks(
     const hooks = ((data ?? []) as (Hook & { alerted_at?: string | null })[]).filter((h) => Array.isArray(h.events) && h.events.includes(event));
     if (!hooks.length) return;
 
-    const body = JSON.stringify({ event, data: payload, sent_at: new Date().toISOString() });
+    // Data in transit: a delivery never carries a provider credential or one of NazAI's own (masked before it is signed).
+    const body = maskedJson({ event, data: payload, sent_at: new Date().toISOString() });
     const timestamp = Date.now().toString();
 
     await Promise.all(hooks.map(async (hook) => {

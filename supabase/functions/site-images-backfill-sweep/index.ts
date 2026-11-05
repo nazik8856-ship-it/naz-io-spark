@@ -13,6 +13,7 @@
 // User-supplied images are never replaced: collectImageSlots skips any slot
 // that already has an asset_url.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 import { collectImageSlots } from "../_shared/site-images.ts";

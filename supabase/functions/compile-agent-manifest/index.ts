@@ -4,6 +4,7 @@
 // Input: { plan: string, businessProfileId?: string, userPrompt?: string,
 //          intakeAnswers?: Record<string,string>, role?: string }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { parseModelJson } from "../_shared/model-output.ts";
 import { object } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";

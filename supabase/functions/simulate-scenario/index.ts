@@ -1,4 +1,5 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { parseModelJson } from "../_shared/model-output.ts";
 import { guardOutputText } from "../_shared/output-guard.ts";
 import { array, object, oneOf, text, withDefault } from "../_shared/schema.ts";

@@ -3,6 +3,7 @@
 // prompt block so downstream compilers (websites, agents, future kinds) work off
 // real understanding of what the user provided — not just raw appended text.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { safeFetchText } from "../_shared/safe-fetch.ts";
 import { describeInjection, fenceAll, stripHiddenHtml, UNTRUSTED_DATA_RULE } from "../_shared/untrusted-input.ts";
 import { scanForInjection } from "../_shared/injection-scanner.ts";

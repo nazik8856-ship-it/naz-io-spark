@@ -6,6 +6,7 @@
 //   POST { table, ops: [{ m: "select", a: ["id, objective, status"] }, { m: "eq", a: ["user_id", "…"] }, { m: "order", a: ["started_at", { ascending: false }] }, …] }
 //   → { data, error }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { validRead } from "../_shared/outer-control-read.ts";

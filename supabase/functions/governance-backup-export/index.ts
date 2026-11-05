@@ -10,6 +10,7 @@
 // re-encrypted with the current one. POST { "action": "verify", "date": "YYYY-MM-DD" } is the restore drill: it decrypts that
 // day's files and returns how many rows each holds (never their content).
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 // The plain client on purpose: the backup copies rows as stored, so encrypted content stays encrypted in the backup files
 // (restorable with DATA_KEY), never written out decrypted (data encryption, front 4).

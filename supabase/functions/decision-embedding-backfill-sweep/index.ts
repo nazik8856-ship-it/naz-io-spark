@@ -7,6 +7,7 @@
 // account's entire history (or exhausts an embedding-provider rate
 // limit) at once.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildBackfillEmbeddingInput, generateEmbeddingWithinBudget, formatEmbeddingLiteral, type BackfillableDecisionRow } from "../_shared/decision-embeddings.ts";
 

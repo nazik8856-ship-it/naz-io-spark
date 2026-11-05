@@ -6,6 +6,7 @@
 // is a simple query. Service-role only, same auth pattern as every other
 // scheduled function this session.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildSignaturePayload, handleWebhookDeliveryOutcome } from "../_shared/webhooks.ts";
 import { isRetryEligible, computeNextRetryAt } from "../_shared/webhook-retry.ts";

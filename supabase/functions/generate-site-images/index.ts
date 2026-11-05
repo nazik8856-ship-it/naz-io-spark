@@ -8,6 +8,7 @@
 // are never touched. A site whose images all fail keeps the existing
 // illustration fallback AND gets a visible generation note -- never silent.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import { maskedJson } from "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { OUT_OF_CREDITS, openIncidentOnce, OUTAGE_SUMMARY, PROVIDER_OUTAGE_KIND } from "../_shared/provider-health.ts";
@@ -99,7 +100,7 @@ async function verifyImage(gw: GatewayConfig, imageUrl: string, subject: string,
     const res = await fetch(gw.url, {
       method: "POST",
       headers: aiGatewayHeaders(gw),
-      body: JSON.stringify({
+      body: maskedJson({
         model: gw.model,
         temperature: 0,
         response_format: { type: "json_object" },

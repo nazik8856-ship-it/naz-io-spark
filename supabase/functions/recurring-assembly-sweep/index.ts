@@ -20,6 +20,7 @@
 // performance problem to solve when it happens, not a reason to add
 // cursor/batching complexity nothing here needs yet.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { checkAgentAssembly, checkWebsiteAssembly } from "../_shared/final-assembly-check.ts";
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";

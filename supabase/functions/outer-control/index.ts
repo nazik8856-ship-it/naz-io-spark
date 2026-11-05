@@ -60,6 +60,7 @@
 // Authorization: Bearer nazai_sk_... header via resolveApiKeyAuth, not a
 // Supabase session JWT.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { judgeStateless } from "../_shared/outer-control-judgement.ts";
 import { relayToTask, taskForKey } from "../_shared/outer-control-relay.ts";
