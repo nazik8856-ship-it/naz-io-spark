@@ -117,7 +117,7 @@ Files users attach are in the private `user-uploads` bucket, under their own fol
 open, replace or delete them, and they are shared as signed links that expire. The site generator publishes only the user's own
 files that a generated site places (a copy in `mission-assets/website-images/<site>/uploads/`); a link to another account's
 file is never published. `mission-assets` (generated site images) is written by the server only, under the site's id: a public image address does not say
-whose it is (sites generated before 2026-11-05 still have the owner's id in their image addresses; see below). `governance-backups` is private
+whose it is (pictures of sites generated before 2026-11-05 are moved out of the old per-owner folders; see below). `governance-backups` is private
 (server only). See `docs/data-encryption.md`. Build check: `src/test/data-isolation.test.ts` ("uploads stay private").
 
 **Files outlive nothing.** `site-images-cleanup-sweep` (daily, server key) removes the files of things that no longer exist: the public
@@ -127,9 +127,18 @@ at it (`site_image_folder_in_use`), and while any file is newer than the grace p
 that fails keeps the files and stops the run. At most 500 files per bucket per run; `{ "dry_run": true }` lists what it would remove.
 Pause switch: `platform_settings.consequential_sweeps_paused`. Planning logic and tests: `_shared/orphan-files.ts`.
 
-Known limit: the 8 sites that existed before the folder change (32 image files) keep the owner's id in their public image addresses.
-Moving them means copying each file and rewriting the address everywhere it is stored (pages, saved versions, shared copies); that is
-a data change on live content and is left for an explicit decision.
+**Older sites' pictures move to the site's folder.** Sites generated before 2026-11-05 kept their pictures under
+`website-images/<owner>/<site>/`, so their public image addresses showed the owner's account id (8 sites, 32 files on 2026-11-04). The
+same daily sweep moves each such folder to `website-images/<site>/`, a few sites per run (`_shared/site-image-relocation.ts`):
+1. the site must exist and belong to the account the folder is named after (otherwise the folder is left alone);
+2. every file is copied to the new folder;
+3. every stored address is rewritten in one transaction: pages, the site's prompt, shared copies and saved versions
+   (`site_images_rewrite_refs`, server only, accepts nothing but that site's old folder and its new one);
+4. the old files are removed only when `site_images_refs_count` finds no stored address left pointing at the old folder.
+
+A failure stops before the next step, so no page ever points at a file that is gone; the next run picks the site up again. A copy of a
+site saved outside NazAI before the move (a downloaded export) still points at the old addresses, which stop working once the old files
+are removed.
 
 ## Front 4: connected tools and live updates
 

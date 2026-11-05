@@ -6,12 +6,17 @@
 // Conservative on purpose: a folder is left alone while its site/account exists, while a page, a saved version or a shared copy still
 // points at it, and while any of its files is newer than the grace period (1 day for site pictures, 7 for private uploads). A lookup
 // that fails or is unsure keeps the files. Bounded per run. Send { "dry_run": true } to see what it would remove without removing it.
+//
+// Before cleaning, it moves the pictures of sites generated before 2026-11-05 from website-images/<owner>/<site>/ to
+// website-images/<site>/, so no public image address names an account (copy, rewrite every stored address, remove the old files only
+// when nothing points at them; _shared/site-image-relocation.ts). A few sites per run; dry_run reports what it would move.
 // Server key only (daily schedule, see 20261105050000_site_images_cleanup.sql).
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 import { siteFolders, topFolders, planRemovals, type PlanItem } from "../_shared/orphan-files.ts";
+import { legacyFolders, relocateSite, type RelocationResult } from "../_shared/site-image-relocation.ts";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
 
 const corsHeaders = {
@@ -26,6 +31,7 @@ const SITE_GRACE_MS = DAY;
 const UPLOAD_GRACE_MS = 7 * DAY;
 const MAX_FILES_PER_RUN = 500;   // per bucket
 const REMOVE_CHUNK = 100;
+const MAX_SITES_MOVED_PER_RUN = 20;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -60,8 +66,37 @@ Deno.serve(async (req) => {
   };
 
   try {
-    // Public pictures of sites that are gone.
     const images = admin.storage.from("mission-assets");
+
+    // Older sites' pictures move out of the per-owner folders first.
+    const moved: RelocationResult[] = [];
+    for (const l of legacyFolders(await siteFolders(images)).slice(0, MAX_SITES_MOVED_PER_RUN)) {
+      moved.push(await relocateSite(images, {
+        ownerOf: async (site) => {
+          const { data, error } = await admin.from("websites").select("user_id").eq("id", site).maybeSingle();
+          if (error) throw new Error(`websites lookup failed: ${error.message}`);
+          return data ? String((data as { user_id: string }).user_id) : null;
+        },
+        rewrite: async (site, from, to) => {
+          const { data, error } = await admin.rpc("site_images_rewrite_refs", { _site: site, _from: from, _to: to });
+          if (error) throw new Error(`rewriting addresses failed: ${error.message}`);
+          return Number(data ?? 0);
+        },
+        refsLeft: async (from) => {
+          const { data, error } = await admin.rpc("site_images_refs_count", { _prefix: from });
+          if (error || data === null || data === undefined) return null;
+          return Number(data);
+        },
+      }, l, { dryRun }));
+    }
+    const relocation = {
+      sites: moved.length,
+      by_status: moved.reduce<Record<string, number>>((m, r) => ({ ...m, [r.status]: (m[r.status] ?? 0) + 1 }), {}),
+      files_moved: moved.reduce((n, r) => n + r.removed, 0),
+      rows_rewritten: moved.reduce((n, r) => n + r.rows_rewritten, 0),
+    };
+
+    // Public pictures of sites that are gone.
     const sitePlan = await planRemovals(images, await siteFolders(images), {
       exist: async (ids) => {
         const { data, error } = await admin.from("websites").select("id").in("id", ids);
@@ -91,7 +126,7 @@ Deno.serve(async (req) => {
       graceMs: UPLOAD_GRACE_MS,
     });
 
-    const result = { ok: true, dry_run: dryRun, site_images: await apply("mission-assets", sitePlan), private_uploads: await apply("user-uploads", uploadPlan) };
+    const result = { ok: true, dry_run: dryRun, relocation, site_images: await apply("mission-assets", sitePlan), private_uploads: await apply("user-uploads", uploadPlan) };
     console.log("[site-images-cleanup-sweep]", JSON.stringify({ ...result, site_images: { ...result.site_images, would_remove: undefined }, private_uploads: { ...result.private_uploads, would_remove: undefined } }));
     return json(result);
   } catch (e) {

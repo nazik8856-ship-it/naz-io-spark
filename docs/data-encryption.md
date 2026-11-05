@@ -123,9 +123,9 @@ with no policy for signed-in users or visitors; folders older than 30 days are d
 - `user-uploads` (private): files users attach to a prompt, a clarification answer, a mission or the brand canvas. Each sits
   under its owner's folder (`<user id>/…`); only the owner can upload, open, replace or delete it, nobody can list anyone else's,
   and it is shared as a signed link that expires (a day for prompt and canvas files, 7 days for missions and clarifications).
-- `mission-assets` (public): generated website images (`website-images/<user>/<site>/…`), which published sites show to
+- `mission-assets` (public): generated website images (`website-images/<site>/…`; sites generated before 2026-11-05 are moved there from `website-images/<owner>/<site>/`, see `docs/data-isolation.md`), which published sites show to
   everyone. Only the server writes there. When a generated site places one of the user's attached images, the site generator
-  copies just that file to `website-images/<user>/<site>/uploads/` and the page points at the copy: what the user puts in a
+  copies just that file to `website-images/<site>/uploads/` and the page points at the copy: what the user puts in a
   site is public, nothing else they upload is (`supabase/functions/_shared/uploaded-assets.ts`).
 
 ## Every content column is encrypted or exempt
@@ -139,7 +139,8 @@ signed decision trail verifies in the database; decisions and rules are not encr
 - **On every change:** `src/test/field-encryption.test.ts` fails when a migration adds a text or JSON column to one of these tables
   without listing it in `ENCRYPTED_COLUMNS` (with its `_enc` twin) or exempting it with a reason.
 - **Every Monday (03:43 UTC):** `encryption_weekly_check()` opens a platform incident (`encryption_check`) when a listed column
-  still holds plain values or a content column is uncovered, naming them; it closes the incident once both are clear.
+  still holds plain values, a content column is uncovered, a column in use is not locked, or a lock is missing, naming them; it closes
+  the incident once all four are clear.
 
 ## What is deliberately not encrypted
 
@@ -152,9 +153,16 @@ signed decision trail verifies in the database; decisions and rules are not encr
 ## Locking a column
 
 Once `encryption_report()` shows 0 plain values for a column, `encryption_enforce('<table>', '<col>')` makes the database refuse
-any write that puts text in the clear there. It is not applied yet: with it, a write path that does not encrypt fails with an
-error instead of being caught and encrypted by the sweep a few minutes later. Apply it per column once the report has stayed at
-0 for a while.
+any write that puts text in the clear there (a CHECK named `<table>_<col>_encrypted`): a write path that does not encrypt fails with
+an error instead of being caught and encrypted by the sweep a few minutes later.
+
+- **Locked (2026-11-07, `20261107010000_lock_encrypted_columns_and_site_image_paths.sql`):** the 38 listed columns that hold encrypted
+  values. Before locking, every writer was checked: the edge functions write through the encrypting client (the build check), the
+  website writes through `encrypted-write`, the one database function that touches such a column (`record_approval_signoff`, comment)
+  is always called with a null comment, and the converter had found nothing to convert.
+- **Not locked yet:** the 14 listed columns that hold no values at all. Lock each once it is in use and its writers are checked.
+- **Weekly (Mondays 03:43 UTC):** `encryption_weekly_check()` keeps the `encryption_check` incident open while any listed column holds
+  encrypted values without a lock, or a recorded lock is missing from its table.
 
 ## Fingerprints
 
