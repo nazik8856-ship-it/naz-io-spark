@@ -3,6 +3,7 @@
 // requirements before exchanging the code. Access tokens are stored per shop
 // domain so users can connect multiple stores without overwriting each other.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";
 import { exchangeCode, fetchShopInfo, normalizeShop, verifyCallbackHmac } from "../_shared/shopify.ts";

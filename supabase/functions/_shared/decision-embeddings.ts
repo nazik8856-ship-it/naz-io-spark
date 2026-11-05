@@ -13,6 +13,7 @@
 // the Lovable gateway's embeddings route otherwise. If the model name or
 // response shape ever differs, `generateEmbedding` fails closed (returns
 // null) rather than silently storing garbage.
+import { maskedJson } from "./outbound-guard.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getApiKeySpendStatus, recordAiSpend } from "./spend-guard.ts";
 import { pickEmbeddingGateway, EMBEDDING_DIMENSIONS } from "./ai-gateway.ts";
@@ -103,7 +104,7 @@ export async function generateEmbedding(text: string): Promise<number[] | null> 
       res = await fetch(gw.url, {
         method: "POST",
         headers: { Authorization: `Bearer ${gw.key}`, "Content-Type": "application/json" },
-        body: JSON.stringify(
+        body: maskedJson(
           gw.provider === "openai"
             ? { model: gw.model, input: text, dimensions: EMBEDDING_DIMENSIONS }
             : { model: gw.model, input: text },

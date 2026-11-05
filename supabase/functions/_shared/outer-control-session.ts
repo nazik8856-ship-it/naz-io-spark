@@ -9,6 +9,7 @@
 // else continues by itself. The driver is resumable: state lives in the session
 // row, so outer-control-session-sweep can pick a session up after a pause.
 import { checkKillSwitches, createPendingApproval, runControlGate } from "./control-gate.ts";
+import { maskOutbound, maskOutboundText, scrubInbound } from "./outbound-guard.ts";
 import { extractExternalText } from "./outer-control-intake.ts";
 import { evaluateExternalText, textSafeToStore, TEXT_REVIEW_ACTION_TYPE } from "./outer-control-text-review.ts";
 import { loadSafetyRules, scanWithRules, type SafetyRule } from "./safety-scanner.ts";
@@ -607,6 +608,9 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       const headers: Record<string, string> = { "Content-Type": "application/json", ...request.headers };
       if (token) headers[tool.auth_header] = `${tool.auth_scheme}${token}`;
       if (tool.request_format === "anthropic_messages") headers["anthropic-version"] = "2023-06-01";
+      // Data in transit: provider credentials, NazAI's own credentials and this tool's own key never travel in the body (only in
+      // its auth header). The masked body is what is sent and what is stored for the step.
+      const outBody = maskOutbound(request.body, [token]).value;
 
       let httpStatus: number | null = null;
       let rawText = "";
@@ -649,7 +653,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           res = new Response(JSON.stringify({ status: r.status, answer: r.answer, ...(r.question ? { question: r.question } : {}) }), { status: 200 });
         } else if (tool.request_format === "mcp") {
           // An MCP server is spoken to in MCP: handshake, find the tool, call it with the step's text. What it returns is the reply.
-          const text = [reqInput.objective, reqInput.context ? `Context:\n${reqInput.context}` : "", reqInput.answer ? `Answer from a person:\n${reqInput.answer}` : ""].filter(Boolean).join("\n\n").slice(0, 12_000);
+          const text = maskOutboundText([reqInput.objective, reqInput.context ? `Context:\n${reqInput.context}` : "", reqInput.answer ? `Answer from a person:\n${reqInput.answer}` : ""].filter(Boolean).join("\n\n").slice(0, 12_000), [token]).text;
           const r = await mcpCall({ url: tool.endpoint_url, authHeader: tool.auth_header, authScheme: tool.auth_scheme, token }, { fetchImpl: deps.fetchImpl, validateUrl: deps.validateUrl, timeoutMs: deps.toolTimeoutMs }, tool.model, text);
           if (r.ok) res = new Response(JSON.stringify({ status: "done", answer: r.text }), { status: 200 });
           else if (r.timedOut) throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
@@ -658,7 +662,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           else { mcpDetail = r.error; res = new Response("{}", { status: 200 }); }
         } else {
           // A redirect is never followed: the address was checked, and where it points is not.
-          res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(request.body), redirect: "manual", signal: AbortSignal.timeout(deps.toolTimeoutMs) });
+          res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(outBody), redirect: "manual", signal: AbortSignal.timeout(deps.toolTimeoutMs) });
         }
         httpStatus = res.status;
         retryAfterMs = parseRetryAfter(res.headers?.get?.("retry-after"), deps.now());
@@ -716,7 +720,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
 
       const stepBase = {
         session_id: s.id, user_id: s.user_id, step_no: stepNo, attempt,
-        request: { headers: request.headers, body: request.body }, http_status: httpStatus,
+        request: { headers: request.headers, body: outBody }, http_status: httpStatus,
       };
 
       // 8a. No usable reply: classify why, then retry, switch tool, hand off or end.
@@ -794,7 +798,8 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       const ruleNames = [...new Set([...matches.map((m) => m.name), ...brain.applied.filter((h) => h.origin === "pinned").map((h) => h.name)])];
       const names = ruleNames.join("; ");
       // What is stored is the masked/cleaned form, never the raw reply.
-      const stored = brain.output ?? textSafeToStore(content, matches);
+      // ... and with any credential the tool sent back removed (after the checks, so they still see and judge it).
+      const stored = scrubInbound(brain.output ?? textSafeToStore(content, matches)).text;
       // The brain can send a reply to a person that the foundation let through (earlier declines, low confidence at high
       // risk). That needs a real approval row; one made by the foundation is reused.
       let approvalId: string | null = result.approvalId ?? null;
@@ -876,7 +881,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         return { status: "awaiting_human", steps };
       }
       // allow / modify: continue, finish, or ask a person a question.
-      await acceptReply(admin, s, tool, stepNo, { text: brain.output ?? content, toolStatus: reply.status, actions: agentActions, report: reportResult && reportResult.ok ? reportResult.doc : null }, deps);
+      await acceptReply(admin, s, tool, stepNo, { text: scrubInbound(brain.output ?? content).text, toolStatus: reply.status, actions: agentActions, report: reportResult && reportResult.ok ? reportResult.doc : null }, deps);
       const { data: after } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
       const st = (after as { status?: string } | null)?.status ?? "running";
       if (st !== "running") return { status: st, steps };

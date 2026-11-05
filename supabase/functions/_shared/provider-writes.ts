@@ -1,4 +1,5 @@
 import { slackText } from "./outbound.ts";
+import { maskOutbound } from "./outbound-guard.ts";
 // ============================================================================
 // Real, verified write executors for Slack, Notion, Canva and Shopify.
 //
@@ -1386,6 +1387,8 @@ export { PROVIDER_WRITE_KINDS } from "./approval-run.ts";
 export async function runProviderWrite(
   kind: string, admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
 ): Promise<WriteResult> {
+  // Data in transit: what is written to a connected service never carries a provider credential or one of NazAI's own.
+  input = maskOutbound(input).value;
   switch (kind) {
     case "slack_post_message": return await slackPostMessage(admin, userId, agentId, input);
     case "slack_upload_file": return await slackUploadFile(admin, userId, agentId, input);

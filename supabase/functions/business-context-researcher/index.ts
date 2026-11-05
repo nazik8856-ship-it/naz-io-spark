@@ -3,6 +3,7 @@
 // Input:  { prompt: string, url?: string, reuseLatest?: boolean }
 // Output: { profile: BusinessProfile, profileId: string, isNew: boolean }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { askForJson } from "../_shared/model-output.ts";
 import { safeFetchText } from "../_shared/safe-fetch.ts";
 import { fenceUntrusted, stripHiddenHtml, UNTRUSTED_DATA_RULE } from "../_shared/untrusted-input.ts";

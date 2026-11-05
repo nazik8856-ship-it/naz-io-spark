@@ -3,6 +3,7 @@
 // resolved, advance sessions that are mid-run (a driver was cut off or a retry is
 // due), end sessions that have waited for a person too long, and re-test the connection of tools that are in use.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { createClient, createPlainClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 import { contactRuleStopping, resumeSession } from "../_shared/outer-control-session.ts";

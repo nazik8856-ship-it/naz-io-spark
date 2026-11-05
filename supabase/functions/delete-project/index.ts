@@ -17,6 +17,7 @@
 // itself. RLS is not part of this request's path at all, so it can't be
 // the cause of a re-occurrence.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";

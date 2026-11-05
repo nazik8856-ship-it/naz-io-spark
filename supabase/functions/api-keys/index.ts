@@ -19,6 +19,7 @@
 // this can't just rely on RLS the way the frontend's plain SELECT can,
 // since every write here goes through the service-role admin client.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";

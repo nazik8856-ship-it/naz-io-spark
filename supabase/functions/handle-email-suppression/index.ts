@@ -8,6 +8,7 @@
 // Left deployed (rather than deleted) so any traffic still arriving at this
 // URL gets a clear, intentional response instead of an obscure key error.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 
 function jsonResponse(data: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(data), {

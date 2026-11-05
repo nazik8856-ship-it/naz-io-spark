@@ -2,6 +2,7 @@
 // short-lived server-side transaction keyed by a random state, and returns
 // the Shopify authorization URL for the client to open in a popup.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { buildAuthUrl, isConfigured, normalizeShop, SHOPIFY_SCOPES } from "../_shared/shopify.ts";

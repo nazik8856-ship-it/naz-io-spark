@@ -9,7 +9,7 @@ export const REDACTED = "[REDACTED:secrets]";
 
 // Values that are a credential by their shape (the same formats the built-in "API key or secret" rule catches), wherever they
 // appear: provider keys, a private key block, a JWT.
-const SECRET_SHAPES =
+export const SECRET_SHAPES =
   /(sk-ant-[A-Za-z0-9_-]{20,}|sk-proj-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{16,}|sk_live_[A-Za-z0-9]{16,}|sk_test_[A-Za-z0-9]{16,}|rk_live_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,}|ya29\.[A-Za-z0-9._-]{20,}|secret_[A-Za-z0-9]{30,}|ntn_[A-Za-z0-9]{30,}|shpat_[A-Fa-f0-9]{20,}|re_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(\.[A-Za-z0-9_-]{5,})?)/g;
 
 // "Bearer abc…", "Basic abc…" (an Authorization header's value, wherever it is printed).

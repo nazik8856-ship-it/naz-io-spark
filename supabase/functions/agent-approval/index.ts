@@ -8,6 +8,7 @@
 // switch flipped, a hard rule added, or a circuit breaker tripped AFTER this
 // item was queued must still stop it from actually running now.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)

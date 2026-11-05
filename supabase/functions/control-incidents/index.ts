@@ -14,6 +14,7 @@
 //                                            an optional root_cause_category /
 //                                            related_incident_id
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ROOT_CAUSE_CATEGORIES, isValidRootCauseCategory } from "../_shared/incidents.ts";

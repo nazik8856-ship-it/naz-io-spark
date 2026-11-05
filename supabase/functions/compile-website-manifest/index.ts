@@ -2,6 +2,7 @@
 // Input: { prompt: string, save?: boolean }
 // Output: { manifest, website_id?, pages? }
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createUploadAliases, publishUploadsInPages, type UploadAliases } from "../_shared/uploaded-assets.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";

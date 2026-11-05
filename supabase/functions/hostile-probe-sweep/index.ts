@@ -11,6 +11,7 @@
 // Each batch keeps its own incident ("hostile_probe:<n>of<total>"). { "only": ["nazai-chat"], "batch": 0, "batches": 1 } limits a run
 // (and records no incident). A run that would make more than MAX_CALLS_PER_RUN calls is refused.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";

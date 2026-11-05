@@ -4,6 +4,7 @@
 // legitimate write path into website_form_submissions; the table itself has
 // no anon/authenticated INSERT policy at all.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { createClient, type SupabaseClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { readJson } from "../_shared/input.ts";

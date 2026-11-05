@@ -14,6 +14,7 @@
 // gets its own alert (same moving-window reasoning as
 // webhooks.alerted_at / agent_integrations.revoked_alerted_at).
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason, computePauseUntil, summarizeAccountActivity, isCoordinatedAccountAbuse, summarizeCoordinatedAbuse, ABUSE_LOOKBACK_MINUTES, VOLUME_THRESHOLD, BLOCK_RATE_MIN_SAMPLE, BLOCK_RATE_THRESHOLD, type DecisionRow } from "../_shared/control-api-abuse.ts";
 import { isRepeatedPauseTrouble, summarizePolicyDowngrade } from "../_shared/policy-downgrade.ts";

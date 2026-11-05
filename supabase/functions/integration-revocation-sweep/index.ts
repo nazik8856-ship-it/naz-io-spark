@@ -11,6 +11,7 @@
 // on since their last break, then stamps revoked_alerted_at so the same
 // break isn't re-alerted every 30 minutes.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
+import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { newlyBrokenIntegrations, summarizeRevokedIntegration, type ErroredIntegrationRow } from "../_shared/integration-revocation.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";

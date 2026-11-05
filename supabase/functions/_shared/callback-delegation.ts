@@ -12,6 +12,7 @@
 // callback_timeout_seconds is capped at 60 in the migration for exactly
 // this reason: Supabase Edge Functions have their own wall-clock
 // execution limit.
+import { maskedJson } from "./outbound-guard.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { hmacHex, buildSignaturePayload } from "./webhooks.ts";
 import { claimRowOnce } from "./idempotency.ts";
@@ -58,7 +59,8 @@ async function notifyCallback(
     // our server actually makes the outbound request.
     const check = await validateOutboundUrl(url);
     if (!check.ok) return;
-    const body = JSON.stringify({ event: "decision_needs_resolution", data: payload, sent_at: new Date().toISOString() });
+    // Data in transit: the callback never carries a provider credential or one of NazAI's own (masked before it is signed).
+    const body = maskedJson({ event: "decision_needs_resolution", data: payload, sent_at: new Date().toISOString() });
     const timestamp = Date.now().toString();
     const signature = await hmacHex(secret, buildSignaturePayload(timestamp, body));
     await fetch(url, {
