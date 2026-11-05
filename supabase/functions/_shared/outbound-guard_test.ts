@@ -103,3 +103,11 @@ Deno.test("maskOutbound / maskedJson: every string in a nested value, keys and o
   assertEquals(v.a[0], `x ${DATA}`, "the original is not changed");
   assertEquals(JSON.parse(maskedJson({ t: "ghp_" + "c".repeat(24) })).t, REDACTED);
 });
+
+Deno.test("maskOutbound: an embedded file (data: URL, base64) is passed through untouched", () => {
+  const img = "data:image/png;base64," + "AIza" + "B".repeat(40) + "==";
+  const r = maskOutbound({ image_url: { url: img }, text: "AIza" + "C".repeat(35) }, [], SECRETS);
+  assertEquals(r.value.image_url.url, img);
+  assertEquals(r.value.text, REDACTED);
+  assertEquals(r.masked, 1);
+});

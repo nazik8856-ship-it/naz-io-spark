@@ -114,7 +114,13 @@ function ownProjectHost(e: Record<string, string>): string | null {
 let cachedSecrets: Secret[] | null = null;
 let cachedOwnHost: string | null = null;
 function loadSecrets() {
-  if (cachedSecrets === null) { const e = env(); cachedSecrets = secretsFrom(e); cachedOwnHost = ownProjectHost(e); }
+  if (cachedSecrets === null) {
+    const e = env();
+    cachedSecrets = secretsFrom(e);
+    cachedOwnHost = ownProjectHost(e);
+    // Once per function instance, so a live log shows the guard is on (how many credentials, never which values).
+    console.log(`[outbound-guard] active: ${cachedSecrets.length} credential(s) protected`);
+  }
   return { secrets: cachedSecrets, ownHost: cachedOwnHost };
 }
 
@@ -123,7 +129,10 @@ export function guardFetch(original: typeof fetch, load: () => { secrets: Secret
   return async function guardedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const url = input instanceof Request ? input.url : input instanceof URL ? input.href : String(input);
     const { secrets, ownHost } = load();
-    if (secrets.length) {
+    let host = "";
+    try { host = new URL(url).hostname.toLowerCase(); } catch { /* not a URL: fetch itself will refuse it */ }
+    // NazAI's own project (database, storage, its own functions) is where every credential may go: nothing to read.
+    if (secrets.length && host && host !== ownHost) {
       const leak = findLeak({ url, headers: headerPairs(input, init), body: await bodyText(input, init) }, secrets, ownHost);
       if (leak) {
         console.error(`[outbound-guard] refused a request to ${leak.host}: it carried ${leak.name} in its ${leak.where}`);
@@ -151,6 +160,7 @@ export const CREDENTIAL_SHAPES = new RegExp(
 );
 
 const MIN_EXTRA_CHARS = 8;
+const DATA_URL = /^data:[\w.+-]+\/[\w.+-]+(;[\w=.+-]+)*;base64,/i;
 
 /** Text with every provider credential, NazAI credential and given extra secret (e.g. the tool's own key) replaced. */
 export function maskOutboundText(text: string, extra: (string | null | undefined)[] = [], secrets: Secret[] = loadSecrets().secrets): { text: string; masked: number } {
@@ -172,7 +182,10 @@ export function maskOutboundText(text: string, extra: (string | null | undefined
 export function maskOutbound<T>(value: T, extra: (string | null | undefined)[] = [], secrets: Secret[] = loadSecrets().secrets): { value: T; masked: number } {
   let masked = 0;
   const walk = (v: unknown, depth: number): unknown => {
-    if (typeof v === "string") { const r = maskOutboundText(v, extra, secrets); masked += r.masked; return r.text; }
+    if (typeof v === "string") {
+      if (DATA_URL.test(v)) return v; // an embedded file (base64), not text: masking could only corrupt it
+      const r = maskOutboundText(v, extra, secrets); masked += r.masked; return r.text;
+    }
     if (depth > 30 || v === null || typeof v !== "object") return v;
     if (Array.isArray(v)) return v.map((x) => walk(x, depth + 1));
     if (v instanceof Date || v instanceof Uint8Array || v instanceof ArrayBuffer) return v;

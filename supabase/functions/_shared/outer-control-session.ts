@@ -881,7 +881,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         return { status: "awaiting_human", steps };
       }
       // allow / modify: continue, finish, or ask a person a question.
-      await acceptReply(admin, s, tool, stepNo, { text: brain.output ?? content, toolStatus: reply.status, actions: agentActions, report: reportResult && reportResult.ok ? reportResult.doc : null }, deps);
+      await acceptReply(admin, s, tool, stepNo, { text: scrubInbound(brain.output ?? content).text, toolStatus: reply.status, actions: agentActions, report: reportResult && reportResult.ok ? reportResult.doc : null }, deps);
       const { data: after } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
       const st = (after as { status?: string } | null)?.status ?? "running";
       if (st !== "running") return { status: st, steps };

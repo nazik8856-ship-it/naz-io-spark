@@ -36,7 +36,8 @@ describe("content is masked where it leaves NazAI", () => {
   };
   it("connected tools and MCP servers (Outer Control)", () => {
     expectIn("_shared/outer-control-session.ts", "const outBody = maskOutbound(request.body, [token]).value;", "body: JSON.stringify(outBody)",
-      "request: { headers: request.headers, body: outBody }", /maskOutboundText\(\[reqInput\.objective/, "const stored = scrubInbound(");
+      "request: { headers: request.headers, body: outBody }", /maskOutboundText\(\[reqInput\.objective/, "const stored = scrubInbound(",
+      "text: scrubInbound(brain.output ?? content).text");
   });
   it("agent tools, provider writes, webhooks and callbacks", () => {
     expectIn("agent-runtime/index.ts", "const maskedInput = maskOutbound(validation.data);", "let input = maskedInput.value;");
