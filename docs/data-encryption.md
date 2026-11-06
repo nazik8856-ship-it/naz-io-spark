@@ -142,13 +142,54 @@ signed decision trail verifies in the database; decisions and rules are not encr
   still holds plain values, a content column is uncovered, a column in use is not locked, or a lock is missing, naming them; it closes
   the incident once all four are clear.
 
+## Protected data at rest (general data security, task 3)
+
+`20261109010000_protect_data_at_rest.sql` and the code beside it.
+
+- **Twenty more columns encrypted**, the same way as everything above (`ENCRYPTED_COLUMNS`), and locked at once (every table was
+  empty; the 19 cached generations had expired and were removed):
+  - an agent's remembered facts (`agent_memory.value`) and the business profile it works from (`business_profiles`: one-liner,
+    tone, audience, offers, channels, KPIs and the raw research);
+  - the account's clients (`agent_clients`: name, company, tags, notes; the address stays readable to find the client again),
+    reports (`agent_reports.body_markdown`) and learned insights (`org_insights.insight`);
+  - what-if questions and answers (`scenario_simulations`), cached generations (`generation_cache.manifest`) and replies
+    (`idempotency_keys.response`), webhook deliveries (`webhook_deliveries.payload`) and the handle that undoes an action in a
+    connected tool (`action_reversals.undo_payload`).
+- **What changed to make that work:** the screens read and write these through the server (`ocRead`, `ocWrite`); a fact, a cached
+  generation or an insight is found and replaced by its row id (the value is bound to it), never by an upsert or a filter on the
+  text (`agent-memory.ts`, `generation-cache.ts`, `measure-decision-outcomes`); `get_business_context()` returns the sealed values
+  and `business-context.ts` opens them; every function that reaches these tables (also through the incident and webhook helpers)
+  creates its client with the encrypting `createClient`. An encrypting client is never wrapped twice.
+- **Every other content column has a recorded reason** in `encryption_exempt_columns`, marked:
+  - `by_design`: it has to stay readable to the database, or there is nothing to protect. Names and titles shown in lists;
+    addresses NazAI calls or looks up (website addresses, webhook and callback URLs, tool endpoints, email addresses matched
+    against the suppression list or an invitation); the published website and the pages visitors are served; a site shared by
+    link; embeddings; the signed decision trail (`agent_decisions`), which the database verifies, and the copy of it in
+    `decision_outcomes.evidence`; `profiles.user_context` and the legacy `projects` content, which a check keeps empty.
+  - `deferred`: it should be encrypted but something reads it in the database or straight from the browser first, and the reason
+    says what has to change: `agents` goal, manifest, role and plan (about 29 screens), an API key's reply persona and fallback
+    message (7 settings screens), `agent_integrations.metadata`, `content_gap_clusters.representative_message` (two search
+    functions), `websites.prompt` and the `website_versions` snapshots (the restore and image functions).
+- **No column without one or the other:** `classification_report()` lists it as `content_unprotected`, so the weekly
+  classification check opens an incident; the build fails on it too (`src/test/data-classification.test.ts`).
+- **Retention:**
+  - raw replies of a connected tool stored with a finished session's steps are removed after 30 days, every night at 02:37 UTC
+    (`expire_raw_replies(30)`). What stays: the checked result (`outer_control_evaluations`), the step's verdict, status and
+    error, and the fingerprints. Live data snapshots (`integration_snapshots`) go after 30 days too;
+  - every hour (`purge_short_lived_rows()`, :23): OAuth sign-ins that were never finished, after an hour, and visitor addresses
+    kept to count requests (`ip_rate_limit_windows`), after a day. Before this, those addresses were never deleted (421 rows back
+    to 2026-09-02);
+  - everything else as before: the account's own `retention_days` (`retention-sweep`).
+- **Secrets** (`docs/data-classification.md`, "Secrets: where each may be stored"): the columns whose value lives in the vault are
+  kept empty by a check, API key hashes must be hashes, and sign-in state lives an hour at most.
+
 ## What is deliberately not encrypted
 
 - **Notes kept in the browser** (`localStorage`: the ground-truth notes, the command-center checklist, preview caches): they live
   only on the user's own device and never reach NazAI's database, so `DATA_KEY` has nothing to protect there; moving them to the
   server would change how the screens behave.
-- **`profiles.user_context`**: unused by the code (every value is `{}`).
-- **Embeddings** used for similarity search: they are numbers derived from the text, needed by the database to search.
+- **The `by_design` and `deferred` columns above**, each with its reason in `encryption_exempt_columns`
+  (`select * from encryption_exempt_columns where kind = 'deferred';`).
 
 ## Locking a column
 
@@ -161,6 +202,8 @@ an error instead of being caught and encrypted by the sweep a few minutes later.
   website writes through `encrypted-write`, the one database function that touches such a column (`record_approval_signoff`, comment)
   is always called with a null comment, and the converter had found nothing to convert.
 - **Not locked yet:** the 14 listed columns that hold no values at all. Lock each once it is in use and its writers are checked.
+- **Locked (task 3, `20261109010000_protect_data_at_rest.sql`):** the twenty columns encrypted in that migration, at once (their
+  tables were empty, and every writer goes through the encrypting client or `encrypted-write`).
 - **Weekly (Mondays 03:43 UTC):** `encryption_weekly_check()` keeps the `encryption_check` incident open while any listed column holds
   encrypted values without a lock, or a recorded lock is missing from its table.
 

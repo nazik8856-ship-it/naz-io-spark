@@ -5,9 +5,10 @@ import { guardOutputText } from "../_shared/output-guard.ts";
 import { array, object, oneOf, text, withDefault } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { createClient } from "../_shared/encrypted-client.ts"; // what-if questions and answers are stored encrypted (data at rest)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { requireCaller } from "../_shared/caller.ts";
+import { openBusinessContext } from "../_shared/business-context.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -66,7 +67,7 @@ serve(async (req) => {
     }
 
     // Trim context to stay well under token limits while preserving signal.
-    const contextJson = JSON.stringify(ctx).slice(0, 24000);
+    const contextJson = JSON.stringify(await openBusinessContext(ctx)).slice(0, 24000); // clients, insights and reports are stored encrypted
 
     const resp = await callAiGateway({
         model: gw.model,

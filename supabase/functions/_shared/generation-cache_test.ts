@@ -104,22 +104,29 @@ Deno.test("findCachedGeneration: scopes the lookup by user_id, kind, and cache_k
 
 // ---- storeCachedGeneration ----
 
-Deno.test("storeCachedGeneration: upserts with a future expiry on the (user_id, kind, cache_key) conflict target", async () => {
-  let upserted: Record<string, unknown> | null = null;
-  let conflictTarget: string | null = null;
+/** A generation_cache table for storeCachedGeneration: what it looked up, inserted and updated. */
+function cacheTable(existingId: string | null) {
+  const calls: { lookup: string[]; inserted: Record<string, unknown> | null; updated: { patch: Record<string, unknown>; id: unknown } | null } = { lookup: [], inserted: null, updated: null };
   const client = {
     from: () => ({
-      upsert: (row: Record<string, unknown>, opts: { onConflict: string }) => {
-        upserted = row;
-        conflictTarget = opts.onConflict;
-        return Promise.resolve({ error: null });
+      select: () => {
+        const q = { eq: (c: string) => { calls.lookup.push(c); return q; }, maybeSingle: () => Promise.resolve({ data: existingId ? { id: existingId } : null, error: null }) };
+        return q;
       },
+      insert: (row: Record<string, unknown>) => { calls.inserted = row; return Promise.resolve({ error: null }); },
+      update: (patch: Record<string, unknown>) => ({ eq: (_c: string, id: unknown) => { calls.updated = { patch, id }; return Promise.resolve({ error: null }); } }),
     }),
   };
+  return { client, calls };
+}
+
+Deno.test("storeCachedGeneration: a new entry is inserted with a future expiry, looked up by (user_id, kind, cache_key) first", async () => {
+  const { client, calls } = cacheTable(null);
   const manifest = { name: "Acme Site" };
   await storeCachedGeneration(client as never, "user-1", "website", "key-1", manifest);
-  assert(upserted !== null);
-  const row = upserted as unknown as Record<string, unknown>;
+  assertEquals(calls.lookup, ["user_id", "kind", "cache_key"]);
+  assert(calls.inserted !== null && calls.updated === null);
+  const row = calls.inserted as unknown as Record<string, unknown>;
   assertEquals(row.user_id, "user-1");
   assertEquals(row.kind, "website");
   assertEquals(row.cache_key, "key-1");
@@ -129,13 +136,20 @@ Deno.test("storeCachedGeneration: upserts with a future expiry on the (user_id, 
     new Date(row.expires_at as string).getTime() <= Date.now() + GENERATION_CACHE_TTL_MINUTES * 60 * 1000 + 1000,
     "expiry must respect the documented TTL",
   );
-  assertEquals(conflictTarget, "user_id,kind,cache_key");
 });
 
-Deno.test("storeCachedGeneration: a thrown upsert error never propagates (caching is best-effort)", async () => {
+Deno.test("storeCachedGeneration: an existing entry is replaced by its own id (its manifest is encrypted and bound to that id)", async () => {
+  const { client, calls } = cacheTable("row-7");
+  await storeCachedGeneration(client as never, "user-1", "agent", "key-1", { name: "v2" });
+  assert(calls.inserted === null, "no second row");
+  assertEquals(calls.updated?.id, "row-7");
+  assertEquals((calls.updated?.patch as Record<string, unknown>).manifest, { name: "v2" });
+});
+
+Deno.test("storeCachedGeneration: a thrown database error never propagates (caching is best-effort)", async () => {
   const client = {
     from: () => ({
-      upsert: () => {
+      select: () => {
         throw new Error("db down");
       },
     }),

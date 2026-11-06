@@ -10,6 +10,8 @@ export const WRITABLE: Record<string, string[]> = {
   agent_events: ["insert"],
   missions: ["insert", "update", "delete"],
   knowledge_base_entries: ["insert", "update", "delete"],
+  // An operator's answer to an agent's question, remembered by the agent (data at rest).
+  agent_memory: ["insert"],
   // An approver's sign-off with a comment: record_approval_signoff runs as the approver (its quorum rules unchanged), then the
   // comment is stored encrypted. A team approver may sign off but not edit the row, so the comment is written by the server.
   pending_approvals: ["signoff"],

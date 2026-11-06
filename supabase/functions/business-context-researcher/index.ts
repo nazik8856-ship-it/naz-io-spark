@@ -11,7 +11,7 @@ import { cleanText } from "../_shared/clean-text.ts";
 import { array, object, optional, text, url, withDefault } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // the business profile is stored encrypted (data at rest)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { requireCaller } from "../_shared/caller.ts";
 

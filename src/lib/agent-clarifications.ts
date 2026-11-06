@@ -109,7 +109,7 @@ export async function submitClarificationAnswer(opts: {
   }
 
   if (userId) {
-    await supabase.from("agent_memory").insert({
+    await ocWrite("agent_memory").insert({
       agent_id: agentId,
       user_id: userId,
       key: `operator.answer.${Date.now()}`,

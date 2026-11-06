@@ -77,6 +77,9 @@ describe("data classification: the register", () => {
   });
 });
 
+/** An encryption_exempt_columns row in a migration: ('table', 'column', 'reason'[, 'by_design' | 'deferred']). */
+const EXEMPT_ROW = /\('(\w+)', '(\w+)', '([^']{10,})'(?:, '(by_design|deferred)')?\)/g;
+
 describe("data classification: agrees with encryption", () => {
   // ENCRYPTED_COLUMNS, read from the source as in field-encryption.test.ts.
   const src = read(join(ROOT, "supabase/functions/_shared/encrypted-db.ts"));
@@ -92,7 +95,7 @@ describe("data classification: agrees with encryption", () => {
   });
 
   it("every column exempt from encryption has a class", () => {
-    const exempt = migrations.flatMap(({ sql }) => [...sql.matchAll(/\('(\w+)', '(\w+)', '[^']{10,}'\)/g)].map((m) => `${m[1]}.${m[2]}`))
+    const exempt = migrations.flatMap(({ sql }) => [...sql.matchAll(EXEMPT_ROW)].map((m) => `${m[1]}.${m[2]}`))
       .filter((n) => !n.startsWith("isolation_") && !n.includes(".data_classification"));
     const missing = [...new Set(exempt)].filter((n) => { const [t, c] = n.split("."); return DATA_CLASSIFICATION[t] && !classOf(t, c); });
     expect(missing).toEqual([]);
@@ -110,5 +113,50 @@ describe("data classification: new columns need a class", () => {
     const missing = migrations.filter(({ f }) => f >= FIRST).flatMap(({ f, sql }) =>
       addedColumns(sql).filter((n) => { const [t, c] = n.split("."); return !classOf(t, c); }).map((n) => `${f}: ${n}`));
     expect(missing).toEqual([]);
+  });
+});
+
+// General data security, task 3: protected data at rest.
+describe("data at rest: every content column is encrypted or has a recorded reason", () => {
+  const src = read(join(ROOT, "supabase/functions/_shared/encrypted-db.ts"));
+  const block = src.slice(src.indexOf("ENCRYPTED_COLUMNS"), src.indexOf("};", src.indexOf("ENCRYPTED_COLUMNS")));
+  const encrypted = new Set([...block.matchAll(/^\s*(\w+): \{\s*cols: \[([^\]]*)\]/gm)].flatMap((m) => [...m[2].matchAll(/"(\w+)"/g)].map((x) => `${m[1]}.${x[1]}`)));
+  encrypted.add("imported_projects.content"); // PROJECTS_KEY (project-crypto.ts)
+  const exempt = new Map<string, { reason: string; kind: string }>();
+  for (const { sql } of migrations) {
+    if (!sql.includes("encryption_exempt_columns")) continue;
+    for (const m of sql.matchAll(EXEMPT_ROW)) exempt.set(`${m[1]}.${m[2]}`, { reason: m[3], kind: m[4] ?? "by_design" });
+  }
+
+  it("finds the exemptions (the guard itself works)", () => {
+    expect(exempt.get("websites.html")?.kind).toBe("by_design");
+    expect(exempt.get("agents.goal")?.kind).toBe("deferred");
+    expect(encrypted.has("agent_memory.value")).toBe(true);
+  });
+
+  it("no content column is left without one or the other (classification_gaps() is empty)", () => {
+    const gaps = classifiedColumns().filter(([t, c, k]) => CONTENT_CLASSES.includes(k) && !encrypted.has(`${t}.${c}`) && !exempt.has(`${t}.${c}`)).map(([t, c]) => `${t}.${c}`);
+    expect(gaps).toEqual([]);
+  });
+
+  it("a column is never both encrypted and exempt", () => {
+    expect([...exempt.keys()].filter((n) => encrypted.has(n) && exempt.get(n)!.kind === "deferred")).toEqual([]);
+  });
+
+  it("a deferred column says what has to change before it can be encrypted", () => {
+    const vague = [...exempt].filter(([, x]) => x.kind === "deferred" && !/first$/.test(x.reason)).map(([n]) => n);
+    expect(vague).toEqual([]);
+  });
+
+  it("every SECRET column has a storage rule (secret_storage_rules)", () => {
+    const rules = new Set(migrations.flatMap(({ sql }) => [...sql.matchAll(/\('(\w+)', '(\w+)', '(?:vault_only|hash_only|short_lived|link_token)'/g)].map((m) => `${m[1]}.${m[2]}`)));
+    const missing = classifiedColumns().filter(([, , k]) => k === "SECRET").map(([t, c]) => `${t}.${c}`).filter((n) => !rules.has(n));
+    expect(missing).toEqual([]);
+  });
+
+  it("the columns whose value lives in the vault are kept empty by a check, and key hashes must be hashes", () => {
+    const sql = read(join(MIGRATIONS, "20261109010000_protect_data_at_rest.sql"));
+    for (const c of ["agent_integrations_credentials_vault_only", "api_keys_callback_secret_vault_only", "webhooks_secret_vault_only",
+      "webhooks_previous_secret_vault_only", "api_keys_key_hash_hash_only"]) expect(sql, c).toMatch(new RegExp(`ADD CONSTRAINT ${c} CHECK`));
   });
 });

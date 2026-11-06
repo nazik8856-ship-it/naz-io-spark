@@ -20,6 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ocWrite } from "@/lib/encrypted-write"; // encrypted content is written through the server (data encryption, front 3)
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data at rest)
 
 type AgentRow = {
   id: string;
@@ -65,14 +66,13 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
       .eq("id", agentId).maybeSingle();
     setAgent(a as AgentRow | null);
     if (a?.business_profile_id) {
-      const { data: p } = await supabase
-        .from("business_profiles")
+      // The profile's content is stored encrypted (data at rest), so it is read through the server.
+      const { data: p } = await ocRead("business_profiles")
         .select("company_name, one_liner, industry, tone, audience, offers, source_url")
         .eq("id", a.business_profile_id).maybeSingle();
       setProfile(p as BusinessProfile | null);
     }
-    const { data: m } = await supabase
-      .from("agent_memory").select("id, key, value, source, created_at")
+    const { data: m } = await ocRead("agent_memory").select("id, key, value, source, created_at")
       .eq("agent_id", agentId).order("created_at", { ascending: false }).limit(30);
     setMemory((m as MemoryRow[]) || []);
   }, [agentId]);
@@ -105,7 +105,7 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
       kind: "clarification_answer", payload: { ref: eventId, answer },
     } as never);
     if (error) { toast.error(error.message); return; }
-    await supabase.from("agent_memory").insert({
+    await ocWrite("agent_memory").insert({
       agent_id: agentId, user_id: userId,
       key: `operator.answer.${Date.now()}`, value: answer.slice(0, 600), source: "operator",
     } as never);

@@ -60,6 +60,22 @@ export const ENCRYPTED_COLUMNS: Record<string, EncryptedTable> = {
       original_event_id: { col: "payload_original_event_id", type: "text" },
     } },
   },
+  // General data security, task 3 (protected data at rest): what an agent remembers and knows about the business, the account's
+  // clients, reports and learned insights, what-if questions and their answers, cached generations and replies, webhook deliveries,
+  // and the handle needed to undo an action in a connected tool (20261109010000_protect_data_at_rest.sql).
+  agent_memory: { cols: ["value"] },
+  business_profiles: {
+    cols: ["one_liner", "tone", "audience", "offers", "channels", "inferred_kpis", "raw_research"],
+    defaults: { offers: [], channels: {}, inferred_kpis: [], raw_research: {} },
+  },
+  agent_clients: { cols: ["name", "company", "tags", "notes"], defaults: { tags: [] } },
+  agent_reports: { cols: ["body_markdown"] },
+  org_insights: { cols: ["insight"] },
+  scenario_simulations: { cols: ["question", "response"], defaults: { response: {} } },
+  generation_cache: { cols: ["manifest"] },
+  idempotency_keys: { cols: ["response"] },
+  webhook_deliveries: { cols: ["payload"] },
+  action_reversals: { cols: ["undo_payload"], defaults: { undo_payload: {} } },
 };
 
 /** The plain copies of the projected fields, for the values being written. */
@@ -120,10 +136,16 @@ export function planSelect(cols: string[], sel: string | undefined) {
   return { select: [...tokens, ...new Set(extra)].join(","), open: [...new Set(open)], renames, dropId, drop };
 }
 
+const WRAPPED = new WeakSet<object>();
+/** Whether this client already encrypts and decrypts the columns above. */
+export const encryptsFields = (client: unknown) => !!client && typeof client === "object" && WRAPPED.has(client as object);
+
 /** A client whose reads and writes of the tables above encrypt and decrypt the content columns. */
 export function withFieldEncryption(admin: AnyClient, keys: FieldKeys | Promise<FieldKeys | null>, opts: { keepPlainForTests?: boolean } = {}): AnyClient {
+  // Already encrypting: wrapping it again would encrypt the sealed row a second time (and empty its "_enc" values).
+  if (admin && typeof admin === "object" && WRAPPED.has(admin)) return admin;
   const keysP = Promise.resolve(keys).then((k) => { if (!k) throw new Error("DATA_KEY is not configured"); return k; });
-  return new Proxy(admin, {
+  const wrapped = new Proxy(admin, {
     get(target, prop) {
       if (prop !== "from") {
         // Everything else is the client's own, called on the client itself (its internals never see the wrapper).
@@ -137,7 +159,10 @@ export function withFieldEncryption(admin: AnyClient, keys: FieldKeys | Promise<
       };
     },
   });
+  WRAPPED.add(wrapped);
+  return wrapped;
 }
+
 
 function builder(admin: AnyClient, table: string, spec: EncryptedTable, keysP: Promise<FieldKeys>, keepPlain: boolean) {
   const ops: Op[] = [];

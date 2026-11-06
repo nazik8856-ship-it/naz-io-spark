@@ -14,7 +14,7 @@ output handling (the untrusted-data fence).
 |---|---|---|---|---|---|---|
 | `SECRET` | provider tokens, API key hashes, webhook and callback signing secrets, OAuth state and code verifiers, unsubscribe tokens | the credential only in the vault; a column holds a vault reference, a one-way hash or a short-lived single-use value | never | only as the auth header of the service it belongs to | never | never |
 | `RULE` | safety, hard, project, meaning and response rules, action policies, policy versions | readable to the database (the gate matches against it), isolated per account | own account | the rule's plain instruction, to the account's own tools, as part of a request; patterns and policy data never | as instructions to NazAI's own models | names and ids |
-| `PROJECT_CONTENT` | prompts, objectives, sites and pages, projects, agents, missions, results and controlled outputs | isolated per account; encrypted or exempt with a reason (open gaps: `classification_gaps()`) | own account | to the account's own tools, after the account's rules mask it | as task input | ids, sizes, hashes |
+| `PROJECT_CONTENT` | prompts, objectives, sites and pages, projects, agents, missions, results and controlled outputs | isolated per account; encrypted or exempt with a recorded reason (a column with neither is a problem) | own account | to the account's own tools, after the account's rules mask it | as task input | ids, sizes, hashes |
 | `EXTERNAL_RESPONSE` | replies of connected tools and MCP servers, synced data, research pages, messages from a customer's own users | as above, secrets scrubbed before it is stored | own account | only as the controlled result | fenced as untrusted data, never as instructions | ids, sizes, hashes |
 | `PERSONAL` | email addresses, names, IP addresses, what a site visitor submits | as above | own account | only to the action that needs it (the recipient of an email) | only when the task needs it | never |
 | `OPERATIONAL` | statuses, kinds, names of actions and providers, ids, fingerprints, signatures, scrubbed error text, metrics, NazAI's bookkeeping | readable; error text scrubbed by the redact triggers | own account | no | NazAI diagnostics only | scrubbed text |
@@ -37,11 +37,25 @@ output handling (the untrusted-data fence).
   - `secret_readable`: a `SECRET` column that a browser session (`anon` or `authenticated`) could read: the role may select the
     column and row-level security is off or a policy lets rows through;
   - `secret_exposed`: anything `secrets_exposure_report()` finds (a credential stored outside the vault);
-  - `class_conflict`: an encrypted column classified as something other than content.
+  - `class_conflict`: an encrypted column classified as something other than content;
+  - `content_unprotected` (task 3): a content column that is neither encrypted nor exempt with a recorded reason
+    (`classification_gaps()`);
+  - `secret_storage:*` (task 3): a secret stored against its rule in `secret_storage_rules` (`secret_storage_report()`):
+    `no_rule`, `unenforced` (a vault-only or hash-only column without its validated check), `kept_too_long` (an OAuth sign-in row
+    older than an hour).
 - **Every Monday (03:47 UTC):** `data_classification_weekly_check()` opens the platform incident `data_classification` while the
-  report has anything, and closes it once the report is empty.
-- **Work list, not a failure:** `select * from classification_gaps();` lists the content columns that are neither encrypted nor
-  exempt with a reason. Task 3 (protected data at rest) works through it.
+  report has anything, and closes it once the report is empty. Its result also lists the `deferred` columns (below).
+- **Build, task 3:** every content column in the register is encrypted (`ENCRYPTED_COLUMNS`) or exempt with a reason; a deferred
+  exemption says what has to change first; every `SECRET` column has a storage rule.
+
+## Secrets: where each may be stored (task 3)
+
+| Rule | Columns | Enforced by |
+|---|---|---|
+| `vault_only`: the value lives in the vault, the row keeps only its id | `agent_integrations.credentials`, `api_keys.callback_secret`, `webhooks.secret`, `webhooks.previous_secret` | a check keeps the column empty (`<table>_<column>_vault_only`) |
+| `hash_only` | `api_keys.key_hash` | a check: 64 hex characters (SHA-256 of the key) |
+| `short_lived` | the `state` and `code_verifier` of the six `*_oauth_transactions` tables | `purge_short_lived_rows()` every hour deletes sign-ins older than an hour |
+| `link_token` | `email_unsubscribe_tokens.token` | the random part of an unsubscribe link, needed to honour it |
 
 On 2026-11-05 the live schema had 450 classifiable columns and the register lists exactly those 450 (plus the 4 of
 `data_classification` itself); no `SECRET` column is readable from a browser.

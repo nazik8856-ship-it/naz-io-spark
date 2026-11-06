@@ -54,12 +54,14 @@ export async function storeCachedGeneration(
 ): Promise<void> {
   try {
     const expiresAt = new Date(Date.now() + GENERATION_CACHE_TTL_MINUTES * 60 * 1000).toISOString();
-    await admin.from("generation_cache").upsert({
-      user_id: userId,
-      kind,
-      cache_key: cacheKey,
-      manifest,
-      expires_at: expiresAt,
-    }, { onConflict: "user_id,kind,cache_key" });
+    // The manifest is stored encrypted and bound to its row id, so an existing entry is updated by id (an upsert on the key would
+    // seal it for a new id that the database then discards).
+    const { data: existing } = await admin.from("generation_cache").select("id")
+      .eq("user_id", userId).eq("kind", kind).eq("cache_key", cacheKey).maybeSingle();
+    if (existing?.id) {
+      await admin.from("generation_cache").update({ manifest, expires_at: expiresAt }).eq("id", existing.id);
+    } else {
+      await admin.from("generation_cache").insert({ user_id: userId, kind, cache_key: cacheKey, manifest, expires_at: expiresAt });
+    }
   } catch { /* caching must never break a real generation that already succeeded */ }
 }

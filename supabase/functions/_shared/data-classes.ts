@@ -47,7 +47,7 @@ export const CLASS_POLICY: Record<DataClass, ClassPolicy> = {
   },
   PROJECT_CONTENT: {
     covers: "what an account creates or gives NazAI: prompts, objectives, sites and pages, projects, agents, missions, results and controlled outputs",
-    storage: "isolated per account; encrypted where listed in encrypted_columns, otherwise listed as a gap (classification_gaps) until it is encrypted or exempt with a reason",
+    storage: "isolated per account; encrypted where listed in encrypted_columns, otherwise exempt with a recorded reason (by design, or deferred until its readers move to the server); a column with neither is a problem the weekly check reports",
     browserRead: true,
     mayLeave: "own_tools_after_rule_masking",
     inPrompt: "as_task_input",
@@ -55,7 +55,7 @@ export const CLASS_POLICY: Record<DataClass, ClassPolicy> = {
   },
   EXTERNAL_RESPONSE: {
     covers: "what came from outside NazAI: replies of connected tools and MCP servers, synced integration data, research pages, messages from a customer's own users",
-    storage: "isolated per account, secrets scrubbed before it is stored; encrypted where listed in encrypted_columns, otherwise listed as a gap",
+    storage: "isolated per account, secrets scrubbed before it is stored; encrypted where listed in encrypted_columns, otherwise exempt with a recorded reason",
     browserRead: true,
     mayLeave: "controlled_result_only",
     inPrompt: "fenced_untrusted_data",
@@ -63,7 +63,7 @@ export const CLASS_POLICY: Record<DataClass, ClassPolicy> = {
   },
   PERSONAL: {
     covers: "contact data of people: email addresses, names, IP addresses, what a site visitor submits in a form",
-    storage: "isolated per account; encrypted where listed in encrypted_columns, otherwise listed as a gap",
+    storage: "isolated per account; encrypted where listed in encrypted_columns, otherwise exempt with a recorded reason",
     browserRead: true,
     mayLeave: "the_action_that_needs_it",
     inPrompt: "only_when_the_task_needs_it",
@@ -137,7 +137,7 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   email_send_log: { message_id: O, template_name: O, recipient_email: U, status: O, error_message: O, metadata: O },
   email_unsubscribe_tokens: { token: S, email: U },
   encrypted_columns: { table_name: O, column_name: O, plain_empty: O, note: O },
-  encryption_exempt_columns: { table_name: O, column_name: O, reason: O },
+  encryption_exempt_columns: { table_name: O, column_name: O, reason: O, kind: O },
   external_tools: { name: P, endpoint_url: P, request_format: O, model: O, auth_header: O, auth_scheme: O, last_error: O },
   figma_oauth_transactions: { state: S },
   generation_cache: { kind: O, cache_key: O, manifest: P },
@@ -206,6 +206,7 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   scenario_simulations: { question: P, response: P },
   scheduled_job_requests: { job_name: O },
   secret_events: { kind: O, provider: O, outcome: O, detail: O },
+  secret_storage_rules: { table_name: O, column_name: O, rule: O, note: O },
   shared_websites: { html: P, title: P },
   shopify_oauth_transactions: { state: S, shop_domain: P, request_origin: O },
   slack_oauth_transactions: { state: S, scope_groups: O, request_origin: O },
