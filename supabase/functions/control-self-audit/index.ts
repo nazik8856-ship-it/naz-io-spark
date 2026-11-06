@@ -16,7 +16,7 @@
 //    "run self-audit now" button), same persistence and alerting logic.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data at rest); reaches webhook deliveries through incidents
 import { CONTROL_SCENARIOS } from "../_shared/control-scenarios.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { findRegressions } from "../_shared/self-audit-diff.ts";

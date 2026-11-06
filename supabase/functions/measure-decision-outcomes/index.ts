@@ -182,12 +182,15 @@ Deno.serve(async (req) => {
             `${delta >= 0 ? "rose" : "fell"} ${Math.abs(deltaPct).toFixed(1)}% over ${window} days ` +
             `(${before} → ${after}). Outcome: ${direction}.`;
 
-          const { data: existing } = await supabase
+          // The insight text is stored encrypted (data at rest), so the database can not match it: the account's insights are read
+          // (decrypted) and compared here.
+          const { data: known } = await supabase
             .from("org_insights")
-            .select("id, evidence_count, source_agent_ids")
+            .select("id, insight, evidence_count, source_agent_ids")
             .eq("user_id", d.user_id)
-            .eq("insight", insightText)
-            .maybeSingle();
+            .order("last_confirmed_at", { ascending: false })
+            .limit(500);
+          const existing = ((known ?? []) as { id: string; insight: string; evidence_count: number | null }[]).find((i) => i.insight === insightText) ?? null;
 
           let insightId = existing?.id as string | undefined;
           if (existing) {

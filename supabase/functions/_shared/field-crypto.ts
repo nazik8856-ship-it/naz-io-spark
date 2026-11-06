@@ -65,7 +65,9 @@ export async function keyMaterial(secret: string | null | undefined): Promise<{ 
   return { raw, id: hex(digest.subarray(0, 4)) };
 }
 
-export type FieldKey = { key: CryptoKey; mac: CryptoKey; id: string };
+/** key: encrypts fields. mac: keyed fingerprints of content. token: signs short-lived tokens only (never content, so a fingerprint
+ * of a chosen text can never serve as a token signature). */
+export type FieldKey = { key: CryptoKey; mac: CryptoKey; token: CryptoKey; id: string };
 /** The key new values are encrypted with, and during a rotation the one it replaces. */
 export type FieldKeys = { current: FieldKey; previous: FieldKey | null };
 
@@ -78,6 +80,7 @@ async function importOne(secret: string | null | undefined): Promise<FieldKey | 
   return {
     key: await derive("nazai field encryption v1", { name: "AES-GCM", length: 256 }, ["encrypt", "decrypt"]),
     mac: await derive("nazai fingerprint v1", { name: "HMAC", hash: "SHA-256", length: 256 }, ["sign"]),
+    token: await derive("nazai signed token v1", { name: "HMAC", hash: "SHA-256", length: 256 }, ["sign", "verify"]),
     id: m.id,
   };
 }

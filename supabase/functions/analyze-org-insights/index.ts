@@ -6,6 +6,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { requireCaller } from "../_shared/caller.ts";
+import { openBusinessContext } from "../_shared/business-context.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -53,7 +54,7 @@ serve(async (req) => {
     if (ctxErr) {
       return new Response(JSON.stringify({ error: "context_failed", details: ctxErr.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    const context = (ctx || {}) as Record<string, unknown>;
+    const context = (await openBusinessContext(ctx)) as Record<string, unknown>; // clients, insights and reports are stored encrypted
     const recentReports = (context.recent_reports as Array<Record<string, unknown>>) || [];
     const clients = (context.clients as Array<Record<string, unknown>>) || [];
     const artifacts = (context.recent_artifacts as Array<Record<string, unknown>>) || [];

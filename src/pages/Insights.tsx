@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { ocRead } from "@/lib/outer-control-read"; // insights and what-if answers are stored encrypted (data at rest)
 import { useAuth } from "@/hooks/useAuth";
 import { Link } from "react-router-dom";
 import { ArrowLeft, RefreshCw, Sparkles, TrendingUp, Lightbulb, GitBranch, FlaskConical, Send, ChevronDown, ChevronRight } from "lucide-react";
@@ -55,15 +56,13 @@ export default function Insights() {
     if (!user?.id) return;
     setLoading(true);
     const [{ data: insData }, { data: simData }] = await Promise.all([
-      supabase
-        .from("org_insights")
+      ocRead("org_insights")
         .select("id, insight, kind, confidence, evidence_count, first_observed_at, last_confirmed_at")
         .eq("user_id", user.id)
         .order("evidence_count", { ascending: false })
         .order("last_confirmed_at", { ascending: false })
         .limit(50),
-      supabase
-        .from("scenario_simulations")
+      ocRead("scenario_simulations")
         .select("id, question, response, created_at")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })

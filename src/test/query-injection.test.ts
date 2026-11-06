@@ -58,6 +58,7 @@ export function dynamicQueryParts(raw: string): { method: string; part: string }
 
 // file -> the exact expressions allowed there, and what they are
 const REVIEWED: Record<string, Record<string, string>> = {
+  "supabase/functions/_shared/outer-control-boundary.ts": { cols: "a constant column list the calling code passes (resolveSessionTool, accountTools), never a request value" },
   "supabase/functions/outer-control-session-sweep/index.ts": { "new Date(now).toISOString()": "a timestamp the server made" },
   "supabase/functions/control-api/index.ts": { periodStartIso: "a timestamp the server made from a clamped number of days", DECISION_EXPORT_FIELDS: "a constant column list", "exportCursorFilter(cursor": "a cursor decodeExportCursor accepted only as a timestamp and a plain id (no filter characters)" },
   "supabase/functions/control-api-abuse-sweep/index.ts": { "new Date().toISOString()": "a timestamp the server made" },

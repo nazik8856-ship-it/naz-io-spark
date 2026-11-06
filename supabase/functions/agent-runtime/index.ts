@@ -38,6 +38,8 @@ import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
 import { deriveRunOutcome, type AgentEvent } from "../_shared/agent-outcome.ts";
+import { RUN_TOKEN_HEADER, verifyRunToken } from "../_shared/outer-control-boundary.ts";
+import { envDataKeys } from "../_shared/encrypted-db.ts";
 
 import {
   readConfidence,
@@ -205,6 +207,18 @@ serve(async (req) => {
       : {};
     if (caller.kind === "platform") {
       userId = caller.userId;
+      // Cross-platform boundary: a run Outer Control starts is bound to one account, Task, step and agent by a signed, short-lived
+      // token. One that names anything else (another account's Task, another agent) is refused before the agent runs.
+      if (bodyOuterTaskId || bodyOuterSessionId) {
+        const keys = await envDataKeys();
+        const check = keys
+          ? await verifyRunToken(keys, req.headers.get(RUN_TOKEN_HEADER), { account: userId, task: bodyOuterTaskId || null, session: bodyOuterSessionId, agent: agentId })
+          : { ok: false as const, reason: "missing" as const };
+        if (!check.ok) {
+          console.warn(`[agent-runtime] refused an Outer Control run: token ${check.reason}`);
+          return json({ error: "run_not_bound", message: "This Outer Control run is not bound to this account, Task and agent." }, 403);
+        }
+      }
     } else if (trigger === "webhook") {
       const { data: ownerRow } = await adminClient
         .from("agents").select("user_id, webhook_secret_id").eq("id", agentId).maybeSingle();

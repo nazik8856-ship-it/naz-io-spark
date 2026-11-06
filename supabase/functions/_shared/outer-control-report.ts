@@ -10,6 +10,7 @@ import { callAiGateway, pickAiGateway } from "./ai-gateway.ts";
 import { officialOutput, extractLinks, type ArtifactLink, type SessionArtifact } from "./outer-control-artifact.ts";
 import { ACTION_INFO, composeReportText, TITLE_PREFIX, MAX_STYLES, REPORT_KINDS, TASK_LIMITS, VERDICTS, type ComparisonRow, type DecisionOption, type LabeledItem, type MissingTool, type ReportDoc, type ReportKind, type RewriteVersion, type Verdict } from "./outer-control-report-doc.ts";
 import { parseModelObject } from "./model-output.ts";
+import { accountTools } from "./outer-control-boundary.ts";
 export { TASK_LIMITS, MAX_STYLES, NEEDS_AI, ROUTING_TEXT } from "./outer-control-report-doc.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -574,11 +575,11 @@ export const gatewayAi: ReportAi = async (p) => {
 /** The controlled opinions of the earlier steps of this Task, from their final artifacts. */
 export async function loadOpinions(admin: AnyAdmin, workflowId: string, beforeLeg: number, maxChars = MAX_OPINION_CHARS): Promise<Opinion[]> {
   const { data } = await admin.from("outer_control_sessions")
-    .select("leg_no, status, tool_id, final_artifact, objective").eq("workflow_id", workflowId).lt("leg_no", beforeLeg).eq("status", "completed").order("leg_no");
-  const rows = (data ?? []) as { leg_no: number; tool_id: string; final_artifact: unknown; objective?: string | null }[];
+    .select("leg_no, status, tool_id, user_id, final_artifact, objective").eq("workflow_id", workflowId).lt("leg_no", beforeLeg).eq("status", "completed").order("leg_no");
+  const rows = (data ?? []) as { leg_no: number; tool_id: string; user_id: string; final_artifact: unknown; objective?: string | null }[];
   const ids = [...new Set(rows.map((r) => r.tool_id))];
-  const { data: tools } = ids.length ? await admin.from("external_tools").select("id, name, endpoint_url").in("id", ids) : { data: [] };
-  const names = new Map(((tools ?? []) as { id: string; name: string; endpoint_url: string }[]).map((t) => [t.id, t]));
+  const tools = rows.length ? await accountTools<{ id: string; name: string; endpoint_url: string }>(admin, rows[0].user_id, ids, "id, name, endpoint_url") : [];
+  const names = new Map(tools.map((t) => [t.id, t]));
   const out: Opinion[] = [];
   for (const r of rows) {
     const text = officialOutput(r.final_artifact, "session");
@@ -598,12 +599,12 @@ const shortReason = (r: string | null | undefined) => clip((r ?? "it did not fin
 /** The tools asked before the writer that ended without an answer, and whether they were asked at the same time. */
 export async function loadTaskShape(admin: AnyAdmin, workflowId: string, writerLeg: number): Promise<{ missing: MissingTool[]; parallel: boolean }> {
   const { data } = await admin.from("outer_control_sessions")
-    .select("leg_no, status, tool_id, stop_reason, condition").eq("workflow_id", workflowId).lte("leg_no", writerLeg).order("leg_no");
-  const rows = (data ?? []) as { leg_no: number; status: string; tool_id: string; stop_reason: string | null; condition: { op?: string } | null }[];
+    .select("leg_no, status, tool_id, user_id, stop_reason, condition").eq("workflow_id", workflowId).lte("leg_no", writerLeg).order("leg_no");
+  const rows = (data ?? []) as { leg_no: number; status: string; tool_id: string; user_id: string; stop_reason: string | null; condition: { op?: string } | null }[];
   const failed = rows.filter((r) => r.leg_no < writerLeg && ["failed", "rejected", "stopped"].includes(r.status));
   const ids = [...new Set(failed.map((r) => r.tool_id))];
-  const { data: tools } = ids.length ? await admin.from("external_tools").select("id, name").in("id", ids) : { data: [] };
-  const names = new Map(((tools ?? []) as { id: string; name: string }[]).map((t) => [t.id, t.name]));
+  const tools = failed.length ? await accountTools<{ id: string; name: string }>(admin, failed[0].user_id, ids, "id, name") : [];
+  const names = new Map(tools.map((t) => [t.id, t.name]));
   return {
     missing: failed.map((r) => ({ tool: names.get(r.tool_id) ?? "tool", reason: shortReason(r.stop_reason) })),
     parallel: rows.find((r) => r.leg_no === writerLeg)?.condition?.op === "any_completed",

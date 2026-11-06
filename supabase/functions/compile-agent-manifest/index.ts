@@ -22,6 +22,7 @@ import { computeTrustScore, isRedactableMatch } from "../_shared/outer-control-s
 import { critiqueAndRevise, findUngroundedFacts } from "../_shared/generation-critique.ts";
 import { generationCacheKeyFor, findCachedGeneration, storeCachedGeneration } from "../_shared/generation-cache.ts";
 import { reportProgress } from "../_shared/generation-progress.ts";
+import { rememberFacts, type MemoryRow } from "../_shared/agent-memory.ts"; // facts are replaced by row id (stored encrypted)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -803,11 +804,11 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
           agentId = existingAgentId;
           mode = "updated";
           // Only add NEW intake answers to memory — never re-seed business facts.
-          const memRows: Record<string, unknown>[] = [];
+          const memRows: MemoryRow[] = [];
           for (const [k, v] of Object.entries(intakeAnswers || {})) {
             memRows.push({ agent_id: agentId, user_id: user.id, key: `intake.${k}`, value: String(v).slice(0, 600), source: "intake" });
           }
-          if (memRows.length) await supabase.from("agent_memory").upsert(memRows, { onConflict: "agent_id,key" }).select();
+          if (memRows.length) await rememberFacts(supabase, agentId as string, memRows);
         }
       }
 
@@ -842,11 +843,11 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
           if (updErr) return json({ error: updErr.message, manifest: normalized, agentId: null }, 500);
           agentId = bySlug.id as string;
           mode = "updated";
-          const memRows: Record<string, unknown>[] = [];
+          const memRows: MemoryRow[] = [];
           for (const [k, v] of Object.entries(intakeAnswers || {})) {
             memRows.push({ agent_id: agentId, user_id: user.id, key: `intake.${k}`, value: String(v).slice(0, 600), source: "intake" });
           }
-          if (memRows.length) await supabase.from("agent_memory").upsert(memRows, { onConflict: "agent_id,key" }).select();
+          if (memRows.length) await rememberFacts(supabase, agentId as string, memRows);
         }
       }
 
@@ -875,7 +876,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
         agentId = inserted?.id ?? null;
 
         // Seed memory from intake answers + business essentials so the agent starts informed
-        const memRows: Record<string, unknown>[] = [];
+        const memRows: MemoryRow[] = [];
         for (const [k, v] of Object.entries(intakeAnswers || {})) {
           memRows.push({ agent_id: agentId, user_id: user.id, key: `intake.${k}`, value: String(v).slice(0, 600), source: "intake" });
         }

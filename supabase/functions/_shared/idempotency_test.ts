@@ -53,7 +53,8 @@ function fakeStore(initial?: { key: string; userId: string; response: unknown | 
           return api;
         },
         is(col: string, val: unknown) {
-          if (col === "response" && val === null) requireNullResponse = true;
+          // the stored reply is in response_enc (encrypted, data at rest); the plain column is always empty
+          if ((col === "response" || col === "response_enc") && val === null) requireNullResponse = true;
           return api;
         },
         insert(row: Record<string, unknown>) { pendingInsert = row; return api; },

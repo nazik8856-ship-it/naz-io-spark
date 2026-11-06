@@ -35,3 +35,5 @@ export { validateLegs, legReadiness } from "../../supabase/functions/_shared/out
 export { handleProjectsAction, htmlToText, githubRepoOf, notionBlocksToMarkdown, wordsToPattern, checkProjectText, projectContextFor, contentTypeOf, rulesForProject, cleanName, MAX_PROJECT_CHARS, hideBeforeSaving, scanProjectText, looksBinary, linkShapeProblem, sealLegacyProjects, reencryptProjects, refingerprintProjects, projectWriteBackAllowed, PROJECT_OPEN, PROJECT_CLOSE, googleExportOf, githubTokenOf, replayWordRule } from "../../supabase/functions/_shared/projects.ts";
 export { importProjectKeys, encryptText, decryptText, needsReencrypt } from "../../supabase/functions/_shared/project-crypto.ts";
 export { importFieldKeys, fingerprint } from "../../supabase/functions/_shared/field-crypto.ts";
+
+export { resolveSessionTool, accountTools, signRunToken, verifyRunToken } from "../../supabase/functions/_shared/outer-control-boundary.ts";

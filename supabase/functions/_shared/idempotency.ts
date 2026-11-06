@@ -77,7 +77,7 @@ export async function releaseIdempotencyKey(
       .delete()
       .eq("user_id", userId)
       .eq("idempotency_key", key)
-      .is("response", null); // never delete a row already holding a successful reply
+      .is("response_enc", null); // never delete a row already holding a successful reply (stored encrypted, data at rest)
   } catch { /* best effort */ }
 }
 

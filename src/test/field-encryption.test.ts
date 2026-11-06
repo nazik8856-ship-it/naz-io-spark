@@ -36,15 +36,16 @@ function reach(file: string, seen = new Set<string>()): Set<string> {
 const touchesTables = (file: string) => TABLES.some((t) => read(file).includes(`"${t}"`));
 
 describe("Outer Control content is encrypted by every edge function that reaches it", () => {
-  it("lists the sixteen tables and 51 columns", () => {
-    expect(TABLES.length).toBe(16);
-    expect(Object.values(REGISTRY).flat().length).toBe(51);
+  it("lists the twenty-six tables and 71 columns", () => {
+    expect(TABLES.length).toBe(26);
+    expect(Object.values(REGISTRY).flat().length).toBe(71);
   });
 
   it("the code and the migration encrypt the same columns", () => {
     const sql = [
       "20261103010000_encrypt_outer_control.sql", "20261103020000_encrypt_visitor_and_integration_data.sql", "20261103030000_encrypt_agent_runs_and_events.sql",
       "20261103040000_encrypt_missions_kb_api_data.sql", "20261103050000_encrypt_pending_approvals.sql", "20261104010000_encryption_front5.sql",
+      "20261109010000_protect_data_at_rest.sql",
     ].map((f) => read(join(ROOT, "supabase/migrations", f))).join("\n");
     const inSql = [...sql.matchAll(/\('(\w+)', '(\w+)'\)/g)].filter((m) => REGISTRY[m[1]]).map((m) => `${m[1]}.${m[2]}`).sort();
     const inCode = Object.entries(REGISTRY).flatMap(([t, cols]) => cols.map((c) => `${t}.${c}`)).sort();
@@ -57,7 +58,7 @@ describe("Outer Control content is encrypted by every edge function that reaches
   const CONTENT_TABLES = [...TABLES, "imported_projects"];
   const MIGRATIONS = join(ROOT, "supabase/migrations");
   const migrationSql = readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql")).sort().map((f) => ({ f, sql: read(join(MIGRATIONS, f)) }));
-  const EXEMPT = new Set(migrationSql.flatMap(({ sql }) => [...sql.matchAll(/\('(\w+)', '(\w+)', '[^']{10,}'\)/g)].map((m) => `${m[1]}.${m[2]}`)));
+  const EXEMPT = new Set(migrationSql.flatMap(({ sql }) => [...sql.matchAll(/\('(\w+)', '(\w+)', '[^']{10,}'(?:, '(?:by_design|deferred)')?\)/g)].map((m) => `${m[1]}.${m[2]}`)));
   function uncoveredColumns(sql: string): string[] {
     const out: string[] = [];
     for (const alter of sql.matchAll(/ALTER TABLE (?:IF EXISTS )?(?:ONLY )?(?:public\.)?"?(\w+)"?([^;]*);/gi)) {

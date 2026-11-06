@@ -1,6 +1,8 @@
 // Run with: deno test --allow-env supabase/functions/_shared/encrypted-db_test.ts
 // Data encryption, front 3: the client wrapper. What reaches the database is ciphertext; what the code reads is the text.
-import { ENCRYPTED_COLUMNS, openRows, planSelect, sweepEncryptedColumns, withFieldEncryption } from "./encrypted-db.ts";
+import { ENCRYPTED_COLUMNS, encryptsFields, openRows, planSelect, sweepEncryptedColumns, withFieldEncryption } from "./encrypted-db.ts";
+import { rememberFacts } from "./agent-memory.ts";
+import { openBusinessContext } from "./business-context.ts";
 import { importFieldKeys, sealFields, toB64 } from "./field-crypto.ts";
 import { createClient, reset, state, table } from "../../../tests/outer-control-engine/fake-supabase.ts";
 
@@ -89,8 +91,8 @@ Deno.test("filtering or sorting by an encrypted column is refused, by name", asy
 });
 
 Deno.test("every listed table and column", () => {
-  assertEquals(Object.keys(ENCRYPTED_COLUMNS).length, 16);
-  assertEquals(Object.values(ENCRYPTED_COLUMNS).reduce((n, s) => n + s.cols.length, 0), 51);
+  assertEquals(Object.keys(ENCRYPTED_COLUMNS).length, 26);
+  assertEquals(Object.values(ENCRYPTED_COLUMNS).reduce((n, s) => n + s.cols.length, 0), 71);
 });
 
 Deno.test("agent events: the payload is encrypted, its ok/ref/original_event_id flags stay filterable in their own columns", async () => {
@@ -168,4 +170,69 @@ Deno.test("conversion: rows written before encryption are encrypted in batches; 
   state.rpc.encryption_report = [{ table_name: "outer_control_sessions", column_name: "objective", plain_rows: 0, keys: { [rotated.current.id]: 3 } }];
   assertEquals((await sweepEncryptedColumns(plain, rotated, 10)).columns, 0, "nothing on another key: nothing to do");
   assertEquals((await sweepEncryptedColumns(plain, null)).columns, 0, "without a key it waits");
+});
+
+// ---- General data security, task 3 (protected data at rest) ----
+
+Deno.test("an encrypting client is never wrapped twice (that would empty its sealed values)", async () => {
+  const db = setup();
+  const again = withFieldEncryption(db, KEYS);
+  assert(again === db, "the same client comes back");
+  assert(encryptsFields(db) && !encryptsFields(createClient("", "")), "encryptsFields tells them apart");
+  await again.from("agent_reports").insert({ user_id: "u1", agent_id: "a1", title: "Weekly", kind: "summary", body_markdown: "Revenue up 4%" });
+  const row = table("agent_reports")[0];
+  assert(row.body_markdown === null && row.body_markdown_enc?.startsWith("v2:"), "stored once, encrypted");
+  const { data } = await db.from("agent_reports").select("title, body_markdown").single();
+  assertEquals([data.title, data.body_markdown], ["Weekly", "Revenue up 4%"]);
+});
+
+Deno.test("the new tables: content stored only encrypted, read back as written, defaults sealed too", async () => {
+  const db = setup();
+  await db.from("business_profiles").insert({ user_id: "u1", company_name: "Acme", one_liner: "We sell rockets", tone: "bold" });
+  await db.from("agent_clients").insert({ user_id: "u1", agent_id: "a1", email: "ann@example.com", name: "Ann", notes: "Prefers calls" });
+  await db.from("scenario_simulations").insert({ user_id: "u1", question: "What if we raise prices?", response: { analysis: "Fewer, larger orders" } });
+  await db.from("webhook_deliveries").insert({ user_id: "u1", webhook_id: "w1", event: "decision.created", ok: true, payload: { decision: "send the offer" } });
+  const stored = JSON.stringify(["business_profiles", "agent_clients", "scenario_simulations", "webhook_deliveries"].map((t) => table(t)));
+  for (const text of ["We sell rockets", "Prefers calls", "raise prices", "Fewer, larger", "send the offer"]) assert(!stored.includes(text), `"${text}" is not stored in the clear`);
+  assert(stored.includes("Acme") && stored.includes("ann@example.com"), "the name and the lookup address stay readable (exempt with a reason)");
+  const { data: p } = await db.from("business_profiles").select("one_liner, offers, raw_research").single();
+  assertEquals([p.one_liner, p.offers, p.raw_research], ["We sell rockets", [], {}], "omitted jsonb defaults are sealed and come back");
+  const { data: c } = await db.from("agent_clients").select("id, notes, tags").eq("email", "ann@example.com").maybeSingle();
+  assertEquals([c.notes, c.tags], ["Prefers calls", []], "found by its address; an omitted tags default comes back as []");
+  await rejects(db.from("org_insights").select("id").eq("insight", "x"), "insight is encrypted");
+});
+
+Deno.test("rememberFacts: an agent's fact is replaced in its own row, never upserted on (agent_id, key)", async () => {
+  const db = setup();
+  let r = await rememberFacts(db, "a1", [{ agent_id: "a1", user_id: "u1", key: "intake.goal", value: "Grow to 100 customers", source: "intake" }]);
+  assertEquals([r.added, r.replaced, r.error], [1, 0, null]);
+  const id = table("agent_memory")[0].id;
+  r = await rememberFacts(db, "a1", [
+    { agent_id: "a1", user_id: "u1", key: "intake.goal", value: "Grow to 200 customers", source: "intake" },
+    { agent_id: "a1", user_id: "u1", key: "intake.region", value: "Nordics", source: "intake" },
+  ]);
+  assertEquals([r.added, r.replaced, r.error], [1, 1, null]);
+  assertEquals(table("agent_memory").length, 2);
+  const { data } = await db.from("agent_memory").select("id, key, value").order("key");
+  assertEquals(data.map((m: Record<string, unknown>) => [m.key, m.value]), [["intake.goal", "Grow to 200 customers"], ["intake.region", "Nordics"]]);
+  assertEquals(data[0].id, id, "the same row, so its sealed value still opens");
+  assert(!JSON.stringify(table("agent_memory")).includes("customers"), "values stored only encrypted");
+});
+
+Deno.test("openBusinessContext: the clients, insights and reports the database function returns sealed are opened (reports cut to 2000)", async () => {
+  const sealed = async (t: string, id: string, values: Record<string, unknown>, cols: string[]) => ({ id, ...values, ...(await sealFields(KEYS, t, id, values, cols)) });
+  const ctx = {
+    agents: [{ id: "a1", name: "Scout" }],
+    clients: [{ ...(await sealed("agent_clients", "c1", { name: "Ann", company: "Acme", tags: ["vip"], notes: "Prefers calls" }, ["name", "company", "tags", "notes"])), email: "ann@example.com" }],
+    insights: [await sealed("org_insights", "i1", { insight: "Tuesday sends convert best" }, ["insight"])],
+    recent_reports: [await sealed("agent_reports", "r1", { body_markdown: "x".repeat(2500) }, ["body_markdown"])],
+  };
+  assert(!JSON.stringify(ctx).includes("Prefers calls"), "the input is sealed");
+  const open = await openBusinessContext(ctx, KEYS);
+  const client = (open.clients ?? [])[0] as Record<string, unknown>;
+  assertEquals([client.name, client.company, client.tags, client.notes, client.email], ["Ann", "Acme", ["vip"], "Prefers calls", "ann@example.com"]);
+  assertEquals(((open.insights ?? [])[0] as Record<string, unknown>).insight, "Tuesday sends convert best");
+  assertEquals((((open.recent_reports ?? [])[0] as Record<string, unknown>).body_markdown as string).length, 2000);
+  assert(!JSON.stringify(open).includes("_enc"), "no sealed value is passed on");
+  assertEquals(open.agents, ctx.agents, "everything else as returned");
 });

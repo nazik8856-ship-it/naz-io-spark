@@ -979,7 +979,7 @@ function ExecutionFlowWidget({
       const sorted = (r ?? []).slice().sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
       setRuns(sorted as RunRow[]);
 
-      const { data: reps } = await supabase.from("agent_reports")
+      const { data: reps } = await ocRead("agent_reports")
         .select("id, title, kind, body_markdown, created_at, run_id")
         .eq("agent_id", agentId)
         .order("created_at", { ascending: false })
@@ -1116,7 +1116,7 @@ function ArtifactsPanelWidget({
     let cancelled = false;
     (async () => {
       if (!agentId) return;
-      const { data, count } = await supabase.from("agent_reports")
+      const { data, count } = await ocRead("agent_reports")
         .select("id, title, kind, body_markdown, created_at, run_id", { count: "exact" })
         .eq("agent_id", agentId)
         .order("created_at", { ascending: false })
@@ -1128,7 +1128,7 @@ function ArtifactsPanelWidget({
     // Simple periodic refresh so new artifacts appear without a page reload.
     const id = setInterval(async () => {
       if (!agentId) return;
-      const { data, count } = await supabase.from("agent_reports")
+      const { data, count } = await ocRead("agent_reports")
         .select("id, title, kind, body_markdown, created_at, run_id", { count: "exact" })
         .eq("agent_id", agentId)
         .order("created_at", { ascending: false })
