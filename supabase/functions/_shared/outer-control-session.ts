@@ -37,6 +37,8 @@ import { buildChecklist, correctionFor, passedCount, settle, type Checklist, typ
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
 import { buildHandoff, decodeChoice, type HandoffKind } from "./outer-control-handoff.ts";
+import { resolveSessionTool, RUN_TOKEN_HEADER, signRunToken, type RunClaims } from "./outer-control-boundary.ts";
+import { envDataKeys } from "./encrypted-db.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -75,6 +77,8 @@ export type SessionDeps = {
   toolTimeoutMs: number;
   /** Where a NazAI agent is run (agent-runtime) and with which key; null when this runtime cannot reach it. */
   agent: { url: string; serviceKey: string } | null;
+  /** Signs the token a run on one of the account's agents carries (account, Task, step, agent; short-lived). */
+  runToken?: (claims: Omit<RunClaims, "exp">) => Promise<string | null>;
   agentTimeoutMs: number;
   /** Writes the report for a report Task's last step (the NazAI report writer is an internal tool, not an address). */
   report: (admin: AnyAdmin, s: SessionRow) => Promise<ReportResult>;
@@ -100,6 +104,7 @@ export const defaultSessionDeps = (): SessionDeps => ({
   agent: denoEnv("SUPABASE_URL") && denoEnv("SUPABASE_SERVICE_ROLE_KEY")
     ? { url: `${denoEnv("SUPABASE_URL")}/functions/v1/agent-runtime`, serviceKey: denoEnv("SUPABASE_SERVICE_ROLE_KEY") }
     : null,
+  runToken: async (claims) => { const k = await envDataKeys(); return k ? await signRunToken(k, claims) : null; },
   agentTimeoutMs: 120_000,
   report: (admin, s) => writeReport(admin, s, { ai: gatewayAi, now: Date.now }),
   goalAi: gatewayAi,
@@ -504,8 +509,8 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       if (!s) return { status: "missing", steps };
       if (s.status !== "running") return { status: s.status, steps };
 
-      const { data: toolRow } = await admin.from("external_tools").select("*").eq("id", s.tool_id).maybeSingle();
-      const tool = toolRow as ToolRow | null;
+      // Cross-platform boundary: only a tool of this session's own account, not removed.
+      const tool = await resolveSessionTool<ToolRow>(admin, s);
       if (!tool || !tool.enabled) { await finish(admin, s, "failed", "The tool was removed or disabled.", deps); return { status: "failed", steps }; }
 
       const stepNo = s.step_count + 1;
@@ -522,7 +527,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           reason: "Outer Control has never contacted this destination before.", riskTier: "high", requiredApprovals: 1, origin: "external-api", apiKeyId: s.api_key_id,
         });
         if (outcome.autoResolved && outcome.resolution === "approved") {
-          await admin.from("external_tools").update({ approved_at: iso(deps.now()), updated_at: iso(deps.now()) }).eq("id", tool.id);
+          await admin.from("external_tools").update({ approved_at: iso(deps.now()), updated_at: iso(deps.now()) }).eq("id", tool.id).eq("user_id", s.user_id);
           continue;
         }
         if (outcome.autoResolved) { await finish(admin, s, "rejected", "First contact with this tool was rejected.", deps); return { status: "rejected", steps }; }
@@ -629,7 +634,11 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           // The agent runs as the account owner (the same way its schedule does); its own actions go through Inner Control.
           res = await deps.fetchImpl(deps.agent.url, {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${deps.agent.serviceKey}`, "x-scheduler-user-id": s.user_id },
+            headers: {
+              "Content-Type": "application/json", Authorization: `Bearer ${deps.agent.serviceKey}`, "x-scheduler-user-id": s.user_id,
+              // The run is bound to this account, Task, step and agent: agent-runtime refuses it with any other.
+              [RUN_TOKEN_HEADER]: (await deps.runToken?.({ account: s.user_id, task: s.workflow_id ?? null, session: s.id, agent: tool.agent_id })) ?? "",
+            },
             body: JSON.stringify({
               agentId: tool.agent_id, trigger: "manual", userInstruction: buildInstruction(reqInput).slice(0, 12_000),
               // Which Task and step asked for this run, so Inner Control can show the agent's actions as part of it.
@@ -916,8 +925,7 @@ export async function applyEditedReply(admin: AnyAdmin, sessionId: string, text:
   const s = row as (SessionRow & { handoff: { options?: { id: string }[] } | null }) | null;
   if (!s || s.status !== "awaiting_human" || s.pending_kind !== "handoff") return { ok: false, message: "This session is not waiting for a decision." };
   if (!s.handoff?.options?.some((o) => o.id === "edit")) return { ok: false, message: "Writing the reply is not one of the options offered." };
-  const { data: toolRow } = await admin.from("external_tools").select("*").eq("id", s.tool_id).maybeSingle();
-  const tool = toolRow as ToolRow | null;
+  const tool = await resolveSessionTool<ToolRow>(admin, s);
   if (!tool) return { ok: false, message: "The tool no longer exists." };
 
   const stepNo = s.pending_step_no ?? s.step_count + 1;
@@ -1058,7 +1066,7 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
 
   if (s.pending_kind === "first_contact") {
     if (!(await claim({ status: "running", pending_kind: null, pending_approval_id: null, lease_until: null, ...waited(s, deps) }))) return notResumed;
-    await admin.from("external_tools").update({ approved_at: iso(deps.now()), updated_at: iso(deps.now()) }).eq("id", s.tool_id);
+    await admin.from("external_tools").update({ approved_at: iso(deps.now()), updated_at: iso(deps.now()) }).eq("id", s.tool_id).eq("user_id", s.user_id);
     await remember();
     return { status: "running", resumed: true };
   }
@@ -1080,11 +1088,16 @@ export async function resumeSession(admin: AnyAdmin, sessionId: string, deps: Se
     await remember();
     return { status: "rejected", resumed: true };
   }
-  const { data: toolRow } = await admin.from("external_tools").select("*").eq("id", s.tool_id).maybeSingle();
+  const toolRow = await resolveSessionTool<ToolRow>(admin, s);
+  if (!toolRow) {
+    if (!(await claim(ended("rejected", "Approved, but the tool was removed, so the reply was not released.")))) return notResumed;
+    await remember();
+    return { status: "rejected", resumed: true };
+  }
   const w = waited(s, deps);
   if (!(await claim({ pending_kind: null, pending_approval_id: null, pending_step_no: null, ...w }))) return notResumed;
   await remember();
-  await acceptReply(admin, { ...s, status: "running", ...w }, toolRow as ToolRow, stepNo, { text, toolStatus: stepData?.tool_status ?? null, fromPerson: true }, deps);
+  await acceptReply(admin, { ...s, status: "running", ...w }, toolRow, stepNo, { text, toolStatus: stepData?.tool_status ?? null, fromPerson: true }, deps);
   const { data: after } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
   return { status: (after as { status?: string } | null)?.status ?? "running", resumed: true };
 }

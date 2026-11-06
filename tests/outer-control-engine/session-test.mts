@@ -1955,4 +1955,61 @@ await t("starter AI: when NazAI's AI does not answer, the step fails like an unr
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, starterAi: async () => null });
   assert.notEqual(r.status, "completed"); assert.equal(sess().final_output, null); assert.equal(calls.length, 0);
 });
+
+// ---- General data security, task 4: cross-platform boundary control ----
+const U2 = "user-2";
+await t("boundary: a step whose tool belongs to another account never calls it (the tool is not found for this account)", async () => {
+  setup(); H.table("external_tools")[0].user_id = U2;
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(r.status, "failed"); assert.equal(calls.length, 0, "nothing was sent to the other account's tool");
+  assert.match(String(sess().stop_reason), /removed or disabled/);
+});
+await t("boundary: a removed tool is not resolved either", async () => {
+  setup(); H.table("external_tools")[0].removed_at = "2026-11-01T00:00:00Z";
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(r.status, "failed"); assert.equal(calls.length, 0);
+});
+await t("boundary: another account can not start a Task on this account's tool, nor read this account's Task", async () => {
+  taskSetup();
+  const theirs = await H.startTask(H.createClient("u", "k"), U2, { request: "Use their tool", steps: [{ tool_id: T1, instruction: "Do it" }] });
+  assert.equal(theirs.ok, false); assert.equal((theirs as any).code, "tool_unavailable");
+  const mine = await H.startTask(H.createClient("u", "k"), U, { request: "Find the policy", steps: [{ tool_id: T1, instruction: "Find it" }] });
+  assert.ok(mine.ok);
+  const other = await H.taskForKey(H.createClient("u", "k"), { userId: U2, keyId: null, isTest: false, scopes: ["outer_control:execute"] }, (mine as any).workflowId);
+  assert.equal(other.status, 404, "another account's key gets not found");
+  const own = await H.taskForKey(H.createClient("u", "k"), { userId: U, keyId: null, isTest: false, scopes: ["outer_control:execute"] }, (mine as any).workflowId);
+  assert.equal(own.status, 200);
+});
+await t("boundary: a run on one of the account's agents carries a token bound to the account, Task, step and agent", async () => {
+  taskSetup(); script = (n, b, url) => isAgent(url) ? agentRun("Drafted the reply.") : { json: { status: "done", answer: "ok" } };
+  const seen: any[] = [];
+  const d = { ...agentDeps, runToken: async (c: any) => { seen.push(c); return "v1.claims.sig"; } };
+  const r = await H.startTask(H.createClient("u", "k"), U, { request: "Draft a reply", steps: [{ tool_id: A1, instruction: "Draft it" }] });
+  assert.ok(r.ok); await runTask(r, d);
+  const call = calls.find((c) => isAgent(c.url))!;
+  assert.ok(call, "the agent was run");
+  assert.equal(call.headers["x-outer-control-token"], "v1.claims.sig");
+  assert.deepEqual(seen[0], { account: U, task: task().id, session: legs()[0].id, agent: AG1 });
+  assert.equal(call.body.outerSessionId, legs()[0].id); assert.equal(call.body.outerTaskId, task().id);
+});
+await t("boundary: the run token is genuine only for its own account, Task, step and agent, and only for 15 minutes", async () => {
+  const keys = await H.importFieldKeys("k".repeat(40));
+  const other = await H.importFieldKeys("o".repeat(40));
+  const claims = { account: U, task: "t-1", session: "s-1", agent: "ag-1" };
+  const tok = await H.signRunToken(keys, claims);
+  assert.equal((await H.verifyRunToken(keys, tok, claims)).ok, true);
+  for (const [k, v] of [["account", U2], ["task", "t-2"], ["session", "s-2"], ["agent", "ag-2"]]) {
+    const r = await H.verifyRunToken(keys, tok, { ...claims, [k]: v }); assert.equal(r.ok, false); assert.equal((r as any).reason, "mismatch", k);
+  }
+  assert.equal(((await H.verifyRunToken(keys, tok, claims, Date.now() + 16 * 60_000)) as any).reason, "expired");
+  assert.equal(((await H.verifyRunToken(other, tok, claims)) as any).reason, "bad_signature", "another key");
+  assert.equal(((await H.verifyRunToken(keys, null, claims)) as any).reason, "missing");
+  const [v, body, sig] = tok.split(".");
+  const forged = JSON.parse(Buffer.from(body.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString()); forged.account = U2;
+  const forgedBody = Buffer.from(JSON.stringify(forged)).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  assert.equal(((await H.verifyRunToken(keys, `${v}.${forgedBody}.${sig}`, { ...claims, account: U2 })) as any).reason, "bad_signature", "a changed claim breaks the signature");
+  // A keyed content fingerprint (which an owner can see for text they chose) is never a valid signature.
+  const fp = await H.fingerprint(keys, "outer-control run v1\n" + body);
+  assert.equal(((await H.verifyRunToken(keys, `${v}.${body}.${fp}`, claims)) as any).reason, "bad_signature");
+});
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1);

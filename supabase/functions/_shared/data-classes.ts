@@ -118,6 +118,7 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   api_response_generations: { message: X },
   audit_integrity_runs: { triggered_by: O },
   automation_readiness_signal_state: { signal: O },
+  boundary_references: { table_name: O, column_name: O, ref_table: O, note: O },
   business_profiles: {
     source_url: P, company_name: P, one_liner: P, industry: P, tone: P, audience: P, offers: P, channels: P, inferred_kpis: P, raw_research: X,
   },
@@ -212,6 +213,7 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   slack_oauth_transactions: { state: S, scope_groups: O, request_origin: O },
   suppressed_emails: { email: U, reason: O, metadata: O },
   user_roles: { role: O },
+  vault_secret_owners: { first_table: O },
   webhook_deliveries: { event: O, error: O, payload: P },
   webhooks: { url: P, secret: S, events: O, previous_secret: S },
   website_form_submissions: { page_slug: O, section_kind: O, fields: U, submitter_ip: U },

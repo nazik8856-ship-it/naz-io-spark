@@ -18,6 +18,7 @@ import {
 import {
   chainLegs, fanOutLegs, contextFromHandoffs, deriveTaskState, makeHandoff, type HandoffCheck, type HandoffRecord, type TaskKind, type TaskLeg, type TaskOrigin,
 } from "./outer-control-task.ts";
+import { accountTools } from "./outer-control-boundary.ts";
 import {
   buildLegContext, isLegOpen, legReadiness, MAX_CONTEXT_CHARS, MAX_LEGS, validateLegs, type LegState,
 } from "./outer-control-workflow-plan.ts";
@@ -56,8 +57,9 @@ type ToolInfo = { name: string; agent_id: string | null };
 async function loadToolInfo(admin: AnyAdmin, legs: LegRow[]): Promise<Map<string, ToolInfo>> {
   const ids = [...new Set(legs.map((l) => l.tool_id))];
   if (!ids.length) return new Map();
-  const { data } = await admin.from("external_tools").select("id, name, agent_id").in("id", ids);
-  return new Map(((data ?? []) as { id: string; name: string; agent_id: string | null }[]).map((t) => [t.id, { name: t.name, agent_id: t.agent_id ?? null }]));
+  // Only the Task's own account's tools (cross-platform boundary): a step pointing elsewhere gets no name and no agent.
+  const data = await accountTools<{ id: string; name: string; agent_id: string | null }>(admin, legs[0].user_id, ids, "id, name, agent_id");
+  return new Map(data.map((t) => [t.id, { name: t.name, agent_id: t.agent_id ?? null }]));
 }
 
 /**
