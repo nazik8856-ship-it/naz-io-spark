@@ -47,6 +47,7 @@ import { ensureStarterTools, isStarterUrl, STARTER_TASKS, STARTER_USED_UP, start
 import { buildPlanPrompt, cleanCount, cleanStyles, delegateInstruction, gatewayAi, improveInstruction, multistepInstruction, NEEDS_AI, parsePlan, REPORT_TOOL_URL, routeRequest, ROUTING_TEXT, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
 import { ACTION_INFO, MAX_BACKGROUND, REPORT_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
+import { checkFreeLimit } from "../_shared/free-limits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
 import { projectContextFor } from "../_shared/projects.ts";
 import { projectKeysFromEnv } from "../_shared/project-crypto.ts";
@@ -63,6 +64,12 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+/** The actions that start a new Task (each counts toward the free monthly Control Tasks). */
+const STARTS_A_TASK = new Set(["start_session", "follow_up", "start_task", "start_report", "start_goal", "start_workflow"]);
+
+/** A start that failed, as the response body: a free-limit refusal keeps its details for the app's limit window. */
+const startFailure = (s: { code: string; message: string; limit?: unknown }) => s.limit ?? { error: s.code, message: s.message };
+
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
@@ -120,6 +127,13 @@ Deno.serve(async (req) => {
     if (!rate.allowed) return json({ error: "rate_limited", message: "Too many requests. Try again shortly." }, 429);
 
     const action = String(body.action ?? "");
+
+    // Free usage limit (docs/onboarding-windows.md): checked before anything is spent; past it, nothing new starts and
+    // everything already made stays available. startWorkflow and the insert trigger check again.
+    if (STARTS_A_TASK.has(action)) {
+      const free = await checkFreeLimit(admin, accountId, "control_task");
+      if (!free.ok) return json(free.refusal, 402);
+    }
 
     // ---- create_tool -----------------------------------------------------------
     if (action === "create_tool") {
@@ -212,7 +226,7 @@ Deno.serve(async (req) => {
         objective, context, api_key_id: body.api_key_id, max_steps: body.max_steps, kind: "single",
         legs: [{ tool_id: tool.id, instruction: objective, fallback_tool_id: body.fallback_tool_id || null, on_failure: body.on_failure === "reject" ? "reject" : "handoff" }],
       });
-      if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+      if (!started.ok) return json(startFailure(started), started.code === "free_limit" ? 402 : started.code === "internal_error" ? 500 : 400);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, session_id: started.legIds[0], task_id: started.workflowId, status: "running" });
     }
@@ -232,7 +246,7 @@ Deno.serve(async (req) => {
     // ---- follow_up: a next request to the same tool, based on the controlled answer of a finished session ----
     if (action === "follow_up") {
       const started = await startFollowUp(admin, accountId, { session_id: body.session_id, instruction: body.instruction });
-      if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "not_found" ? 404 : started.code === "internal_error" ? 500 : started.code === "not_completed" ? 409 : 400);
+      if (!started.ok) return json(startFailure(started), started.code === "free_limit" ? 402 : started.code === "not_found" ? 404 : started.code === "internal_error" ? 500 : started.code === "not_completed" ? 409 : 400);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, session_id: started.legIds[0], task_id: started.workflowId, status: "running" });
     }
@@ -240,7 +254,7 @@ Deno.serve(async (req) => {
     // ---- start_task: several tools in sequence; each step receives the previous step's controlled result ----
     if (action === "start_task") {
       const started = await startTask(admin, accountId, { request: body.request, context: body.context, steps: body.steps, api_key_id: body.api_key_id, max_steps: body.max_steps });
-      if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+      if (!started.ok) return json(startFailure(started), started.code === "free_limit" ? 402 : started.code === "internal_error" ? 500 : 400);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, task_id: started.workflowId });
     }
@@ -336,7 +350,7 @@ Deno.serve(async (req) => {
       if (!started.ok) {
         // The credits were taken before the Task could start: give them back.
         for (let r = 0; r < cost; r++) await admin.rpc("refund_generation_credit", { p_user_id: accountId });
-        return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+        return json(startFailure(started), started.code === "free_limit" ? 402 : started.code === "internal_error" ? 500 : 400);
       }
       // Marks the Task as paid for, so that if it ends without a result the credit goes back (once).
       // (A free starter Task was not charged, so nothing is given back for it.)
@@ -356,7 +370,7 @@ Deno.serve(async (req) => {
       if (!started.ok) {
         // The credit was taken before the Task could start: give it back.
         await admin.rpc("refund_generation_credit", { p_user_id: accountId });
-        return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : started.code === "ai_unavailable" ? 503 : 400);
+        return json(startFailure(started), started.code === "free_limit" ? 402 : started.code === "internal_error" ? 500 : started.code === "ai_unavailable" ? 503 : 400);
       }
       // Marks the Task as paid for, so that if it ends without a result the credit goes back (once).
       await admin.from("outer_control_workflows").update({ credit_charged: true }).eq("id", started.workflowId);
@@ -445,7 +459,7 @@ Deno.serve(async (req) => {
     // ---- start_workflow / cancel_workflow --------------------------------------------
     if (action === "start_workflow") {
       const started = await startWorkflow(admin, accountId, body);
-      if (!started.ok) return json({ error: started.code, message: started.message }, started.code === "internal_error" ? 500 : 400);
+      if (!started.ok) return json(startFailure(started), started.code === "free_limit" ? 402 : started.code === "internal_error" ? 500 : 400);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, workflow_id: started.workflowId });
     }

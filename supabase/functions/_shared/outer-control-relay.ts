@@ -98,7 +98,7 @@ export async function relayToTask(
   const started = await startTask(admin, auth.userId, {
     request: goal, context: originContext(origin), steps, api_key_id: auth.keyId, origin,
   });
-  if (!started.ok) return err(started.code === "internal_error" ? 500 : 400, started.code, started.message);
+  if (!started.ok) return err(started.code === "free_limit" ? 402 : started.code === "internal_error" ? 500 : 400, started.code, started.message);
 
   const cleaned = result.verdict === "modify";
   try {

@@ -51,6 +51,7 @@ import { useExecutionLog } from "@/hooks/useExecutionLog";
 import { buildStaticSiteHtml } from "@/lib/static-site-export";
 import { selectRulesForAgent } from "@/lib/agent-policy";
 import { toast } from "sonner";
+import { limitFromDbError, openLimitWindow, showLimitIfAny } from "@/lib/limit-window";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -332,7 +333,9 @@ export default function GeneratedDashboard() {
           const ctx: any = (resp.error as any).context;
           if (ctx && typeof ctx.json === "function") {
             const body = await ctx.json();
-            if (body?.error) detail = body.error;
+            // A request read as "make a new website" past the free limit: the limit window explains it.
+            if (showLimitIfAny(body)) code = "free_limit";
+            if (body?.error) detail = body.message || body.error;
             if (body?.code) code = body.code;
           } else if (ctx && typeof ctx.text === "function") {
             const txt = await ctx.text();
@@ -442,7 +445,10 @@ export default function GeneratedDashboard() {
       const msg = e instanceof Error ? e.message : String(e);
       const code = e instanceof Error ? (e as Error & { code?: string }).code : undefined;
       const activeStep = websiteLog.steps.find((s2) => s2.status === "active");
-      if (code === "no_change") {
+      if (code === "free_limit") {
+        websiteLog.finish(msg);
+        setTurns((t) => [...t, { role: "assistant", content: `ℹ️ ${msg}`, time: "just now" }]);
+      } else if (code === "no_change") {
         // Not a failure -- the site may already match the request (e.g. the
         // auto-added footer links). "Couldn't apply that" framing here would
         // read as a bug when nothing actually needs fixing.
@@ -716,6 +722,8 @@ export default function GeneratedDashboard() {
       })
       .select()
       .maybeSingle();
+    const limit = limitFromDbError(error);
+    if (limit) return openLimitWindow(limit);
     if (error || !data) return toast.error(error?.message || "Duplicate failed");
     if (pages.length > 0) {
       const { error: pagesError } = await supabase.from("website_pages").insert(

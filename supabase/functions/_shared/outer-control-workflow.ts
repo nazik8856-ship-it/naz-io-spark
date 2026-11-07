@@ -8,6 +8,7 @@ import { isRedactableMatch } from "./outer-control-scoring.ts";
 import { textSafeToStore } from "./outer-control-text-review.ts";
 import { sha256Hex } from "./api-key-auth.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
+import { checkFreeLimit, freeLimitFromDbError, freeLimitRefusal, type FreeLimitRefusal } from "./free-limits.ts";
 import { buildTaskArtifact, officialOutput, validateArtifact, type TaskArtifactHandoff } from "./outer-control-artifact.ts";
 import { gatewayAi, REPORT_TOOL_URL, type ReportAi } from "./outer-control-report.ts";
 import {
@@ -368,7 +369,7 @@ export async function resumeAndDrive(admin: AnyAdmin, sessionId: string, deps: S
 
 export type StartWorkflowResult =
   | { ok: true; workflowId: string; running: string[]; legIds: string[] }
-  | { ok: false; code: string; message: string };
+  | { ok: false; code: string; message: string; limit?: FreeLimitRefusal };
 
 export async function startWorkflow(
   admin: AnyAdmin, userId: string,
@@ -397,11 +398,19 @@ export async function startWorkflow(
   }
   const maxSteps = Math.max(1, Math.min(20, Number.isFinite(Number(input.max_steps)) ? Math.trunc(Number(input.max_steps)) : 5));
 
+  // Free usage limit (docs/onboarding-windows.md): every Task path comes through here; the insert trigger is the backstop.
+  const free = await checkFreeLimit(admin, userId, "control_task");
+  if (!free.ok) return { ok: false, code: "free_limit", message: free.refusal.message, limit: free.refusal };
+
   const { data: wf, error } = await admin.from("outer_control_workflows")
     .insert({
       user_id: userId, api_key_id: apiKeyId, objective, context, status: "running", kind: input.kind ?? "chain",
       origin: input.origin ?? null, steps_total: checked.legs.length, current_leg: 1, ...(input.extra ?? {}),
     }).select("id").maybeSingle();
+  if (freeLimitFromDbError(error) === "control_task") {
+    const refusal = freeLimitRefusal("control_task");
+    return { ok: false, code: "free_limit", message: refusal.message, limit: refusal };
+  }
   if (error || !wf) return { ok: false, code: "internal_error", message: "Could not start the workflow." };
   const workflowId = (wf as { id: string }).id;
 

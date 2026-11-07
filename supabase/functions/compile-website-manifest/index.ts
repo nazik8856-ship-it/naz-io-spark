@@ -9,6 +9,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
+import { checkFreeLimit, freeLimitFromDbError, freeLimitRefusal } from "../_shared/free-limits.ts";
 import { loadSafetyRules, scanWithRules, type SafetyMatch, type SafetyRule } from "../_shared/safety-scanner.ts";
 import { computeTrustScore, isRedactableMatch } from "../_shared/outer-control-scoring.ts";
 import { parseModelJson } from "../_shared/model-output.ts";
@@ -926,6 +927,9 @@ async function handleRequest(req: Request, uploadAliases: UploadAliases): Promis
     // then a second request (outline + staged) generates the content.
     if (outlineMode) {
       if (!user) return json({ error: "Not authenticated — sign in to generate." }, 401);
+      // The outline starts a new website: past the free limit, say so now rather than after the person has shaped it.
+      const free = await checkFreeLimit(admin, user.id, "website");
+      if (!free.ok) return json(free.refusal, 402);
       return json(await proposeOutline(gw, prompt, structure ?? "full-business"));
     }
 
@@ -1120,6 +1124,13 @@ async function handleRequest(req: Request, uploadAliases: UploadAliases): Promis
         compilePrompt = routed.brief;
         rebuildWebsiteId = routed.route === "rebuild" ? String(previousWebsiteId) : null;
       }
+    }
+
+    // Free usage limit (docs/onboarding-windows.md): a new website past this month's free allowance is refused here, before any
+    // generation work is spent. Editing, refining and rebuilding an existing website are never limited.
+    if (user && save && !rebuildWebsiteId && !(refine && previousWebsiteId && routeInfo.route === "edit")) {
+      const free = await checkFreeLimit(admin, user.id, "website");
+      if (!free.ok) return json(free.refusal, 402);
     }
 
     if (refine && previousWebsiteId && user && routeInfo.route === "edit") {
@@ -1746,6 +1757,9 @@ async function handleRequest(req: Request, uploadAliases: UploadAliases): Promis
     // stays free, so iterating on what you've already built never drains
     // your balance. This is the only place a genuinely new website is ever
     // inserted, so it's the only place that should ever be charged.
+    // The free limit again, right before anything is charged (a second tab may have created a site meanwhile).
+    const freeNow = await checkFreeLimit(admin, user.id, "website");
+    if (!freeNow.ok) return json(freeNow.refusal, 402);
     const credit = await consumeGenerationCredit(user.id);
     if (!credit.ok) return json({ error: NO_CREDITS_MESSAGE, code: "no_credits" }, 402);
 
@@ -1768,6 +1782,11 @@ async function handleRequest(req: Request, uploadAliases: UploadAliases): Promis
       .select("id")
       .single();
 
+    if (freeLimitFromDbError(siteErr) === "website") {
+      // The insert trigger refused it (the backstop): nothing was created, so the credit goes back.
+      await admin.rpc("refund_generation_credit", { p_user_id: user.id });
+      return json(freeLimitRefusal("website"), 402);
+    }
     if (siteErr || !siteRow) {
       console.error("website insert failed", siteErr);
       return json({ manifest, error: siteErr?.message ?? "failed to save website" }, 500);

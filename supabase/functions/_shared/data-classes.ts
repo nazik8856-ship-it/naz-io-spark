@@ -141,6 +141,7 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   encryption_exempt_columns: { table_name: O, column_name: O, reason: O, kind: O },
   external_tools: { name: P, endpoint_url: P, request_format: O, model: O, auth_header: O, auth_scheme: O, last_error: O },
   figma_oauth_transactions: { state: S },
+  free_limit_exempt_emails: { email: U, note: O },
   generation_cache: { kind: O, cache_key: O, manifest: P },
   generation_canary_runs: { mode: O, checks: O },
   generation_progress: { stage: O, checks: O },

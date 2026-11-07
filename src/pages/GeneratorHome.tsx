@@ -7,6 +7,7 @@ import CreditBalance from "@/components/dashboard/CreditBalance";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
+import { showLimitIfAny } from "@/lib/limit-window";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
 import MissionGovernanceStrip from "@/components/generator/MissionGovernanceStrip";
 import StructureSelector from "@/components/generator/StructureSelector";
@@ -444,6 +445,7 @@ export default function GeneratorHome() {
         });
         const body = await resp.json().catch(() => ({}));
         if (!resp.ok || !body?.outline) {
+          if (showLimitIfAny(body)) { setCompiling(false); return; }
           toast.error(body?.error || `Couldn't prepare the structure (${resp.status})`);
           setCompiling(false);
           return;
@@ -476,6 +478,7 @@ export default function GeneratorHome() {
         });
         const body = await resp.json().catch(() => ({}));
         if (!resp.ok || !body?.agentId) {
+          if (showLimitIfAny(body)) { setCompiling(false); return; }
           toast.error(body?.error || `Agent compile failed (${resp.status})`);
           setCompiling(false);
           return;
@@ -542,6 +545,7 @@ export default function GeneratorHome() {
       }, strict ? 120_000 : 90_000);
       const body = await resp.json().catch(() => ({}));
       if (!resp.ok || !body?.website_id) {
+        if (showLimitIfAny(body)) { setCompiling(false); return; }
         toast.error(body?.error || `Website compile failed (${resp.status})`);
         setCompiling(false);
         return;

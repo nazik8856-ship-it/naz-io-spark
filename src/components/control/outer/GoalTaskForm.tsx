@@ -46,7 +46,7 @@ export default function GoalTaskForm({ tools, onStarted, onRefresh }: { tools: T
     setBusy(true);
     const r = await callDrive("start_goal", { goal, criteria: parsed.criteria.length ? parsed.criteria : undefined, tool_ids: chosen, max_rounds: rounds, confirm_override: plan.kept || undefined });
     setBusy(false);
-    if (!r.ok) { toast.error(r.message || "That did not work."); return; }
+    if (!r.ok) { if (!r.limited) toast.error(r.message || "That did not work."); return; }
     toast.success(`Started with ${chosen.map((id) => tools.find((t) => t.id === id)?.name ?? "tool").join(" → ")}. It keeps going until the done criteria are met or it needs you.`);
     setGoal(""); setCriteriaText(""); setChosen([]); setRounds(4);
     await onStarted();

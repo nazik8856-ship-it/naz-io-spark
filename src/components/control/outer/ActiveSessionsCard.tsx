@@ -134,13 +134,15 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       const next = new URLSearchParams(params); next.delete("project"); setParams(next, { replace: true });
     })();
   }, [params, accountId, setParams]);
-  // First-value onboarding: "?start=first" asks who runs the first task (NazAI, or the person's own AI); "?start=task" opens Start task.
+  // First-value onboarding: "?start=first" asks who runs the first task (NazAI, or the person's own AI); "?start=task" opens Start task;
+  // "?start=connect" opens Connect a tool (the connector-unlock window, docs/onboarding-windows.md).
   const [showChoice, setShowChoice] = useState(false);
   useEffect(() => {
     const start = params.get("start");
     if (!start || !accountId) return;
     if (start === "first") setShowChoice(true);
     else if (start === "task") setShowReport(true);
+    else if (start === "connect") setShowConnect(true);
     const next = new URLSearchParams(params); next.delete("start"); setParams(next, { replace: true });
   }, [params, accountId, setParams]);
   const chooseNazai = async () => {
@@ -171,7 +173,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     setBusy(key);
     const r = await callDrive(action, payload);
     setBusy(null);
-    if (!r.ok) { toast.error(r.message || "That did not work."); return r; }
+    if (!r.ok) { if (!r.limited) toast.error(r.message || "That did not work."); return r; }
     if (okMsg) toast.success(okMsg);
     await load();
     return r;
