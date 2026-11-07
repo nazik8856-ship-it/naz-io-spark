@@ -79,6 +79,14 @@ export function nextWindow(c: OnboardingContext): OnboardingWindowId | null {
   return null;
 }
 
+/** A "Was this useful?" answer as the onboarding_feedback row: "useful", "skipped", or "not_useful" with one fixed reason. */
+export function feedbackRow(value: string): { answer: "useful" | "not_useful" | "skipped"; reason: string | null } | null {
+  if (value === "useful" || value === "skipped" || value === "not_useful") return { answer: value, reason: null };
+  const m = /^not_useful:(\w+)$/.exec(value);
+  if (m && FEEDBACK_REASONS.some((r) => r.id === m[1])) return { answer: "not_useful", reason: m[1] };
+  return null;
+}
+
 /** The predefined reasons for "Not really" (no free text is stored). */
 export const FEEDBACK_REASONS = [
   { id: "not_what_i_asked", label: "Result was not what I asked" },

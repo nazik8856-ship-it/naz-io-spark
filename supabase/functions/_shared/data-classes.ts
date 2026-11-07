@@ -166,6 +166,7 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   meaning_rules: { name: R, description: R, action: R },
   missions: { directive: P, attachment_urls: P, status: O },
   notion_oauth_transactions: { state: S, request_origin: O },
+  onboarding_feedback: { answer: O, reason: O },
   org_insights: { insight: P, kind: O, confidence: O, source_agent_ids: O },
   outer_control_completion_checks: { outcome: O, criteria: O, summary: P, output_sha256: O },
   outer_control_corrections: { outcome: O, rule_ids: O, rule_names: R, risk: O, fingerprint: O },

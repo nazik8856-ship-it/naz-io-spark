@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { nextWindow, isOnboardingUser, onboardingState, type OnboardingContext } from "@/lib/onboarding-windows";
+import { nextWindow, isOnboardingUser, onboardingState, feedbackRow, type OnboardingContext } from "@/lib/onboarding-windows";
 import { limitCopy, limitFromDbError, limitFromResponse, resetLabel, FREE_LIMITS, UPGRADE_PATH } from "@/lib/limit-window";
 import { usageRows } from "@/components/onboarding/LimitWindow";
 
@@ -124,5 +124,25 @@ describe("free limits are enforced on the server", () => {
     expect((site.match(/checkFreeLimit\(admin, user\.id, "website"\)/g) ?? []).length).toBe(3);
     expect(site.indexOf('checkFreeLimit(admin, user.id, "website")')).toBeLessThan(site.indexOf('reportProgress(admin, requestId, user.id, "generating")'));
     expect(site.indexOf("const freeNow = await checkFreeLimit")).toBeLessThan(site.indexOf("const credit = await consumeGenerationCredit(user.id);"));
+  });
+});
+
+describe("\"Was this useful?\" answers are kept", () => {
+  it("each answer becomes one onboarding_feedback row with a fixed reason, never free text", () => {
+    expect(feedbackRow("useful")).toEqual({ answer: "useful", reason: null });
+    expect(feedbackRow("skipped")).toEqual({ answer: "skipped", reason: null });
+    expect(feedbackRow("not_useful")).toEqual({ answer: "not_useful", reason: null });
+    expect(feedbackRow("not_useful:too_slow")).toEqual({ answer: "not_useful", reason: "too_slow" });
+    expect(feedbackRow("not_useful:anything I typed")).toBeNull();
+    expect(feedbackRow("nonsense")).toBeNull();
+    expect(read("src/components/onboarding/OnboardingWindows.tsx")).toMatch(/from\("onboarding_feedback"\)\.insert\(row\)/);
+  });
+  it("one row per account, own row only, totals for the platform only", () => {
+    const sql = read("supabase/migrations/20261112010000_onboarding_feedback.sql");
+    expect(sql).toMatch(/user_id uuid PRIMARY KEY REFERENCES auth\.users \(id\) ON DELETE CASCADE/);
+    expect(sql).toMatch(/FOR INSERT TO authenticated WITH CHECK \(user_id = auth\.uid\(\)\)/);
+    expect(sql).toMatch(/FOR SELECT TO authenticated USING \(user_id = auth\.uid\(\)\)/);
+    expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.onboarding_feedback_summary\(timestamptz\) TO service_role;/);
+    expect(sql).not.toMatch(/onboarding_feedback_summary\(timestamptz\) TO [^;]*authenticated/);
   });
 });
