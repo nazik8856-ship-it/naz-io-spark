@@ -8,6 +8,8 @@ import { lazy, Suspense } from "react";
 import EntranceSplash from "@/components/EntranceSplash";
 import PaymentWindow from "@/components/payments/PaymentWindow";
 import OutOfCreditsModal from "@/components/payments/OutOfCreditsModal";
+import LimitWindow from "@/components/onboarding/LimitWindow";
+import OnboardingWindows from "@/components/onboarding/OnboardingWindows";
 import OAuthReturnHandler from "@/components/OAuthReturnHandler";
 import IntegrationOAuthMessageBridge from "@/components/integrations/IntegrationOAuthMessageBridge";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -53,6 +55,8 @@ const Generator = lazyWithReload(() => import("./pages/Generator"));
 const GeneratorHome = lazyWithReload(() => import("./pages/GeneratorHome"));
 const Generating = lazyWithReload(() => import("./pages/Generating"));
 const Pricing = lazyWithReload(() => import("./pages/Pricing"));
+// Development only: every onboarding and limit window with fixed values (docs/onboarding-windows.md). Not in production builds.
+const OnboardingWindowsPreview = import.meta.env.DEV ? lazyWithReload(() => import("./pages/OnboardingWindowsPreview")) : null;
 const Unsubscribe = lazyWithReload(() => import("./pages/Unsubscribe"));
 const OAuthConsent = lazyWithReload(() => import("./pages/OAuthConsent"));
 const OAuthComplete = lazyWithReload(() => import("./pages/OAuthComplete"));
@@ -155,6 +159,7 @@ const App = () => (
                 {/* Mission Generator & Dashboard */}
                 <Route path="/generate" element={<Generator />} />
                 <Route path="/pricing" element={<Pricing />} />
+                {OnboardingWindowsPreview && <Route path="/dev/onboarding-windows" element={<OnboardingWindowsPreview />} />}
                 <Route path="/website-preview/:id" element={<WebsitePreview />} />
                 <Route element={<AuthGuard />}>
                   <Route path="/generator-home" element={<GeneratorHome />} />
@@ -229,6 +234,8 @@ const App = () => (
               <BuildFreshnessWatcher />
               <PaymentWindow />
               <OutOfCreditsModal />
+              <LimitWindow />
+              <OnboardingWindows />
             </Suspense>
           </EntranceSplash>
         </main>

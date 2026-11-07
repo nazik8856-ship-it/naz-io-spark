@@ -102,7 +102,7 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
     setBusy(true);
     const r = await callDrive("start_workflow", { objective, context: context || undefined, legs: checked.legs });
     setBusy(false);
-    if (!r.ok) { toast.error(r.message || "That did not work."); return; }
+    if (!r.ok) { if (!r.limited) toast.error(r.message || "That did not work."); return; }
     toast.success("Workflow started.");
     setObjective(""); setContext(""); setDrafts([emptyLeg()]); setShow(false);
     await load();
