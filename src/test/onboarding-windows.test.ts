@@ -3,9 +3,10 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { nextWindow, isOnboardingUser, onboardingState, type OnboardingContext } from "@/lib/onboarding-windows";
+import { nextWindow, isOnboardingUser, onboardingState, feedbackRow, type OnboardingContext } from "@/lib/onboarding-windows";
 import { limitCopy, limitFromDbError, limitFromResponse, resetLabel, FREE_LIMITS, UPGRADE_PATH } from "@/lib/limit-window";
 import { usageRows } from "@/components/onboarding/LimitWindow";
+import { feedbackTotals } from "@/pages/OpsFeedback";
 
 const ROOT = join(__dirname, "../..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
@@ -124,5 +125,41 @@ describe("free limits are enforced on the server", () => {
     expect((site.match(/checkFreeLimit\(admin, user\.id, "website"\)/g) ?? []).length).toBe(3);
     expect(site.indexOf('checkFreeLimit(admin, user.id, "website")')).toBeLessThan(site.indexOf('reportProgress(admin, requestId, user.id, "generating")'));
     expect(site.indexOf("const freeNow = await checkFreeLimit")).toBeLessThan(site.indexOf("const credit = await consumeGenerationCredit(user.id);"));
+  });
+});
+
+describe("\"Was this useful?\" answers are kept", () => {
+  it("each answer becomes one onboarding_feedback row with a fixed reason, never free text", () => {
+    expect(feedbackRow("useful")).toEqual({ answer: "useful", reason: null });
+    expect(feedbackRow("skipped")).toEqual({ answer: "skipped", reason: null });
+    expect(feedbackRow("not_useful")).toEqual({ answer: "not_useful", reason: null });
+    expect(feedbackRow("not_useful:too_slow")).toEqual({ answer: "not_useful", reason: "too_slow" });
+    expect(feedbackRow("not_useful:anything I typed")).toBeNull();
+    expect(feedbackRow("nonsense")).toBeNull();
+    expect(read("src/components/onboarding/OnboardingWindows.tsx")).toMatch(/from\("onboarding_feedback"\)\.insert\(row\)/);
+  });
+  it("one row per account, own row only, totals for the platform only", () => {
+    const sql = read("supabase/migrations/20261112010000_onboarding_feedback.sql");
+    expect(sql).toMatch(/user_id uuid PRIMARY KEY REFERENCES auth\.users \(id\) ON DELETE CASCADE/);
+    expect(sql).toMatch(/FOR INSERT TO authenticated WITH CHECK \(user_id = auth\.uid\(\)\)/);
+    expect(sql).toMatch(/FOR SELECT TO authenticated USING \(user_id = auth\.uid\(\)\)/);
+    // The totals and the latest answers: platform owners and admins only (checked inside each function), never the anonymous key.
+    for (const fn of ["onboarding_feedback_summary", "onboarding_feedback_recent"]) {
+      const body = sql.slice(sql.indexOf(`FUNCTION public.${fn}(`));
+      expect(body.slice(0, 500), fn).toMatch(/has_role\(auth\.uid\(\), 'admin'\) OR public\.has_role\(auth\.uid\(\), 'owner'\)\) THEN\s+RAISE EXCEPTION 'not authorized'/);
+      expect(sql).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([a-z]+\\) FROM PUBLIC, anon;`));
+    }
+    expect(sql).not.toMatch(/SELECT f\.user_id|f\.user_id,/); // who answered is never returned
+  });
+  it("the operator page shows the totals and the share that found it useful", () => {
+    const t = feedbackTotals([
+      { answer: "useful", reason: null, accounts: 6 },
+      { answer: "not_useful", reason: "too_slow", accounts: 1 },
+      { answer: "not_useful", reason: "not_what_i_asked", accounts: 1 },
+      { answer: "skipped", reason: null, accounts: 3 },
+    ]);
+    expect([t.useful, t.notUseful, t.skipped, t.answered, t.usefulPct]).toEqual([6, 2, 3, 8, 75]);
+    expect(t.reasons.map((r) => r.label)).toContain("Took too long");
+    expect(read("src/App.tsx")).toMatch(/path="\/ops\/feedback"/);
   });
 });

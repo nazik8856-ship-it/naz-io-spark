@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import OnboardingArt, { type OnboardingArtKind } from "@/components/onboarding/OnboardingArt";
 import {
-  FEEDBACK_REASONS, isOnboardingUser, isOuterPath, nextWindow, onboardingState,
+  FEEDBACK_REASONS, feedbackRow, isOnboardingUser, isOuterPath, nextWindow, onboardingState,
   type OnboardingState, type OnboardingWindowId,
 } from "@/lib/onboarding-windows";
 
@@ -209,6 +209,9 @@ export default function OnboardingWindows() {
     const next = { ...state, [id]: value };
     setState(next);
     void supabase.auth.updateUser({ data: { onboarding: next } }).catch(() => undefined);
+    // The "Was this useful?" answer is also kept in onboarding_feedback, so the totals can be read (one row per account).
+    const row = id === "feedback" && typeof value === "string" ? feedbackRow(value) : null;
+    if (row) void anyDb.from("onboarding_feedback").insert(row).then(() => undefined, () => undefined);
   };
   return (
     <OnboardingWindowView
