@@ -59,7 +59,10 @@ The first success is the first completed Control Task.
     - in the account's `onboarding` metadata, so the card never comes back;
     - as one row per account in `onboarding_feedback` (answer: useful, not_useful or skipped, plus the reason). The person can
       write and read only their own row.
-  - The totals: `select * from onboarding_feedback_summary();` (server only; optionally pass a start date).
+  - **Where to see them:** `/ops/feedback`, for the platform's owners and admins only. It shows the totals, the share that found
+    it useful, the "Not really" reasons and the latest 50 answers, never who gave them. It reads
+    `onboarding_feedback_summary()` and `onboarding_feedback_recent()`; both refuse everyone else. There is also a link to it
+    from Platform incidents.
 
 ## Creative system
 

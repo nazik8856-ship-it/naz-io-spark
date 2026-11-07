@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { nextWindow, isOnboardingUser, onboardingState, feedbackRow, type OnboardingContext } from "@/lib/onboarding-windows";
 import { limitCopy, limitFromDbError, limitFromResponse, resetLabel, FREE_LIMITS, UPGRADE_PATH } from "@/lib/limit-window";
 import { usageRows } from "@/components/onboarding/LimitWindow";
+import { feedbackTotals } from "@/pages/OpsFeedback";
 
 const ROOT = join(__dirname, "../..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
@@ -142,7 +143,23 @@ describe("\"Was this useful?\" answers are kept", () => {
     expect(sql).toMatch(/user_id uuid PRIMARY KEY REFERENCES auth\.users \(id\) ON DELETE CASCADE/);
     expect(sql).toMatch(/FOR INSERT TO authenticated WITH CHECK \(user_id = auth\.uid\(\)\)/);
     expect(sql).toMatch(/FOR SELECT TO authenticated USING \(user_id = auth\.uid\(\)\)/);
-    expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.onboarding_feedback_summary\(timestamptz\) TO service_role;/);
-    expect(sql).not.toMatch(/onboarding_feedback_summary\(timestamptz\) TO [^;]*authenticated/);
+    // The totals and the latest answers: platform owners and admins only (checked inside each function), never the anonymous key.
+    for (const fn of ["onboarding_feedback_summary", "onboarding_feedback_recent"]) {
+      const body = sql.slice(sql.indexOf(`FUNCTION public.${fn}(`));
+      expect(body.slice(0, 500), fn).toMatch(/has_role\(auth\.uid\(\), 'admin'\) OR public\.has_role\(auth\.uid\(\), 'owner'\)\) THEN\s+RAISE EXCEPTION 'not authorized'/);
+      expect(sql).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([a-z]+\\) FROM PUBLIC, anon;`));
+    }
+    expect(sql).not.toMatch(/SELECT f\.user_id|f\.user_id,/); // who answered is never returned
+  });
+  it("the operator page shows the totals and the share that found it useful", () => {
+    const t = feedbackTotals([
+      { answer: "useful", reason: null, accounts: 6 },
+      { answer: "not_useful", reason: "too_slow", accounts: 1 },
+      { answer: "not_useful", reason: "not_what_i_asked", accounts: 1 },
+      { answer: "skipped", reason: null, accounts: 3 },
+    ]);
+    expect([t.useful, t.notUseful, t.skipped, t.answered, t.usefulPct]).toEqual([6, 2, 3, 8, 75]);
+    expect(t.reasons.map((r) => r.label)).toContain("Took too long");
+    expect(read("src/App.tsx")).toMatch(/path="\/ops\/feedback"/);
   });
 });

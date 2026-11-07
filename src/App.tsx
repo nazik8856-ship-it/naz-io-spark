@@ -86,6 +86,7 @@ const ControlComplianceReport = lazyWithReload(() => import("./pages/ControlComp
 const ControlTeam = lazyWithReload(() => import("./pages/ControlTeam"));
 const AcceptInvite = lazyWithReload(() => import("./pages/AcceptInvite"));
 const OpsPlatformIncidents = lazyWithReload(() => import("./pages/OpsPlatformIncidents"));
+const OpsFeedback = lazyWithReload(() => import("./pages/OpsFeedback"));
 const ControlPolicyTemplates = lazyWithReload(() => import("./pages/ControlPolicyTemplates"));
 const ControlRuleEffectiveness = lazyWithReload(() => import("./pages/ControlRuleEffectiveness"));
 const ControlConfidenceCalibration = lazyWithReload(() => import("./pages/ControlConfidenceCalibration"));
@@ -208,6 +209,7 @@ const App = () => (
                     by the global admin/owner role check, same convention as
                     KillSwitchPanel's reveal-code gate. */}
                 <Route path="/ops/incidents" element={<OpsPlatformIncidents />} />
+                <Route path="/ops/feedback" element={<OpsFeedback />} />
 
 
 

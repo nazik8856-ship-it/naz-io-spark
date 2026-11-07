@@ -1,7 +1,8 @@
 -- "Was this useful?" answers (docs/onboarding-windows.md, window set 3).
 --
 -- One row per account: whether the first controlled Task was useful and, if not, which of the four fixed reasons. No free text
--- is stored. The person writes and reads only their own row; onboarding_feedback_summary() gives the platform the totals.
+-- is stored. The person writes and reads only their own row; the platform's owners and admins see the totals and the latest
+-- answers (without who gave them) on /ops/feedback.
 
 CREATE TABLE IF NOT EXISTS public.onboarding_feedback (
   user_id uuid PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE DEFAULT auth.uid(),
@@ -28,13 +29,31 @@ INSERT INTO public.data_classification (table_name, column_name, class) VALUES
 ('onboarding_feedback', 'reason', 'OPERATIONAL')
 ON CONFLICT (table_name, column_name) DO UPDATE SET class = EXCLUDED.class;
 
--- The totals, for the platform (server only): how many found it useful, and why the others did not.
+-- What the platform's owners and admins see on /ops/feedback: the totals, and the latest answers without who gave them.
+-- Anyone else (and the anonymous key) is refused; the server's own key may read it too.
 CREATE OR REPLACE FUNCTION public.onboarding_feedback_summary(_since timestamptz DEFAULT NULL)
 RETURNS TABLE (answer text, reason text, accounts bigint)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
-  SELECT f.answer, f.reason, count(*) FROM public.onboarding_feedback f
-  WHERE _since IS NULL OR f.created_at >= _since
-  GROUP BY f.answer, f.reason ORDER BY f.answer, f.reason;
-$fn$;
-REVOKE ALL ON FUNCTION public.onboarding_feedback_summary(timestamptz) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.onboarding_feedback_summary(timestamptz) TO service_role;
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
+BEGIN
+  IF NOT (auth.role() = 'service_role' OR public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'owner')) THEN
+    RAISE EXCEPTION 'not authorized';
+  END IF;
+  RETURN QUERY SELECT f.answer, f.reason, count(*) FROM public.onboarding_feedback f
+    WHERE _since IS NULL OR f.created_at >= _since
+    GROUP BY f.answer, f.reason ORDER BY f.answer, f.reason;
+END $fn$;
+REVOKE ALL ON FUNCTION public.onboarding_feedback_summary(timestamptz) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.onboarding_feedback_summary(timestamptz) TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.onboarding_feedback_recent(_limit int DEFAULT 50)
+RETURNS TABLE (created_at timestamptz, answer text, reason text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
+BEGIN
+  IF NOT (auth.role() = 'service_role' OR public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'owner')) THEN
+    RAISE EXCEPTION 'not authorized';
+  END IF;
+  RETURN QUERY SELECT f.created_at, f.answer, f.reason FROM public.onboarding_feedback f
+    ORDER BY f.created_at DESC LIMIT least(greatest(coalesce(_limit, 50), 1), 200);
+END $fn$;
+REVOKE ALL ON FUNCTION public.onboarding_feedback_recent(int) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.onboarding_feedback_recent(int) TO authenticated, service_role;

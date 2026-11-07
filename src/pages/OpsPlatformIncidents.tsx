@@ -142,6 +142,7 @@ export default function OpsPlatformIncidents() {
         <ShieldAlert className="h-5 w-5 text-amber-300" />
         <h1 className="text-lg font-semibold">Platform incidents</h1>
         <nav className="ml-auto flex items-center gap-2">
+          <a href="/ops/feedback" className="mr-2 text-xs text-zinc-500 hover:text-zinc-300">Onboarding feedback</a>
           <button
             onClick={() => setFilter("open")}
             className={`rounded border px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider ${
