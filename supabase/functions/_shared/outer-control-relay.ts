@@ -11,6 +11,8 @@
 
 import { extractExternalText } from "./outer-control-intake.ts";
 import { evaluateExternalText } from "./outer-control-text-review.ts";
+import { containExternal } from "./external-content.ts";
+import { recordEvidence } from "./security-evidence.ts";
 import { sha256Hex } from "./api-key-auth.ts";
 import { createAgentTool } from "./outer-control-tools.ts";
 import { startTask } from "./outer-control-workflow.ts";
@@ -65,8 +67,17 @@ export async function relayToTask(
     steps.push({ tool_id: toolId, instruction, on_failure: raw.on_failure });
   }
 
-  // 1. Judge what the external agent sent, exactly as /evaluate does.
+  // 1. Judge what the external agent sent, exactly as /evaluate does. Text that tries to steer NazAI itself is held first: it is not
+  //    evaluated, not stored and starts nothing (external-content.ts).
   const content = intake.text;
+  const contained = containExternal(content, { label: sourceModel });
+  if (contained.status === "quarantined") {
+    await recordEvidence(admin, {
+      userId: auth.userId, kind: "content_held", actor: "api_key", actorId: auth.keyId ?? null, subject: { source: sourceModel.slice(0, 80), via: "relay" },
+      inputSha256: await sha256Hex(content), ruleIds: contained.rules, verdict: "held",
+    });
+    return { status: 200, body: { ok: true, relayed: false, verdict: "block", held: true, summary: `Held: the output tried to give the AI instructions (${contained.reasons.slice(0, 2).join("; ").toLowerCase()}).`, evaluation_id: null } };
+  }
   const result = await evaluateExternalText(admin, {
     userId: auth.userId, agentId: null, apiKeyId: auth.keyId, isTest: auth.isTest, sourceModel, content,
     origin: "external-api", externalId: null, contentHash: await fingerprintOf(content),

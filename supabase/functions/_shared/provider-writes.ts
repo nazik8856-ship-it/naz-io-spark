@@ -1,5 +1,6 @@
 import { slackText } from "./outbound.ts";
 import { maskOutbound } from "./outbound-guard.ts";
+import { NO_EVIDENCE_MESSAGE, recordEvidence, sha256Of } from "./security-evidence.ts";
 // ============================================================================
 // Real, verified write executors for Slack, Notion, Canva and Shopify.
 //
@@ -1386,9 +1387,19 @@ export { PROVIDER_WRITE_KINDS } from "./approval-run.ts";
 
 export async function runProviderWrite(
   kind: string, admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+  opts: { evidenceRecorded?: boolean } = {},
 ): Promise<WriteResult> {
   // Data in transit: what is written to a connected service never carries a provider credential or one of NazAI's own.
   input = maskOutbound(input).value;
+  // Security evidence (docs/security-evidence.md): no connected service is called without its signed evidence row. A caller that
+  // already wrote it for this exact call (agent-runtime, right after its control gate) says so.
+  if (!opts.evidenceRecorded) {
+    const ev = await recordEvidence(admin, {
+      userId, kind: "connector_call", actor: agentId ? "agent" : "system", actorId: agentId || null,
+      subject: { action: kind, agent: agentId || null }, inputSha256: await sha256Of(input), verdict: "allowed",
+    });
+    if (!ev.ok) return fail(NO_EVIDENCE_MESSAGE);
+  }
   switch (kind) {
     case "slack_post_message": return await slackPostMessage(admin, userId, agentId, input);
     case "slack_upload_file": return await slackUploadFile(admin, userId, agentId, input);

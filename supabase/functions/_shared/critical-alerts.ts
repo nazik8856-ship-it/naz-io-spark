@@ -142,7 +142,10 @@ export type CriticalAlertEvent =
   | "outer_control_session_failed"
   // Outer Control (active): a connected tool that was working failed its scheduled connection test (a revoked key, a moved address).
   // Told once, when it stops working, not on every later test.
-  | "outer_control_tool_down";
+  | "outer_control_tool_down"
+  // General data security, task 5: a connected tool or a tool result sent back a credential. It was removed before anything was stored
+  // or passed on; the owner should still rotate it, so this opens an incident.
+  | "external_secret_received";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -183,6 +186,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   hard_rule_auto_drafted: "🕶️ A new shadow rule was auto-drafted for review",
   outer_control_session_failed: "🔌 An Outer Control session with an external tool failed",
   outer_control_tool_down: "🔌 A connected tool stopped working",
+  external_secret_received: "🔑 A connected tool sent back a credential (it was removed)",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

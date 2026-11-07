@@ -149,6 +149,7 @@ const REVIEWED: Record<string, number> = {
   "incident-escalation-sweep": 1,
   "integration-revocation-sweep": 1,
   "integration-sync": 1,
+  "knowledge-base-auto-draft-sweep": 1,
   "measure-decision-outcomes": 2,
   "notion-oauth-callback": 2,
   "outcome-quality-sweep": 2,

@@ -231,6 +231,55 @@ export default function ControlPendingDecisions() {
     toast({ title: "Exported", description: `${rows.length} decision${rows.length === 1 ? "" : "s"} written to CSV.` });
   };
 
+  // Security evidence (docs/security-evidence.md): the signed, append-only record of this account's critical actions in the range,
+  // with the database's own check of the chain. Ids and hashes only, never content.
+  const [exportingEvidence, setExportingEvidence] = useState(false);
+  const exportEvidence = async () => {
+    setExportingEvidence(true);
+    const fromIso = new Date(`${exportFrom}T00:00:00.000Z`).toISOString();
+    const toIso = new Date(`${exportTo}T23:59:59.999Z`).toISOString();
+    const [{ data, error }, check] = await Promise.all([
+      supabase.from("security_evidence" as never)
+        .select("seq,created_at,kind,actor,actor_id,subject,input_sha256,output_sha256,rule_ids,rules_sha256,verdict,prev_hash,row_hash,signature")
+        .gte("created_at", fromIso).lte("created_at", toIso).order("seq", { ascending: true }).limit(10000),
+      supabase.rpc("my_evidence_check" as never),
+    ]);
+    setExportingEvidence(false);
+    if (error) {
+      toast({ title: "Export failed", description: error.message, variant: "destructive" });
+      return;
+    }
+    const rows = ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => ({
+      ...r, subject: JSON.stringify(r.subject ?? {}), rule_ids: Array.isArray(r.rule_ids) ? (r.rule_ids as string[]).join(" ") : "",
+    }));
+    if (!rows.length) {
+      toast({ title: "Nothing to export", description: `No security evidence between ${exportFrom} and ${exportTo}.` });
+      return;
+    }
+    const csv = toCsv(rows, [
+      { key: "seq", header: "Seq" }, { key: "created_at", header: "Timestamp (UTC)" }, { key: "kind", header: "Kind" },
+      { key: "actor", header: "Actor" }, { key: "actor_id", header: "Actor ID" }, { key: "subject", header: "Subject (ids)" },
+      { key: "input_sha256", header: "Input SHA-256" }, { key: "output_sha256", header: "Output SHA-256" }, { key: "rule_ids", header: "Rules applied" },
+      { key: "rules_sha256", header: "Rule set SHA-256" }, { key: "verdict", header: "Verdict" }, { key: "prev_hash", header: "Previous row hash" },
+      { key: "row_hash", header: "Row hash" }, { key: "signature", header: "Signature" },
+    ]);
+    const problems = ((check.data as { problems?: unknown[] } | null)?.problems ?? []).length;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `nazai-security-evidence_${exportFrom}_to_${exportTo}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast({
+      title: "Exported",
+      description: `${rows.length} evidence row${rows.length === 1 ? "" : "s"} written to CSV. ${check.error ? "The chain check could not run." : problems ? `The chain check found ${problems} problem${problems === 1 ? "" : "s"}.` : "The chain check passed: every row is intact."}`,
+      variant: problems ? "destructive" : undefined,
+    });
+  };
+
   return (
     <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#020617" }}>
       <header className="flex items-center gap-3 border-b border-white/5 px-6 py-4">
@@ -279,7 +328,14 @@ export default function ControlPendingDecisions() {
           >
             <Download className="h-3.5 w-3.5" /> {exporting ? "Exporting…" : "Export audit log (CSV)"}
           </button>
-          <span className="text-[10px] text-zinc-500">Every decision in range, not just pending ones.</span>
+          <button
+            disabled={exportingEvidence}
+            onClick={exportEvidence}
+            className="flex items-center gap-1.5 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 font-mono text-[11px] uppercase text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+          >
+            <Download className="h-3.5 w-3.5" /> {exportingEvidence ? "Exporting…" : "Export security evidence (CSV)"}
+          </button>
+          <span className="text-[10px] text-zinc-500">Every decision in range, not just pending ones. Security evidence: signed ids and hashes of critical actions.</span>
         </div>
 
         <input

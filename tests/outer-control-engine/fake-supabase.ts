@@ -96,7 +96,7 @@ function rawClient() {
   return {
     auth: { getUser: async () => ({ data: { user: state.user } }) },
     from: (t: string) => permissive(new Q(t)),
-    rpc: async (name: string, args: any) => { rpcCalls.push({ name, args }); const v = state.rpc[name]; return { data: typeof v === "function" ? v(args) : v ?? null, error: null }; },
+    rpc: async (name: string, args: any) => { rpcCalls.push({ name, args }); const v = state.rpc[name]; try { return { data: typeof v === "function" ? v(args) : v ?? null, error: null }; } catch (e) { return { data: null, error: { message: (e as Error).message } }; } },
     storage: { from: () => ({
       upload: async (path: string, _b: any, o: any) => { storage.uploaded.push(path); return { error: state.uploadError ?? null }; },
       remove: async (paths: string[]) => { storage.removed.push(...paths); return { error: null }; },

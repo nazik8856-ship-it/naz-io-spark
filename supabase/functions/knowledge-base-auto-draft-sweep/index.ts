@@ -47,16 +47,28 @@ Deno.serve(async (req) => {
   const since = new Date(Date.now() - LOOKBACK_DAYS * 86400_000).toISOString();
   const { data, error } = await admin
     .from("pending_approvals")
-    .select("user_id, action_type, provider, reason_code")
+    .select("user_id, action_type, provider, reason_code, decision_id")
     .not("reason_code", "is", null)
     .gte("resolved_at", since)
     .limit(20000);
   if (error) return json({ error: error.message }, 500);
 
-  type Row = { user_id: string; action_type: string; provider: string | null; reason_code: string | null };
+  // Unsafe external content (docs/external-content.md): an approval that exists because outside text tried to steer an agent never
+  // teaches the knowledge base.
+  // (The decisions behind them are the platform's own sweep rows, read in one pass by source; an approval is resolved within weeks of
+  // its decision, so twice the look-back covers them.)
+  const fromExternal = new Set<string>();
+  {
+    const { data: ext } = await admin.from("agent_decisions").select("id").eq("source", "external_content")
+      .gte("created_at", new Date(Date.now() - 2 * LOOKBACK_DAYS * 86400_000).toISOString()).limit(20000);
+    for (const r of (ext ?? []) as { id: string }[]) fromExternal.add(r.id);
+  }
+
+  type Row = { user_id: string; action_type: string; provider: string | null; reason_code: string | null; decision_id: string | null };
   const byUser = new Map<string, ReasonCodedResolution[]>();
   for (const r of (data ?? []) as Row[]) {
     if (!r.user_id || !r.action_type) continue;
+    if (r.decision_id && fromExternal.has(r.decision_id)) continue;
     const rows = byUser.get(r.user_id) ?? [];
     rows.push({ action_type: r.action_type, provider: r.provider, reason_code: r.reason_code });
     byUser.set(r.user_id, rows);
