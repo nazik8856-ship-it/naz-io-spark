@@ -208,6 +208,9 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   scheduled_job_requests: { job_name: O },
   secret_events: { kind: O, provider: O, outcome: O, detail: O },
   secret_storage_rules: { table_name: O, column_name: O, rule: O, note: O },
+  // General data security, task 6: evidence holds ids and SHA-256 hashes only (docs/security-evidence.md).
+  security_evidence: { actor: O, actor_id: O, input_sha256: O, kind: O, output_sha256: O, prev_hash: O, row_hash: O, rule_ids: O, rules_sha256: O, signature: O, subject: O, verdict: O },
+  security_evidence_heads: { row_hash: O },
   shared_websites: { html: P, title: P },
   shopify_oauth_transactions: { state: S, shop_domain: P, request_origin: O },
   slack_oauth_transactions: { state: S, scope_groups: O, request_origin: O },

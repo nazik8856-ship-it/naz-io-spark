@@ -59,6 +59,8 @@ export const INCIDENT_KINDS = [
   // since it's an account-specific "something is broken and you should fix
   // your email" problem, not routine operation.
   "website_lead_notification_suppressed",
+  // General data security, task 5: a credential arrived in a tool's reply (removed before storage); the owner should rotate it.
+  "external_secret_received",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 

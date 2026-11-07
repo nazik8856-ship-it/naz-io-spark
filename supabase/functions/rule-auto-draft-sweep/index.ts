@@ -51,6 +51,8 @@ Deno.serve(async (req) => {
     .select("user_id, api_key_id, action_type, provider")
     .not("api_key_id", "is", null)
     .eq("decision", "block")
+    // Unsafe external content (docs/external-content.md): decisions made because outside text tried to steer an agent never teach a rule.
+    .neq("source", "external_content")
     .gte("created_at", since)
     .limit(20000);
   if (error) return json({ error: error.message }, 500);

@@ -283,6 +283,8 @@ const CURRENT_MIGRATION_ALLOWS = new Set([
   "gate_error_fail_open",
   // Pillar 3 top-10 item 6.
   "control_engine_unreachable",
+  // General data security, task 5 (20261110010000_external_content_and_security_evidence.sql).
+  "external_content",
 ]);
 
 Deno.test("an agent's own kill switch blocks only that agent, source is a constraint-valid value, and a real decisionId is produced", async () => {

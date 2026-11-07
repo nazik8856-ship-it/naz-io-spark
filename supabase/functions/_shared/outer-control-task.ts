@@ -10,6 +10,7 @@
 //   hand-offs      every result passed from one step to the next, with what the rules did to it
 
 import { MAX_CONTEXT_CHARS, rollupStatus, isLegOpen, type LegCondition, type LegState } from "./outer-control-workflow-plan.ts";
+import { containExternal, FLAGGED_INPUT_NOTE } from "./external-content.ts";
 
 export type TaskKind = "single" | "chain";
 export type TaskStatus = "running" | "awaiting_human" | "completed" | "failed" | "cancelled";
@@ -164,10 +165,20 @@ export function makeHandoff(i: {
     };
   }
   const modified = i.check.changed.length > 0;
-  const body = clip((modified ? i.check.cleaned : i.text).trim(), i.maxChars);
+  // Unsafe external content: the text is a tool's (or an external agent's) words. Text that tries to steer NazAI is never handed on;
+  // flagged text is handed on with a note, and the receiving step may then change nothing without a person.
+  const contained = containExternal(clip((modified ? i.check.cleaned : i.text).trim(), i.maxChars), { label: i.from_label, max: i.maxChars });
+  if (contained.status === "quarantined") {
+    const held = `Held: ${contained.reasons[0] ?? "it tried to instruct NazAI"}`;
+    return {
+      from_leg: i.from_leg, from_label: i.from_label, to_leg: i.to_leg, outcome: "blocked", text: "", rules: [held],
+      note: `The result of ${i.from_leg === null ? i.from_label : `step ${i.from_leg}`} tried to give the AI instructions, so it was held and not passed to step ${i.to_leg}.`,
+    };
+  }
+  const body = contained.text;
   return {
     from_leg: i.from_leg, from_label: i.from_label, to_leg: i.to_leg, outcome: modified ? "modified" : "passed",
-    text: `${HEADER(i.from_leg, i.from_label)}\n${body}`, rules: i.check.changed,
+    text: `${HEADER(i.from_leg, i.from_label)}${contained.status === "limited" ? ` ${FLAGGED_INPUT_NOTE}` : ""}\n${body}`, rules: i.check.changed,
     note: modified ? `Removed text matching ${i.check.changed.join("; ")} before passing it to step ${i.to_leg}.` : `Passed to step ${i.to_leg} unchanged.`,
   };
 }
@@ -187,7 +198,8 @@ export function contextFromHandoffs(taskContext: string | null, handoffs: Handof
 
 /** The text of a step's request as it is stored, e.g. for a Task created from an external agent's output. */
 export function originContext(o: TaskOrigin): string {
-  return `${HEADER(null, o.source_model)}\n${o.controlled_text}`;
+  const flagged = containExternal(o.controlled_text, { label: o.source_model }).status !== "clean";
+  return `${HEADER(null, o.source_model)}${flagged ? ` ${FLAGGED_INPUT_NOTE}` : ""}\n${o.controlled_text}`;
 }
 
 // ---------------------------------------------------------------------------------------

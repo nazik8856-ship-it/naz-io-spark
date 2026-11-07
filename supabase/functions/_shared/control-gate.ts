@@ -104,6 +104,9 @@ export const AGENT_DECISION_SOURCES = [
   // errors) -- this means the SEPARATE control-engine service specifically
   // could not be reached, so its model review never ran at all.
   "control_engine_unreachable",
+  // General data security, task 5: an agent run that outside content tried to steer (external-content.ts) asked for a state-changing
+  // action; it was refused or sent to a person, never run on the content's say-so.
+  "external_content",
 ] as const;
 export type AgentDecisionSource = typeof AGENT_DECISION_SOURCES[number];
 

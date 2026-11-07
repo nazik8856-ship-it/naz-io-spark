@@ -72,6 +72,7 @@ const DETERMINISTIC_ALTERNATIVES_BY_SOURCE: Record<string, string[]> = {
   gate_error: ["Retry once NazAI's own gate error is resolved"],
   gate_error_fail_open: ["Retry once NazAI's own gate error is resolved"],
   control_engine_unreachable: ["Retry once the control engine is reachable again, for a full model-reviewed verdict"],
+  external_content: ["Run the agent again without the flagged outside content", "Approve the action after checking the content it came from"],
 };
 
 export function deterministicAlternatives(source: string, escalated: boolean): string[] {

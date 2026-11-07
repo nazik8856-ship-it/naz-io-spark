@@ -7,6 +7,8 @@ import { parseModelJson } from "../_shared/model-output.ts";
 import { object } from "../_shared/schema.ts";
 import { safeFetchText } from "../_shared/safe-fetch.ts";
 import { fenceUntrusted, stripHiddenHtml, UNTRUSTED_DATA_RULE } from "../_shared/untrusted-input.ts";
+import { containExternal, heldNotice, originDecision, originMessage, taintAfter, type RunTaint } from "../_shared/external-content.ts";
+import { NO_EVIDENCE_MESSAGE, noteOutboundBlock, recordEvidence, sha256Of } from "../_shared/security-evidence.ts";
 import { readCapped } from "../_shared/input.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, type SupabaseClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
@@ -141,6 +143,7 @@ serve(async (req) => {
     let bodyUserInstruction: string | undefined = undefined;
     let bodyOuterTaskId = "";
     let bodyOuterSessionId = "";
+    let bodyOuterInputLimited = false;
     let rawBody: unknown = undefined;
     if (req.method === "POST") {
       // a webhook body can come from anyone who knows the address: read at most 1 MB of it
@@ -157,6 +160,7 @@ serve(async (req) => {
             bodyUserInstruction = typeof parsed.userInstruction === "string" ? parsed.userInstruction : undefined;
             bodyOuterTaskId = typeof parsed.outerTaskId === "string" ? parsed.outerTaskId : "";
             bodyOuterSessionId = typeof parsed.outerSessionId === "string" ? parsed.outerSessionId : "";
+            bodyOuterInputLimited = parsed.outerInputLimited === true;
           }
         } catch {
           rawBody = text;
@@ -756,6 +760,10 @@ serve(async (req) => {
     const outputGuard: { pending: string | null; retried: Record<string, number> } = { pending: null, retried: {} };
 
     const logEvent = async (kind: string, payload: Record<string, unknown>) => {
+      // Security evidence: a tool that failed because the outbound guard refused to send a credential is recorded (host and name only).
+      if (kind === "tool_result" && payload.ok === false && typeof payload.summary === "string") {
+        await noteOutboundBlock(supabase, userId, payload.summary, "agent", agentId, { tool: String(payload.tool ?? "").slice(0, 80), run: runId }).catch(() => false);
+      }
       // ---- Per-tool OUTPUT validation gate: runs after the executor succeeds,
       // before the result reaches the user. Incomplete "successes" never ship.
       if (kind === "action" && (payload as { ok?: unknown }).ok === true) {
@@ -1413,10 +1421,45 @@ Rules:
 
     // Text from outside is fenced as data (see _shared/untrusted-input.ts); the rule is part of the system prompt either way, because web
     // pages and tool answers reach this run later too.
-    const eventData = instructionIsOutsideData ? fenceUntrusted(userInstruction!, { label: "webhook event", max: 4000 }) : null;
-    if (eventData?.flagged) {
-      await logEvent("reason", { thought: `The webhook event contained text that tries to instruct the agent (${eventData.scan.matches.slice(0, 2).map((m) => m.label.toLowerCase()).join("; ")}). It is being treated as data only.` }).catch(() => null);
+    // Unsafe external content (external-content.ts): text from outside that tries to steer the agent is held (never shown to it), and
+    // once anything flagged has reached this run, nothing it asks for may change state on its own (see the origin check before every tool).
+    let externalTaint: RunTaint = null;
+    // Outer Control says an earlier tool's answer in this request was flagged. Only the platform is believed (its run token was checked).
+    if (caller.kind === "platform" && bodyOuterInputLimited) {
+      externalTaint = { status: "limited", source: "an earlier tool's answer in this Outer Control Task", reasons: ["it contained instruction-like language"] };
     }
+    const eventContained = instructionIsOutsideData ? containExternal(userInstruction!, { label: "webhook event", max: 4000 }) : null;
+    const eventData = eventContained ? { block: eventContained.status === "quarantined" ? heldNotice("webhook event", eventContained) : eventContained.block } : null;
+    if (eventContained && eventContained.status !== "clean") {
+      externalTaint = taintAfter(externalTaint, eventContained, "webhook event");
+      if (eventContained.status === "quarantined") {
+        await recordEvidence(supabase, { userId, kind: "content_held", actor: "agent", actorId: agentId, subject: { source: "webhook event", run: runId, agent: agentId }, inputSha256: await sha256Of(userInstruction ?? ""), ruleIds: eventContained.rules, verdict: "held" });
+      }
+      await logEvent(eventContained.status === "quarantined" ? "external_content_held" : "reason", eventContained.status === "quarantined"
+        ? { source: "webhook event", reasons: eventContained.reasons, rules: eventContained.rules }
+        : { thought: `The webhook event contained text that tries to instruct the agent (${eventContained.reasons.slice(0, 2).join("; ").toLowerCase()}). It is being treated as data only, and actions after it need a person.` }).catch(() => null);
+    }
+    /** Every text a tool brings back from outside passes here before the agent reads it: held text is replaced by a notice, the rest is
+     *  fenced as data, credentials are removed (and the owner told), and the run's taint is raised for the origin check. */
+    const containForModel = async (text: string, label: string, max = 8000): Promise<string> => {
+      const c = containExternal(text, { label, max });
+      if (c.status !== "clean") externalTaint = taintAfter(externalTaint, c, label);
+      if (c.secretsRemoved > 0) {
+        await sendCriticalAlert(supabase, userId, {
+          event: "external_secret_received", provider: label.slice(0, 80),
+          summary: `The ${label} in an agent run contained ${c.secretsRemoved} credential${c.secretsRemoved === 1 ? "" : "s"}. ${c.secretsRemoved === 1 ? "It was" : "They were"} removed before the agent saw it. Rotate the credential if it is yours.`,
+        }).catch(() => null);
+      }
+      if (c.status === "quarantined") {
+        await logEvent("external_content_held", { source: label, reasons: c.reasons, rules: c.rules }).catch(() => null);
+        await recordEvidence(supabase, { userId, kind: "content_held", actor: "agent", actorId: agentId, subject: { source: label.slice(0, 80), run: runId, agent: agentId }, inputSha256: await sha256Of(text), ruleIds: c.rules, verdict: "held" });
+        return heldNotice(label, c);
+      }
+      if (c.status === "limited") {
+        await logEvent("reason", { thought: `The ${label} contained text that tries to instruct the agent (${c.reasons.slice(0, 2).join("; ").toLowerCase()}). It was treated as data only, and actions after it need a person.` }).catch(() => null);
+      }
+      return c.block;
+    };
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
       { role: "system", content: systemPrompt + UNTRUSTED_DATA_RULE },
       { role: "user", content: userInstruction
@@ -2123,6 +2166,39 @@ Rules:
           }
         }
 
+        // ---- ORIGIN CHECK (unsafe external content) --------------------------
+        // Outside text that reached this run can not cause a state change on its say-so: after held content nothing may change state;
+        // after flagged content an action with an outside effect waits for a person, and nothing is written to memory.
+        if (externalTaint) {
+          const originCap = CAPABILITY_REGISTRY[tool.kind];
+          const origin = originDecision(externalTaint, tool.kind, originCap ? { mode: originCap.mode, gated: originCap.gated } : undefined);
+          if (origin !== "run") {
+            const msg = originMessage(externalTaint, tool.name, origin);
+            let originApprovalId: string | null = null;
+            if (origin === "approval") {
+              const originProvider = providerForTool(tool.kind, input);
+              const originDescription = `Agent "${tool.name}" step ${steps} during a run that outside content tried to steer.`;
+              const decisionId = await logDecisionRow(supabase, { userId, agentId, runId }, {
+                decision: `REQUIRE_APPROVAL ${tool.kind} (${originProvider})`, reasoning: msg,
+                alternatives: deterministicAlternatives("external_content", true), score: 0, stepIndex: steps, escalated: true,
+                source: "external_content", actionType: tool.kind, provider: originProvider, description: originDescription, params: input,
+              });
+              const approval = await createPendingApproval(supabase, {
+                userId, decisionId, agentId, runId, actionType: tool.kind, provider: originProvider, description: originDescription,
+                params: input, reason: msg, riskTier: "high", origin: "agent-runtime",
+              });
+              originApprovalId = approval.approvalId;
+            }
+            await logEvent("external_origin_stopped", { tool: tool.name, kind: tool.kind, decision: origin, source: externalTaint.source, reasons: externalTaint.reasons, approval_id: originApprovalId, humanMessage: msg });
+            await logEvent("tool_result", { tool: tool.name, ok: false, skipped: true, summary: msg, humanMessage: msg, category: "external_content" });
+            messages.push({
+              role: "user",
+              content: `"${tool.name}" was NOT run and had no real effect. ${msg} ${origin === "approval" ? "It is waiting for a person in the approval queue; do not retry it this run." : "Do not retry it."} Continue with work that changes nothing, or finish and state this plainly.`,
+            });
+            continue;
+          }
+        }
+
         // ---- CONTROL ENGINE GATE -------------------------------------------
         // Every real tool call is routed through control-engine (assess-only),
         // exactly like the Control System chat: spend cap, kill switch, hard
@@ -2332,6 +2408,24 @@ Rules:
           }
         }
 
+        // ---- SECURITY EVIDENCE (no evidence, no connector call) -------------
+        // Every action the control gate judges (an outside effect, or a run that schedules itself) gets its signed evidence row here,
+        // after every gate and before it runs. When the row can not be written, the action does not run.
+        let evidenceRecorded = false;
+        if (ACTION_CAPPED_KINDS.has(tool.kind)) {
+          const ev = await recordEvidence(supabase, {
+            userId, kind: "connector_call", actor: "agent", actorId: agentId,
+            subject: { action: tool.kind, agent: agentId, run: runId, step: steps, ...(externalTaint ? { external: externalTaint.status } : {}) },
+            inputSha256: await sha256Of(input), verdict: "allowed",
+          });
+          if (!ev.ok) {
+            await logEvent("tool_result", { tool: tool.name, ok: false, skipped: true, summary: NO_EVIDENCE_MESSAGE, humanMessage: NO_EVIDENCE_MESSAGE, category: "security_evidence" });
+            messages.push({ role: "user", content: `"${tool.name}" was NOT run and had no real effect. ${NO_EVIDENCE_MESSAGE} Do not retry it this run; finish and state this plainly.` });
+            continue;
+          }
+          evidenceRecorded = true;
+        }
+
         // Built-in interactive tools pause the run
         if (tool.kind === "ask_user") {
           const question = String(input.question || "").slice(0, 400);
@@ -2491,7 +2585,7 @@ Rules:
               .join("\n");
             await logEvent("action", { type: "sync_integrations", ok: r.ok, providers: seen.size, cron_result: body });
             await logEvent("tool_result", { tool: tool.name, ok: r.ok, summary: summary || "No connected tools to sync." });
-            messages.push({ role: "user", content: `Live data refreshed:\n${summary || "(none)"}\n\nContinue.` });
+            messages.push({ role: "user", content: `Live data refreshed:\n${summary ? await containForModel(summary, "data synced from connected tools", 20_000) : "(none)"}\n\nContinue.` });
           } catch (e) {
             const msg = e instanceof Error ? e.message : "sync failed";
             await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
@@ -2523,7 +2617,7 @@ Rules:
             ? `${canonicalProvider} [${snap.kind}] fetched ${snap.fetched_at}: ${snap.error ? `ERROR ${snap.error}` : JSON.stringify(snap.data)}`
             : `No snapshot yet for ${canonicalProvider}. Call sync_now first.`;
           await logEvent("tool_result", { tool: tool.name, ok: !!snap && !snap.error, summary });
-          messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          messages.push({ role: "user", content: `${snap ? await containForModel(summary, `data from ${canonicalProvider}`, 20_000) : summary}\n\nContinue.` });
           continue;
         }
 
@@ -3181,7 +3275,7 @@ Rules:
             const summary = out.slice(0, 8000);
             await logEvent("tool_result", { tool: tool.name, ok: true, summary });
             await logEvent("action", { type: "read_email", target, ok: true, result_ref: resultRef, summary: summary.slice(0, 400) });
-            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+            messages.push({ role: "user", content: `${await containForModel(summary, "email read from Gmail")}\n\nContinue.` });
           } catch (e) {
             const msg = `read_email failed: ${e instanceof Error ? e.message : "unknown"}`;
             await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
@@ -3396,7 +3490,7 @@ Rules:
             const summary = `GA4 property ${propertyId} (last 30d): sessions=${sessions}, totalUsers=${users}`;
             await logEvent("tool_result", { tool: tool.name, ok: true, summary });
             await logEvent("action", { type: kind, target, ok: true, result_ref: propertyId, summary });
-            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+            messages.push({ role: "user", content: `${await containForModel(summary, "Google Analytics data")}\n\nContinue.` });
             continue;
           } catch (e) {
             const msg = `${kind} exception: ${e instanceof Error ? e.message : "unknown"}`;
@@ -3493,7 +3587,7 @@ Rules:
                 : `${r.status} ${gatedText}`;
               await logEvent("tool_result", { tool: tool.name, ok: r.ok, summary });
               await logEvent("action", { type: "http_post", target: url, ok: r.ok, result_ref: null, summary });
-              messages.push({ role: "user", content: `http_post → ${summary}\n\nContinue.` });
+              messages.push({ role: "user", content: `http_post → ${r.status} ${outerVerdict === "block" || outerVerdict === "escalate" ? `response withheld by Outer Control: ${outerSummary}` : await containForModel(gatedText, `response of ${(() => { try { return new URL(url).hostname; } catch { return "the endpoint"; } })()}`)}\n\nContinue.` });
               done = true;
             } catch (e) {
               lastErr = e instanceof Error ? e.message : "unknown";
@@ -3584,7 +3678,7 @@ Rules:
             messages.push({ role: "user", content: `${msg} Continue with other work or finish.` });
             continue;
           }
-          const writeResult = await runProviderWrite(tool.kind, supabase, userId, agentId, input);
+          const writeResult = await runProviderWrite(tool.kind, supabase, userId, agentId, input, { evidenceRecorded });
           // Blueprint task #76: unlike the generic executeTool path below
           // (which classifies every failure and persists non-retryable ones
           // via recordIssue), this dedicated provider-write path only ever
@@ -3644,7 +3738,7 @@ Rules:
           messages.push({
             role: "user",
             content: writeResult.ok
-              ? `${writeResult.summary}\n\nContinue.`
+              ? `${await containForModel(writeResult.summary, `result of "${tool.name}"`)}\n\nContinue.`
               : writeKnownMessage
                 ? `Tool "${tool.name}" failed with a connection problem you CANNOT fix by retrying (${writeResult.summary}). Do not retry it or any other tool on the same connection this run. The operator has been shown this message: "${writeKnownMessage}". Continue with a different approach that doesn't need that connection, or finish and state the blocker plainly.`
                 : `${writeResult.summary}\n\nDo not describe this as done. Either fix the input and try once more, or continue with other work and state this plainly to the operator.`,
@@ -3709,13 +3803,11 @@ Rules:
             self_corrected: retried,
           });
           // What a tool brought back (a web page, a message, a record) is outside text: it is shown to the model as data.
-          const returned = INTERNAL_RESULT_KINDS.has(tool.kind) ? outcome.result.summary : fenceUntrusted(outcome.result.summary, { label: `result of ${tool.name}`, max: 6000 });
-          if (typeof returned !== "string") {
-            if (returned.flagged) await logEvent("reason", { thought: `The result of "${tool.name}" contained text that tries to instruct the agent (${returned.scan.matches.slice(0, 2).map((m) => m.label.toLowerCase()).join("; ")}). It was treated as data only.` }).catch(() => null);
-          }
+          // A result that tries to steer the agent is held: the agent is told it was held and why, never what it said.
+          const returnedText = INTERNAL_RESULT_KINDS.has(tool.kind) ? outcome.result.summary : await containForModel(outcome.result.summary, `result of "${tool.name}"`);
           messages.push({
             role: "user",
-            content: `Tool "${tool.name}" returned:\n${typeof returned === "string" ? returned : returned.block}\n\nContinue.`,
+            content: `Tool "${tool.name}" returned:\n${returnedText}\n\nContinue.`,
           });
         } else {
           const f = outcome.failure!;

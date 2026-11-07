@@ -10,9 +10,12 @@
 // row, so outer-control-session-sweep can pick a session up after a pause.
 import { checkKillSwitches, createPendingApproval, runControlGate } from "./control-gate.ts";
 import { maskOutbound, maskOutboundText, scrubInbound } from "./outbound-guard.ts";
+import { carriesFlaggedInput, containExternal, type Contained } from "./external-content.ts";
+import type { RedactionChange } from "./outer-control-scoring.ts";
+import { NO_EVIDENCE_MESSAGE, noteOutboundBlock, recordEvidence, rulesDigest, sha256Of, sha256Text, type EvidenceActor } from "./security-evidence.ts";
 import { extractExternalText } from "./outer-control-intake.ts";
 import { evaluateExternalText, textSafeToStore, TEXT_REVIEW_ACTION_TYPE } from "./outer-control-text-review.ts";
-import { loadSafetyRules, scanWithRules, type SafetyRule } from "./safety-scanner.ts";
+import { loadSafetyRules, scanWithRules, type SafetyMatch, type SafetyRule } from "./safety-scanner.ts";
 import { loadProjectRules } from "./projects.ts";
 import { ruleMatchesAction, selectRulesForEntity } from "./rule-matching.ts";
 import { sha256Hex } from "./api-key-auth.ts";
@@ -47,7 +50,7 @@ export type SessionRow = {
   id: string; user_id: string; tool_id: string; api_key_id: string | null;
   objective: string; context: string | null; status: string;
   step_count: number; max_steps: number; max_retries: number; retries_used: number; failures_used: number;
-  correction: string | null; history: { step: number; text: string }[]; next_input: string | null;
+  correction: string | null; history: { step: number; text: string; limited?: boolean }[]; next_input: string | null;
   final_output: string | null; stop_reason: string | null;
   pending_kind: "first_contact" | "contact_gate" | "reply_approval" | "question" | "handoff" | null;
   pending_approval_id: string | null; pending_step_no: number | null;
@@ -88,6 +91,8 @@ export type SessionDeps = {
   judgeAi?: JudgeAi;
   /** NazAI's own AI behind the starter tools of a new account ("NazAI does it for me"). */
   starterAi?: StarterAi;
+  /** A tool's reply contained credentials (already removed): the owner is told and an incident is opened. */
+  onSecretInReply?: (admin: AnyAdmin, s: SessionRow, toolName: string, count: number) => Promise<void>;
 };
 
 const denoEnv = (k: string): string => {
@@ -110,6 +115,13 @@ export const defaultSessionDeps = (): SessionDeps => ({
   goalAi: gatewayAi,
   judgeAi: gatewayAi,
   starterAi: gatewayStarterAi,
+  onSecretInReply: async (admin, s, toolName, count) => {
+    await sendCriticalAlert(admin, s.user_id, {
+      event: "external_secret_received",
+      summary: `"${toolName}" sent back ${count} credential${count === 1 ? "" : "s"} in its reply during an Outer Control Task. ${count === 1 ? "It was" : "They were"} removed before anything was stored or passed on. Rotate the credential if it is yours.`,
+      provider: `tool:${toolName}`.slice(0, 80),
+    }).catch(() => null);
+  },
 });
 
 const LEASE_MS = 150_000;
@@ -235,6 +247,20 @@ export async function contactRuleStopping(admin: AnyAdmin, userId: string, toolN
   return null;
 }
 
+/** Who started this step, for its security evidence: an API key, or the account itself (a person in the app). */
+function actorOf(s: SessionRow): EvidenceActor {
+  return s.api_key_id ? "api_key" : "user";
+}
+
+/** The verdict for a held reply (external-content.ts): a block named after why it was held. Nothing is recorded with its text. */
+function heldResult(c: Contained) {
+  return {
+    verdict: "block" as const, output: null as string | null, matches: [] as SafetyMatch[], changes: [] as RedactionChange[],
+    summary: `Held: ${(c.reasons[0] ?? "the reply tried to instruct NazAI").replace(/^Tries/, "it tried").replace(/^Asks/, "it asked").replace(/^Contains/, "it contained").replace(/^Tells/, "it told")}`,
+    shadowMatches: [] as SafetyMatch[], evaluationId: null as string | null, approvalId: null as string | null,
+  };
+}
+
 /** Masks anything the rules would remove before text leaves the platform. */
 export function maskForSend(rules: SafetyRule[], text: string | null | undefined): string {
   if (!text) return "";
@@ -295,6 +321,9 @@ async function pauseForHandoff(
 
 type Accept = {
   text: string; toolStatus: "done" | "continue" | "need_info" | null;
+  /** The text came from a tool and its check found instruction-like language (external-content.ts "limited"): later steps get it as
+   *  fenced data only, and a NazAI agent run that receives it may change nothing without a person. */
+  limited?: boolean;
   /** A person wrote or approved this text: the goal check is skipped (they decided), the rule check still runs. */
   fromPerson?: boolean;
   /** What a NazAI agent really did in this reply's run (from its recorded actions): the source of "what was done" and of links. */
@@ -402,6 +431,14 @@ async function completeSession(
     if (afterStatus === "running" || afterStatus === "awaiting_human") {
       await patch(admin, s.id, { status: "failed", stop_reason: "The completion could not be recorded, so the session was not marked completed.", finished_at: iso(deps.now()), lease_until: null }, deps);
     }
+    if (afterStatus === "completed") {
+      // Security evidence: the controlled result that was stored, by its hash.
+      await recordEvidence(admin, {
+        userId: s.user_id, kind: "output_stored", actor: a.fromPerson ? "user" : actorOf(s), actorId: a.fromPerson ? null : s.api_key_id ?? null,
+        subject: { session: s.id, task: s.workflow_id ?? null, step: stepNo, tool: tool.id, decided_by: a.fromPerson ? "person" : "tool" },
+        outputSha256: await sha256Text(a.text), verdict: "stored",
+      });
+    }
     return;
   }
 
@@ -454,7 +491,7 @@ async function acceptReply(admin: AnyAdmin, s: SessionRow, tool: ToolRow, stepNo
     verdict: "allow", toolStatus: a.toolStatus, stepNo, maxSteps: s.max_steps, retriesUsed: 0, maxRetries: s.max_retries,
     failuresUsed: 0, maxFailures: DEFAULT_MAX_FAILURES, elapsedMs: activeMs(s, deps), maxMs: SESSION_TIME_LIMIT_MS,
   });
-  const history = [...(s.history ?? []), ...(a.toolStatus === "need_info" ? [] : [{ step: stepNo, text: a.text }])];
+  const history = [...(s.history ?? []), ...(a.toolStatus === "need_info" ? [] : [{ step: stepNo, text: a.text, ...(a.limited ? { limited: true } : {}) }])];
   const advance = { step_count: stepNo, retries_used: 0, failures_used: 0, attempt_base: 0, correction: null, next_input: null, resume_at: null, handoff: null, request_mods_used: 0, request_mods: null, history };
   if (action.kind === "finish") return completeSession(admin, s, tool, stepNo, a, advance, action.reason, deps);
   if (action.kind === "stop") return finish(admin, s, "stopped", action.reason, deps, { ...advance, final_output: history.at(-1)?.text ?? null });
@@ -616,6 +653,15 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       // Data in transit: provider credentials, NazAI's own credentials and this tool's own key never travel in the body (only in
       // its auth header). The masked body is what is sent and what is stored for the step.
       const outBody = maskOutbound(request.body, [token]).value;
+      // Security evidence: a connected tool outside NazAI is never called without its signed evidence row (ids and the hash of the
+      // request only). A NazAI agent's own actions get theirs inside agent-runtime; the report writer and starter tools are NazAI's.
+      if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isStarterUrl(tool.endpoint_url)) {
+        const ev = await recordEvidence(admin, {
+          userId: s.user_id, kind: "connector_call", actor: actorOf(s), actorId: s.api_key_id ?? null,
+          subject: { tool: tool.id, session: s.id, task: s.workflow_id ?? null, step: stepNo, attempt }, inputSha256: await sha256Of(outBody), verdict: "allowed",
+        });
+        if (!ev.ok) { await finish(admin, s, "failed", NO_EVIDENCE_MESSAGE, deps); return { status: "failed", steps }; }
+      }
 
       let httpStatus: number | null = null;
       let rawText = "";
@@ -643,6 +689,8 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
               agentId: tool.agent_id, trigger: "manual", userInstruction: buildInstruction(reqInput).slice(0, 12_000),
               // Which Task and step asked for this run, so Inner Control can show the agent's actions as part of it.
               outerTaskId: s.workflow_id, outerSessionId: s.id,
+              // An earlier tool's reply in this request was flagged (limited): the agent may change nothing without a person.
+              ...((s.history ?? []).some((h) => h.limited) || carriesFlaggedInput(s.context) ? { outerInputLimited: true } : {}),
             }),
             signal: AbortSignal.timeout(deps.agentTimeoutMs),
           });
@@ -680,6 +728,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       } catch (e) {
         failed = true;
         if (e instanceof Error && e.name === "TimeoutError") timedOut = true; else unreachable = true;
+        await noteOutboundBlock(admin, s.user_id, e, actorOf(s), s.api_key_id ?? null, { tool: tool.id, session: s.id, step: stepNo });
       }
 
       // 7. Read the reply.
@@ -776,11 +825,17 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
 
       // 8b. The foundation judges the reply; the brain turns that into one decision for this loop.
       const contentHash = await sha256Hex(content);
-      const result = await evaluateExternalText(admin, {
-        userId: s.user_id, agentId: null, apiKeyId: s.api_key_id, isTest: false,
-        sourceModel: `tool:${tool.name}`.slice(0, 80), content, origin: "external-api",
-        externalId: `${s.id}:${stepNo}:${attempt}`, contentHash, extraRules: await projectRulesOf(admin, s),
-      });
+      // Unsafe external content: a reply that tries to steer NazAI itself is held. It is judged as a block (the tool is asked again, then
+      // a person decides), it is never passed on, never written into memory as text and never sent to the rule checks or approvals.
+      const contained = containExternal(content, { label: `reply of ${tool.name}`, extraSecrets: [token] });
+      const result = contained.status === "quarantined"
+        ? heldResult(contained)
+        : await evaluateExternalText(admin, {
+          userId: s.user_id, agentId: null, apiKeyId: s.api_key_id, isTest: false,
+          sourceModel: `tool:${tool.name}`.slice(0, 80), content, origin: "external-api",
+          externalId: `${s.id}:${stepNo}:${attempt}`, contentHash, extraRules: await projectRulesOf(admin, s),
+        });
+      if (contained.secretsRemoved > 0) await deps.onSecretInReply?.(admin, s, tool.name, contained.secretsRemoved);
       let foundation = { verdict: result.verdict, output: result.output, matches: result.matches ?? [], changes: result.changes ?? [], summary: result.summary, shadowMatches: result.shadowMatches?.length ?? 0 };
       // Meaning rules: the AI judge reads the reply after the deterministic rules, must quote its evidence, and can only make
       // the decision stricter. A reply those rules already block is not sent to it.
@@ -805,10 +860,12 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       const verdict = brain.verdict;
       const action = brain.plan;
       const ruleNames = [...new Set([...matches.map((m) => m.name), ...brain.applied.filter((h) => h.origin === "pinned").map((h) => h.name)])];
+      // A held reply has no rule behind it: it is named by why it was held (never by what it said).
+      if (contained.status === "quarantined") ruleNames.push(result.summary);
       const names = ruleNames.join("; ");
       // What is stored is the masked/cleaned form, never the raw reply.
       // ... and with any credential the tool sent back removed (after the checks, so they still see and judge it).
-      const stored = scrubInbound(brain.output ?? textSafeToStore(content, matches)).text;
+      const stored = contained.status === "quarantined" ? contained.text : scrubInbound(brain.output ?? textSafeToStore(content, matches)).text;
       // The brain can send a reply to a person that the foundation let through (earlier declines, low confidence at high
       // risk). That needs a real approval row; one made by the foundation is reused.
       let approvalId: string | null = result.approvalId ?? null;
@@ -830,9 +887,19 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       await admin.from("outer_control_session_steps").insert({
         ...stepBase, reply_text: stored, tool_status: reply.status, evaluation_id: result.evaluationId, verdict,
         next_action: action.kind, note: brain.why.slice(0, 500),
-        decision: { ...decisionRecord(brain), ...(diff ? { diff } : {}), ...(meaning ? { meaning } : {}), ...(projectCheck ? { project_check: projectCheck } : {}) },
+        decision: {
+          ...decisionRecord(brain), ...(diff ? { diff } : {}), ...(meaning ? { meaning } : {}), ...(projectCheck ? { project_check: projectCheck } : {}),
+          ...(contained.status !== "clean" || contained.secretsRemoved ? { external: { status: contained.status, reasons: contained.reasons, rules: contained.rules, secrets_removed: contained.secretsRemoved } } : {}),
+        },
       });
       steps++;
+      // Security evidence: which rules this reply was held to and what came of it (hashes and rule ids, never the text).
+      await recordEvidence(admin, contained.status === "quarantined"
+        ? { userId: s.user_id, kind: "content_held", actor: "system", subject: { tool: tool.id, session: s.id, task: s.workflow_id ?? null, step: stepNo, attempt },
+            inputSha256: contentHash, ruleIds: contained.rules, verdict: "held" }
+        : { userId: s.user_id, kind: "rule_applied", actor: "system", subject: { tool: tool.id, session: s.id, task: s.workflow_id ?? null, step: stepNo, attempt, evaluation: result.evaluationId ?? null },
+            inputSha256: contentHash, outputSha256: await sha256Text(stored), ruleIds: [...new Set(matches.map((m) => m.rule_id))],
+            rulesSha256: await rulesDigest(safetyRules as unknown as { id: string; updated_at?: string | null }[]), verdict });
 
       // What was decided, changed and applied is remembered for every later request (and re-applied by the guard).
       const facts = factsFor(brain, contentHash, attempt) as unknown as Record<string, unknown>;
@@ -879,7 +946,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           await finish(admin, s, "rejected", "The reply needed approval and this API key's policy did not approve it.", deps);
           return { status: "rejected", steps };
         }
-        await acceptReply(admin, s, tool, stepNo, { text: stored, toolStatus: reply.status, actions: agentActions, report: reportResult && reportResult.ok ? reportResult.doc : null }, deps);
+        await acceptReply(admin, s, tool, stepNo, { text: stored, toolStatus: reply.status, limited: contained.status === "limited", actions: agentActions, report: reportResult && reportResult.ok ? reportResult.doc : null }, deps);
         const { data: resolved } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
         const rs = (resolved as { status?: string } | null)?.status ?? "running";
         if (rs !== "running") return { status: rs, steps };
@@ -890,7 +957,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         return { status: "awaiting_human", steps };
       }
       // allow / modify: continue, finish, or ask a person a question.
-      await acceptReply(admin, s, tool, stepNo, { text: scrubInbound(brain.output ?? content).text, toolStatus: reply.status, actions: agentActions, report: reportResult && reportResult.ok ? reportResult.doc : null }, deps);
+      await acceptReply(admin, s, tool, stepNo, { text: scrubInbound(brain.output ?? content).text, toolStatus: reply.status, limited: contained.status === "limited", actions: agentActions, report: reportResult && reportResult.ok ? reportResult.doc : null }, deps);
       const { data: after } = await admin.from("outer_control_sessions").select("status").eq("id", s.id).maybeSingle();
       const st = (after as { status?: string } | null)?.status ?? "running";
       if (st !== "running") return { status: st, steps };
