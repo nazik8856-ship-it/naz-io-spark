@@ -101,7 +101,8 @@ describe("error reports leave without secrets", () => {
     for (const s of [KEYS.openai, "abc123456", "zzz-secret-value", KEYS.google, "abcdefghijklmnop", "session"]) expect(text).not.toContain(s);
     expect(out.request).toEqual({ url: "https://app.test/page" });
     expect(out.extra.tool).toBe("Notion");
-    expect(out.exception.values[0].value).toBe(`GET https://x.test/cb?access_token=${R}&ok=1`);
+    // data in transit (security task 2): every query value is masked, not only the credential
+    expect(out.exception.values[0].value).toBe("GET https://x.test/cb?access_token=…&ok=…");
   });
 
   it("a PostHog event: the error message is scrubbed, the public project key kept, replay snapshots untouched", () => {
@@ -109,7 +110,7 @@ describe("error reports leave without secrets", () => {
     const out = scrubPostHogEvent(exc)!;
     expect(out.properties!.token).toBe("phc_public_project_key");
     expect(out.properties!.$exception_message).toBe(`Bearer ${R}`);
-    expect(out.properties!.$current_url).toBe(`https://app.test/cb?code=${R}&state=x`);
+    expect(out.properties!.$current_url).toBe("https://app.test/cb?code=…&state=…");
     const snap = { event: "$snapshot", properties: { token: "phc_public_project_key", $snapshot_data: [{ deep: { a: { b: { c: { d: { e: { f: { g: { h: { i: 1 } } } } } } } } } }] } };
     expect(scrubPostHogEvent(snap)).toBe(snap);
     expect(scrubPostHogEvent(null)).toBeNull();

@@ -5,7 +5,7 @@ import { openRows } from "./encrypted-db.ts";
 import type { FieldKeys } from "./field-crypto.ts";
 
 type Row = Record<string, unknown>;
-type Context = { clients?: Row[]; insights?: Row[]; recent_reports?: Row[]; [k: string]: unknown };
+type Context = { agents?: Row[]; clients?: Row[]; insights?: Row[]; recent_reports?: Row[]; [k: string]: unknown };
 
 /** The report text the model sees is cut to this many characters (what the database function did before). */
 export const REPORT_CHARS = 2000;
@@ -13,6 +13,8 @@ export const REPORT_CHARS = 2000;
 export async function openBusinessContext(ctx: unknown, keys?: FieldKeys | null): Promise<Context> {
   if (!ctx || typeof ctx !== "object") return {};
   const c = { ...(ctx as Context) };
+  // An agent's goal and role are stored encrypted too (data at rest, security task 1).
+  if (Array.isArray(c.agents)) c.agents = await openRows("agents", c.agents, keys);
   if (Array.isArray(c.clients)) c.clients = await openRows("agent_clients", c.clients, keys);
   if (Array.isArray(c.insights)) c.insights = await openRows("org_insights", c.insights, keys);
   if (Array.isArray(c.recent_reports)) {

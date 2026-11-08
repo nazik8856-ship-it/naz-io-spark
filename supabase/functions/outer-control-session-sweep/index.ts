@@ -42,8 +42,10 @@ Deno.serve(async (req) => {
   let sealed = 0;
   let projectKey = { moved: 0, left: 0 };
   let fingerprints = { moved: 0, left: 0 };
+  let projectKeyId: string | null = null;
   try {
     const keys = await projectKeysFromEnv();
+    projectKeyId = keys?.current.id ?? null;
     sealed = await sealLegacyProjects(admin, keys);
     projectKey = await reencryptProjects(admin, keys);
     fingerprints = await refingerprintProjects(admin, keys, await dataKeys);
@@ -53,8 +55,13 @@ Deno.serve(async (req) => {
   // rotation values on the previous key are moved, a batch per column every five minutes. Not consequential either.
   let encryption: Record<string, number> | null = null;
   if (new Date().getUTCMinutes() % 5 === 0) {
-    try { encryption = await sweepEncryptedColumns(createPlainClient(Deno.env.get("SUPABASE_URL")!, serviceKey), await dataKeys); }
+    const plain = createPlainClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
+    try { encryption = await sweepEncryptedColumns(plain, await dataKeys); }
     catch (e) { console.error("encrypting stored content failed:", e instanceof Error ? e.message : e); }
+    // Key rotation (security task 1): which keys are current, so encryption_rotation_report() can tell what is still on another one.
+    const dataKeyId = (await dataKeys)?.current.id ?? null;
+    const { error: noteErr } = await plain.rpc("encryption_note_keys", { _data_key_id: dataKeyId, _projects_key_id: projectKeyId });
+    if (noteErr) console.error("noting the current keys failed:", noteErr.message);
   }
 
   if (await areConsequentialSweepsPaused(admin)) return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });

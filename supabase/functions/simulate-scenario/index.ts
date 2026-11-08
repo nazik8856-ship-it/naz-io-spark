@@ -4,7 +4,6 @@ import { parseModelJson } from "../_shared/model-output.ts";
 import { guardOutputText } from "../_shared/output-guard.ts";
 import { array, object, oneOf, text, withDefault } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // what-if questions and answers are stored encrypted (data at rest)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { requireCaller } from "../_shared/caller.ts";
@@ -29,7 +28,7 @@ const scenarioReply = object({
   caveats: withDefault(array(text({ min: 1, max: 400, clip: true }), { max: 8, clip: true, dropInvalid: true }), [] as string[]),
 });
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {

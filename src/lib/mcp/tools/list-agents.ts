@@ -1,13 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
-import { defineTool, type ToolContext } from "@lovable.dev/mcp-js";
+import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-
-function sb(ctx: ToolContext) {
-  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
-    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
+import { serverRead } from "../server-read";
 
 export default defineTool({
   name: "list_agents",
@@ -21,11 +14,12 @@ export default defineTool({
   handler: async ({ limit }, ctx) => {
     if (!ctx.isAuthenticated())
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    const { data, error } = await sb(ctx)
-      .from("agents")
-      .select("id, name, slug, role, goal, status, autonomy, schedule_label, next_run_at, created_at")
-      .order("created_at", { ascending: false })
-      .limit(limit ?? 50);
+    // An agent's role and goal are stored encrypted: read through the server, decrypted (server-read.ts).
+    const { data, error } = await serverRead(ctx.getToken(), "agents", [
+      { m: "select", a: ["id, name, slug, role, goal, status, autonomy, schedule_label, next_run_at, created_at"] },
+      { m: "order", a: ["created_at", { ascending: false }] },
+      { m: "limit", a: [limit ?? 50] },
+    ]);
     if (error)
       return { content: [{ type: "text", text: error.message }], isError: true };
     return {

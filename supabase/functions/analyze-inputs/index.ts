@@ -10,7 +10,6 @@ import { scanForInjection } from "../_shared/injection-scanner.ts";
 import { parseModelJson } from "../_shared/model-output.ts";
 import { array, bool, object, optional, text, withDefault, type Infer } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 
@@ -56,7 +55,7 @@ const analysisShape = object({
   data_summary: line(800), key_facts: list(12, 400), requirements: list(20, 400), user_specified_style: optional(bool),
 });
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const gw = pickAiGateway();

@@ -10,7 +10,6 @@ import { fenceUntrusted, stripHiddenHtml, UNTRUSTED_DATA_RULE } from "../_shared
 import { containExternal, heldNotice, originDecision, originMessage, taintAfter, type RunTaint } from "../_shared/external-content.ts";
 import { NO_EVIDENCE_MESSAGE, noteOutboundBlock, recordEvidence, sha256Of } from "../_shared/security-evidence.ts";
 import { readCapped } from "../_shared/input.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, type SupabaseClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { readSecret } from "../_shared/integration-secrets.ts";
 import { validateToolInput, validateToolOutput } from "../_shared/tool-schemas.ts";
@@ -119,7 +118,7 @@ type Manifest = {
   kpis: { name: string; target: string }[];
 };
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   // Hoisted above the try so the outer catch can still identify which run
   // (if any) was in flight when an unexpected exception hit -- everything

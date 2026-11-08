@@ -42,6 +42,7 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
+import { openRows } from "../_shared/encrypted-db.ts"; // rows from database functions carry sealed values (data at rest)
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { checkIpRateLimit, checkRateLimit, resolveConfiguredRateLimit, computeWindowStart } from "../_shared/rate-limit.ts";
@@ -1836,10 +1837,11 @@ Deno.serve(async (req) => {
     }
 
     const limit = clampExportLimit(url.searchParams.get("limit"));
-    const { data, error } = await admin.rpc("list_gap_clusters_ranked", { _api_key_id: auth.keyId, _limit: Math.min(limit, 100) });
+    // _v2: the representative question is stored encrypted (data at rest); it comes back sealed and is opened here.
+    const { data, error } = await admin.rpc("list_gap_clusters_ranked_v2", { _api_key_id: auth.keyId, _limit: Math.min(limit, 100) });
     if (error) return json({ error: error.message }, 500);
 
-    const clusters = ((data ?? []) as {
+    const clusters = ((await openRows("content_gap_clusters", (data ?? []) as Record<string, unknown>[], undefined, "cluster_id")) as unknown as {
       cluster_id: string; representative_message: string; occurrence_count: number; first_seen_at: string; last_seen_at: string;
     }[]).map((c) => ({
       id: c.cluster_id,

@@ -1,7 +1,6 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway, type GatewayConfig } from "../_shared/ai-gateway.ts";
 import { requireCaller } from "../_shared/caller.ts";
@@ -17,7 +16,7 @@ const corsHeaders = {
 const resolveModel = (gw: GatewayConfig, hint?: string | null) =>
   hint && /openai|gpt/i.test(hint) ? gw.deepModel : gw.model;
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {

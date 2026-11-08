@@ -65,6 +65,8 @@ import {
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 4)
+import { ocWrite, restoreWebsiteVersion } from "@/lib/encrypted-write"; // encrypted content is written through the server (data at rest)
+import { getPreviewCache, setPreviewCache } from "@/lib/preview-cache"; // data in transit: site content stays in memory
 
 type WebsiteView = "preview" | "code";
 type Device = "desktop" | "tablet" | "phone";
@@ -78,11 +80,9 @@ type Params = { kind: string; id: string };
 
 type ChatTurn = { role: "user" | "assistant"; content: string; time: string };
 
-const previewCacheKey = (websiteId: string) => `nazai_website_preview_${websiteId}`;
-
 function cacheWebsitePreview(websiteId: string, website: unknown, pages: unknown[]) {
   try {
-    localStorage.setItem(previewCacheKey(websiteId), JSON.stringify({ website, pages, cachedAt: Date.now() }));
+    setPreviewCache(websiteId, website, pages); // in memory only (preview-cache.ts)
   } catch {
     // The database remains authoritative; cache is only an immediate iframe fallback.
   }
@@ -90,7 +90,7 @@ function cacheWebsitePreview(websiteId: string, website: unknown, pages: unknown
 
 function readCachedWebsitePreview(websiteId: string) {
   try {
-    const cached = JSON.parse(localStorage.getItem(previewCacheKey(websiteId)) || "null");
+    const cached = getPreviewCache(websiteId) as { website?: { id?: string }; pages?: unknown[] } | null;
     if (cached?.website?.id === websiteId && Array.isArray(cached?.pages) && cached.pages.length > 0) {
       return cached as { website: any; pages: any[] };
     }
@@ -193,7 +193,7 @@ export default function GeneratedDashboard() {
       setError(null);
       try {
         if (kind === "website") {
-          const { data: site, error: sErr } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
+          const { data: site, error: sErr } = await ocRead("websites").select("*").eq("id", id).maybeSingle();
           if (sErr) throw sErr;
           if (!site) throw new Error("Website not found");
           const { data: pgs, error: pErr } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
@@ -211,7 +211,7 @@ export default function GeneratedDashboard() {
             },
           ]);
         } else if (kind === "agent") {
-          const { data: agent, error: aErr } = await supabase.from("agents").select("*").eq("id", id).maybeSingle();
+          const { data: agent, error: aErr } = await ocRead("agents").select("*").eq("id", id).maybeSingle();
           if (aErr) throw aErr;
           if (!agent) throw new Error("Agent not found");
           if (cancelled) return;
@@ -420,7 +420,7 @@ export default function GeneratedDashboard() {
       }
       websiteLog.done("apply", manifest?.pages?.length ? `${manifest.pages.length} page(s) updated` : "No structural changes");
       websiteLog.begin("persist");
-      const { data: site } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
+      const { data: site } = await ocRead("websites").select("*").eq("id", id).maybeSingle();
       const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
       if (site) setWebsite(site);
       if (pgs) setPages(pgs);
@@ -567,7 +567,7 @@ export default function GeneratedDashboard() {
   // Re-reads the saved site after the Generator changed it (professional pass).
   const reloadWebsite = async () => {
     if (!id) return;
-    const { data: site } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
+    const { data: site } = await ocRead("websites").select("*").eq("id", id).maybeSingle();
     const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
     if (site) setWebsite(site);
     if (pgs) setPages(pgs);
@@ -710,8 +710,8 @@ export default function GeneratedDashboard() {
   };
   const duplicateSite = async () => {
     if (!website) return;
-    const { data, error } = await supabase
-      .from("websites")
+    // The brief (prompt) is stored encrypted (data at rest): the copy is written through the server, which encrypts it.
+    const { data, error } = await ocWrite("websites")
       .insert({
         name: `${website.name || "Website"} (copy)`,
         prompt: website.prompt,
@@ -720,7 +720,7 @@ export default function GeneratedDashboard() {
         html: website.html || "",
         user_id: website.user_id,
       })
-      .select()
+      .select("id")
       .maybeSingle();
     const limit = limitFromDbError(error);
     if (limit) return openLimitWindow(limit);
@@ -791,9 +791,9 @@ export default function GeneratedDashboard() {
     setRestoreConfirm(null);
     setRestoringVersionId(versionId);
     try {
-      const { error } = await supabase.rpc("restore_website_version", { _version_id: versionId });
+      const { error } = await restoreWebsiteVersion(versionId); // snapshots are stored encrypted: restored by the server
       if (error) throw error;
-      const { data: site } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
+      const { data: site } = await ocRead("websites").select("*").eq("id", id).maybeSingle();
       const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
       if (site) setWebsite(site);
       if (pgs) setPages(pgs);

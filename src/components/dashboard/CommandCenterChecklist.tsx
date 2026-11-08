@@ -160,7 +160,8 @@ const DEFAULT_PROGRESS: ProgressMap = {
 type SavedApiKey = {
   id: string;
   name: string;
-  value: string;
+  /** Held only while this page is open: never written to the browser's storage (data in transit, security task 2). */
+  value?: string;
   createdAt: number;
 };
 
@@ -194,7 +195,6 @@ const loadMemory = (): Memory => {
         {
           id: `legacy-${Date.now()}`,
           name: "Default API",
-          value: parsed.apiKey,
           createdAt: Date.now(),
         },
       ];
@@ -229,7 +229,9 @@ const CommandCenterChecklist: React.FC = () => {
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      localStorage.setItem(MEMORY_KEY, JSON.stringify(memory));
+      // Key values never go to localStorage (any script on the site could read them, and they outlive the sign-in): names only.
+      const persisted = { ...memory, apiKeys: (memory.apiKeys ?? []).map(({ value: _value, ...k }) => k) };
+      localStorage.setItem(MEMORY_KEY, JSON.stringify(persisted));
     } catch {
       // ignore
     }
@@ -618,7 +620,7 @@ const ApiKeysModal: React.FC<{
     onChange(next);
     toast({
       title: `API Key for ${trimmedName} saved successfully ✓`,
-      description: "Securely stored in project memory for integrations.",
+      description: "Kept only while this page is open, never saved in your browser. To let NazAI use a key, connect the service under Connections, where keys are kept in the vault.",
     });
     setSavedFlash(trimmedName);
     setTimeout(() => setSavedFlash(null), 1800);
@@ -628,7 +630,7 @@ const ApiKeysModal: React.FC<{
   const handleEdit = (entry: SavedApiKey) => {
     setEditingId(entry.id);
     setName(entry.name);
-    setValue(entry.value);
+    setValue(entry.value ?? "");
     setShowValue(true);
     setError(null);
   };
@@ -646,7 +648,7 @@ const ApiKeysModal: React.FC<{
       open={open}
       onOpenChange={onOpenChange}
       title="API Keys"
-      description="Save credentials for any external service. Keys are stored locally in project memory and used by NazAI integrations."
+      description="List the services you use. Key values are kept only while this page is open and never saved in your browser; to let NazAI use a key, connect the service under Connections, where keys are kept in the vault."
     >
       <div className="space-y-5">
         {/* Form */}
@@ -770,7 +772,7 @@ const ApiKeysModal: React.FC<{
                         {k.name}
                       </div>
                       <div className="text-[11px] font-mono text-white/50 truncate">
-                        {revealed ? k.value : mask(k.value)}
+                        {k.value === undefined ? "value not kept" : revealed ? k.value : mask(k.value)}
                       </div>
                     </div>
                     <button

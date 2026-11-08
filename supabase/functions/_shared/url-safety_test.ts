@@ -1,5 +1,5 @@
 // Run with: deno test supabase/functions/_shared/url-safety_test.ts
-import { isPrivateOrLoopbackIp, validateOutboundUrl } from "./url-safety.ts";
+import { isPrivateOrLoopbackIp, urlCredentialProblem, validateOutboundUrl } from "./url-safety.ts";
 function assertEquals<T>(a: T, b: T, m?: string) { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(m ?? `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); }
 
 Deno.test("private, loopback, link-local, metadata and reserved IPv4 ranges are refused", () => {
@@ -37,5 +37,21 @@ Deno.test("a URL is https only, and an address written into it is judged as that
     ["https://8.8.8.8/x", true],
   ] as [string, boolean][]) {
     assertEquals((await validateOutboundUrl(u)).ok, ok, u);
+  }
+});
+
+// Data at rest (security task 1): a credential never travels or is stored inside an address.
+Deno.test("an address that carries a credential is refused: user name or password, or a key, token or signature parameter", async () => {
+  for (const u of [
+    "https://user:pw@example.com/hook", "https://user@example.com/hook", "https://example.com/hook?token=abc", "https://example.com/hook?api_key=abc",
+    "https://example.com/hook?apiKey=abc", "https://example.com/x?Access-Token=abc", "https://example.com/x?client_secret=s", "https://example.com/x?sig=1",
+    "https://example.com/x?password=p", "https://example.com/x#access_token=abc", "https://example.com/x?a=1&key=k",
+  ]) {
+    assertEquals(urlCredentialProblem(u) !== null, true, u);
+    const r = await validateOutboundUrl(u.replace("example.com", "8.8.8.8"));
+    assertEquals([r.ok, /credential|user name/.test(r.reason ?? "")], [false, true], u);
+  }
+  for (const u of ["https://example.com/hook", "https://example.com/x?page=2&sort=asc", "https://example.com/x?keyword=shoes", "https://example.com/x?token_count=3", "not a url"]) {
+    assertEquals(urlCredentialProblem(u), null, u);
   }
 });

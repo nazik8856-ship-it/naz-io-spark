@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Plus, SlidersHorizontal, X, Upload, Link2, Box, FileSpreadsheet, Plug } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data at rest)
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import ConnectToolPanel from "@/components/control/outer/ConnectToolPanel";
@@ -92,7 +93,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
     if (!plusOpen || !user?.id || projects.length) return;
     (async () => {
       const [agents, sites] = await Promise.all([
-        supabase.from("agents").select("id, name, goal, role").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
+        ocRead("agents").select("id, name, goal, role").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
         supabase.from("websites").select("id, name, tagline").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
       ]);
       const items: typeof projects = [];

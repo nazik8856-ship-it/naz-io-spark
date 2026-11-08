@@ -5,7 +5,6 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import { createUploadAliases, publishUploadsInPages, type UploadAliases } from "../_shared/uploaded-assets.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
@@ -1844,7 +1843,7 @@ async function handleRequest(req: Request, uploadAliases: UploadAliases): Promis
 
 // Files the user attached are private signed links; inside a request they travel as short stand-ins (_shared/uploaded-assets.ts).
 // What goes back to the browser has each stand-in turned into its public copy (when the saved pages use it) or its signed link.
-serve(async (req) => {
+Deno.serve(async (req) => {
   const uploadAliases = createUploadAliases(Deno.env.get("SUPABASE_URL")!);
   const res = await handleRequest(req, uploadAliases);
   if (!uploadAliases.paths().size) return res;

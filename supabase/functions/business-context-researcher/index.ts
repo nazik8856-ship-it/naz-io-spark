@@ -10,7 +10,6 @@ import { fenceUntrusted, stripHiddenHtml, UNTRUSTED_DATA_RULE } from "../_shared
 import { cleanText } from "../_shared/clean-text.ts";
 import { array, object, optional, text, url, withDefault } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // the business profile is stored encrypted (data at rest)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { requireCaller } from "../_shared/caller.ts";
@@ -34,7 +33,7 @@ const profileShape = object({
   inferred_kpis: withDefault(array(object({ name: short(80), target: short(80) }), { max: 6, clip: true, dropInvalid: true }), [] as { name: string; target: string }[]),
 });
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const gw = pickAiGateway();

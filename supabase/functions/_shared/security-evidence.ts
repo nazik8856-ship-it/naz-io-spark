@@ -11,7 +11,11 @@
 //   rule_applied       a tool's reply was checked against the rules: which rules matched, the hash of the rule set, the verdict.
 //   output_stored      a controlled result was stored as a Task's or step's final output (the hash of what was stored).
 //   content_held       outside content was held by the unsafe-content gate (external-content.ts).
-//   outbound_blocked   the outbound guard refused to send a credential to a host it does not belong to (outbound-guard.ts).
+//   outbound_blocked   the outbound guard refused a request (outbound-guard.ts): a credential to a host it does not belong to, or a
+//                      destination outside the egress allowlist (egress.ts).
+//
+// Subject strings are capped and any web address in them keeps only its host and path (query values masked).
+import { maskUrlQueries } from "./redact-secrets.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -61,7 +65,7 @@ export function cleanSubject(s: Evidence["subject"]): Record<string, string | nu
     const key = k.slice(0, 40);
     if (v === undefined) continue;
     if (v === null || typeof v === "number" || typeof v === "boolean") out[key] = v;
-    else if (typeof v === "string") out[key] = v.slice(0, 120);
+    else if (typeof v === "string") out[key] = maskUrlQueries(v).slice(0, 120);
   }
   return out;
 }
@@ -103,11 +107,21 @@ export const OUTBOUND_BLOCK_RE = /refused: the request to ([a-z0-9.-]{1,120}) ca
  * made. Where that error meets an account (a step's tool call, an agent's tool), this records it: the host and the credential's name.
  */
 export async function noteOutboundBlock(admin: AnyAdmin, userId: string, message: unknown, actor: EvidenceActor, actorId: string | null, subject: Evidence["subject"] = {}): Promise<boolean> {
-  const m = OUTBOUND_BLOCK_RE.exec(typeof message === "string" ? message : message instanceof Error ? message.message : "");
-  if (!m || !userId) return false;
-  await recordEvidence(admin, { userId, kind: "outbound_blocked", actor, actorId, subject: { ...subject, host: m[1], credential: m[2] }, verdict: "refused" });
+  const text = typeof message === "string" ? message : message instanceof Error ? message.message : "";
+  if (!userId) return false;
+  const m = OUTBOUND_BLOCK_RE.exec(text);
+  if (m) {
+    await recordEvidence(admin, { userId, kind: "outbound_blocked", actor, actorId, subject: { ...subject, host: m[1], credential: m[2] }, verdict: "refused" });
+    return true;
+  }
+  const g = OUTBOUND_EGRESS_RE.exec(text);
+  if (!g) return false;
+  await recordEvidence(admin, { userId, kind: "outbound_blocked", actor, actorId, subject: { ...subject, host: g[1], reason: g[2] }, verdict: "refused" });
   return true;
 }
+
+/** The message outbound-guard.ts throws when a destination is outside the egress allowlist (egress.ts): the host and the reason. */
+export const OUTBOUND_EGRESS_RE = /refused: a request to ([a-z0-9.:\[\]-]{1,120}|an invalid address) is not allowed \(([^)]{1,200})\)/;
 
 /** The refusal shown when a connector call could not get its evidence written. */
 export const NO_EVIDENCE_MESSAGE = "Nothing was sent: the security evidence for this call could not be recorded, so the call was not made.";

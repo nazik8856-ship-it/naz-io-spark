@@ -41,6 +41,11 @@ export function ocWrite(table: string): Builder {
  * An approver's sign-off with a comment: the same record_approval_signoff (quorum and permissions unchanged), with the comment
  * stored encrypted by the server. Returns what the database function returns.
  */
+/** Restores a website to a saved version (its snapshots are stored encrypted, so the server restores them, as the signed-in user). */
+export function restoreWebsiteVersion(versionId: string): Promise<WriteResult> {
+  return run("website_versions", [{ m: "restore", a: [{ version_id: versionId }] }]);
+}
+
 export function approvalSignoff(x: { approval_id: string; vote: "approve" | "reject"; comment?: string | null; reason_code?: string | null }): Promise<WriteResult> {
   return run("pending_approvals", [{ m: "signoff", a: [x] }]);
 }

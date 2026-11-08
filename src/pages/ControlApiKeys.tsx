@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText, Zap, Globe2, Mail, RefreshCw, HelpCircle } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data at rest)
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
@@ -121,8 +122,7 @@ export default function ControlApiKeys() {
   const load = useCallback(async () => {
     if (!accountId) return;
     setLoading(true);
-    const { data, error } = await anyDb
-      .from("api_keys")
+    const { data, error } = await ocRead("api_keys")
       .select("id, name, key_prefix, scopes, last_used_at, revoked_at, expires_at, created_at, on_uncertain, rate_limit_per_minute, respond_rate_limit_per_minute, response_persona")
       .eq("user_id", accountId)
       .order("created_at", { ascending: false });
@@ -983,7 +983,7 @@ function ApiKeySettingsPanel({
   const loadGaps = useCallback(async () => {
     setGapsLoading(true);
     const [{ data: clusters, error: clustersErr }, { data: generations, error: genErr }] = await Promise.all([
-      anyDb.from("content_gap_clusters").select("id, representative_message").eq("api_key_id", keyId),
+      ocRead("content_gap_clusters").select("id, representative_message").eq("api_key_id", keyId),
       anyDb
         .from("api_response_generations")
         .select("content_gap_cluster_id, created_at, resolved_at")

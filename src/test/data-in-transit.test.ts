@@ -99,3 +99,67 @@ describe("no log line prints a body, headers or a credential", () => {
     expect(offending(read(join(FUNCTIONS, file)))).toEqual([]);
   });
 });
+
+// Data in transit (security task 2): the egress allowlist (supabase/functions/_shared/egress.ts). At run time the outbound guard
+// refuses any destination that is not NazAI's own project, a listed service, or a customer address that passed validateOutboundUrl.
+// This check keeps the list honest at build time: every host a function names must be a listed service, or one of the addresses
+// below that are only shown to people or used as labels (never fetched by NazAI's code).
+describe("the egress allowlist covers every host the functions name", () => {
+  const egress = read(join(FUNCTIONS, "_shared/egress.ts"));
+  const listed = [...egress.slice(egress.indexOf("NAZAI_EGRESS_HOSTS"), egress.indexOf("};", egress.indexOf("NAZAI_EGRESS_HOSTS"))).matchAll(/^\s*"([a-z0-9.-]+)":/gm)].map((m) => m[1]);
+  const LINK_ONLY: Record<string, string> = {
+    "nazai.net": "NazAI's own website: links in emails and pages",
+    "naz-ai.com": "NazAI's own website: links in emails and pages",
+    "naz-io.vercel.app": "an allowed origin for OAuth return pages (oauth-callback-page.ts), not fetched",
+    "uploads.nazai.invalid": "a placeholder host for uploaded files (uploaded-assets.ts); .invalid can never resolve",
+    "www.notion.so": "a link to a Notion page shown to the user",
+    "shopify.dev": "a documentation link in an error message",
+    "www.canva.dev": "a documentation link in an error message",
+    "example": "the reserved test domain (RFC 2606) in the hostile-input corpus; never resolves",
+    "picsum.photos": "placeholder image addresses written into generated pages (the visitor's browser loads them)",
+  };
+  const covered = (h: string) => listed.some((s) => h === s || h.endsWith(`.${s}`)) || Object.keys(LINK_ONLY).some((s) => h === s || h.endsWith(`.${s}`));
+  const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+  // module addresses (import … from "https://esm.sh/…") are loaded when the function is deployed, not requested by it
+  const named = (src: string) => [...strip(src).replace(/(?:from\s+|import\s*\(?\s*)["']https:\/\/[^"']+["']/g, "").matchAll(/https:\/\/([a-z0-9-]+(?:\.[a-z0-9-]+)+)/gi)].map((m) => m[1].toLowerCase());
+
+  it("reads the allowlist", () => {
+    expect(listed).toContain("openai.com");
+    expect(listed).toContain("googleapis.com");
+    expect(listed.length).toBeGreaterThanOrEqual(15);
+  });
+
+  it("no function names a host that is neither a listed service nor a reviewed link", () => {
+    const found = sources(FUNCTIONS).flatMap((f) => named(read(f)).filter((h) => !covered(h)).map((h) => `${f.slice(ROOT.length + 1)}: ${h}`));
+    expect([...new Set(found)]).toEqual([]);
+  });
+
+  it("finds an unlisted host (the guard itself works)", () => {
+    expect(named('await fetch("https://collector.example.io/x")').filter((h) => !covered(h))).toEqual(["collector.example.io"]);
+    expect(named('await fetch("https://api.openai.com/v1")').filter((h) => !covered(h))).toEqual([]);
+  });
+
+  it("the guard enforces the list, refuses plain http and does not let a customer request follow redirects", () => {
+    const guard = read(join(FUNCTIONS, "_shared/outbound-guard.ts"));
+    expect(guard).toMatch(/const egress = egressDecision\(url, ownHost, ownHttp \?\? false\);\n\s*if \(!egress\.ok\) \{/);
+    expect(guard).toMatch(/if \(asked === "follow"\) return await original\(input, \{ \.\.\.\(init \?\? \{\}\), redirect: "manual" \}\);/);
+    expect(egress).toMatch(/if \(u\.protocol !== "https:"\) return \{ ok: false/);
+    const safety = read(join(FUNCTIONS, "_shared/url-safety.ts"));
+    expect(safety).toMatch(/approveCustomerOrigin\(u\.href\);\n\s*return \{ ok: true/);
+  });
+});
+
+// Data in transit (security task 2): no response is cached. The outbound guard wraps Deno.serve (every function imports it second)
+// so each response carries Cache-Control: no-store; a function that served through another server would escape it.
+describe("responses carry Cache-Control: no-store", () => {
+  it.each(fns)("%s serves with Deno.serve, not the old std server", (fn) => {
+    const src = read(join(FUNCTIONS, fn, "index.ts"));
+    expect(src).not.toMatch(/deno\.land\/std@[^"']*\/http\/server\.ts/);
+    expect(src).toMatch(/\bDeno\.serve\(/);
+  });
+  it("the guard wraps Deno.serve and nothing in the functions asks for caching", () => {
+    expect(read(join(FUNCTIONS, "_shared/outbound-guard.ts"))).toMatch(/\(d as \{ serve: unknown \}\)\.serve = wrapped;/);
+    const caching = sources(FUNCTIONS).filter((f) => /Cache-Control["']?\s*:\s*["'`](?![^"'`]*no-)/i.test(read(f))).map((f) => f.slice(ROOT.length + 1));
+    expect(caching).toEqual([]);
+  });
+});

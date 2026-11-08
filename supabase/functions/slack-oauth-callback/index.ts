@@ -5,7 +5,7 @@
 // user connecting multiple workspaces gets one row per workspace.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data at rest)
 import { exchangeCode, fetchTeamInfo, scopesForGroups, SLACK_DEFAULT_GROUPS } from "../_shared/slack.ts";
 import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
@@ -86,14 +86,15 @@ Deno.serve(async (req) => {
       account_name: teamName,
     };
 
-    // Upsert per workspace: keyed on (user_id, provider="Slack", metadata->>'team_id').
+    // Upsert per workspace: keyed on (user_id, provider="Slack", team id). metadata is stored encrypted (data at rest); the team id
+    // is copied to the plain metadata_team_id column on every write so the row can be found again.
     const { data: existing } = await admin
       .from("agent_integrations")
       .select("id, credentials_secret_id, metadata")
       .eq("user_id", userId)
       .eq("provider", "Slack")
       .is("agent_id", null)
-      .contains("metadata", { team_id: teamId })
+      .eq("metadata_team_id", teamId)
       .maybeSingle();
 
     let secretId: string | null = (existing?.credentials_secret_id as string | null) ?? null;

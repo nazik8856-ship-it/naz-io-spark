@@ -15,6 +15,10 @@ export const WRITABLE: Record<string, string[]> = {
   // An approver's sign-off with a comment: record_approval_signoff runs as the approver (its quorum rules unchanged), then the
   // comment is stored encrypted. A team approver may sign off but not edit the row, so the comment is written by the server.
   pending_approvals: ["signoff"],
+  // "Duplicate" on a website: the copy carries the original's brief (prompt), stored encrypted (data at rest).
+  websites: ["insert"],
+  // Restoring a saved version (website-restore.ts): the snapshots and the brief are stored encrypted, so the server restores them.
+  website_versions: ["restore"],
 };
 
 export type Signoff = { approval_id: string; vote: "approve" | "reject"; comment?: string | null; reason_code?: string | null };
@@ -40,6 +44,11 @@ export function validWrite(body: unknown): string | null {
   const [first, ...rest] = b.ops as { m?: unknown; a?: unknown }[];
   if (typeof first?.m !== "string" || !WRITABLE[b.table].includes(first.m)) return `not allowed on ${b.table}: ${String(first?.m)}`;
   const args = Array.isArray(first.a) ? first.a : [];
+  if (first.m === "restore") {
+    const x = args[0] as { version_id?: unknown } | undefined;
+    if (rest.length || !x || typeof x.version_id !== "string" || !UUID.test(x.version_id)) return "restore needs version_id";
+    return null;
+  }
   if (first.m === "signoff") {
     const x = args[0] as Partial<Signoff> | undefined;
     if (rest.length || !x || typeof x.approval_id !== "string" || !UUID.test(x.approval_id) || (x.vote !== "approve" && x.vote !== "reject")) return "signoff needs approval_id and vote";

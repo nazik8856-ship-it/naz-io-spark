@@ -17,6 +17,7 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data at rest); reaches webhook deliveries through incidents
+import { openRows } from "../_shared/encrypted-db.ts"; // the representative question is stored encrypted (data at rest)
 import {
   isContentGapBacklogStale, summarizeStaleContentGapBacklog, type GapClusterForBacklogHealth,
 } from "../_shared/content-gap-backlog-health.ts";
@@ -54,13 +55,14 @@ Deno.serve(async (req) => {
     checked++;
     try {
       const { data: clusterRows, error: clusterErr } = await admin
-        .rpc("list_gap_clusters_ranked", { _api_key_id: key.id, _limit: 1 });
+        .rpc("list_gap_clusters_ranked_v2", { _api_key_id: key.id, _limit: 1 }); // the question comes back sealed (data at rest)
       if (clusterErr) {
         console.error(`[CONTENT GAP BACKLOG SWEEP] failed to rank clusters for ${key.id}: ${clusterErr.message}`);
         continue;
       }
 
-      const top = ((clusterRows ?? [])[0] ?? null) as
+      const opened = await openRows("content_gap_clusters", (clusterRows ?? []) as Record<string, unknown>[], undefined, "cluster_id");
+      const top = (opened[0] ?? null) as
         { cluster_id: string; representative_message: string; occurrence_count: number } | null;
       const topCluster: GapClusterForBacklogHealth | null = top ? { occurrenceCount: Number(top.occurrence_count) } : null;
       const stale = isContentGapBacklogStale(topCluster);

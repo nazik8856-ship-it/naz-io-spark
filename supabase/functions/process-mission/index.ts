@@ -5,7 +5,6 @@ import { guardOutputText } from "../_shared/output-guard.ts"
 import { array, object, text, withDefault } from "../_shared/schema.ts"
 import { readJson } from "../_shared/input.ts"
 import { cleanText } from "../_shared/clean-text.ts"
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts"
 import { requireCaller } from "../_shared/caller.ts"
@@ -21,7 +20,7 @@ const missionReply = object({
   actions: withDefault(array(text({ min: 1, max: 400, clip: true }), { max: 12, clip: true, dropInvalid: true }), [] as string[]),
 })
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
 
   try {

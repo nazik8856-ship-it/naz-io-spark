@@ -42,21 +42,21 @@ keys inside the functions (`_shared/field-crypto.ts`); the value itself is never
 
 1. Generate a new key (`openssl rand -base64 32`).
 2. In Edge Function secrets: add `DATA_KEY_PREVIOUS` = the **current** value of `DATA_KEY`. Then set `DATA_KEY` = the new key.
-3. Redeploy every function that uses it: `projects`, `outer-control`, `outer-control-drive`, `outer-control-read`,
-   `encrypted-write`, `control-engine`, `control-system-decide`, `control-api`, `agent-runtime`, `agent-approval`,
-   `agent-scheduler`, `api-keys`, `website-form-submit`, `integration-sync`, `analyze-inputs`, `analyze-org-insights`,
-   `measure-decision-outcomes`, `compile-agent-manifest`, `compile-website-manifest`, `final-assembly-check`,
-   `recurring-assembly-sweep`, `audit-integrity-sweep`, `knowledge-base-auto-draft-sweep`, `content-gap-triage-sweep`,
-   `approval-escalation-sweep`, `stuck-approval-sweep`, `auto-resolution-share-sweep`, `control-digest-email`,
-   `control-weekly-trend-email`, `control-monthly-report-email`, `data-deletion-sweep`, `retention-sweep`,
-   `governance-backup-export`, then `outer-control-session-sweep` (the sweep last: it starts moving things to the new key;
-   its encryption step runs every five minutes). `src/test/field-encryption.test.ts` lists the same functions.
+3. Redeploy every edge function (every function that reaches an encrypted table uses the encrypting client, so most read
+   `DATA_KEY`; the build check `src/test/field-encryption.test.ts` names them), with `outer-control-session-sweep` last: it starts
+   moving values to the new key; its encryption step runs every five minutes.
 4. Wait until nothing is left on the old key. The session sweep reports `"project_fingerprints": { "moved": n, "left": n }`; once
    columns are encrypted with `DATA_KEY`, check them too:
    ```sql
    select * from encryption_report();
    ```
    `keys` shows how many values are on each key id (the 8 characters after `v2:`). Wait for `left` 0 and only the new id in `keys`.
+   The same, column by column, with the date the key changed (it should come back empty):
+   ```sql
+   select * from encryption_rotation_report();
+   ```
+   If it still lists columns 14 days after the key changed, the weekly check opens the `encryption_check` incident
+   (`rotation_stalled`).
    The governance backups are re-encrypted with the new key by the next daily backup run (60 files per run, so up to four
    runs for 30 days of backups). Check with the restore drill on the oldest day before going on:
    `POST governance-backup-export {"action": "verify", "date": "<oldest date>"}` must answer `"ok": true`.

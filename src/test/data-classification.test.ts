@@ -127,10 +127,15 @@ describe("data at rest: every content column is encrypted or has a recorded reas
     if (!sql.includes("encryption_exempt_columns")) continue;
     for (const m of sql.matchAll(EXEMPT_ROW)) exempt.set(`${m[1]}.${m[2]}`, { reason: m[3], kind: m[4] ?? "by_design" });
   }
+  // A deferred column that a later migration encrypts loses its exemption (20261113010000_data_at_rest.sql deletes the row).
+  const ended = new Set(migrations.filter(({ sql }) => /DELETE FROM public\.encryption_exempt_columns/.test(sql))
+    .flatMap(({ sql }) => [...sql.matchAll(/\('(\w+)', '(\w+)'\)/g)].map((m) => `${m[1]}.${m[2]}`)));
+  for (const n of ended) if (exempt.get(n)?.kind === "deferred" && encrypted.has(n)) exempt.delete(n);
 
   it("finds the exemptions (the guard itself works)", () => {
     expect(exempt.get("websites.html")?.kind).toBe("by_design");
-    expect(exempt.get("agents.goal")?.kind).toBe("deferred");
+    expect(exempt.has("agents.goal")).toBe(false); // was deferred; encrypted by the data-at-rest migration
+    expect(encrypted.has("agents.goal")).toBe(true);
     expect(encrypted.has("agent_memory.value")).toBe(true);
   });
 

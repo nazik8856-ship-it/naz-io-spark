@@ -13,7 +13,6 @@ import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI cre
 import { parseModelJson } from "../_shared/model-output.ts";
 import { object } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { buildCapabilityBlock } from "../_shared/capability-registry.ts";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
@@ -118,7 +117,7 @@ function formatTextReviewReply(result: Awaited<ReturnType<typeof evaluateExterna
 
 const toolArguments = object({}, { unknown: "keep" });
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const gw = pickAiGateway();

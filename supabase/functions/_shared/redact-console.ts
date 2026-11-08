@@ -1,7 +1,7 @@
 // Every edge function imports this first: from then on everything written to the console (by NazAI's code or by any library it
 // uses) passes through redactSecrets / redactDeep before it reaches the function logs. A secret in an error message, a provider's
 // response or a logged object is replaced by [REDACTED:secrets]; the rest of the line stays as it was.
-import { redactDeep, redactSecrets } from "./redact-secrets.ts";
+import { maskUrlQueries, maskUrlQueriesDeep, redactDeep, redactSecrets } from "./redact-secrets.ts";
 
 const MARK = Symbol.for("nazai.redact-console");
 type Patched = typeof globalThis & { [MARK]?: boolean };
@@ -17,7 +17,8 @@ const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u202A-\u20
 
 /** A string as it may appear in a log line: secrets scrubbed, escapes and control characters removed, length capped. */
 export function cleanLogString(s: string): string {
-  let out = redactSecrets(s).replace(ANSI, "").replace(CONTROL, "");
+  // data in transit (security task 2): web addresses keep their host and path; query values are masked
+  let out = maskUrlQueries(redactSecrets(s)).replace(ANSI, "").replace(CONTROL, "");
   if (out.length > MAX_LOG_STRING) out = `${out.slice(0, MAX_LOG_STRING)}…(${out.length - MAX_LOG_STRING} more characters cut)`;
   return out;
 }
@@ -25,7 +26,7 @@ export function cleanLogString(s: string): string {
 /** What a console argument becomes: strings scrubbed, errors kept as errors (message and stack scrubbed), objects scrubbed. */
 export function redactForLog(arg: unknown): unknown {
   if (typeof arg === "string") return cleanLogString(arg);
-  return redactDeep(arg);
+  return maskUrlQueriesDeep(redactDeep(arg));
 }
 
 /** Wraps every console method that prints what it is given, once per isolate; calling it again does nothing. */

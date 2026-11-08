@@ -169,7 +169,8 @@ signed decision trail verifies in the database; decisions and rules are not encr
   - `deferred`: it should be encrypted but something reads it in the database or straight from the browser first, and the reason
     says what has to change: `agents` goal, manifest, role and plan (about 29 screens), an API key's reply persona and fallback
     message (7 settings screens), `agent_integrations.metadata`, `content_gap_clusters.representative_message` (two search
-    functions), `websites.prompt` and the `website_versions` snapshots (the restore and image functions).
+    functions), `websites.prompt` and the `website_versions` snapshots (the restore and image functions). All eleven were encrypted by security
+    task 1 (below); their exemptions were removed.
 - **No column without one or the other:** `classification_report()` lists it as `content_unprotected`, so the weekly
   classification check opens an incident; the build fails on it too (`src/test/data-classification.test.ts`).
 - **Retention:**
@@ -185,11 +186,11 @@ signed decision trail verifies in the database; decisions and rules are not encr
 
 ## What is deliberately not encrypted
 
-- **Notes kept in the browser** (`localStorage`: the ground-truth notes, the command-center checklist, preview caches): they live
-  only on the user's own device and never reach NazAI's database, so `DATA_KEY` has nothing to protect there; moving them to the
-  server would change how the screens behave.
-- **The `by_design` and `deferred` columns above**, each with its reason in `encryption_exempt_columns`
-  (`select * from encryption_exempt_columns where kind = 'deferred';`).
+- **What the browser keeps** is no longer content in `localStorage` (security task 2, `docs/data-in-transit.md` section 7): the
+  preview cache is in memory, approved replies are in `sessionStorage` for one tab, and API key values typed into the checklist are
+  never saved. What remains is listed with what it holds in `src/lib/browser-storage.ts`.
+- **The `by_design` columns above**, each with its reason in `encryption_exempt_columns`. No column is `deferred` any more
+  (`select * from encryption_exempt_columns where kind = 'deferred';` returns nothing once `20261113010000_data_at_rest.sql` ran).
 
 ## Locking a column
 
@@ -201,11 +202,54 @@ an error instead of being caught and encrypted by the sweep a few minutes later.
   values. Before locking, every writer was checked: the edge functions write through the encrypting client (the build check), the
   website writes through `encrypted-write`, the one database function that touches such a column (`record_approval_signoff`, comment)
   is always called with a null comment, and the converter had found nothing to convert.
-- **Not locked yet:** the 14 listed columns that hold no values at all. Lock each once it is in use and its writers are checked.
+- **Locked (security task 1, `20261113010000_data_at_rest.sql`):** the 14 listed columns that held no values (no SQL function or
+  trigger writes them; every other writer goes through the encrypting client or `encrypted-write`). Every listed column is locked or
+  marked to lock itself (below); none is left open.
 - **Locked (task 3, `20261109010000_protect_data_at_rest.sql`):** the twenty columns encrypted in that migration, at once (their
   tables were empty, and every writer goes through the encrypting client or `encrypted-write`).
 - **Weekly (Mondays 03:43 UTC):** `encryption_weekly_check()` keeps the `encryption_check` incident open while any listed column holds
   encrypted values without a lock, or a recorded lock is missing from its table.
+
+## Data at rest (security task 1)
+
+`20261113010000_data_at_rest.sql` and the code beside it. Hard boundaries only: each item is enforced by the database or refused by
+the code; none is a warning.
+
+- **Every listed column locked.** The 14 columns that held no values are locked at once (`encryption_enforce`).
+- **The 11 deferred columns encrypted** with `DATA_KEY` like every other listed column: an agent's goal, role, configuration
+  (`manifest`) and plan (`source_plan`); an API key's reply persona and fallback message; `agent_integrations.metadata`;
+  `content_gap_clusters.representative_message`; `websites.prompt`; the `website_versions` snapshots. What changed so nothing reads
+  them in the clear:
+  - the screens read them through `outer-control-read` (`ocRead`), copy a site through `encrypted-write` (`ocWrite`), and the MCP
+    tools read agents through the same function with the signed-in user's token (`src/lib/mcp/server-read.ts`);
+  - restoring a saved version runs in `encrypted-write` (`_shared/website-restore.ts`) as the signed-in user: the current site is
+    saved as a "Before restore" version, the site's fields and brief are set from the snapshot, and the pages are replaced in one
+    database call (`replace_website_pages`, all or nothing). `restore_website_version()` is dropped;
+  - a reconnect finds its integration row by a plain copy of the one field it needs (`metadata_shop`, `metadata_workspace_id`,
+    `metadata_team_id`, filled on every write by the encrypting client) instead of searching inside `metadata`;
+  - the two content-gap search functions return the sealed text (`search_gap_clusters_v2`, `list_gap_clusters_ranked_v2`), opened
+    in code; `get_business_context()` returns an agent's sealed goal and role;
+  - the site-image functions no longer look inside the brief or the snapshots in SQL; the cleanup sweep reads saved versions
+    through the encrypting client and keeps a folder any version names;
+  - the configuration-change log (`config_changes`) no longer copies encrypted columns: the trigger leaves them out and the copies
+    already there were removed. A rollback still works: the sealed `_enc` values are bound to the same row and are restored.
+  - **Locked when converted:** these tables hold rows already, so the columns are marked `lock_when_converted`. Every five minutes the
+    session sweep encrypts up to 50 plain values per column, then `encryption_lock_converted()` locks each marked column that has no
+    plain value left. With today's row counts (22 API keys, 20 versions, 9 sites, 8 integrations, 1 agent) that is within about
+    10 minutes of the migration. The weekly check names a converted column that is still not locked.
+- **No credential inside an address.** An address NazAI stores or calls never carries a user name, a password or a credential-like
+  query parameter (`token`, `key`, `api_key`, `secret`, `signature`, `sig`, `password`, …): `validateOutboundUrl` refuses it before
+  anything is saved or sent, and the database refuses to store one (`url_carries_credentials()`: checks on
+  `external_tools.endpoint_url`, `webhooks.url`, `api_keys.callback_url`, `business_profiles.source_url`). The key belongs in the
+  tool's authentication field, kept in the vault.
+- **Key rotation is tracked.** The session sweep records the id (never the value) of the current `DATA_KEY` and `PROJECTS_KEY`
+  (`encryption_key_state`, via `encryption_note_keys`) and keeps moving values from the previous key to the current one.
+  `select * from encryption_rotation_report();` lists every column with values still on another key and since when the key changed;
+  the weekly check opens the `encryption_check` incident when a rotation has not finished within 14 days (`rotation_stalled`).
+
+Limits: a value is in the clear in the memory of the function that uses it, and in the browser of the signed-in owner who reads it;
+encryption at rest protects the stored copy, not those. Rows written by an old deployment before the migration ran are converted by
+the sweep, not at once.
 
 ## Fingerprints
 

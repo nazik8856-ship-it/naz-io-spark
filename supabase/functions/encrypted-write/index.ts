@@ -11,6 +11,7 @@ import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI cre
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { validWrite, type Signoff } from "../_shared/encrypted-write.ts";
+import { restoreWebsiteVersion } from "../_shared/website-restore.ts"; // a saved website version, restored by the server (data at rest)
 import { requireCaller } from "../_shared/caller.ts";
 
 const corsHeaders = {
@@ -34,6 +35,10 @@ Deno.serve(async (req) => {
     const authed = await requireCaller(req, (h) => createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: h } } }));
     if (!authed.ok) return json({ error: "unauthorized" }, 401);
     const db = authed.caller.userClient;
+    if (body.ops[0].m === "restore") {
+      // A website version, as the signed-in user (website-restore.ts): their row level security decides, as for the old database function.
+      return json(await restoreWebsiteVersion(db, String((body.ops[0].a[0] as { version_id: string }).version_id)));
+    }
     if (body.ops[0].m === "signoff") {
       const x = body.ops[0].a[0] as Signoff;
       // As the approver: the database function checks they may sign off and applies the quorum, exactly as before.

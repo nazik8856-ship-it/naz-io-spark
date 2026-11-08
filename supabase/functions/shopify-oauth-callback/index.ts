@@ -4,7 +4,7 @@
 // domain so users can connect multiple stores without overwriting each other.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data at rest)
 import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";
 import { exchangeCode, fetchShopInfo, normalizeShop, verifyCallbackHmac } from "../_shared/shopify.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
@@ -78,7 +78,8 @@ Deno.serve(async (req) => {
       shop_domain_pretty: (info?.domain as string) || shopParam,
     };
 
-    // Upsert per shop: keyed on (user_id, provider="Shopify", metadata->>'shop').
+    // Upsert per shop: keyed on (user_id, provider="Shopify", shop). metadata is stored encrypted (data at rest); the shop is
+    // copied to the plain metadata_shop column on every write so the row can be found again.
     // Same user connecting multiple stores gets multiple rows, one per store.
     const { data: existing } = await admin
       .from("agent_integrations")
@@ -86,7 +87,7 @@ Deno.serve(async (req) => {
       .eq("user_id", userId)
       .eq("provider", "Shopify")
       .is("agent_id", null)
-      .contains("metadata", { shop: shopParam })
+      .eq("metadata_shop", shopParam)
       .maybeSingle();
 
     let secretId: string | null = (existing?.credentials_secret_id as string | null) ?? null;

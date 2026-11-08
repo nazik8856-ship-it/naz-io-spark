@@ -4,7 +4,9 @@ import { isAllowedEmbedUrl } from "@/lib/safe-urls";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data at rest)
 import { fetchPublicSite } from "@/lib/public-site";
+import { getPreviewCache, setPreviewCache } from "@/lib/preview-cache"; // data in transit: site content stays in memory
 
 type Palette = {
   bg: string; surface: string; text: string; accent: string;
@@ -75,7 +77,7 @@ class SectionRenderBoundary extends Component<
 function readPreviewCache(id?: string): PreviewCache | null {
   if (!id || typeof window === "undefined") return null;
   try {
-    const parsed = JSON.parse(localStorage.getItem(`nazai_website_preview_${id}`) || "null") as PreviewCache | null;
+    const parsed = getPreviewCache(id) as PreviewCache | null; // in memory only (preview-cache.ts)
     if (!parsed?.website?.id || parsed.website.id !== id || !Array.isArray(parsed.pages)) return null;
     return parsed;
   } catch {
@@ -431,8 +433,7 @@ export default function WebsitePreview() {
         await supabase.auth.getSession();
 
         if (versionId) {
-          const { data: snap, error: snapErr } = await supabase
-            .from("website_versions")
+          const { data: snap, error: snapErr } = await ocRead("website_versions")
             .select("website_snapshot, pages_snapshot")
             .eq("id", versionId)
             .eq("website_id", id)
@@ -468,10 +469,7 @@ export default function WebsitePreview() {
         setSite(website);
         setPages(sitePages);
         try {
-          localStorage.setItem(
-            `nazai_website_preview_${id}`,
-            JSON.stringify({ website, pages: sitePages, cachedAt: Date.now() }),
-          );
+          setPreviewCache(id, website, sitePages);
         } catch {
           // Cache is best-effort; a successful database render does not depend on it.
         }
@@ -506,7 +504,7 @@ export default function WebsitePreview() {
       setPages(rows as unknown as Page[]);
       try {
         const cached = readPreviewCache(id);
-        localStorage.setItem(`nazai_website_preview_${id}`, JSON.stringify({ website: cached?.website ?? null, pages: rows, cachedAt: Date.now() }));
+        setPreviewCache(id, cached?.website ?? null, rows);
       } catch { /* cache is best-effort */ }
     };
     const tick = async () => {

@@ -76,6 +76,25 @@ export const ENCRYPTED_COLUMNS: Record<string, EncryptedTable> = {
   idempotency_keys: { cols: ["response"] },
   webhook_deliveries: { cols: ["payload"] },
   action_reversals: { cols: ["undo_payload"], defaults: { undo_payload: {} } },
+  // Data at rest (security task 1): the columns that were deferred until their readers moved to the server
+  // (20261113010000_data_at_rest.sql). An agent's goal, role, plan and full configuration; an API key's reply persona and fallback
+  // message; a connected account's details and last synced data; a website's brief and its saved versions; and the question that
+  // stands for a group of unanswered /respond questions.
+  agents: { cols: ["goal", "manifest", "role", "source_plan"], defaults: { manifest: {} } },
+  api_keys: { cols: ["response_persona", "fallback_message"] },
+  // The account an integration belongs to (a Shopify shop, a Notion or Slack workspace) is how a reconnect finds its row: copied to
+  // plain columns. Identifiers only; everything else in metadata (account details, the last synced data) is encrypted.
+  agent_integrations: {
+    cols: ["metadata"], defaults: { metadata: {} },
+    project: { metadata: {
+      shop: { col: "metadata_shop", type: "text" },
+      workspace_id: { col: "metadata_workspace_id", type: "text" },
+      team_id: { col: "metadata_team_id", type: "text" },
+    } },
+  },
+  content_gap_clusters: { cols: ["representative_message"] },
+  websites: { cols: ["prompt"] },
+  website_versions: { cols: ["website_snapshot", "pages_snapshot"] },
 };
 
 /** The plain copies of the projected fields, for the values being written. */
@@ -270,7 +289,7 @@ async function run(admin: AnyClient, table: string, spec: EncryptedTable, keysP:
  * encryption_report() shows work for are touched. Takes the plain service client (it reads the raw values).
  */
 export async function sweepEncryptedColumns(plainAdmin: AnyClient, keys: FieldKeys | null, limit = 50) {
-  const out = { encrypted: 0, reencrypted: 0, failed: 0, columns: 0 };
+  const out = { encrypted: 0, reencrypted: 0, failed: 0, columns: 0, locked: 0 };
   if (!keys) return out;
   const { data, error } = await plainAdmin.rpc("encryption_report");
   if (error) throw new Error(`encryption_report: ${error.message}`);
@@ -281,6 +300,11 @@ export async function sweepEncryptedColumns(plainAdmin: AnyClient, keys: FieldKe
     const res = await sweepColumn(plainAdmin, keys, r.table_name, r.column_name, { limit });
     out.encrypted += res.encrypted; out.reencrypted += res.reencrypted; out.failed += res.failed; out.columns++;
   }
+  // A column marked lock_when_converted is locked once nothing plain is left in it (data at rest, security task 1): from then on the
+  // database refuses a write that would store its text in the clear.
+  const { data: locked, error: lockErr } = await plainAdmin.rpc("encryption_lock_converted");
+  if (lockErr) console.error("locking converted columns failed:", lockErr.message);
+  else out.locked = Number(locked ?? 0);
   return out;
 }
 

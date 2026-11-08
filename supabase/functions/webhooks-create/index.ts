@@ -15,7 +15,7 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data at rest)
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";

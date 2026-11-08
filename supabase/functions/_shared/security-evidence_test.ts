@@ -64,3 +64,12 @@ Deno.test("cleanSubject keeps at most 12 short scalar values", () => {
   assertEquals(Object.keys(cleanSubject(big)).length, 12);
   assertEquals(cleanSubject({ a: null, b: true, c: undefined }), { a: null, b: true });
 });
+
+Deno.test("an egress refusal (a destination outside the allowlist) is recorded too, and addresses in a subject lose their query values", async () => {
+  const err = new OutboundBlocked("refused: a request to hooks.acme.io is not allowed (not a NazAI service and not a customer address checked by validateOutboundUrl)");
+  const admin = fakeAdmin();
+  assertEquals(await noteOutboundBlock(admin, "u-1", err, "system", null, { tool: "t-1" }), true);
+  assertEquals(admin.calls[0].args._subject.host, "hooks.acme.io");
+  assert(String(admin.calls[0].args._subject.reason).startsWith("not a NazAI service"));
+  assertEquals(cleanSubject({ url: "https://h.io/in?email=ann@example.com" }), { url: "https://h.io/in?email=…" });
+});

@@ -6,7 +6,7 @@
 // one row per workspace instead of overwriting the previous one.
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data at rest)
 import { exchangeCode } from "../_shared/notion.ts";
 import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
@@ -72,14 +72,15 @@ Deno.serve(async (req) => {
       account_name: workspaceName,
     };
 
-    // Upsert per workspace: keyed on (user_id, provider="Notion", metadata->>'workspace_id').
+    // Upsert per workspace: keyed on (user_id, provider="Notion", workspace id). metadata is stored encrypted (data at rest); the
+    // workspace id is copied to the plain metadata_workspace_id column on every write so the row can be found again.
     const { data: existing } = await admin
       .from("agent_integrations")
       .select("id, credentials_secret_id, metadata")
       .eq("user_id", userId)
       .eq("provider", "Notion")
       .is("agent_id", null)
-      .contains("metadata", { workspace_id: workspaceId })
+      .eq("metadata_workspace_id", workspaceId)
       .maybeSingle();
 
     let secretId: string | null = (existing?.credentials_secret_id as string | null) ?? null;
