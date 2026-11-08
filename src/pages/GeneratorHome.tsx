@@ -34,6 +34,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
+import { setPreviewCache } from "@/lib/preview-cache"; // data in transit: site content stays in memory
 
 
 // Small "..." menu used on each recent project card — Edit navigates to the
@@ -177,8 +178,7 @@ export default function GeneratorHome() {
     let cancelled = false;
     (async () => {
       setAgentsLoading(true);
-      const { data } = await supabase
-        .from("agents")
+      const { data } = await ocRead("agents")
         .select("id, name, goal, created_at, schedule_cron")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
@@ -579,21 +579,14 @@ export default function GeneratorHome() {
       // authoritative, but this removes the empty-frame window while the new
       // workspace performs its first owner-protected read.
       if (body?.manifest && Array.isArray(body.manifest.pages)) {
-        try {
-          localStorage.setItem(
-            `nazai_website_preview_${body.website_id}`,
-            JSON.stringify({
-              website: { id: body.website_id, name: body.manifest.name, tagline: body.manifest.tagline, theme: body.manifest.theme, prompt: briefForBuild },
-              pages: body.manifest.pages.map((page: Record<string, unknown>, index: number) => ({
-                ...page, id: `compiled-${body.website_id}-${index}`, order_index: index,
-              })),
-              cachedAt: Date.now(),
-            }),
-          );
-        } catch {
-          // Storage can be unavailable in privacy modes; the cloud read below
-          // still opens the same generated website.
-        }
+        // In memory only (preview-cache.ts): the brief and the pages never go to localStorage.
+        setPreviewCache(
+          body.website_id,
+          { id: body.website_id, name: body.manifest.name, tagline: body.manifest.tagline, theme: body.manifest.theme, prompt: briefForBuild },
+          body.manifest.pages.map((page: Record<string, unknown>, index: number) => ({
+            ...page, id: `compiled-${body.website_id}-${index}`, order_index: index,
+          })),
+        );
       }
       // The saved site exists: let the pages visibly merge into the output
       // frame (and the final check states be seen) before moving on.

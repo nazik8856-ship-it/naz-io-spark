@@ -9,7 +9,6 @@ import { maskedJson } from "../_shared/outbound-guard.ts"; // second: no request
 import { parseModelJson } from "../_shared/model-output.ts";
 import { object } from "../_shared/schema.ts";
 import { readJson } from "../_shared/input.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import {
@@ -157,7 +156,7 @@ const CHECK_TOOL = {
 
 const toolArguments = object({}, { unknown: "keep" });
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   // Hoisted out of the try block (rather than declared with const inside
   // it) so the outer catch below can still see whichever account this

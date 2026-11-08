@@ -406,8 +406,7 @@ export default function IntegrationConnectModal({
       if (!user) { if (!cancelled) setStep("email"); return; }
       // Google connections are user-level and shared across every project —
       // always look up by (user_id, provider="Gmail", agent_id IS NULL).
-      let q = supabase
-        .from("agent_integrations")
+      let q = ocRead("agent_integrations")
         .select("status, metadata, last_error")
         .eq("user_id", user.id)
         .eq("provider", providerKey);
@@ -478,8 +477,7 @@ export default function IntegrationConnectModal({
   const reloadConnected = async (): Promise<boolean> => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return false;
-    let q = supabase
-      .from("agent_integrations")
+    let q = ocRead("agent_integrations")
       .select("status, metadata")
       .eq("user_id", user.id)
       .eq("provider", providerKey);

@@ -44,7 +44,7 @@ output handling (the untrusted-data fence).
     `no_rule`, `unenforced` (a vault-only or hash-only column without its validated check), `kept_too_long` (an OAuth sign-in row
     older than an hour).
 - **Every Monday (03:47 UTC):** `data_classification_weekly_check()` opens the platform incident `data_classification` while the
-  report has anything, and closes it once the report is empty. Its result also lists the `deferred` columns (below).
+  report has anything, and closes it once the report is empty. Its result also lists any `deferred` columns (none since security task 1, `docs/data-encryption.md`).
 - **Build, task 3:** every content column in the register is encrypted (`ENCRYPTED_COLUMNS`) or exempt with a reason; a deferred
   exemption says what has to change first; every `SECRET` column has a storage rule.
 

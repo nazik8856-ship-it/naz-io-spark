@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, Undo2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data at rest)
 import { cn } from "@/lib/utils";
 import { diffSites, type DiffPage, type DiffSite } from "@/lib/site-diff";
 
@@ -49,8 +50,7 @@ export default function BeforeAfterDialog({ open, onOpenChange, websiteId, curre
     setLoading(true);
     setLoadError(null);
     (async () => {
-      const { data, error } = await supabase
-        .from("website_versions")
+      const { data, error } = await ocRead("website_versions")
         .select("website_snapshot, pages_snapshot")
         .eq("id", versionId)
         .eq("website_id", websiteId)

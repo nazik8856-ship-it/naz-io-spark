@@ -14,7 +14,7 @@ Deno.test("a read the screens send is accepted", () => {
 
 Deno.test("anything else is refused", () => {
   assertEquals(validRead(null), "unknown table");
-  assertEquals(validRead({ table: "api_keys", ops: [sel("key_hash")] }), "unknown table", "only the encrypted Outer Control tables");
+  assertEquals(validRead({ table: "webhooks", ops: [sel("url")] }), "unknown table", "only the tables with encrypted content");
   assertEquals(validRead({ table: "outer_control_sessions", ops: [] }), "ops must be 1 to 20 steps");
   assertEquals(validRead({ table: "outer_control_sessions", ops: [{ m: "eq", a: ["id", "x"] }] }), "the first step must be select with a column list");
   assertEquals(validRead({ table: "outer_control_sessions", ops: [sel("id"), { m: "update", a: [{ status: "x" }] }] }), "not allowed: update");

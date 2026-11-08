@@ -73,8 +73,40 @@ export function scrubErrorEvent<T>(event: T): T | null {
     if (!copy || typeof copy !== "object") return null;
     const req = copy.request as Record<string, unknown> | undefined;
     if (req && typeof req === "object") { delete req.headers; delete req.cookies; }
-    return copy as T;
+    return maskUrlQueriesDeep(copy) as T;
   } catch {
     return null;
   }
+}
+
+// Data in transit (security task 2): query strings in logs, error reports and evidence.
+
+const URL_WITH_QUERY = /(\bhttps?:\/\/[^\s"'<>?#]+)([?#][^\s"'<>]*)/gi;
+
+/**
+ * Every web address in the text keeps its host and path, and each query or fragment value is replaced by "…" (the parameter
+ * names stay, so a log line still says what was asked). Query strings carry search terms, email addresses and tokens.
+ */
+export function maskUrlQueries(text: string): string {
+  if (!text || !/https?:\/\//i.test(text)) return text;
+  return text.replace(URL_WITH_QUERY, (_m, base: string, rest: string) =>
+    base + rest.replace(/([?#&;])([^=&;#]*)(=?)([^&;#]*)/g, (_x, sep: string, name: string, eq: string, value: string) =>
+      eq ? `${sep}${name}=…` : value || name ? `${sep}${name.length > 40 ? "…" : name}` : sep));
+}
+
+/** A copy of a value with maskUrlQueries applied to every string in it. */
+export function maskUrlQueriesDeep<T>(value: T, depth = 0): T {
+  if (typeof value === "string") return maskUrlQueries(value) as T;
+  if (depth > 20 || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((v) => maskUrlQueriesDeep(v, depth + 1)) as T;
+  if (value instanceof Error) {
+    const e = new Error(maskUrlQueries(value.message));
+    e.name = value.name;
+    e.stack = value.stack ? maskUrlQueries(value.stack) : undefined;
+    return e as T;
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = maskUrlQueriesDeep(v, depth + 1);
+  return out as T;
 }

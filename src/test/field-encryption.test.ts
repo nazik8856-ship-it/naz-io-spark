@@ -36,16 +36,16 @@ function reach(file: string, seen = new Set<string>()): Set<string> {
 const touchesTables = (file: string) => TABLES.some((t) => read(file).includes(`"${t}"`));
 
 describe("Outer Control content is encrypted by every edge function that reaches it", () => {
-  it("lists the twenty-six tables and 71 columns", () => {
-    expect(TABLES.length).toBe(26);
-    expect(Object.values(REGISTRY).flat().length).toBe(71);
+  it("lists the thirty-two tables and 82 columns", () => {
+    expect(TABLES.length).toBe(32);
+    expect(Object.values(REGISTRY).flat().length).toBe(82);
   });
 
   it("the code and the migration encrypt the same columns", () => {
     const sql = [
       "20261103010000_encrypt_outer_control.sql", "20261103020000_encrypt_visitor_and_integration_data.sql", "20261103030000_encrypt_agent_runs_and_events.sql",
       "20261103040000_encrypt_missions_kb_api_data.sql", "20261103050000_encrypt_pending_approvals.sql", "20261104010000_encryption_front5.sql",
-      "20261109010000_protect_data_at_rest.sql",
+      "20261109010000_protect_data_at_rest.sql", "20261113010000_data_at_rest.sql",
     ].map((f) => read(join(ROOT, "supabase/migrations", f))).join("\n");
     const inSql = [...sql.matchAll(/\('(\w+)', '(\w+)'\)/g)].filter((m) => REGISTRY[m[1]]).map((m) => `${m[1]}.${m[2]}`).sort();
     const inCode = Object.entries(REGISTRY).flatMap(([t, cols]) => cols.map((c) => `${t}.${c}`)).sort();

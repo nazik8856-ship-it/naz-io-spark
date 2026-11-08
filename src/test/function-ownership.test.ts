@@ -161,7 +161,7 @@ const REVIEWED: Record<string, number> = {
   "retention-sweep": 2,
   "shopify-oauth-callback": 2,
   "site-images-backfill-sweep": 4,
-  "site-images-cleanup-sweep": 1,
+  "site-images-cleanup-sweep": 2, // + saved versions searched for a folder name (they are encrypted; a system sweep over all sites)
   "slack-oauth-callback": 2,
   "stuck-approval-sweep": 2,
   "webhook-retry-sweep": 3,

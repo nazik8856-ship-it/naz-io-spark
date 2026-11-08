@@ -40,7 +40,7 @@ export function useProductivityIntegrations(active: boolean): {
 
   const load = useCallback(async () => {
     if (!user?.id) { setConnected([]); return; }
-    const { data: ints } = await supabase.from("agent_integrations").select("provider, metadata").eq("user_id", user.id).eq("status", "connected");
+    const { data: ints } = await ocRead("agent_integrations").select("provider, metadata").eq("user_id", user.id).eq("status", "connected");
     const providers = new Set<string>();
     ((ints || []) as Array<{ provider?: string | null; metadata?: { services?: unknown } | null }>).forEach((i) => {
       const p = String(i.provider || "").toLowerCase();

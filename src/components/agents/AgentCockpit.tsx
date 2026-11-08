@@ -208,8 +208,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
   }, [capabilities, manifest.tools]);
 
   const loadGmail = useCallback(async () => {
-    const { data } = await supabase
-      .from("agent_integrations")
+    const { data } = await ocRead("agent_integrations")
       .select("provider, status, metadata, last_verified_at, last_error")
       .eq("agent_id", agentId)
       .eq("provider", "Gmail")

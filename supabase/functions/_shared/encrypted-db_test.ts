@@ -91,8 +91,8 @@ Deno.test("filtering or sorting by an encrypted column is refused, by name", asy
 });
 
 Deno.test("every listed table and column", () => {
-  assertEquals(Object.keys(ENCRYPTED_COLUMNS).length, 26);
-  assertEquals(Object.values(ENCRYPTED_COLUMNS).reduce((n, s) => n + s.cols.length, 0), 71);
+  assertEquals(Object.keys(ENCRYPTED_COLUMNS).length, 32);
+  assertEquals(Object.values(ENCRYPTED_COLUMNS).reduce((n, s) => n + s.cols.length, 0), 82);
 });
 
 Deno.test("agent events: the payload is encrypted, its ok/ref/original_event_id flags stay filterable in their own columns", async () => {
@@ -235,4 +235,45 @@ Deno.test("openBusinessContext: the clients, insights and reports the database f
   assertEquals((((open.recent_reports ?? [])[0] as Record<string, unknown>).body_markdown as string).length, 2000);
   assert(!JSON.stringify(open).includes("_enc"), "no sealed value is passed on");
   assertEquals(open.agents, ctx.agents, "everything else as returned");
+});
+
+// ---- Data at rest (security task 1): the deferred columns are encrypted ----
+
+Deno.test("an agent's goal, role, plan and configuration and an API key's persona are stored only encrypted", async () => {
+  const db = setup();
+  await db.from("agents").insert({ user_id: "u1", name: "Closer", goal: "Close 10 deals", role: "sales lead", source_plan: { steps: ["call"] } });
+  await db.from("api_keys").insert({ user_id: "u1", name: "Shop bot", response_persona: "Warm and short", fallback_message: "Ask a human" });
+  await db.from("content_gap_clusters").insert({ user_id: "u1", representative_message: "Do you ship to Iceland?" });
+  await db.from("websites").insert({ user_id: "u1", name: "Bakery", prompt: "A site for my sourdough bakery" });
+  await db.from("website_versions").insert({ user_id: "u1", website_id: "w1", label: "v1", website_snapshot: { name: "Bakery", prompt: "sourdough" }, pages_snapshot: [{ slug: "home" }] });
+  const stored = JSON.stringify(["agents", "api_keys", "content_gap_clusters", "websites", "website_versions"].map((t) => table(t)));
+  for (const text of ["Close 10 deals", "sales lead", "\"call\"", "Warm and short", "Ask a human", "Iceland", "sourdough", "\"home\""]) assert(!stored.includes(text), `"${text}" is not stored in the clear`);
+  assert(stored.includes("Closer") && stored.includes("Shop bot") && stored.includes("Bakery"), "names stay readable (lookups, lists)");
+  assertEquals(table("agents")[0].manifest, null, "the omitted manifest default ({}) is sealed, not stored plain");
+  const { data: a } = await db.from("agents").select("goal, role, manifest, source_plan").single();
+  assertEquals([a.goal, a.role, a.manifest, a.source_plan], ["Close 10 deals", "sales lead", {}, { steps: ["call"] }]);
+  const { data: v } = await db.from("website_versions").select("website_snapshot, pages_snapshot").single();
+  assertEquals([v.website_snapshot.prompt, v.pages_snapshot[0].slug], ["sourdough", "home"]);
+});
+
+Deno.test("integration metadata is encrypted; the shop or workspace a reconnect looks up is copied to a plain column", async () => {
+  const db = setup();
+  await db.from("agent_integrations").insert({ user_id: "u1", provider: "shopify", metadata: { shop: "acme.myshopify.com", scopes: "read_orders", note: "private" } });
+  await db.from("agent_integrations").insert({ user_id: "u1", provider: "notion", metadata: { workspace_id: "ws-9", workspace_name: "Acme HQ" } });
+  const [shop, notion] = table("agent_integrations");
+  assertEquals([shop.metadata, shop.metadata_shop, notion.metadata_workspace_id, notion.metadata_team_id ?? null], [null, "acme.myshopify.com", "ws-9", null]);
+  assert(!JSON.stringify(table("agent_integrations")).includes("private") && !JSON.stringify(table("agent_integrations")).includes("Acme HQ"), "the rest of metadata is sealed");
+  const { data } = await db.from("agent_integrations").select("id, metadata").eq("metadata_shop", "acme.myshopify.com").maybeSingle();
+  assertEquals(data.metadata.note, "private", "found by the plain copy, read back decrypted");
+  await rejects(db.from("agent_integrations").select("id").contains("metadata", { shop: "acme.myshopify.com" }), "encrypted");
+});
+
+Deno.test("the sweep locks a column once it is converted (encryption_lock_converted) and reports how many it locked", async () => {
+  reset();
+  const plain = createClient("", "");
+  state.rpc.encryption_report = [];
+  state.rpc.encryption_lock_converted = 3;
+  assertEquals((await sweepEncryptedColumns(plain, KEYS)).locked, 3);
+  state.rpc.encryption_lock_converted = () => { throw new Error("permission denied"); };
+  assertEquals((await sweepEncryptedColumns(plain, KEYS)).locked, 0, "a failed lock is logged and retried on the next run, never fatal");
 });

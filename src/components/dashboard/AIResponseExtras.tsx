@@ -23,7 +23,7 @@ import {
  *   2. Reasoning Trace — Lucide Eye toggle that expands a "Logic
  *      Breakdown" explaining the rationale behind the output.
  *   3. Approve as Ground Truth — saves the output to project memory
- *      (localStorage key `nazai-ground-truth`) so it appears in the
+ *      (sessionStorage key `nazai-ground-truth`: this tab only, cleared on sign-out) so it appears in the
  *      sidebar's Project Memory section as the authoritative reference
  *      for future generations.
  *
@@ -51,7 +51,7 @@ type GroundTruthEntry = {
 
 const readGroundTruth = (): GroundTruthEntry[] => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -62,7 +62,7 @@ const readGroundTruth = (): GroundTruthEntry[] => {
 
 const writeGroundTruth = (entries: GroundTruthEntry[]) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(entries)); // content: this tab only (browser-storage.ts)
     // Notify other components in the same tab (storage event only fires cross-tab).
     window.dispatchEvent(new CustomEvent("nazai-ground-truth-changed"));
   } catch {

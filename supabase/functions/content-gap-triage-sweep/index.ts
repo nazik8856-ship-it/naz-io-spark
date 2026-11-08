@@ -124,12 +124,13 @@ Deno.serve(async (req) => {
         if (!embedding) continue;
         const literal = formatEmbeddingLiteral(embedding);
 
-        const { data: clusterRows, error: rpcErr } = await admin.rpc("search_gap_clusters", {
+        // _v2: the representative question is stored encrypted (data at rest); it comes back sealed with its row id.
+        const { data: clusterRows, error: rpcErr } = await admin.rpc("search_gap_clusters_v2", {
           _api_key_id: gap.api_key_id, _embedding: literal, _limit: 1,
         });
         if (rpcErr) { console.error(`[CONTENT GAP TRIAGE] search_gap_clusters failed for ${gap.id}: ${rpcErr.message}`); continue; }
 
-        const match = pickMatchingCluster((clusterRows ?? []) as GapClusterCandidate[]);
+        const match = pickMatchingCluster(await openRows("content_gap_clusters", (clusterRows ?? []) as GapClusterCandidate[]));
         let clusterId = match?.id ?? null;
 
         if (!clusterId) {

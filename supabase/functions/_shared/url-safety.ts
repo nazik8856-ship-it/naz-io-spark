@@ -4,6 +4,7 @@
 // etc). Extracted from agent-runtime's original validateHttpPostUrl/
 // isPrivateOrLoopbackIp so every such call site shares one check instead
 // of re-deriving (and potentially missing) it independently.
+import { approveCustomerOrigin, urlCredentialProblem } from "./egress.ts";
 
 /** The IPv4 address inside an IPv4-mapped / NAT64 / compatible IPv6 address (::ffff:10.0.0.1, ::ffff:a00:1, 64:ff9b::7f00:1), or null. */
 function embeddedIpv4(lower: string): string | null {
@@ -50,6 +51,9 @@ export function isPrivateOrLoopbackIp(ip: string): boolean {
 
 export type UrlSafetyResult = { ok: boolean; reason: string };
 
+// Data at rest (security task 1): the credential-in-address rule lives with the egress rules (egress.ts); re-exported here.
+export { CREDENTIAL_PARAMS, urlCredentialProblem } from "./egress.ts";
+
 /**
  * https-only, rejects the obvious loopback/link-local hostnames outright,
  * then resolves DNS and checks every A/AAAA record against private/
@@ -62,6 +66,8 @@ export async function validateOutboundUrl(rawUrl: string): Promise<UrlSafetyResu
   let u: URL;
   try { u = new URL(rawUrl); } catch { return { ok: false, reason: "invalid url" }; }
   if (u.protocol !== "https:") return { ok: false, reason: "only https is allowed" };
+  const credential = urlCredentialProblem(rawUrl);
+  if (credential) return { ok: false, reason: credential };
   const host = u.hostname.toLowerCase();
   if (["localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254"].includes(host)) {
     return { ok: false, reason: `blocked host ${host}` };
@@ -85,6 +91,8 @@ export async function validateOutboundUrl(rawUrl: string): Promise<UrlSafetyResu
   } catch (_) {
     return { ok: false, reason: "dns resolution failed" };
   }
+  // Data in transit (security task 2): the outbound guard sends requests to a customer address only after it passed this check.
+  approveCustomerOrigin(u.href);
   return { ok: true, reason: `host ${host} passed ip checks` };
 }
 
@@ -112,4 +120,18 @@ export async function fetchPublicHttps(
     url = new URL(next, url).toString();
   }
   throw new Error("too many redirects");
+}
+
+/**
+ * Data in transit (security task 2): the one way to call an address a customer gave (a connected tool, a webhook, a callback, an
+ * image a model returned). https only (an http:// address is refused, not upgraded), every DNS answer public, no credential in the
+ * address, every redirect followed by hand and checked again. Same as fetchPublicHttps except that plain http is refused outright.
+ */
+export async function customerFetch(
+  rawUrl: string,
+  init: RequestInit = {},
+  deps: { fetchImpl?: typeof fetch; validate?: (url: string) => Promise<UrlSafetyResult>; maxRedirects?: number } = {},
+): Promise<Response> {
+  if (!/^https:\/\//i.test(rawUrl.trim())) throw new Error("address not allowed: only https is allowed");
+  return await fetchPublicHttps(rawUrl.trim(), init, deps);
 }

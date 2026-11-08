@@ -26,7 +26,7 @@ Deno.test("every console method that prints scrubs strings, errors and objects b
     assert(!text.includes(KEY), "the API key reached the log");
     assert(!text.includes(JWT), "the JWT reached the log");
     assert(!text.includes("1//0gAnything") && !text.includes("abc123"), "a token or an auth code reached the log");
-    assert(text.includes("Notion refused:") && text.includes("[REDACTED:secrets]") && text.includes("fine") && text.includes("state=ok"), "the rest of each line stays readable");
+    assert(text.includes("Notion refused:") && text.includes("[REDACTED:secrets]") && text.includes("fine") && text.includes("state=…"), "the rest of each line stays readable (query values masked)");
     assert(seen[1][0] instanceof Error, "an error stays an error");
     assert(seen.length === 10, `each call logged exactly once (got ${seen.length})`);
     assert(!text.includes("anything-secret-1") && !text.includes("hunter2024!"), "a secret-named value reached the log");

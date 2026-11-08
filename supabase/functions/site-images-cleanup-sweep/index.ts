@@ -14,7 +14,7 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data at rest)
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 import { siteFolders, topFolders, planRemovals, type PlanItem } from "../_shared/orphan-files.ts";
 import { legacyFolders, relocateSite, type RelocationResult } from "../_shared/site-image-relocation.ts";
@@ -97,6 +97,16 @@ Deno.serve(async (req) => {
       rows_rewritten: moved.reduce((n, r) => n + r.rows_rewritten, 0),
     };
 
+    const versionsName = async (site: string): Promise<boolean> => {
+      for (let from = 0; ; from += 50) {
+        const { data, error } = await admin.from("website_versions").select("id, website_snapshot, pages_snapshot").order("id").range(from, from + 49);
+        if (error) throw new Error(`versions lookup failed: ${error.message}`);
+        const rows = (data ?? []) as { website_snapshot: unknown; pages_snapshot: unknown }[];
+        if (rows.some((r) => JSON.stringify([r.website_snapshot, r.pages_snapshot]).includes(site))) return true;
+        if (rows.length < 50) return false;
+      }
+    };
+
     // Public pictures of sites that are gone.
     const sitePlan = await planRemovals(images, await siteFolders(images), {
       exist: async (ids) => {
@@ -107,7 +117,10 @@ Deno.serve(async (req) => {
       inUse: async (id) => {
         const { data, error } = await admin.rpc("site_image_folder_in_use", { _site: id });
         if (error) throw new Error(`in-use lookup failed: ${error.message}`);
-        return data === true;
+        if (data === true) return true;
+        // Saved versions are stored encrypted (data at rest), so the database can not look inside them: read them through the
+        // encrypting client (decrypted) and search here. A version that names the folder keeps it, so restoring it shows its pictures.
+        return await versionsName(id);
       },
       graceMs: SITE_GRACE_MS,
     });

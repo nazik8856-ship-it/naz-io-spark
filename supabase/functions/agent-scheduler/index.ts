@@ -25,7 +25,6 @@
 // real terminal status (completed/failed) instead of staying "dispatched".
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, type SupabaseClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { runInBackground } from "../_shared/background.ts";
@@ -36,7 +35,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   // Scheduled job: only the server key may start it (the schedule sends it). Anyone else, with any other key, is refused.
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

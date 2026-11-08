@@ -2,7 +2,6 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { parseModelJson } from "../_shared/model-output.ts";
 import { array, object, text, withDefault } from "../_shared/schema.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { requireCaller } from "../_shared/caller.ts";
@@ -30,7 +29,7 @@ const insightsReply = object({
   insights: withDefault(array(object({ insight: text({ min: 1, max: 600, clip: true }) }, { unknown: "keep" }), { max: 12, clip: true, dropInvalid: true }), []),
 });
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
