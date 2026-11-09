@@ -59,6 +59,7 @@ describe("no function reads a request body on its own", () => {
 // What a model writes is untrusted input. Every place that reads JSON out of a model reply goes through _shared/model-output.ts
 // (parseModelJson / askForJson / parseModelObject / parseStrictObject). These are the JSON.parse calls that remain, each for a reason.
 const OWN_JSON: Record<string, string> = {
+  "_shared/outbound-guard.ts": "the claims of a token found in an outgoing request, read only to decide whether it is a NazAI sign-in token (never trusted, never used; a parse failure means 'not one of ours')",
   "_shared/outer-control-boundary.ts": "the claims of a run token NazAI signed itself, parsed only after its signature checked out",
   "governance-backup-export/index.ts": "our own encrypted backup file, opened with our key",
   "compile-website-manifest/index.ts": "our own request body after upload aliases were swapped in (a copy of a body already read and bounded by readJson)",

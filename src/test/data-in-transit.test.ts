@@ -35,7 +35,7 @@ describe("content is masked where it leaves NazAI", () => {
     for (const n of needles) expect(src, `${file}: ${n}`).toMatch(n);
   };
   it("connected tools and MCP servers (Outer Control)", () => {
-    expectIn("_shared/outer-control-session.ts", "const outBody = maskOutbound(request.body, [token]).value;", "body: JSON.stringify(outBody)",
+    expectIn("_shared/outer-control-session.ts", "const outBody = maskOutbound(request.body, [token, ...accountIds(s, tool)]).value;", "body: JSON.stringify(outBody)",
       "request: { headers: request.headers, body: outBody }", /maskOutboundText\(\[reqInput\.objective/, /const stored = contained\.status === "quarantined" \? contained\.text : scrubInbound\(/,
       "text: scrubInbound(brain.output ?? content).text");
   });

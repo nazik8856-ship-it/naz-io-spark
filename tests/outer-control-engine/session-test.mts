@@ -2128,4 +2128,30 @@ await t("evidence: a NazAI agent step records no connector call in Outer Control
   assert.equal(evidence().filter((e: any) => e._kind === "connector_call").length, 0);
   assert.ok(evidence().some((e: any) => e._kind === "rule_applied"));
 });
+// ---- connector trust boundary (security task 4): what an outside tool is sent ----
+await t("trust boundary: a tool is not shown what other tools in the Task did (their memory lines and the rules they triggered)", async () => {
+  setup(); H.table("outer_control_sessions")[0].workflow_id = "wf-1";
+  mem().push({ user_id: U, session_id: "other-step", workflow_id: "wf-1", step_no: 1, kind: "rejection", rule_names: ["Rule only the other tool broke"], summary: "Leg 1 · Step 1: the reply broke \"Rule only the other tool broke\" with OTHER-TOOL-CONTENT-4711", data: null, created_at: new Date(Date.now() - 1000).toISOString() });
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  const sent = JSON.stringify(calls[0].body);
+  assert.ok(!sent.includes("OTHER-TOOL-CONTENT-4711"), "another tool's memory line reached this tool");
+  assert.ok(!sent.includes("Rule only the other tool broke"), "a rule another tool triggered reached this tool");
+  assert.deepEqual(calls[0].body.avoid, []);
+});
+await t("trust boundary: a tool is shown its own earlier lines in the same step", async () => {
+  setup(); script = (n) => n === 1 ? { json: { status: "done", answer: "I will drop table customers." } } : { json: { status: "done", answer: "Here is the policy." } };
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.ok(String(calls[1].body.instruction).includes("Step 1: the reply broke"), "own memory is still carried");
+  assert.ok(calls[1].body.avoid.length >= 1);
+});
+await t("trust boundary: the request holds only the fields its format defines, and no NazAI account identifier", async () => {
+  setup({ context: "Ref: acct 5d0c6b2e-1111-4222-8333-944455556666 is the account." });
+  H.table("outer_control_sessions")[0].user_id = "5d0c6b2e-1111-4222-8333-944455556666";
+  H.table("external_tools")[0].user_id = "5d0c6b2e-1111-4222-8333-944455556666";
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  const body = calls[0].body;
+  assert.ok(!JSON.stringify(body).includes("5d0c6b2e-1111-4222-8333-944455556666"), "the account id was sent");
+  assert.deepEqual(Object.keys(body).filter((k) => !["session_id", "step", "objective", "context", "rules", "accepted", "correction", "answer", "memory", "avoid", "constraints", "response_contract", "instruction"].includes(k)), []);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1);
