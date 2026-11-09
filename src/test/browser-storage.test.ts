@@ -63,7 +63,7 @@ describe("the website writes only registered browser-storage keys", () => {
   it("the website clears old copies when it starts and the tab's content on sign-out", () => {
     const main = readFileSync(join(SRC, "main.tsx"), "utf8");
     expect(main).toMatch(/purgeSensitiveBrowserStorage\(\);/);
-    expect(main).toMatch(/if \(event === "SIGNED_OUT"\) clearAccountBrowserStorage\(\);/);
+    expect(main).toMatch(/watchSession\(supabase\.auth, \(change\) => resetClientState\(/); // signed out / another person: session-reset.ts
   });
 });
 

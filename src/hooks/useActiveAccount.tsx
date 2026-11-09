@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { queryClient } from "@/lib/query-client";
+import { resetOnAccountSwitch } from "@/lib/session-reset";
 import { buildAccountOptions, resolveActiveAccountId, roleForAccount, permissionsForAccount, type AccountOption, type AccountRole } from "@/lib/account-switcher";
 
 // account_members.permissions (2026-08-27) isn't in the generated Supabase
@@ -81,6 +83,8 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   const setAccountId = (id: string) => {
+    // Task 5: what was cached for the account being left is not shown in the one being entered.
+    if (id !== accountId) resetOnAccountSwitch({ queryClient });
     setAccountIdState(id);
     sessionStorage.setItem(STORAGE_KEY, id);
   };
