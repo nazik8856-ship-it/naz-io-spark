@@ -4,7 +4,7 @@
 // etc). Extracted from agent-runtime's original validateHttpPostUrl/
 // isPrivateOrLoopbackIp so every such call site shares one check instead
 // of re-deriving (and potentially missing) it independently.
-import { approveCustomerOrigin, urlCredentialProblem } from "./egress.ts";
+import { approveCustomerOrigin, ownProjectProblem, urlCredentialProblem } from "./egress.ts";
 
 /** The IPv4 address inside an IPv4-mapped / NAT64 / compatible IPv6 address (::ffff:10.0.0.1, ::ffff:a00:1, 64:ff9b::7f00:1), or null. */
 function embeddedIpv4(lower: string): string | null {
@@ -69,6 +69,8 @@ export async function validateOutboundUrl(rawUrl: string): Promise<UrlSafetyResu
   const credential = urlCredentialProblem(rawUrl);
   if (credential) return { ok: false, reason: credential };
   const host = u.hostname.toLowerCase();
+  const itself = ownProjectProblem(host);
+  if (itself) return { ok: false, reason: itself };
   if (["localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254"].includes(host)) {
     return { ok: false, reason: `blocked host ${host}` };
   }

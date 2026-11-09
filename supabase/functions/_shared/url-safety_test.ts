@@ -55,3 +55,18 @@ Deno.test("an address that carries a credential is refused: user name or passwor
     assertEquals(urlCredentialProblem(u), null, u);
   }
 });
+
+// Cross-platform boundary (security task 3): a customer address is never NazAI's own project.
+Deno.test("an address that is NazAI's own project is refused, in a tool, a webhook, a callback or a redirect", async () => {
+  const before = Deno.env.get("SUPABASE_URL");
+  Deno.env.set("SUPABASE_URL", "https://projref.supabase.co");
+  try {
+    for (const u of ["https://projref.supabase.co/functions/v1/agent-runtime", "https://PROJREF.supabase.co/rest/v1/agents", "https://projref.supabase.co./auth/v1/token"]) {
+      const r = await validateOutboundUrl(u);
+      assertEquals([r.ok, /NazAI's own project/.test(r.reason)], [false, true], u);
+    }
+    assertEquals((await validateOutboundUrl("https://8.8.8.8/x")).ok, true, "any other address is judged as before");
+  } finally {
+    if (before === undefined) Deno.env.delete("SUPABASE_URL"); else Deno.env.set("SUPABASE_URL", before);
+  }
+});

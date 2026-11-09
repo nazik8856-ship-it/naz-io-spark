@@ -1,5 +1,5 @@
 import {
-  CREDENTIAL_SHAPES, OutboundBlocked, allowedHostsFor, findLeak, guardFetch, hostAllowed, maskOutbound, maskOutboundText, maskedJson, noStoreServe, secretsFrom, withNoStore,
+  CREDENTIAL_SHAPES, OutboundBlocked, allowedHostsFor, findLeak, guardFetch, hostAllowed, maskOutbound, maskOutboundText, maskedJson, noStoreServe, secretsFrom, withNoStore, carriesSessionToken, findSessionToken,
 } from "./outbound-guard.ts";
 import { REDACTED, SECRET_SHAPES } from "./redact-secrets.ts";
 import { approveCustomerOrigin, egressDecision, forgetCustomerApprovals, isNazaiHost, CUSTOMER_APPROVAL_MS } from "./egress.ts";
@@ -184,4 +184,51 @@ Deno.test("responses are never cached: no-store is added, a weaker value replace
   const handlers = [calls[0][0], calls[1][1], (calls[2][0] as { handler: unknown }).handler] as ((r: Request, i: unknown) => Promise<Response>)[];
   for (const fn of handlers) assertEquals((await fn(new Request("https://x.test/"), {})).headers.get("cache-control"), "no-store");
   assertEquals((calls[1][0] as { port: number }).port, 1, "options are passed on");
+});
+
+// ---- Cross-platform boundary (security task 3): a NazAI sign-in token never reaches an outside host ----
+
+const b64u = (o: unknown) => btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+const jwt = (claims: Record<string, unknown>) => `${b64u({ alg: "HS256", typ: "JWT" })}.${b64u(claims)}.c2lnbmF0dXJlLXNpZw`;
+const USER_JWT = jwt({ iss: "https://proj.supabase.co/auth/v1", sub: "u-1", role: "authenticated", session_id: "s-1", aal: "aal1" });
+const SERVICE_JWT = jwt({ iss: "supabase", role: "service_role" });
+const ANON_JWT = jwt({ iss: "supabase", role: "anon" });
+const FILE_LINK_JWT = jwt({ url: "website-images/a/b.png", iat: 1, exp: 2 });
+
+Deno.test("carriesSessionToken: sign-in and privileged tokens are found; file links and the public anon key are not", () => {
+  assert(carriesSessionToken(`Authorization: Bearer ${USER_JWT}`));
+  assert(carriesSessionToken(`x ${SERVICE_JWT} y`));
+  assert(carriesSessionToken(jwt({ session_id: "s-9" })), "a session id alone is enough");
+  assert(!carriesSessionToken(`https://proj.supabase.co/storage/v1/object/sign/f.png?token=${FILE_LINK_JWT}`), "a file link is meant to be shared");
+  assert(!carriesSessionToken(ANON_JWT), "the anon key is public by design");
+  assert(!carriesSessionToken("eyJnotatoken.eyJstillnot.abcd") && !carriesSessionToken("plain text"), "not a token we issue");
+});
+
+Deno.test("findSessionToken: address, header or body to any host but NazAI's own project", () => {
+  const to = (host: string, extra: Partial<{ url: string; headers: [string, string][]; body: string | null }> = {}) =>
+    ({ url: `https://${host}/x`, headers: [] as [string, string][], body: null as string | null, ...extra });
+  assertEquals(findSessionToken(to("hooks.acme.io", { headers: [["authorization", `Bearer ${USER_JWT}`]] }), OWN)?.where, "header");
+  assertEquals(findSessionToken(to("hooks.acme.io", { body: JSON.stringify({ t: SERVICE_JWT }) }), OWN)?.where, "body");
+  assertEquals(findSessionToken(to("hooks.acme.io", { url: `https://hooks.acme.io/cb?t=${encodeURIComponent(USER_JWT)}` }), OWN)?.where, "address");
+  assertEquals(findSessionToken(to(OWN, { headers: [["authorization", `Bearer ${USER_JWT}`]] }), OWN), null, "NazAI's own project is where it belongs");
+  assertEquals(findSessionToken(to("hooks.acme.io", { body: FILE_LINK_JWT }), OWN), null);
+});
+
+Deno.test("guardFetch: a request carrying a sign-in token is refused before it is sent, and the refusal is recordable", async () => {
+  forgetCustomerApprovals();
+  approveCustomerOrigin("https://hooks.acme.io/in");
+  const sent: string[] = [];
+  const original = ((input: RequestInfo | URL) => { sent.push(String(input)); return Promise.resolve(new Response("ok")); }) as typeof fetch;
+  const guarded = guardFetch(original, () => ({ secrets: [], ownHost: OWN }));
+  for (const call of [
+    () => guarded("https://hooks.acme.io/in", { method: "POST", headers: { Authorization: `Bearer ${USER_JWT}` }, body: "{}" }),
+    () => guarded("https://api.openai.com/v1/x", { method: "POST", body: JSON.stringify({ token: SERVICE_JWT }) }),
+  ]) {
+    let blocked: unknown = null;
+    try { await call(); } catch (e) { blocked = e; }
+    assert(blocked instanceof OutboundBlocked, "refused");
+    assert(/SESSION_TOKEN/.test((blocked as Error).message) && !(blocked as Error).message.includes(USER_JWT), "named, never the value");
+  }
+  assertEquals(sent, []);
+  assertEquals(await (await guarded("https://hooks.acme.io/in", { method: "POST", body: FILE_LINK_JWT })).text(), "ok", "a file link passes");
 });

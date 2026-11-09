@@ -3,7 +3,7 @@
 // opens in an iframe or a new tab of the same site, so the reader also looks in the parent and the opener window (same origin only).
 
 type Entry = { website: unknown; pages: unknown[]; cachedAt: number };
-type Store = { get(k: string): Entry | undefined; set(k: string, v: Entry): unknown; delete(k: string): unknown; keys(): IterableIterator<string>; size: number };
+type Store = { get(k: string): Entry | undefined; set(k: string, v: Entry): unknown; delete(k: string): unknown; clear?(): unknown; keys(): IterableIterator<string>; size: number };
 const KEY = "__nazaiPreviewCache";
 const MAX = 20;
 
@@ -40,4 +40,9 @@ export function getPreviewCache(websiteId: string): Entry | null {
     if (e) return e;
   }
   return null;
+}
+
+/** Forgets every cached preview (sign-out, a different person, another account: session-reset.ts). */
+export function clearPreviewCache(): void {
+  try { storeOf(typeof window === "undefined" ? null : window)?.clear?.(); } catch { /* nothing cached */ }
 }

@@ -20,6 +20,9 @@
 //    NAZAI_EGRESS_HOSTS, or a customer address that passed validateOutboundUrl; only over https; a customer request never
 //    follows a redirect by itself. Anything else is refused before it is sent (OutboundBlocked).
 //
+// 3b. Cross-platform boundary (security task 3): a NazAI sign-in token (role authenticated / service_role, or a session id) never goes to
+//    a host other than NazAI's own project; NazAI's own file links (a JWT without a role) and the public anon key are not tokens.
+//
 // 4. Responses are never cached (data in transit, security task 2): Deno.serve is wrapped so every response a function sends
 //    carries Cache-Control: no-store (an existing weaker value such as no-cache is replaced). No browser, proxy or CDN keeps a copy
 //    of an account's content. Functions start with Deno.serve (src/test/data-in-transit.test.ts checks).
@@ -90,6 +93,41 @@ export function findLeak(parts: OutgoingParts, secrets: Secret[], ownHost: strin
   return null;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------------
+// Cross-platform boundary (security task 3): a signed-in user's session token, and the project's privileged keys, never leave NazAI.
+// They are JWTs issued by NazAI's own auth (role authenticated / service_role, or a session id). NazAI's own file links carry a JWT
+// too (a storage signature: no role, a url claim) and are meant to be shared, so a JWT is judged by what it says, not by its shape.
+
+const JWT_SHAPE = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}/g;
+const PRIVILEGED_ROLES = new Set(["authenticated", "service_role", "supabase_admin"]);
+
+/** True when the text holds a NazAI sign-in or privileged-key token (not a file link, not the public anon key). */
+export function carriesSessionToken(text: string): boolean {
+  if (!text || !text.includes("eyJ")) return false;
+  for (const m of text.matchAll(JWT_SHAPE)) {
+    try {
+      const b64 = m[0].split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      const claims = JSON.parse(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4))) as Record<string, unknown>;
+      if (typeof claims.role === "string" && PRIVILEGED_ROLES.has(claims.role)) return true;
+      if (typeof claims.session_id === "string") return true;
+    } catch { /* not a token we issue */ }
+  }
+  return false;
+}
+
+/** Where a NazAI session token would travel to a host other than NazAI's own project, or null. */
+export function findSessionToken(parts: OutgoingParts, ownHost: string | null): { where: "address" | "header" | "body"; host: string } | null {
+  let host: string;
+  try { host = new URL(parts.url).hostname.toLowerCase(); } catch { return null; }
+  if (ownHost && host === ownHost) return null;
+  let decoded = parts.url;
+  try { decoded = decodeURIComponent(parts.url); } catch { /* keep the raw text */ }
+  if (carriesSessionToken(decoded)) return { where: "address", host };
+  if (parts.headers.some(([, v]) => carriesSessionToken(v))) return { where: "header", host };
+  if (parts.body !== null && carriesSessionToken(parts.body)) return { where: "body", host };
+  return null;
+}
+
 const MAX_BODY_SCAN = 4 * 1024 * 1024;
 
 async function bodyText(input: RequestInfo | URL, init: RequestInit | undefined): Promise<string | null> {
@@ -155,11 +193,17 @@ export function guardFetch(
     let host = "";
     try { host = new URL(url).hostname.toLowerCase(); } catch { /* checked above */ }
     // NazAI's own project (database, storage, its own functions) is where every credential may go: nothing to read.
-    if (secrets.length && host && host !== ownHost) {
-      const leak = findLeak({ url, headers: headerPairs(input, init), body: await bodyText(input, init) }, secrets, ownHost);
+    if (host && host !== ownHost) {
+      const parts = { url, headers: headerPairs(input, init), body: await bodyText(input, init) };
+      const leak = secrets.length ? findLeak(parts, secrets, ownHost) : null;
       if (leak) {
         console.error(`[outbound-guard] refused a request to ${leak.host}: it carried ${leak.name} in its ${leak.where}`);
         throw new OutboundBlocked(`refused: the request to ${leak.host} carried a NazAI credential (${leak.name})`);
+      }
+      const session = findSessionToken(parts, ownHost);
+      if (session) {
+        console.error(`[outbound-guard] refused a request to ${session.host}: it carried a NazAI sign-in token in its ${session.where}`);
+        throw new OutboundBlocked(`refused: the request to ${session.host} carried a NazAI credential (SESSION_TOKEN)`);
       }
     }
     // A customer's server may redirect anywhere (an internal address, plain http): its redirects are not followed blindly.

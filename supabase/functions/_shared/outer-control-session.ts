@@ -29,6 +29,7 @@ import { askStarter, gatewayStarterAi, isStarterUrl, starterAllowed, STARTER_USE
 import type { ReportDoc } from "./outer-control-report-doc.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
 import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.ts";
+import { accountIds, confineBody, isExternalTool, sharedMemory } from "./outer-control-share.ts"; // connector trust boundary: what a tool is sent
 import { buildWorkingMemory, decisionRecord, factsFor, guardConsistency, planNextAction, think, type MemoryRow, type RequestChanges } from "./outer-control-brain.ts";
 import { loadCorrections, recordCorrection } from "./outer-control-corrections.ts";
 import { checkGoal } from "./outer-control-judgement.ts";
@@ -632,14 +633,18 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       const plan = planRequest({ rules: ruleLines, memory });
       const wm = buildWorkingMemory(memory as MemoryRow[]);
       const tightened = s.request_mods ?? null; // the request was tightened after repeated violations of a rule
+      // Connector trust boundary: a tool outside NazAI is shown this step's memory only, never what other tools did in the Task.
+      const shown = sharedMemory(tool, memory, s.id);
       const reqInput: ToolRequestInput = {
         format: tool.request_format, model: tool.model, objective: maskForSend(safetyRules, s.objective),
         context: tightened?.dropContext ? null : maskForSend(safetyRules, s.context), rules: plan.rules,
         history: tightened?.dropContext ? [] : (s.history ?? []), constraints: tightened?.constraints,
         correction: s.correction, answer: s.next_input ? maskForSend(safetyRules, s.next_input) : null, sessionId: s.id, step: stepNo,
-        memory: renderMemory(memory).map((l) => maskForSend(safetyRules, l)), avoid: plan.avoid, omittedRules: plan.omitted,
+        memory: renderMemory(shown.memory).map((l) => maskForSend(safetyRules, l)), avoid: isExternalTool(tool) ? shown.avoid : plan.avoid, omittedRules: plan.omitted,
       };
-      const request = buildToolRequest(reqInput);
+      const built = buildToolRequest(reqInput);
+      // ...and only the fields its request format defines (a field added later is dropped until it is listed on purpose).
+      const request = isExternalTool(tool) ? { ...built, body: confineBody(tool.request_format, built.body).body } : built;
 
       // 6. Call the tool.
       let token = "";
@@ -652,7 +657,8 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       if (tool.request_format === "anthropic_messages") headers["anthropic-version"] = "2023-06-01";
       // Data in transit: provider credentials, NazAI's own credentials and this tool's own key never travel in the body (only in
       // its auth header). The masked body is what is sent and what is stored for the step.
-      const outBody = maskOutbound(request.body, [token]).value;
+      // The account's own ids (account, API key, Task, this tool's row and its vault reference) are masked out of the body too.
+      const outBody = maskOutbound(request.body, [token, ...accountIds(s, tool)]).value;
       // Security evidence: a connected tool outside NazAI is never called without its signed evidence row (ids and the hash of the
       // request only). A NazAI agent's own actions get theirs inside agent-runtime; the report writer and starter tools are NazAI's.
       if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isStarterUrl(tool.endpoint_url)) {

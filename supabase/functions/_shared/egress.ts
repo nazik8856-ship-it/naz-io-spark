@@ -59,6 +59,20 @@ export function urlCredentialProblem(rawUrl: string): string | null {
   return hit ? `the address carries a credential, the "${hit}" parameter; put it in the authentication field instead` : null;
 }
 
+/** The host of NazAI's own Supabase project (SUPABASE_URL), or null when it is not set. */
+export function ownProjectHost(): string | null {
+  try { const u = Deno.env.get("SUPABASE_URL"); return u ? new URL(u).hostname.toLowerCase() : null; } catch { return null; }
+}
+
+/**
+ * Cross-platform boundary (security task 3): an address a customer gave (a tool, a webhook, a callback, a page to import) is never
+ * NazAI's own project. Aimed at it, a request would be treated as NazAI talking to itself (no customer-origin check, no credential
+ * check), and a tool's reply could drive NazAI's own functions. Null when the address is not NazAI's own.
+ */
+export function ownProjectProblem(host: string, own: string | null = ownProjectHost()): string | null {
+  return own && host.toLowerCase().replace(/\.$/, "") === own ? "that address is NazAI's own project, not an outside tool" : null;
+}
+
 export function isNazaiHost(host: string): boolean {
   const h = host.toLowerCase().replace(/\.$/, "");
   return Object.keys(NAZAI_EGRESS_HOSTS).some((s) => h === s || h.endsWith(`.${s}`));

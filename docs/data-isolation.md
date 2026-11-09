@@ -178,3 +178,5 @@ are removed.
   API-key and scheduled function; every answer must be 400/401/403/404/405/429. 2026-11-01: 72 of 73 refused; `control-test-suite`
   answered 200 with 30 "not authenticated" scenario errors (no data, no action) and now checks the caller first. Left out on purpose: the
   public functions, `analyze-inputs`, `compile-agent-manifest`, `compile-website-manifest` (sign-in optional) and the generated `mcp` bundle.
+
+The last layer, the page and the running server instances, is in `docs/session-isolation.md`.
