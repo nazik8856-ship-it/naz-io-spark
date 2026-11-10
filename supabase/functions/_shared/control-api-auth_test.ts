@@ -174,3 +174,19 @@ Deno.test("resolveApiKeyAuth: the RPC erroring out is treated as unauthorized, n
   assert(!result.ok);
   if (!result.ok) assertEquals(result.status, 401);
 });
+
+Deno.test("resolveApiKeyAuth: a refused paused key leaves access_refused evidence for its account (once, with the key's id)", async () => {
+  const { forgetRefusals } = await import("./security-evidence.ts");
+  forgetRefusals();
+  const raw = generateRawKey();
+  const pausedUntil = new Date(Date.now() + 10 * 60_000).toISOString();
+  const admin = fakeAdminWithRpcQueue([{ data: [{ user_id: "user-1", key_id: "key-1", scopes: [], paused_until: pausedUntil }], error: null }]);
+  await resolveApiKeyAuth(admin, `Bearer ${raw}`);
+  await resolveApiKeyAuth(admin, `Bearer ${raw}`);
+  const ev = admin.calls.filter((c) => c.rpcName === "record_evidence");
+  assertEquals(ev.length, 1, "the second refusal inside ten minutes is not another row");
+  // deno-lint-ignore no-explicit-any
+  const a = ev[0].args as any;
+  assertEquals([a._kind, a._user_id, a._actor_id, a._subject.reason, a._verdict], ["access_refused", "user-1", "key-1", "key_paused", "refused"]);
+  forgetRefusals();
+});

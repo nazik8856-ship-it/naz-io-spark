@@ -2094,11 +2094,12 @@ await t("evidence: a tool call, the rule check of its reply and the stored resul
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
   assert.equal(r.status, "completed");
   const ev = evidence();
-  assert.deepEqual(ev.map((e: any) => e._kind), ["connector_call", "rule_applied", "output_stored"]);
+  assert.deepEqual(ev.map((e: any) => e._kind), ["connector_call", "connector_result", "rule_applied", "output_stored"]);
   assert.equal(ev[0]._user_id, U); assert.equal(ev[0]._verdict, "allowed"); assert.equal(ev[0]._subject.tool, "tool-1"); assert.match(ev[0]._input_sha256, /^[0-9a-f]{64}$/);
-  assert.equal(ev[1]._verdict, "modify"); assert.ok(ev[1]._rule_ids.length >= 1); assert.match(ev[1]._rules_sha256, /^[0-9a-f]{64}$/);
-  assert.notEqual(ev[1]._input_sha256, ev[1]._output_sha256, "what came in and what was passed on differ (the key was removed)");
-  assert.equal(ev[2]._verdict, "stored"); assert.match(ev[2]._output_sha256, /^[0-9a-f]{64}$/);
+  assert.equal(ev[1]._verdict, "received"); assert.equal(ev[1]._subject.status, 200); assert.equal(ev[1]._subject.outcome, "ok"); assert.match(ev[1]._output_sha256, /^[0-9a-f]{64}$/);
+  assert.equal(ev[2]._verdict, "modify"); assert.ok(ev[2]._rule_ids.length >= 1); assert.match(ev[2]._rules_sha256, /^[0-9a-f]{64}$/);
+  assert.notEqual(ev[2]._input_sha256, ev[2]._output_sha256, "what came in and what was passed on differ (the key was removed)");
+  assert.equal(ev[3]._verdict, "stored"); assert.match(ev[3]._output_sha256, /^[0-9a-f]{64}$/);
   const all = JSON.stringify(ev);
   assert.ok(!all.includes("Refunds") && !all.includes(SECRET) && !all.includes("Summarise"), "no content in evidence");
 });
@@ -2127,6 +2128,80 @@ await t("evidence: a NazAI agent step records no connector call in Outer Control
   await runTask(r, agentDeps);
   assert.equal(evidence().filter((e: any) => e._kind === "connector_call").length, 0);
   assert.ok(evidence().some((e: any) => e._kind === "rule_applied"));
+});
+// ---- General data security, tasks 6 and 7: compromise containment and what is recorded of it
+/** record_evidence also fills the table the containment check counts from (the real function inserts the row). */
+const evidenceTable = () => { H.state.rpc.record_evidence = (a: any) => { H.table("security_evidence").push({ user_id: a._user_id, kind: a._kind, subject: a._subject, created_at: new Date().toISOString() }); return H.table("security_evidence").length; }; };
+const CT1 = "11111111-1111-4111-8111-111111111111", CT2 = "22222222-2222-4222-8222-222222222222";
+const uuidTool = () => { H.table("external_tools")[0].id = CT1; H.table("outer_control_sessions")[0].tool_id = CT1; };
+const toolRow = () => H.table("external_tools").find((x: any) => x.id === CT1);
+const addOtherTool = () => { H.table("external_tools").push({ id: CT2, user_id: U, name: "Second Bot", endpoint_url: "https://two.example.com/v1", request_format: "generic_json", model: null, auth_header: "Authorization", auth_scheme: "Bearer ", credentials_secret_id: "sec-2", enabled: true, approved_at: "2026-10-01T00:00:00Z" }); };
+const addSession = (id: string, tool: string, status = "running") => { H.table("outer_control_sessions").push({ ...JSON.parse(JSON.stringify(H.table("outer_control_sessions")[0])), id, tool_id: tool, status }); };
+await t("containment: the third held reply from a tool in 24 hours suspends that tool, stops its other work, leaves other tools alone, and tells the owner once", async () => {
+  setup({ maxRetries: 0 }); uuidTool(); evidenceTable(); addOtherTool(); addSession("s-same-tool", CT1); addSession("s-other-tool", CT2);
+  const now = Date.now();
+  for (const ago of [3, 2]) H.table("security_evidence").push({ user_id: U, kind: "content_held", subject: { tool: CT1 }, created_at: new Date(now - ago * 3600_000).toISOString() });
+  script = () => ({ json: { status: "done", answer: HOSTILE } });
+  const told: any[] = [];
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, onToolSuspended: async (_a: any, i: any) => { told.push(i); } });
+  assert.equal(r.status, "stopped"); assert.match(sess().stop_reason, /was suspended/);
+  assert.ok(toolRow().suspended_at); assert.equal(toolRow().approved_at, null, "the first-contact approval is taken back");
+  const byId = (id: string) => H.table("outer_control_sessions").find((x: any) => x.id === id);
+  assert.equal(byId("s-same-tool").status, "stopped"); assert.match(byId("s-same-tool").stop_reason, /suspended/);
+  assert.equal(byId("s-other-tool").status, "running", "another tool's session is untouched");
+  assert.equal(toolRow().id, CT1); assert.equal(H.table("external_tools").find((x: any) => x.id === CT2).suspended_at ?? null, null);
+  const c = evidence().filter((e: any) => e._kind === "containment"); assert.equal(c.length, 1); assert.equal(c[0]._verdict, "suspended"); assert.equal(c[0]._subject.tool, CT1); assert.equal(c[0]._subject.trigger, "content_held");
+  assert.equal(told.length, 1); assert.equal(told[0].toolName, "Support Bot");
+});
+await t("containment: a held reply asked again (two in a row) is not enough; signals older than 24 hours and other tools' signals do not count", async () => {
+  setup({ maxRetries: 0 }); uuidTool(); evidenceTable();
+  H.table("security_evidence").push({ user_id: U, kind: "content_held", subject: { tool: CT1 }, created_at: new Date(Date.now() - 30 * 3600_000).toISOString() });
+  H.table("security_evidence").push({ user_id: U, kind: "content_held", subject: { tool: "tool-other" }, created_at: new Date().toISOString() });
+  script = () => ({ json: { status: "done", answer: HOSTILE } });
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(toolRow().suspended_at ?? null, null);
+  assert.equal(evidence().filter((e: any) => e._kind === "containment").length, 0);
+});
+await t("containment: a request the outbound guard refused suspends the tool at once", async () => {
+  setup({ maxRetries: 0 }); uuidTool(); evidenceTable();
+  script = () => ({ throw: "refused: the request to tool.example.com carried a NazAI credential (OPENAI_API_KEY)" });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(r.status, "stopped"); assert.ok(toolRow().suspended_at); assert.match(toolRow().suspended_reason, /refused to send a request/);
+  assert.equal(calls.length, 1, "no second attempt");
+  const c = evidence().filter((e: any) => e._kind === "containment"); assert.equal(c[0]._subject.trigger, "outbound_blocked");
+});
+await t("containment: a suspended tool is never contacted; a session aimed at it ends at its first step", async () => {
+  setup(); uuidTool(); toolRow().suspended_at = new Date().toISOString(); toolRow().suspended_reason = "test"; toolRow().approved_at = null;
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(r.status, "stopped"); assert.equal(calls.length, 0); assert.match(sess().stop_reason, /is suspended/); assert.equal(approvals().length, 0, "no first-contact approval can wave it through");
+});
+await t("containment: suspending twice at once acts once (first writer wins)", async () => {
+  setup(); uuidTool(); evidenceTable();
+  const o = { userId: U, toolId: CT1, toolName: "Support Bot", reason: "x", trigger: "content_held" };
+  const [a, b] = await Promise.all([H.suspendTool(H.createClient("u", "k"), o), H.suspendTool(H.createClient("u", "k"), o)]);
+  assert.equal([a, b].filter((x: any) => x.suspended).length, 1);
+  assert.equal(evidence().filter((e: any) => e._kind === "containment").length, 1);
+});
+await t("containment: resuming is the owner's act, is recorded, and starts the count over", async () => {
+  setup({ maxRetries: 0 }); uuidTool(); evidenceTable();
+  for (const ago of [5, 4]) H.table("security_evidence").push({ user_id: U, kind: "content_held", subject: { tool: CT1 }, created_at: new Date(Date.now() - ago * 3600_000).toISOString() });
+  await H.suspendTool(H.createClient("u", "k"), { userId: U, toolId: CT1, toolName: "Support Bot", reason: "x", trigger: "content_held" });
+  assert.equal((await H.resumeTool(H.createClient("u", "k"), "another-account", CT1)).ok, false, "another account can not resume it");
+  const r = await H.resumeTool(H.createClient("u", "k"), U, CT1); assert.equal(r.ok, true);
+  assert.equal(toolRow().suspended_at, null); assert.equal(toolRow().approved_at, null, "a fresh approval is still needed"); assert.ok(toolRow().resumed_at);
+  assert.equal((await H.resumeTool(H.createClient("u", "k"), U, CT1)).ok, false, "not suspended any more");
+  const c = evidence().filter((e: any) => e._kind === "containment"); assert.deepEqual(c.map((e: any) => e._verdict), ["suspended", "resumed"]); assert.equal(c[1]._actor, "user");
+  // The two held replies from before the resume do not count against the tool again: one new one is not the third.
+  toolRow().approved_at = "2026-10-01T00:00:00Z"; script = () => ({ json: { status: "done", answer: HOSTILE } });
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(toolRow().suspended_at ?? null, null);
+});
+await t("evidence: every tool call has its result next to it: outcome and hash, never the reply", async () => {
+  setup({ maxRetries: 0 }); script = () => ({ status: 503, json: { error: "down" } });
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  const res = evidence().filter((e: any) => e._kind === "connector_result");
+  assert.ok(res.length >= 1); assert.equal(res[0]._verdict, "failed"); assert.equal(res[0]._subject.status, 503); assert.equal(res[0]._subject.outcome, "error");
+  assert.ok(!JSON.stringify(res).includes("down"));
 });
 // ---- connector trust boundary (security task 4): what an outside tool is sent ----
 await t("trust boundary: a tool is not shown what other tools in the Task did (their memory lines and the rules they triggered)", async () => {

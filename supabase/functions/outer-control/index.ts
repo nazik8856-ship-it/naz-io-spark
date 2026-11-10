@@ -67,6 +67,7 @@ import { relayToTask, taskForKey } from "../_shared/outer-control-relay.ts";
 import { driveSession } from "../_shared/outer-control-workflow.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
+import { noteAccessRefused } from "../_shared/security-evidence.ts";
 import { checkRateLimit, checkIpRateLimit } from "../_shared/rate-limit.ts";
 import { scanAction, type SafetyMatch } from "../_shared/safety-scanner.ts";
 import { repairParams, verifyRepair } from "../_shared/repair-engine.ts";
@@ -353,6 +354,7 @@ async function handleTaskRoutes(req: Request, relay: boolean, taskId: string): P
   const auth = await resolveApiKeyAuth(admin, req.headers.get("Authorization"));
   if (!auth.ok) return json(auth.body, auth.status);
   if (!auth.scopes.includes("control:verdict")) {
+    await noteAccessRefused(admin, auth.userId, auth.keyId, "insufficient_scope", relay ? "/relay" : "/task");
     return json({ error: "insufficient_scope", message: "Outer Control requires a full-access API key. Create one without the respond-only scope." }, 403);
   }
   const rate = await checkRateLimit(admin, auth.userId, relay ? "outer-control-relay" : "outer-control-task", RATE_LIMIT_PER_MINUTE, 60);
@@ -405,6 +407,7 @@ Deno.serve(async (req) => {
     // external content, not the one bounded public-widget use case a
     // 'control:respond'-scoped key exists for.
     if (!auth.scopes.includes("control:verdict")) {
+      await noteAccessRefused(admin, auth.userId, auth.keyId, "insufficient_scope", "/evaluate");
       return json({
         error: "insufficient_scope",
         message: "Outer Control requires a full-access API key. Create one without the respond-only scope.",

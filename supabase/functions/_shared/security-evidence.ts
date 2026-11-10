@@ -4,13 +4,21 @@
 // The database links each row to the one before it (per account) and signs it with a key kept in the vault, so neither this code nor
 // anyone with table access can write, change or remove a row unnoticed (verify_evidence_chain()).
 //
-// The six kinds:
+// The nine kinds:
 //   connector_call     a connected service is about to be called (an Outer Control tool, a provider write, an agent's action).
 //                      Required: when the row can not be written, the call is not made.
 //   credential_change  a stored credential was added, replaced, revoked or removed (written by database triggers, from any path).
 //   rule_applied       a tool's reply was checked against the rules: which rules matched, the hash of the rule set, the verdict.
 //   output_stored      a controlled result was stored as a Task's or step's final output (the hash of what was stored).
 //   content_held       outside content was held by the unsafe-content gate (external-content.ts).
+//   connector_result   what came back from a connected service: the outcome (ok, status, timeout) and the hash of the reply, never the
+//                      reply. Written next to every connector_call (an Outer Control step, a provider write), so "what was sent"
+//                      and "what happened" can be read side by side.
+//   containment        a path was stopped or brought back: a tool suspended after unsafe signals, or resumed by its owner
+//                      (outer-control-containment.ts).
+//   access_refused     a request was refused at the door and the caller is known to belong to an account: a paused API key, or a key
+//                      without the scope the route needs. (A key that does not exist belongs to no account, so there is no chain to
+//                      write to; those are counted by the pre-auth rate limit and the function logs.)
 //   outbound_blocked   the outbound guard refused a request (outbound-guard.ts): a credential to a host it does not belong to, or a
 //                      destination outside the egress allowlist (egress.ts).
 //
@@ -20,7 +28,7 @@ import { maskUrlQueries } from "./redact-secrets.ts";
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
 
-export type EvidenceKind = "connector_call" | "credential_change" | "rule_applied" | "output_stored" | "content_held" | "outbound_blocked";
+export type EvidenceKind = "connector_call" | "credential_change" | "rule_applied" | "output_stored" | "content_held" | "outbound_blocked" | "connector_result" | "containment" | "access_refused";
 export type EvidenceActor = "user" | "api_key" | "agent" | "system";
 
 export type Evidence = {
@@ -122,6 +130,28 @@ export async function noteOutboundBlock(admin: AnyAdmin, userId: string, message
 
 /** The message outbound-guard.ts throws when a destination is outside the egress allowlist (egress.ts): the host and the reason. */
 export const OUTBOUND_EGRESS_RE = /refused: a request to ([a-z0-9.:\[\]-]{1,120}|an invalid address) is not allowed \(([^)]{1,200})\)/;
+
+const refusedRecently = new Map<string, number>();
+/** One access_refused row per key, reason and route every ten minutes: a key hammering a refused route is one fact, not a flood. */
+export const ACCESS_REFUSED_EVERY_MS = 10 * 60_000;
+
+/**
+ * A request from a caller that belongs to an account was refused at the door (a paused key, a key without the needed scope). Recorded
+ * with the key's id, the reason and the route, never the request. Best effort and never throws: the refusal has already been decided.
+ */
+export async function noteAccessRefused(admin: AnyAdmin, userId: string, keyId: string | null, reason: string, route: string, now = Date.now()): Promise<boolean> {
+  if (!userId) return false;
+  const k = `${userId}:${keyId ?? ""}:${reason}:${route}`;
+  const last = refusedRecently.get(k);
+  if (last !== undefined && now - last < ACCESS_REFUSED_EVERY_MS) return false;
+  refusedRecently.set(k, now);
+  if (refusedRecently.size > 2_000) for (const [key, at] of refusedRecently) if (now - at >= ACCESS_REFUSED_EVERY_MS) refusedRecently.delete(key);
+  const r = await recordEvidence(admin, { userId, kind: "access_refused", actor: "api_key", actorId: keyId, subject: { reason, route: route.slice(0, 80) }, verdict: "refused" });
+  return r.ok;
+}
+
+/** For tests. */
+export function forgetRefusals(): void { refusedRecently.clear(); }
 
 /** The refusal shown when a connector call could not get its evidence written. */
 export const NO_EVIDENCE_MESSAGE = "Nothing was sent: the security evidence for this call could not be recorded, so the call was not made.";

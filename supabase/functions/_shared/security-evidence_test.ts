@@ -1,4 +1,4 @@
-import { cleanSubject, noteOutboundBlock, OUTBOUND_BLOCK_RE, recordEvidence, rulesDigest, sha256Of, sha256Text } from "./security-evidence.ts";
+import { ACCESS_REFUSED_EVERY_MS, cleanSubject, forgetRefusals, noteAccessRefused, noteOutboundBlock, OUTBOUND_BLOCK_RE, recordEvidence, rulesDigest, sha256Of, sha256Text } from "./security-evidence.ts";
 import { OutboundBlocked } from "./outbound-guard.ts";
 
 function assertEquals<T>(a: T, b: T, m?: string) { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(m ?? `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); }
@@ -72,4 +72,22 @@ Deno.test("an egress refusal (a destination outside the allowlist) is recorded t
   assertEquals(admin.calls[0].args._subject.host, "hooks.acme.io");
   assert(String(admin.calls[0].args._subject.reason).startsWith("not a NazAI service"));
   assertEquals(cleanSubject({ url: "https://h.io/in?email=ann@example.com" }), { url: "https://h.io/in?email=…" });
+});
+
+Deno.test("a refused request from a known account is recorded once per key, reason and route in ten minutes", async () => {
+  forgetRefusals();
+  const admin = fakeAdmin();
+  const t0 = 1_000_000;
+  assertEquals(await noteAccessRefused(admin, "u-1", "key-1", "key_paused", "api", t0), true);
+  assertEquals(await noteAccessRefused(admin, "u-1", "key-1", "key_paused", "api", t0 + 1000), false, "a repeat is not another row");
+  assertEquals(await noteAccessRefused(admin, "u-1", "key-1", "insufficient_scope", "/v1/decisions", t0 + 1000), true, "another reason is another fact");
+  assertEquals(await noteAccessRefused(admin, "u-1", "key-2", "key_paused", "api", t0 + 1000), true, "another key is another fact");
+  assertEquals(await noteAccessRefused(admin, "u-1", "key-1", "key_paused", "api", t0 + ACCESS_REFUSED_EVERY_MS + 1), true, "after ten minutes it is recorded again");
+  assertEquals(admin.calls.length, 4);
+  assertEquals(admin.calls[0].args._kind, "access_refused");
+  assertEquals(admin.calls[0].args._actor, "api_key");
+  assertEquals(admin.calls[0].args._verdict, "refused");
+  assertEquals(admin.calls[0].args._subject, { reason: "key_paused", route: "api" });
+  assertEquals(await noteAccessRefused(admin, "", "key-1", "key_paused", "api"), false, "no account, no chain");
+  forgetRefusals();
 });

@@ -49,6 +49,33 @@ export async function updateToolKey(admin: AnyAdmin, accountId: string, toolId: 
 }
 
 /**
+ * Stops everything in flight that uses a tool, cleanly: the sessions that use it as their tool are closed with a reason (status
+ * "cancelled" for a removal, "stopped" for a suspension), and a session that only had it as its fallback keeps going without one (a
+ * later failure then goes to a person instead of switching tools). Used by removal and by containment (outer-control-containment.ts),
+ * so the two can never stop different things. `except` is a session the caller finishes itself. Returns the workflows whose later
+ * steps may now be able to move on.
+ */
+export async function stopToolWork(admin: AnyAdmin, accountId: string, toolId: string, how: { status: "cancelled" | "stopped"; reason: string; except?: string | null }): Promise<{ sessionIds: string[]; workflowIds: string[] }> {
+  if (!UUID.test(toolId)) return { sessionIds: [], workflowIds: [] };
+  const { data: open } = await admin.from("outer_control_sessions").select("id, workflow_id, tool_id")
+    .eq("user_id", accountId).in("status", ["queued", "running", "awaiting_human"]).or(`tool_id.eq.${toolId},fallback_tool_id.eq.${toolId}`); // the id as checked above, never the request text, inside a filter string
+  const found = (open ?? []) as { id: string; workflow_id: string | null; tool_id: string }[];
+  const rows = found.filter((r) => r.tool_id === toolId && r.id !== (how.except ?? null));
+  const fallbackOnly = found.filter((r) => r.tool_id !== toolId);
+  if (rows.length) {
+    await admin.from("outer_control_sessions")
+      .update({ status: how.status, stop_reason: how.reason, finished_at: iso(), updated_at: iso(), pending_kind: null, pending_approval_id: null, lease_until: null, handoff: null })
+      .in("id", rows.map((r) => r.id));
+  }
+  if (fallbackOnly.length) {
+    await admin.from("outer_control_sessions")
+      .update({ fallback_tool_id: null, updated_at: iso() })
+      .in("id", fallbackOnly.map((r) => r.id)).eq("fallback_tool_id", toolId);
+  }
+  return { sessionIds: rows.map((r) => r.id), workflowIds: [...new Set(rows.map((r) => r.workflow_id).filter((w): w is string => !!w))] };
+}
+
+/**
  * Remove a tool: switch it off, hide it, let go of its stored credential (the database deletes
  * the secret once no other tool or integration uses it) and cancel any session
  * still using it as its tool (sessions that only had it as a fallback keep going without one).
@@ -60,32 +87,13 @@ export async function removeTool(admin: AnyAdmin, accountId: string, toolId: str
   const { data: tool } = await admin.from("external_tools").select("id, credentials_secret_id, removed_at").eq("id", toolId).eq("user_id", accountId).maybeSingle();
   if (!tool || tool.removed_at) return { ok: false, code: "not_found", message: "Tool not found.", status: 404 };
 
-  // Close the sessions that use it as their tool first, so nothing starts contacting it while it is
-  // being removed. A session that only had it as its fallback is not cancelled: its own tool still
-  // works, so it keeps going without a fallback (a later failure then goes to a person instead of
-  // switching tools).
-  const { data: open } = await admin.from("outer_control_sessions").select("id, workflow_id, tool_id")
-    .eq("user_id", accountId).in("status", ["queued", "running", "awaiting_human"]).or(`tool_id.eq.${tool.id},fallback_tool_id.eq.${tool.id}`); // the id as stored, never the request text, inside a filter string
-  const found = (open ?? []) as { id: string; workflow_id: string | null; tool_id: string }[];
-  const rows = found.filter((r) => r.tool_id === toolId);
-  const fallbackOnly = found.filter((r) => r.tool_id !== toolId);
-  if (rows.length) {
-    await admin.from("outer_control_sessions")
-      .update({ status: "cancelled", stop_reason: "The tool was removed.", finished_at: iso(), updated_at: iso(), pending_kind: null, pending_approval_id: null, lease_until: null, handoff: null })
-      .in("id", rows.map((r) => r.id));
-  }
-  if (fallbackOnly.length) {
-    await admin.from("outer_control_sessions")
-      .update({ fallback_tool_id: null, updated_at: iso() })
-      .in("id", fallbackOnly.map((r) => r.id)).eq("fallback_tool_id", toolId);
-  }
+  const stopped = await stopToolWork(admin, accountId, toolId, { status: "cancelled", reason: "The tool was removed." });
 
   const { error } = await admin.from("external_tools")
     .update({ enabled: false, removed_at: iso(), credentials_secret_id: null, updated_at: iso() }).eq("id", toolId).eq("user_id", accountId);
   if (error) return { ok: false, code: "internal_error", message: "Could not remove the tool.", status: 500 };
 
-  const workflowIds = [...new Set(rows.map((r) => r.workflow_id).filter((w): w is string => !!w))];
-  return { ok: true, message: "Tool removed.", workflowIds };
+  return { ok: true, message: "Tool removed.", workflowIds: stopped.workflowIds };
 }
 
 export type AgentToolResult =

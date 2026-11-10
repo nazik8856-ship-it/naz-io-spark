@@ -140,7 +140,7 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   encrypted_columns: { table_name: O, column_name: O, plain_empty: O, note: O },
   encryption_exempt_columns: { table_name: O, column_name: O, reason: O, kind: O },
   encryption_key_state: { key_name: O, current_id: O },
-  external_tools: { name: P, endpoint_url: P, request_format: O, model: O, auth_header: O, auth_scheme: O, last_error: O },
+  external_tools: { name: P, endpoint_url: P, request_format: O, model: O, auth_header: O, auth_scheme: O, last_error: O, suspended_reason: O },
   figma_oauth_transactions: { state: S },
   free_limit_exempt_emails: { email: U, note: O },
   generation_cache: { kind: O, cache_key: O, manifest: P },

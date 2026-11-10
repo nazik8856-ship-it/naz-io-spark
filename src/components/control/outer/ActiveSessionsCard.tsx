@@ -31,7 +31,7 @@ import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any;
 
-type Tool = { id: string; name: string; endpoint_url: string; request_format: string; model?: string | null; approved_at: string | null; last_ok_at: string | null; last_error: string | null; last_checked_at: string | null };
+type Tool = { id: string; name: string; endpoint_url: string; request_format: string; model?: string | null; approved_at: string | null; last_ok_at: string | null; last_error: string | null; last_checked_at: string | null; suspended_at?: string | null; suspended_reason?: string | null };
 type Session = {
   id: string; tool_id: string; objective: string; status: SessionStatus; step_count: number; max_steps: number;
   final_output: string | null; stop_reason: string | null; pending_kind: PendingKind | null; pending_question: string | null; started_at: string;
@@ -88,7 +88,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       return q.order("started_at", { ascending: false }).limit(10);
     };
     const [t, s0, k, u, rec] = await Promise.all([
-      anyDb.from("external_tools").select("id, name, endpoint_url, request_format, model, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
+      anyDb.from("external_tools").select("id, name, endpoint_url, request_format, model, approved_at, last_ok_at, last_error, last_checked_at, suspended_at, suspended_reason").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
       sessionsQuery(true),
       anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
       anyDb.from("outer_control_tool_usage").select("tool_id, requests_30d, failed_30d, requests_today").eq("user_id", accountId),
@@ -258,6 +258,11 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     if (!window.confirm(`Remove "${t.name}"? Its stored key is deleted and any session still using it is cancelled. Past sessions stay in the history.`)) return;
     const r = await act(`remove-${t.id}`, "remove_tool", { tool_id: t.id }, `"${t.name}" removed.`);
     if (r.ok) { if (startFor === t.id) setStartFor(null); if (keyFor === t.id) setKeyFor(null); }
+  };
+
+  const resume = async (t: Tool) => {
+    if (!window.confirm(`Resume "${t.name}"? NazAI stopped it because it looked unsafe. Its next contact will need your approval again.`)) return;
+    await act(`resume-${t.id}`, "resume_tool", { tool_id: t.id }, `"${t.name}" resumed. Its next contact needs your approval.`);
   };
 
   const renderSession = (s: Session) => {
@@ -444,7 +449,9 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
         )}
         {shownTools.map((t) => {
           const st = toolHealth(t, now);
-          const tone: Tone = st.key === "working" ? "ok" : st.key === "failed" ? "bad" : "warn";
+          // Compromise containment: NazAI stopped this tool; only its owner brings it back.
+          const suspended = !!t.suspended_at;
+          const tone: Tone = suspended ? "bad" : st.key === "working" ? "ok" : st.key === "failed" ? "bad" : "warn";
           const more = moreFor === t.id || keyFor === t.id;
           return (
             <div key={t.id} className={`rounded-xl border bg-white/[0.03] px-4 py-3 ${TONE_BORDER[tone]}`} data-testid="tool-row">
@@ -453,7 +460,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                   <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                     <span className="text-sm font-medium text-zinc-100">{t.name}</span>
                     <span className={`flex items-center gap-1.5 text-xs font-medium ${TONE_TEXT[tone]}`} data-testid="tool-status" data-status={st.key}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`} aria-hidden /> {st.label}
+                      <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`} aria-hidden /> {suspended ? "Suspended by NazAI" : st.label}
                     </span>
                   </div>
                   <div className="mt-0.5 text-xs text-zinc-500">{t.endpoint_url.startsWith("nazai-agent://") ? "Your NazAI agent" : isStarterTool(t.endpoint_url) ? "NazAI's own AI · free for your first 2 tasks" : hostOf(t.endpoint_url)}</div>
@@ -461,18 +468,23 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                   {describeRecord(records.get(t.id)) && <div className="mt-1 flex items-center gap-1.5 text-xs text-zinc-400" data-testid="tool-record" title="Track record over the last 30 days"><Gauge className="h-3 w-3 text-amber-300/80" aria-hidden />{describeRecord(records.get(t.id))}</div>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button disabled={busy === `test-${t.id}`} onClick={() => runTest(t.id, t.name)} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-40">
+                  {suspended && (
+                    <button disabled={busy === `resume-${t.id}`} onClick={() => resume(t)} className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-sm text-amber-100 hover:bg-amber-500/20 disabled:opacity-40" data-testid="tool-resume">
+                      {busy === `resume-${t.id}` ? "Resuming…" : "Resume"}
+                    </button>
+                  )}
+                  {!suspended && <button disabled={busy === `test-${t.id}`} onClick={() => runTest(t.id, t.name)} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-40">
                     {busy === `test-${t.id}` ? "Testing…" : "Test"}
-                  </button>
-                  <button onClick={() => setStartFor(startFor === t.id ? null : t.id)} className="flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-1.5 text-sm text-cyan-100 hover:bg-cyan-500/25">
+                  </button>}
+                  {!suspended && <button onClick={() => setStartFor(startFor === t.id ? null : t.id)} className="flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-1.5 text-sm text-cyan-100 hover:bg-cyan-500/25">
                     <Play className="h-3 w-3" /> Start session
-                  </button>
+                  </button>}
                   <button onClick={() => { setMoreFor(more ? null : t.id); if (more) { setKeyFor(null); setNewKey(""); } }} aria-expanded={more} className="rounded-lg px-2 py-1.5 text-sm text-zinc-500 hover:text-zinc-200">
                     More
                   </button>
                 </div>
               </div>
-              <p className={`mt-2 text-xs ${st.key === "failed" ? "text-rose-300/90" : "text-zinc-500"}`} data-testid="tool-reason">{st.reason}</p>
+              <p className={`mt-2 text-xs ${st.key === "failed" ? "text-rose-300/90" : "text-zinc-500"}`} data-testid="tool-reason">{suspended ? `NazAI stopped this tool: ${t.suspended_reason ?? "it looked unsafe"} Nothing is sent to it. Check it, then press Resume; its next contact needs a fresh approval.` : st.reason}</p>
               {more && (
                 <div className="mt-3 border-t border-white/5 pt-3">
                   <div className="flex flex-wrap gap-2">

@@ -29,6 +29,7 @@ import { askStarter, gatewayStarterAi, isStarterUrl, starterAllowed, STARTER_USE
 import type { ReportDoc } from "./outer-control-report-doc.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
 import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.ts";
+import { containIfUnsafe } from "./outer-control-containment.ts"; // compromise containment: an unsafe tool is suspended
 import { accountIds, confineBody, isExternalTool, sharedMemory } from "./outer-control-share.ts"; // connector trust boundary: what a tool is sent
 import { buildWorkingMemory, decisionRecord, factsFor, guardConsistency, planNextAction, think, type MemoryRow, type RequestChanges } from "./outer-control-brain.ts";
 import { loadCorrections, recordCorrection } from "./outer-control-corrections.ts";
@@ -69,6 +70,8 @@ export type ToolRow = {
   auth_header: string; auth_scheme: string; credentials_secret_id: string | null; enabled: boolean; approved_at: string | null;
   /** Set when the "tool" is one of the account's own NazAI agents: it is run through agent-runtime, not fetched. */
   agent_id?: string | null;
+  /** Set when containment suspended the tool (outer-control-containment.ts): nothing is sent to it until the owner resumes it. */
+  suspended_at?: string | null; suspended_reason?: string | null; resumed_at?: string | null;
 };
 
 export type SessionDeps = {
@@ -94,6 +97,8 @@ export type SessionDeps = {
   starterAi?: StarterAi;
   /** A tool's reply contained credentials (already removed): the owner is told and an incident is opened. */
   onSecretInReply?: (admin: AnyAdmin, s: SessionRow, toolName: string, count: number) => Promise<void>;
+  /** Told once when containment suspends a tool: the owner is alerted. */
+  onToolSuspended?: (admin: AnyAdmin, info: { userId: string; toolName: string; reason: string }) => Promise<void> | void;
 };
 
 const denoEnv = (k: string): string => {
@@ -116,6 +121,13 @@ export const defaultSessionDeps = (): SessionDeps => ({
   goalAi: gatewayAi,
   judgeAi: gatewayAi,
   starterAi: gatewayStarterAi,
+  onToolSuspended: async (admin, { userId, toolName, reason }) => {
+    await sendCriticalAlert(admin, userId, {
+      event: "outer_control_tool_suspended",
+      summary: `NazAI stopped "${toolName}": ${reason} Nothing more is sent to it and its running steps were stopped. Open Outer Control to review it and resume it when you are sure it is safe.`,
+      provider: `tool:${toolName}`.slice(0, 80),
+    }).catch(() => null);
+  },
   onSecretInReply: async (admin, s, toolName, count) => {
     await sendCriticalAlert(admin, s.user_id, {
       event: "external_secret_received",
@@ -550,6 +562,8 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       // Cross-platform boundary: only a tool of this session's own account, not removed.
       const tool = await resolveSessionTool<ToolRow>(admin, s);
       if (!tool || !tool.enabled) { await finish(admin, s, "failed", "The tool was removed or disabled.", deps); return { status: "failed", steps }; }
+      // Compromise containment: a suspended tool is never contacted. The Task moves on without it (or waits for the owner's choice).
+      if (tool.suspended_at) { await finish(admin, s, "stopped", `The tool "${tool.name}" is suspended: ${tool.suspended_reason ?? "it was found unsafe"}`.slice(0, 500), deps); return { status: "stopped", steps }; }
 
       const stepNo = s.step_count + 1;
       const attempt = s.attempt_base + s.retries_used + s.failures_used + 1;
@@ -674,6 +688,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       let failed = false;
       let timedOut = false;
       let unreachable = false;
+      let outboundRefused = false;
       let mcpDetail: string | null = null;
       let retryAfterMs: number | null = null;
       let incomplete: "empty" | "truncated" | "too_long" | null = null;
@@ -734,7 +749,18 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       } catch (e) {
         failed = true;
         if (e instanceof Error && e.name === "TimeoutError") timedOut = true; else unreachable = true;
-        await noteOutboundBlock(admin, s.user_id, e, actorOf(s), s.api_key_id ?? null, { tool: tool.id, session: s.id, step: stepNo });
+        outboundRefused = await noteOutboundBlock(admin, s.user_id, e, actorOf(s), s.api_key_id ?? null, { tool: tool.id, session: s.id, step: stepNo });
+      }
+      // What came back, recorded next to what was sent (the outcome and the hash of the reply, never the reply).
+      await recordEvidence(admin, {
+        userId: s.user_id, kind: "connector_result", actor: actorOf(s), actorId: s.api_key_id ?? null,
+        subject: { tool: tool.id, session: s.id, task: s.workflow_id ?? null, step: stepNo, attempt, status: httpStatus, outcome: !failed ? "ok" : timedOut ? "timeout" : unreachable ? "unreachable" : "error" },
+        outputSha256: rawText ? await sha256Text(rawText) : null, verdict: failed ? "failed" : "received",
+      });
+      // The outbound guard refused a request aimed at this tool: the path is unsafe, so it is stopped now, not retried.
+      if (outboundRefused && isExternalTool(tool)) {
+        const contain = await containIfUnsafe(admin, { userId: s.user_id, toolId: tool.id, toolName: tool.name, exceptSessionId: s.id, actor: actorOf(s), actorId: s.api_key_id ?? null, resumedAt: tool.resumed_at, now: deps.now, onSuspended: (i) => deps.onToolSuspended?.(admin, i) });
+        if (contain?.suspended) { await finish(admin, s, "stopped", `The tool "${tool.name}" was suspended: ${contain.reason}`.slice(0, 500), deps); return { status: "stopped", steps }; }
       }
 
       // 7. Read the reply.
@@ -906,6 +932,13 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         : { userId: s.user_id, kind: "rule_applied", actor: "system", subject: { tool: tool.id, session: s.id, task: s.workflow_id ?? null, step: stepNo, attempt, evaluation: result.evaluationId ?? null },
             inputSha256: contentHash, outputSha256: await sha256Text(stored), ruleIds: [...new Set(matches.map((m) => m.rule_id))],
             rulesSha256: await rulesDigest(safetyRules as unknown as { id: string; updated_at?: string | null }[]), verdict });
+
+      // Compromise containment: a tool whose replies keep trying to steer NazAI is suspended (the third held reply in 24 hours).
+      // Its other work is stopped here; this session ends now, so nothing more is asked of it.
+      if (contained.status === "quarantined" && isExternalTool(tool)) {
+        const contain = await containIfUnsafe(admin, { userId: s.user_id, toolId: tool.id, toolName: tool.name, exceptSessionId: s.id, resumedAt: tool.resumed_at, now: deps.now, onSuspended: (i) => deps.onToolSuspended?.(admin, i) });
+        if (contain?.suspended) { await finish(admin, s, "stopped", `The tool "${tool.name}" was suspended: ${contain.reason}`.slice(0, 500), deps); return { status: "stopped", steps }; }
+      }
 
       // What was decided, changed and applied is remembered for every later request (and re-applied by the guard).
       const facts = factsFor(brain, contentHash, attempt) as unknown as Record<string, unknown>;

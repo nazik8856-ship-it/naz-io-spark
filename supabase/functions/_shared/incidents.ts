@@ -61,6 +61,8 @@ export const INCIDENT_KINDS = [
   "website_lead_notification_suppressed",
   // General data security, task 5: a credential arrived in a tool's reply (removed before storage); the owner should rotate it.
   "external_secret_received",
+  // General data security, task 6: a connected tool was suspended (compromise containment); the owner reviews it and resumes it.
+  "outer_control_tool_suspended",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 

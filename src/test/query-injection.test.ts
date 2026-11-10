@@ -64,7 +64,7 @@ const REVIEWED: Record<string, Record<string, string>> = {
   "supabase/functions/control-api-abuse-sweep/index.ts": { "new Date().toISOString()": "a timestamp the server made" },
   "supabase/functions/_shared/outer-control-keepalive.ts": { cutoff: "a timestamp the server made" },
   "supabase/functions/_shared/outer-control-session.ts": { "iso(began)": "a timestamp the server made" },
-  "supabase/functions/_shared/outer-control-tools.ts": { "tool.id": "the id read back from the database row (not the request text)" },
+  "supabase/functions/_shared/outer-control-tools.ts": { "toolId": "stopToolWork checks it against a UUID pattern on its first line, before it is used in the filter" },
   "supabase/functions/capability-status/index.ts": { agentId: "checked to be an id (UUID_RE) just above; anything else is refused with 400" },
   "supabase/functions/agent-runtime/index.ts": { "agent.id ? `agent_id.eq.${agent.id}": "the id of the agent row the run loaded" },
   "supabase/functions/_shared/field-crypto.ts": { column: "a column name from the encrypted-columns register (code constants)", ec: "that column's _enc twin" },

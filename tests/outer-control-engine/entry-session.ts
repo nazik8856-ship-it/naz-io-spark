@@ -39,3 +39,5 @@ export { importFieldKeys, fingerprint } from "../../supabase/functions/_shared/f
 export { resolveSessionTool, accountTools, signRunToken, verifyRunToken } from "../../supabase/functions/_shared/outer-control-boundary.ts";
 export { HOSTILE_REPLIES } from "../../supabase/functions/_shared/hostile-corpus.ts";
 export { containExternal } from "../../supabase/functions/_shared/external-content.ts";
+
+export { suspendTool, resumeTool, containmentDecision } from "../../supabase/functions/_shared/outer-control-containment.ts";
