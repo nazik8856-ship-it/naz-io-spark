@@ -43,6 +43,7 @@ import { applyEditedReply, contactRuleStopping } from "../_shared/outer-control-
 import { acceptGoal, cancelWorkflow, continueSession, driveSession, extendGoal, progressWorkflow, resumeAndDrive, startFollowUp, startGoal, startTask, startWorkflow } from "../_shared/outer-control-workflow.ts";
 import { encodeChoice, findOption, type Handoff } from "../_shared/outer-control-handoff.ts";
 import { createAgentTool, ensureReportTool, removeTool, updateToolKey } from "../_shared/outer-control-tools.ts";
+import { resumeTool } from "../_shared/outer-control-containment.ts";
 import { ensureStarterTools, isStarterUrl, STARTER_TASKS, STARTER_USED_UP, starterTasksUsed } from "../_shared/outer-control-starter.ts";
 import { buildPlanPrompt, cleanCount, cleanStyles, delegateInstruction, gatewayAi, improveInstruction, multistepInstruction, NEEDS_AI, parsePlan, REPORT_TOOL_URL, routeRequest, ROUTING_TEXT, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
 import { ACTION_INFO, MAX_BACKGROUND, REPORT_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
@@ -179,10 +180,18 @@ Deno.serve(async (req) => {
       return json({ ok: true, message: r.message });
     }
 
+    // ---- resume_tool: the owner brings a suspended tool back (compromise containment) ----------------
+    if (action === "resume_tool") {
+      const r = await resumeTool(admin, accountId, String(body.tool_id ?? ""));
+      return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.code, message: r.message }, r.status);
+    }
+
     // ---- test_tool ---------------------------------------------------------------
     if (action === "test_tool") {
       const { data: tool } = await admin.from("external_tools").select("*").eq("id", String(body.tool_id ?? "")).eq("user_id", accountId).is("removed_at", null).maybeSingle();
       if (!tool) return json({ error: "not_found", message: "Tool not found." }, 404);
+      // A suspended tool is not contacted, not even to test it: the owner resumes it first.
+      if (tool.suspended_at) return json({ error: "tool_suspended", message: "This tool is suspended. Resume it first." }, 409);
       if (tool.agent_id) {
         // An agent is run internally: the test is that it still exists. Nothing is run.
         const { data: ag } = await admin.from("agents").select("id").eq("id", tool.agent_id).eq("user_id", accountId).maybeSingle();
@@ -214,13 +223,14 @@ Deno.serve(async (req) => {
       const context = typeof body.context === "string" && body.context.trim() ? body.context.trim() : null;
       if (!objective || objective.length > 2000) return json({ error: "invalid_objective", message: "Describe the objective (2000 characters or fewer)." }, 400);
       if (context && context.length > 8000) return json({ error: "invalid_context", message: "The context is limited to 8000 characters." }, 400);
-      const { data: tool } = await admin.from("external_tools").select("id, enabled").eq("id", String(body.tool_id ?? "")).eq("user_id", accountId).maybeSingle();
+      const { data: tool } = await admin.from("external_tools").select("id, enabled, suspended_at").eq("id", String(body.tool_id ?? "")).eq("user_id", accountId).maybeSingle();
       if (!tool || !tool.enabled) return json({ error: "not_found", message: "Tool not found or disabled." }, 404);
+      if (tool.suspended_at) return json({ error: "tool_suspended", message: "This tool is suspended. Resume it first." }, 409);
       const named = await namedToolGuard(admin, accountId, objective, [tool.id], body.confirm_override);
       if (named) return named;
       if (body.fallback_tool_id) {
-        const { data: fb } = await admin.from("external_tools").select("id, enabled").eq("id", String(body.fallback_tool_id)).eq("user_id", accountId).maybeSingle();
-        if (!fb || !fb.enabled || fb.id === tool.id) return json({ error: "invalid_fallback", message: "The fallback tool must be a different, enabled tool." }, 400);
+        const { data: fb } = await admin.from("external_tools").select("id, enabled, suspended_at").eq("id", String(body.fallback_tool_id)).eq("user_id", accountId).maybeSingle();
+        if (!fb || !fb.enabled || fb.suspended_at || fb.id === tool.id) return json({ error: "invalid_fallback", message: "The fallback tool must be a different, enabled tool." }, 400);
       }
       const started = await startWorkflow(admin, accountId, {
         objective, context, api_key_id: body.api_key_id, max_steps: body.max_steps, kind: "single",
@@ -287,9 +297,9 @@ Deno.serve(async (req) => {
       const count = kind === "alternatives" ? cleanCount(body.count) : 0;
       const ids = Array.isArray(body.tool_ids) ? [...new Set((body.tool_ids as unknown[]).map(String))] : [];
       if (ids.length < lim.minTools || ids.length > lim.maxTools) return json({ error: "invalid_tools", message: `Choose ${lim.minTools === lim.maxTools ? lim.minTools : `${lim.minTools} to ${lim.maxTools}`} tool${lim.maxTools === 1 ? "" : "s"} for ${ACTION_INFO[kind].title}.` }, 400);
-      const { data: chosen } = await admin.from("external_tools").select("id, name, enabled, endpoint_url").eq("user_id", accountId).is("removed_at", null).in("id", ids);
-      const rows = (chosen ?? []) as { id: string; name: string; enabled: boolean; endpoint_url: string }[];
-      if (rows.length !== ids.length || rows.some((r) => !r.enabled || r.endpoint_url.startsWith(REPORT_TOOL_URL))) return json({ error: "tool_unavailable", message: "One of the chosen tools was not found or is disabled." }, 404);
+      const { data: chosen } = await admin.from("external_tools").select("id, name, enabled, endpoint_url, suspended_at").eq("user_id", accountId).is("removed_at", null).in("id", ids);
+      const rows = (chosen ?? []) as { id: string; name: string; enabled: boolean; endpoint_url: string; suspended_at?: string | null }[];
+      if (rows.length !== ids.length || rows.some((r) => !r.enabled || !!r.suspended_at || r.endpoint_url.startsWith(REPORT_TOOL_URL))) return json({ error: "tool_unavailable", message: "One of the chosen tools was not found or is disabled." }, 404);
       // A question or request may name the tools to ask; a claim or a text to rewrite, explain or adapt is content, so names in it are not a choice of tool.
       if (!content) {
         const namedR = await namedToolGuard(admin, accountId, topic, ids, body.confirm_override);

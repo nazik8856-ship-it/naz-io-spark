@@ -9,6 +9,7 @@
 // fresh, so a key revoked between two calls fails on the second one.
 import { sha256Hex, isValidRawKeyFormat } from "./api-key-auth.ts";
 import { isCurrentlyPaused, pausedKeyMessage } from "./control-api-abuse.ts";
+import { noteAccessRefused } from "./security-evidence.ts";
 
 export type ApiKeyAuthResult =
   | { ok: true; userId: string; keyId: string | null; isTest: boolean; scopes: string[] }
@@ -41,6 +42,7 @@ export async function resolveApiKeyAuth(admin: any, authHeader: string | null): 
   // a generic "unauthorized" -- exactly the "never invisible" principle
   // item 1 established for every other automatic outcome in this round.
   if (row.paused_until && isCurrentlyPaused(row.paused_until)) {
+    await noteAccessRefused(admin, row.user_id, row.key_id ?? null, "key_paused", "api");
     return {
       ok: false,
       status: 429,

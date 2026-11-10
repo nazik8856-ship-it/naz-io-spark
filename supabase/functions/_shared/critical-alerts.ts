@@ -145,7 +145,9 @@ export type CriticalAlertEvent =
   | "outer_control_tool_down"
   // General data security, task 5: a connected tool or a tool result sent back a credential. It was removed before anything was stored
   // or passed on; the owner should still rotate it, so this opens an incident.
-  | "external_secret_received";
+  | "external_secret_received"
+  // General data security, task 6: NazAI stopped one connected tool because it looked unsafe (compromise containment). The rest keeps running.
+  | "outer_control_tool_suspended";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -187,6 +189,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   outer_control_session_failed: "🔌 An Outer Control session with an external tool failed",
   outer_control_tool_down: "🔌 A connected tool stopped working",
   external_secret_received: "🔑 A connected tool sent back a credential (it was removed)",
+  outer_control_tool_suspended: "🛑 NazAI stopped a connected tool that looked unsafe",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

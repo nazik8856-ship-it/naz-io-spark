@@ -111,6 +111,7 @@ const REVIEWED_STATE: Record<string, string> = {
   "_shared/encrypted-db.ts:envKeys": "NazAI's own data key, read once from the environment; no per-person value",
   "_shared/local-embeddings.ts:session": "the embedding model loaded once; it keeps no input between calls",
   "_shared/outer-control-tool-request.ts:IMAGE_HOSTS_FOR_TOOLS": "an empty read-only list (no picture host is allowed in a tool's answer); never filled",
+  "_shared/security-evidence.ts:refusedRecently": "when a refusal of a given key was last recorded (ids and times only, no content): it only decides whether a repeat within ten minutes is written again, and is never read to answer a request",
   "_shared/ai-gateway.ts:providerBreakers": "failure timestamps per AI provider (not per person): a provider outage pauses calls to that provider for everyone, which affects availability, never whose data is seen",
   "_shared/sentry.ts:initialized": "whether error reporting was started in this instance; the same for every request",
   "_shared/egress.ts:approved": "destination addresses already checked as public (https, public IPs) for five minutes; a property of the address, not of a person, and it grants no access to any data",

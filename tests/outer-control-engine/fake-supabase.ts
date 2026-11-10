@@ -20,7 +20,8 @@ class Q {
   upsert(p: any, o?: any) { this.mode = "upsert"; this.payload = p; this.opts = o; return this; }
   update(p: any) { this.mode = "update"; this.payload = p; return this; }
   delete() { this.mode = "delete"; return this; }
-  eq(c: string, v: any) { this.filters.push((r) => r[c] === v); return this; }
+  /** A column, or a JSON field as col->>field (read as text, null when absent). */
+  eq(c: string, v: any) { const [col, f] = c.split("->>"); this.filters.push((r) => (f ? (r[col]?.[f] != null ? String(r[col][f]) : null) : r[col]) === v); return this; }
   is(c: string, v: any) { this.filters.push((r) => (r[c] ?? null) === v); return this; }
   in(c: string, vs: any[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
   neq(c: string, v: any) { this.filters.push((r) => r[c] !== v); return this; }

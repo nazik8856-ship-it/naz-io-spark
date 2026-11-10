@@ -1400,6 +1400,17 @@ export async function runProviderWrite(
     });
     if (!ev.ok) return fail(NO_EVIDENCE_MESSAGE);
   }
+  const result = await dispatchProviderWrite(kind, admin, userId, agentId, input);
+  // What came back, recorded next to what was sent: the outcome and the hash of the summary, never the content (docs/security-evidence.md).
+  // A write that already happened is not undone by a missing row, so this one is best effort.
+  await recordEvidence(admin, {
+    userId, kind: "connector_result", actor: agentId ? "agent" : "system", actorId: agentId || null,
+    subject: { action: kind, agent: agentId || null, ok: result.ok }, outputSha256: await sha256Of(result.summary ?? ""), verdict: result.ok ? "succeeded" : "failed",
+  });
+  return result;
+}
+
+async function dispatchProviderWrite(kind: string, admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>): Promise<WriteResult> {
   switch (kind) {
     case "slack_post_message": return await slackPostMessage(admin, userId, agentId, input);
     case "slack_upload_file": return await slackUploadFile(admin, userId, agentId, input);

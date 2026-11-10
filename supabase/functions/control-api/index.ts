@@ -44,6 +44,7 @@ import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
 import { openRows } from "../_shared/encrypted-db.ts"; // rows from database functions carry sealed values (data at rest)
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
+import { noteAccessRefused } from "../_shared/security-evidence.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { checkIpRateLimit, checkRateLimit, resolveConfiguredRateLimit, computeWindowStart } from "../_shared/rate-limit.ts";
 import { getApiKeySpendStatus } from "../_shared/spend-guard.ts";
@@ -531,6 +532,7 @@ Deno.serve(async (req) => {
   // key created before this existed) is unaffected.
   const isRespondRoute = req.method === "POST" && /\/respond\/?$/.test(url.pathname);
   if (!isRespondRoute && !auth.scopes.includes("control:verdict")) {
+    await noteAccessRefused(admin, userId, auth.keyId, "insufficient_scope", url.pathname.replace(/^.*\/control-api/, "") || "/");
     return json({
       error: "insufficient_scope",
       message: "This key is scoped to POST /v1/respond only. Create a full-access key for other endpoints.",

@@ -383,8 +383,8 @@ export async function startWorkflow(
   if (!checked.ok) return { ok: false, code: "invalid_steps", message: checked.message };
 
   const toolIds = [...new Set(checked.legs.flatMap((l) => [l.tool_id, ...(l.fallback_tool_id ? [l.fallback_tool_id] : [])]))];
-  const { data: tools } = await admin.from("external_tools").select("id, enabled").eq("user_id", userId).in("id", toolIds);
-  const usable = new Map(((tools ?? []) as { id: string; enabled: boolean }[]).map((t) => [t.id, t.enabled]));
+  const { data: tools } = await admin.from("external_tools").select("id, enabled, suspended_at").eq("user_id", userId).in("id", toolIds);
+  const usable = new Map(((tools ?? []) as { id: string; enabled: boolean; suspended_at?: string | null }[]).map((t) => [t.id, t.enabled && !t.suspended_at]));
   for (const l of checked.legs) {
     if (!usable.get(l.tool_id)) return { ok: false, code: "tool_unavailable", message: `Step ${l.leg_no}: that tool was not found or is disabled.` };
     if (l.fallback_tool_id && !usable.get(l.fallback_tool_id)) return { ok: false, code: "tool_unavailable", message: `Step ${l.leg_no}: the fallback tool was not found or is disabled.` };
@@ -471,9 +471,9 @@ export async function startGoal(
   }
   const ids = Array.isArray(input.tool_ids) ? [...new Set((input.tool_ids as unknown[]).map((x) => String(x)))] : [];
   if (ids.length < 1 || ids.length > MAX_POOL || ids.some((id) => !UUID_RE.test(id))) return { ok: false, code: "invalid_tools", message: `Choose 1 to ${MAX_POOL} tools to ask.` };
-  const { data: rows } = await admin.from("external_tools").select("id, enabled, endpoint_url, removed_at").eq("user_id", userId).in("id", ids);
-  const found = new Map(((rows ?? []) as { id: string; enabled: boolean; endpoint_url: string; removed_at: string | null }[]).map((t) => [t.id, t]));
-  if (ids.some((id) => { const t = found.get(id); return !t || !t.enabled || !!t.removed_at || (t.endpoint_url ?? "").startsWith(REPORT_TOOL_URL); })) {
+  const { data: rows } = await admin.from("external_tools").select("id, enabled, endpoint_url, removed_at, suspended_at").eq("user_id", userId).in("id", ids);
+  const found = new Map(((rows ?? []) as { id: string; enabled: boolean; endpoint_url: string; removed_at: string | null; suspended_at?: string | null }[]).map((t) => [t.id, t]));
+  if (ids.some((id) => { const t = found.get(id); return !t || !t.enabled || !!t.removed_at || !!t.suspended_at || (t.endpoint_url ?? "").startsWith(REPORT_TOOL_URL); })) {
     return { ok: false, code: "tool_unavailable", message: "One of the chosen tools was not found, is disabled, or cannot be asked." };
   }
   const extraContext = typeof input.context === "string" && input.context.trim() ? input.context.trim() : "";
