@@ -363,7 +363,6 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
                           {st.decision?.diff && <div className="ml-3"><ControlDiffView diff={st.decision.diff} controlled={st.verdict === "block" ? null : st.reply_text} toolName={toolName(s.tool_id)} /></div>}
                         </li>
                       ))}
-                      {(steps[s.id] ?? []).length === 0 && <li className="text-zinc-500">Nothing has been exchanged yet.</li>}
                     </ul>
                     {(memory[s.id] ?? []).length > 0 && (
                       <div>

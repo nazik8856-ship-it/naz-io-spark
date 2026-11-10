@@ -16,6 +16,9 @@ export const STATUS_LABEL: Record<SessionStatus, string> = {
 
 export const isOpen = (s: SessionStatus) => s === "queued" || s === "running" || s === "awaiting_human";
 
+/** What a session with no recorded steps says: still waiting for its first step, or closed before the tool was ever asked. */
+export const noStepsText = (s: SessionStatus) => isOpen(s) ? "Nothing has been exchanged yet." : "The tool was not asked in this session: it ended before anything was sent (the reason is above).";
+
 /** What the person must do, in one sentence. Null when nothing is needed. */
 export function describeWaiting(kind: PendingKind | null, question: string | null): string | null {
   switch (kind) {
