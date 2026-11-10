@@ -1,5 +1,6 @@
 import { defineTool, type ToolContext } from "@lovable.dev/mcp-js";
 import { z } from "zod";
+import { asJson } from "../server-read";
 
 export default defineTool({
   name: "run_agent",
@@ -34,7 +35,7 @@ export default defineTool({
     }
     return {
       content: [{ type: "text", text: typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2) }],
-      structuredContent: { result: parsed },
+      structuredContent: { result: asJson(parsed) },
     };
   },
 });

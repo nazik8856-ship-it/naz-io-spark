@@ -13,3 +13,6 @@ export async function serverRead(token: string, table: string, ops: Op[]): Promi
   const body = (await resp.json().catch(() => null)) as ServerRead | null;
   return body ?? { data: null, error: { message: `Could not read ${table} (HTTP ${resp.status}).` } };
 }
+
+/** Rows read through serverRead() arrive as parsed JSON, so they are JSON values. The MCP SDK (3.x) wants that stated in the type. */
+export const asJson = (v: unknown) => v as never;

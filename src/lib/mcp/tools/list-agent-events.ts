@@ -1,5 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
+import { asJson } from "../server-read";
 
 // Data encryption, front 3: an event's details are stored encrypted, so they are read through the outer-control-read edge
 // function (as the signed-in user, decrypted), the same way the website reads them.
@@ -36,7 +37,7 @@ export default defineTool({
       return { content: [{ type: "text", text: error.message }], isError: true };
     return {
       content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      structuredContent: { events: data ?? [] },
+      structuredContent: { events: asJson(data ?? []) },
     };
   },
 });
