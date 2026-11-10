@@ -23,3 +23,14 @@ describe("consent screen", () => {
     expect(src).toContain("denyAuthorization");
   });
 });
+
+describe("the MCP function's own sign-in", () => {
+  const toml = readFileSync(join(__dirname, "../../supabase/config.toml"), "utf8");
+  it("is deployed without the gateway JWT check, or no app can reach the OAuth sign-in instructions", () => {
+    expect(toml).toMatch(/\[functions\.mcp\]\s*\nverify_jwt = false/);
+  });
+  it("still refuses every tool without a valid token", () => {
+    const bundle = readFileSync(join(__dirname, "../../supabase/functions/mcp/index.ts"), "utf8");
+    expect((bundle.match(/if \(!ctx\.isAuthenticated\(\)\)/g) ?? []).length).toBe(5);
+  });
+});
