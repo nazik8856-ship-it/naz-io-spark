@@ -39,12 +39,40 @@ function redactDeep(value, depth = 0, seen = /* @__PURE__ */ new WeakSet()) {
     return "[unprintable]";
   }
 }
+var URL_WITH_QUERY = /(\bhttps?:\/\/[^\s"'<>?#]+)([?#][^\s"'<>]*)/gi;
+function maskUrlQueries(text) {
+  if (!text || !/https?:\/\//i.test(text)) return text;
+  return text.replace(URL_WITH_QUERY, (_m, base, rest) => base + rest.replace(/([?#&;])([^=&;#]*)(=?)([^&;#]*)/g, (_x, sep, name, eq, value) => eq ? `${sep}${name}=\u2026` : value || name ? `${sep}${name.length > 40 ? "\u2026" : name}` : sep));
+}
+function maskUrlQueriesDeep(value, depth = 0) {
+  if (typeof value === "string") return maskUrlQueries(value);
+  if (depth > 20 || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((v) => maskUrlQueriesDeep(v, depth + 1));
+  if (value instanceof Error) {
+    const e = new Error(maskUrlQueries(value.message));
+    e.name = value.name;
+    e.stack = value.stack ? maskUrlQueries(value.stack) : void 0;
+    return e;
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+  const out = {};
+  for (const [k, v] of Object.entries(value)) out[k] = maskUrlQueriesDeep(v, depth + 1);
+  return out;
+}
 
 // supabase/functions/_shared/redact-console.ts
 var MARK = /* @__PURE__ */ Symbol.for("nazai.redact-console");
+var MAX_LOG_STRING = 1e4;
+var ANSI = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001B]*(?:\u0007|\u001B\\)|[@-Z\\-_])/g;
+var CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/g;
+function cleanLogString(s) {
+  let out = maskUrlQueries(redactSecrets(s)).replace(ANSI, "").replace(CONTROL, "");
+  if (out.length > MAX_LOG_STRING) out = `${out.slice(0, MAX_LOG_STRING)}\u2026(${out.length - MAX_LOG_STRING} more characters cut)`;
+  return out;
+}
 function redactForLog(arg) {
-  if (typeof arg === "string") return redactSecrets(arg);
-  return redactDeep(arg);
+  if (typeof arg === "string") return cleanLogString(arg);
+  return maskUrlQueriesDeep(redactDeep(arg));
 }
 function installRedactingConsole() {
   const g = globalThis;
@@ -66,18 +94,25 @@ function installRedactingConsole() {
 installRedactingConsole();
 
 // src/lib/mcp/index.ts
-import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@0.20.1";
+import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@3.4.0";
 
 // src/lib/mcp/tools/list-agents.ts
-import { createClient } from "npm:@supabase/supabase-js@^2.110.0";
-import { defineTool } from "npm:@lovable.dev/mcp-js@0.20.1";
+import { defineTool } from "npm:@lovable.dev/mcp-js@3.4.0";
 import { z } from "npm:zod@^3.25.76";
-function sb(ctx) {
-  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY, {
-    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-    auth: { persistSession: false, autoRefreshToken: false }
+
+// src/lib/mcp/server-read.ts
+async function serverRead(token, table, ops) {
+  const resp = await fetch(`${process.env.SUPABASE_URL}/functions/v1/outer-control-read`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: process.env.SUPABASE_PUBLISHABLE_KEY },
+    body: JSON.stringify({ table, ops })
   });
+  const body = await resp.json().catch(() => null);
+  return body ?? { data: null, error: { message: `Could not read ${table} (HTTP ${resp.status}).` } };
 }
+var asJson = (v) => v;
+
+// src/lib/mcp/tools/list-agents.ts
 var list_agents_default = defineTool({
   name: "list_agents",
   title: "List NazAI agents",
@@ -89,26 +124,23 @@ var list_agents_default = defineTool({
   handler: async ({ limit }, ctx) => {
     if (!ctx.isAuthenticated())
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    const { data, error } = await sb(ctx).from("agents").select("id, name, slug, role, goal, status, autonomy, schedule_label, next_run_at, created_at").order("created_at", { ascending: false }).limit(limit ?? 50);
+    const { data, error } = await serverRead(ctx.getToken(), "agents", [
+      { m: "select", a: ["id, name, slug, role, goal, status, autonomy, schedule_label, next_run_at, created_at"] },
+      { m: "order", a: ["created_at", { ascending: false }] },
+      { m: "limit", a: [limit ?? 50] }
+    ]);
     if (error)
       return { content: [{ type: "text", text: error.message }], isError: true };
     return {
       content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      structuredContent: { agents: data ?? [] }
+      structuredContent: { agents: asJson(data ?? []) }
     };
   }
 });
 
 // src/lib/mcp/tools/get-agent.ts
-import { createClient as createClient2 } from "npm:@supabase/supabase-js@^2.110.0";
-import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.20.1";
+import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@3.4.0";
 import { z as z2 } from "npm:zod@^3.25.76";
-function sb2(ctx) {
-  return createClient2(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY, {
-    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
-}
 var get_agent_default = defineTool2({
   name: "get_agent",
   title: "Get NazAI agent",
@@ -120,20 +152,24 @@ var get_agent_default = defineTool2({
   handler: async ({ agent_id }, ctx) => {
     if (!ctx.isAuthenticated())
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    const { data, error } = await sb2(ctx).from("agents").select("*").eq("id", agent_id).maybeSingle();
+    const { data, error } = await serverRead(ctx.getToken(), "agents", [
+      { m: "select", a: ["*"] },
+      { m: "eq", a: ["id", agent_id] },
+      { m: "maybeSingle", a: [] }
+    ]);
     if (error)
       return { content: [{ type: "text", text: error.message }], isError: true };
     if (!data)
       return { content: [{ type: "text", text: "Agent not found" }], isError: true };
     return {
       content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      structuredContent: { agent: data }
+      structuredContent: { agent: asJson(data) }
     };
   }
 });
 
 // src/lib/mcp/tools/list-agent-events.ts
-import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@0.20.1";
+import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@3.4.0";
 import { z as z3 } from "npm:zod@^3.25.76";
 async function readEvents(token, agentId, limit) {
   const resp = await fetch(`${process.env.SUPABASE_URL}/functions/v1/outer-control-read`, {
@@ -166,17 +202,17 @@ var list_agent_events_default = defineTool3({
       return { content: [{ type: "text", text: error.message }], isError: true };
     return {
       content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      structuredContent: { events: data ?? [] }
+      structuredContent: { events: asJson(data ?? []) }
     };
   }
 });
 
 // src/lib/mcp/tools/list-projects.ts
-import { createClient as createClient3 } from "npm:@supabase/supabase-js@^2.110.0";
-import { defineTool as defineTool4 } from "npm:@lovable.dev/mcp-js@0.20.1";
+import { createClient } from "npm:@supabase/supabase-js@^2.110.0";
+import { defineTool as defineTool4 } from "npm:@lovable.dev/mcp-js@3.4.0";
 import { z as z4 } from "npm:zod@^3.25.76";
-function sb3(ctx) {
-  return createClient3(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY, {
+function sb(ctx) {
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY, {
     global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
     auth: { persistSession: false, autoRefreshToken: false }
   });
@@ -192,7 +228,7 @@ var list_projects_default = defineTool4({
   handler: async ({ limit }, ctx) => {
     if (!ctx.isAuthenticated())
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    const { data, error } = await sb3(ctx).from("projects").select("*").order("created_at", { ascending: false }).limit(limit ?? 50);
+    const { data, error } = await sb(ctx).from("projects").select("*").order("created_at", { ascending: false }).limit(limit ?? 50);
     if (error)
       return { content: [{ type: "text", text: error.message }], isError: true };
     return {
@@ -203,7 +239,7 @@ var list_projects_default = defineTool4({
 });
 
 // src/lib/mcp/tools/run-agent.ts
-import { defineTool as defineTool5 } from "npm:@lovable.dev/mcp-js@0.20.1";
+import { defineTool as defineTool5 } from "npm:@lovable.dev/mcp-js@3.4.0";
 import { z as z5 } from "npm:zod@^3.25.76";
 var run_agent_default = defineTool5({
   name: "run_agent",
@@ -236,7 +272,7 @@ var run_agent_default = defineTool5({
     }
     return {
       content: [{ type: "text", text: typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2) }],
-      structuredContent: { result: parsed }
+      structuredContent: { result: asJson(parsed) }
     };
   }
 });
@@ -256,5 +292,5 @@ var mcp_default = defineMcp({
 });
 
 // lovable-mcp-supabase-entry.ts
-import { createSupabaseHandler } from "npm:@lovable.dev/mcp-js@0.20.1/stacks/supabase";
+import { createSupabaseHandler } from "npm:@lovable.dev/mcp-js@3.4.0/stacks/supabase";
 Deno.serve(createSupabaseHandler(mcp_default, { functionName: "mcp" }));

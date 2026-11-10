@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, legsPayload, STATUS_LABEL, WORKFLOW_LABEL } from "@/lib/outer-control-sessions";
+import { describeDecision, riskConfidenceBadges, describeStep, describeWaiting, isOpen, legsPayload, noStepsText, STATUS_LABEL, WORKFLOW_LABEL } from "@/lib/outer-control-sessions";
 
 describe("outer-control-sessions", () => {
   it("queued, running and awaiting_human sessions are open", () => {
@@ -135,5 +135,17 @@ describe("describeCompletion", () => {
     expect(d.ok).toBe(false);
     expect(d.headline).toBe("Completion check not passed (1/3): a result exists — there is no result.");
     expect(d.lines.map((l) => l.mark)).toEqual(["✓", "✗", "–"]);
+  });
+});
+
+describe("the line shown when a session has no recorded steps", () => {
+  it("says it is still waiting while the session is open", () => {
+    for (const s of ["queued", "running", "awaiting_human"] as const) expect(noStepsText(s)).toBe("Nothing has been exchanged yet.");
+  });
+  it("says the tool was never asked once the session is closed, so a stopped or suspended session is not read as a mystery", () => {
+    for (const s of ["stopped", "cancelled", "failed", "rejected", "skipped"] as const) {
+      expect(noStepsText(s)).toMatch(/not asked in this session/);
+      expect(noStepsText(s)).not.toMatch(/yet/);
+    }
   });
 });

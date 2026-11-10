@@ -1,6 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { serverRead } from "../server-read";
+import { serverRead, asJson } from "../server-read";
 
 export default defineTool({
   name: "list_agents",
@@ -24,7 +24,7 @@ export default defineTool({
       return { content: [{ type: "text", text: error.message }], isError: true };
     return {
       content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      structuredContent: { agents: data ?? [] },
+      structuredContent: { agents: asJson(data ?? []) },
     };
   },
 });

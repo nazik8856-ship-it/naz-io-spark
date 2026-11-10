@@ -1,7 +1,7 @@
 // Outer Control: what is happening in a session, line by line, from what was recorded. Shown first when a session is
 // opened, and opened by itself while the session runs.
 import { buildActivity, type ActivityLine, type ActivityStep } from "@/lib/outer-control-tools-ui";
-import type { CompletionView, PendingKind, SessionStatus } from "@/lib/outer-control-sessions";
+import { noStepsText, type CompletionView, type PendingKind, type SessionStatus } from "@/lib/outer-control-sessions";
 
 const DOT: Record<ActivityLine["tone"], string> = {
   ok: "bg-emerald-400", warn: "bg-amber-400", bad: "bg-rose-400", live: "bg-cyan-300 animate-pulse", idle: "bg-zinc-500",
@@ -19,7 +19,7 @@ export default function SessionActivity({ toolName, status, steps, completion, p
     <div data-testid="session-activity">
       <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">What is happening · tool: {toolName}</div>
       <ul className="mt-1.5 space-y-1">
-        {lines.length === 0 && <li className="text-zinc-500">Nothing recorded yet.</li>}
+        {lines.length === 0 && <li className="text-zinc-500">{noStepsText(status)}</li>}
         {lines.map((l) => (
           <li key={l.key} className={`flex items-start gap-2 text-xs ${TEXT[l.tone]}`}>
             <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${DOT[l.tone]}`} aria-hidden />
