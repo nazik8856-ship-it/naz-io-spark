@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { hostOf } from "@/lib/oauth-consent";
 
 type AuthDetails = {
   redirect_url?: string;
   redirect_to?: string;
-  client?: { name?: string; logo_uri?: string };
+  /** Where the app will be sent after approval (the address that receives the sign-in result). */
+  redirect_uri?: string;
+  client?: { name?: string; logo_uri?: string; uri?: string };
   scope?: string[] | string;
 };
 
@@ -109,6 +112,15 @@ export default function OAuthConsent() {
               read your agents, projects, and runtime events, and trigger agent runs on your behalf via
               MCP. You can revoke access anytime.
             </p>
+            {/* Any app can register itself under any name, so the name alone proves nothing: show where it really sends you. */}
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs leading-relaxed text-amber-100" data-testid="consent-origin">
+              <p>
+                The name above is chosen by the app itself. It will send you to{" "}
+                <span className="font-mono text-white">{hostOf(details.redirect_uri) ?? "an address we could not read"}</span>
+                {hostOf(details.client?.uri) ? <> and says its website is <span className="font-mono text-white">{hostOf(details.client?.uri)}</span></> : null}.
+              </p>
+              <p className="mt-1">Approve only if you started this connection yourself and recognise that address.</p>
+            </div>
             <div className="flex gap-2 pt-2">
               <button
                 disabled={busy}

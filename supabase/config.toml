@@ -113,7 +113,8 @@ verify_jwt = false
 [functions.outer-control]
 verify_jwt = false
 
-
-
-
-
+# MCP server (src/lib/mcp): the SDK answers an unauthenticated first request with the OAuth sign-in instructions (WWW-Authenticate and
+# the protected-resource metadata). With the gateway's JWT check on, Supabase answers 401 first and no MCP app can sign in. Every tool
+# still refuses without a valid token (ctx.isAuthenticated) and reads data as the caller. See the @lovable.dev/mcp-js README.
+[functions.mcp]
+verify_jwt = false
