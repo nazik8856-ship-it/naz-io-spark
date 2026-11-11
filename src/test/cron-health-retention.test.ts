@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(__dirname, "../..");
-const sql = readFileSync(join(ROOT, "supabase/migrations/20261115010000_cron_health_index_and_retention.sql"), "utf8");
+const sql = readFileSync(join(ROOT, "supabase/migrations/20261111061025_cron_health_index_and_retention.sql"), "utf8");
 const fn = readFileSync(join(ROOT, "supabase/functions/cron-health-check/index.ts"), "utf8");
 
 describe("scheduled_job_requests stays small and fast", () => {
