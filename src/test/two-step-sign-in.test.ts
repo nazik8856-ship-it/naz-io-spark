@@ -7,6 +7,7 @@ import { cleanCode, isCompleteCode, mfaErrorText, mfaStep, unverifiedFactors, ve
 
 const ROOT = join(__dirname, "../..");
 const sql = readFileSync(join(ROOT, "supabase/migrations/20261116010000_two_step_sign_in_for_admin_roles.sql"), "utf8");
+const caller = readFileSync(join(ROOT, "supabase/functions/_shared/caller.ts"), "utf8");
 const guard = readFileSync(join(ROOT, "src/components/AuthGuard.tsx"), "utf8");
 
 describe("mfaStep", () => {
@@ -72,5 +73,14 @@ describe("database rule", () => {
   it("keeps the earlier caller check", () => {
     expect(sql).toContain("auth.uid() = _user_id");
     expect(sql).toMatch(/SECURITY DEFINER SET search_path = public, pg_temp/);
+  });
+});
+
+describe("server functions", () => {
+  it("requireCaller refuses an aal1 session for a person with a confirmed authenticator app", () => {
+    expect(caller).toContain("mfaSatisfied(authHeader, data.user.factors)");
+    expect(caller).toContain('error: "mfa_required"');
+    expect(caller).toContain('=== "aal2"');
+    expect(caller).toContain('f?.status === "verified"');
   });
 });

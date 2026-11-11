@@ -106,3 +106,23 @@ Deno.test("resolveCallerReadAccount: any member (viewer or above) may read their
   assert(stranger.ok);
   assertEquals(await resolveCallerReadAccount(stranger.caller, B), null);
 });
+
+Deno.test("requireCaller: two-step sign-in. A confirmed authenticator app needs an aal2 token; no app, no change", async () => {
+  const jwt = (aal: string) => `h.${btoa(JSON.stringify({ sub: A, aal })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}.s`;
+  const withFactors = (factors: { factor_type?: string; status?: string }[]): CallerClient => ({
+    auth: { getUser: async () => ({ data: { user: { id: A, factors } }, error: null }) },
+    rpc: async () => ({ data: false, error: null }),
+  });
+  const verified = [{ factor_type: "totp", status: "verified" }];
+  // app confirmed + password-only token: refused, with its own reason
+  const a1 = await requireCaller(req(`Bearer ${jwt("aal1")}`), () => withFactors(verified));
+  assert(!a1.ok); assertEquals(a1.status, 401); assertEquals(a1.error, "mfa_required");
+  // app confirmed + token that used the code: served
+  assert((await requireCaller(req(`Bearer ${jwt("aal2")}`), () => withFactors(verified))).ok);
+  // a token with no aal claim, or garbage, counts as aal1
+  assert(!(await requireCaller(req("Bearer not-a-jwt"), () => withFactors(verified))).ok);
+  // never finished setting up (unverified), or no factors at all: unchanged
+  assert((await requireCaller(req(`Bearer ${jwt("aal1")}`), () => withFactors([{ factor_type: "totp", status: "unverified" }]))).ok);
+  assert((await requireCaller(req(`Bearer ${jwt("aal1")}`), () => withFactors([]))).ok);
+  assert((await requireCaller(req(`Bearer ${jwt("aal1")}`), () => client(A))).ok);
+});
