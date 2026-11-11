@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { mfaStep } from "@/lib/mfa";
+import { MfaChallenge } from "@/components/MfaChallenge";
 
 const AuthSkeleton = () => (
   <div className="min-h-screen flex items-center justify-center" style={{ background: "#020617" }}>
@@ -14,6 +17,18 @@ const AuthSkeleton = () => (
 export const AuthGuard = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  // null = not asked yet. A person with an authenticator app set up is asked for a code once per sign-in (aal1 -> aal2).
+  const [step, setStep] = useState<"ok" | "challenge" | null>(null);
+
+  const checkStep = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      // If the check itself fails the person is not locked out of the page: the database still refuses admin/owner data without aal2.
+      setStep(error ? "ok" : mfaStep(data));
+    } catch {
+      setStep("ok");
+    }
+  }, []);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -21,6 +36,13 @@ export const AuthGuard = () => {
     }
   }, [loading, user, navigate]);
 
+  useEffect(() => {
+    if (!loading && user) void checkStep();
+  }, [loading, user?.id, checkStep]);
+
   if (loading) return <AuthSkeleton />;
-  return user ? <Outlet /> : null;
+  if (!user) return null;
+  if (step === null) return <AuthSkeleton />;
+  if (step === "challenge") return <MfaChallenge onDone={() => void checkStep()} />;
+  return <Outlet />;
 };
