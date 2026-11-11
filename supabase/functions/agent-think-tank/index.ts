@@ -16,7 +16,7 @@ import { parseModelJson } from "../_shared/model-output.ts";
 import { object } from "../_shared/schema.ts";
 import { cleanText } from "../_shared/clean-text.ts";
 import { readJson } from "../_shared/input.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { pickAiGateway, callAiGateway, type GatewayConfig } from "../_shared/ai-gateway.ts";
 import { requireCaller } from "../_shared/caller.ts";
 

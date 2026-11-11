@@ -12,7 +12,7 @@
 // at all -- a signed-in user with zero credits (or none purchased, ever)
 // could create unlimited websites and agents for free, while purchase-credits
 // and process-mission both treat credits as a real, enforced resource.
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export const NO_CREDITS_MESSAGE =
   "You're out of credits. Add credits or upgrade your plan to create a new one — editing what you've already built is still free.";

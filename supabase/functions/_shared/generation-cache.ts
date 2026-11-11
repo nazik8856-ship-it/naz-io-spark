@@ -8,7 +8,7 @@
 // enforced. Short TTL (see GENERATION_CACHE_TTL_MINUTES) -- long enough
 // to catch an accidental duplicate submit, short enough that a genuine
 // edit minutes later always regenerates for real.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { sha256Hex } from "./api-key-auth.ts";
 
 export const GENERATION_CACHE_TTL_MINUTES = 10;

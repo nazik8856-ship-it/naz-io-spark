@@ -8,7 +8,7 @@
 // verdict path, and none of these sweeps ever calls control-gate.ts. This is
 // the fast, narrow "these 3 are doing something wrong, stop them" lever that
 // was genuinely missing.
-import type { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { createClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export async function areConsequentialSweepsPaused(admin: ReturnType<typeof createClient>): Promise<boolean> {
   const { data } = await admin

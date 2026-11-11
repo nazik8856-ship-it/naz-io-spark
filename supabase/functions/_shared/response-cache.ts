@@ -13,7 +13,7 @@
 // Only ever populated with a genuinely grounded answer -- see
 // control-api/index.ts's own call site for why caching an "I don't know"
 // fallback would blunt items 169/170's content-gap tracking.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { sha256Hex } from "./api-key-auth.ts";
 import { envDataKeys, openRows } from "./encrypted-db.ts";
 import { fingerprint } from "./field-crypto.ts";

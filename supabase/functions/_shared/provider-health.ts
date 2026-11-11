@@ -8,7 +8,7 @@
 // retry in a moment" is wrong: retrying cannot help until the account is topped
 // up. And "AI credits exhausted for this workspace" reads as the CUSTOMER's own
 // balance, sending them to buy credits for a problem that is not theirs.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export const OUT_OF_CREDITS = /no credits|insufficient[_ ]quota|exceeded your current quota|billing[_ ]hard[_ ]limit|billing/i;
 

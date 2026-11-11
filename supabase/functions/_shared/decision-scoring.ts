@@ -1,7 +1,7 @@
 // Shared decision scoring + provenance logging.
 // One decision engine: agent-runtime and the AI Control System chat both score
 // confidence the same way and write to the SAME agent_decisions table.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { triggerWebhooks } from "./webhooks.ts";
 import { embedDecisionIfExternal } from "./decision-embeddings.ts";
 import { countsTowardRealUsage } from "./sandbox-mode.ts";

@@ -2,7 +2,7 @@
 // form-encoded client_id/client_secret (NOT Basic auth) and returns a bot
 // token plus team info. Tokens are long-lived unless the workspace admin
 // enables token rotation, so we don't ship a refresh loop here.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { getRotatableClientSecret, withClientSecretRotation } from "./oauth-secret-rotation.ts";
 
 // Bot scope groups shown on NazAI's pre-consent screen. User checks which

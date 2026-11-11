@@ -16,7 +16,7 @@
 // automation-readiness.ts already established for a similar composed
 // signal. Never throws -- any single lookup failing degrades that one
 // component to "no_data" rather than crashing the whole score.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export type TrustScoreComponentName = "confidence_calibration" | "rule_trigger_rate" | "repair_interventions";
 export type TrustScoreComponentStatus = "ok" | "elevated" | "no_data";

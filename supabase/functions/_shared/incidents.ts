@@ -9,7 +9,7 @@
 // break-glass override IS an incident despite also being a deliberate
 // human action -- it's a human bypassing a safety control, not routine
 // use of one, and is worth surfacing for later review every time.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import type { CriticalAlertEvent } from "./critical-alerts.ts";
 import { triggerWebhooks } from "./webhooks.ts";
 

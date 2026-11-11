@@ -7,7 +7,7 @@
 // it doesn't for the judgment-vocabulary knowledge base (that's a single
 // account judging its own actions; this is a multi-tenant "brain" feature
 // serving many unrelated end customers through the same account).
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { openRows } from "./encrypted-db.ts";
 
 export type ResponseContextEntry = {

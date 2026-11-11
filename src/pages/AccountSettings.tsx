@@ -4,6 +4,7 @@ import { ArrowLeft, Eye, EyeOff, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Input } from "@/components/ui/input";
+import { MfaCard } from "@/components/account/MfaCard";
 import { toast } from "sonner";
 import { validatePassword, PASSWORD_REQUIREMENTS_HINT } from "@/lib/password-policy";
 import { sendPasswordChangedNotification } from "@/lib/send-auth-notification-email";
@@ -97,6 +98,8 @@ const AccountSettings = () => {
             </ul>
           )}
         </div>
+
+        <MfaCard />
 
         <div className="p-4 rounded-xl border border-white/10 bg-white/[0.02]">
           <h2 className="text-lg font-semibold mb-1">{hasPassword ? "Change password" : "Set a password"}</h2>

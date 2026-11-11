@@ -13,7 +13,7 @@
 // (see `resolveIssuesForProvider`) or answers the question once (the answer is
 // stored on the row and replayed to the agent on future runs, so the human is
 // never asked again).
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export type IssueErrorType = "auth_error" | "permission_error" | "quota_error" | "needs_input";
 export type FixAction = "reconnect" | "input" | "external";

@@ -10,7 +10,7 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { checkIpRateLimit } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {

@@ -2,7 +2,7 @@
 // Supabase Vault: the row carries only a *_secret_id, the value is read here, server-side, at the moment it is used. A row made
 // before the move to Vault still has its value in the old plain column (secret / previous_secret / callback_secret); it is read
 // from there until the migration has moved it, so nothing stops signing in between.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { createSecret, readSecret, updateSecret } from "./integration-secrets.ts";
 
 /** A secret's value from Vault, or null when there is none. */

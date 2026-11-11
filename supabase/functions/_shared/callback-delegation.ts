@@ -13,7 +13,7 @@
 // this reason: Supabase Edge Functions have their own wall-clock
 // execution limit.
 import { maskedJson } from "./outbound-guard.ts";
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { hmacHex, buildSignaturePayload } from "./webhooks.ts";
 import { claimRowOnce } from "./idempotency.ts";
 import { classifyPendingApprovalStatus } from "./api-key-policy.ts";

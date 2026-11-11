@@ -3,7 +3,7 @@
 // best-effort -- precedent is a helpful extra signal, never a required
 // one (item 12's own discipline, needed from this very first caller
 // onward, not deferred).
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export type PrecedentMatch = {
   decisionId: string;

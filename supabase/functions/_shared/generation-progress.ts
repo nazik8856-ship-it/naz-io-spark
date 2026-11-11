@@ -2,7 +2,7 @@
 // generation request, replacing GeneratorHome.tsx's blind client-side timer.
 // Best-effort and fire-and-forget by design -- a progress write is a UX nicety,
 // never allowed to slow down or fail a real generation.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export async function reportProgress(
   admin: SupabaseClient,

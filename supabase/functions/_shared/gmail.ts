@@ -1,6 +1,6 @@
 import { attachmentName, headerValue, recipientList } from "./outbound.ts";
 // Shared Gmail OAuth + API helpers.
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { readSecret, updateSecret } from "./integration-secrets.ts";
 import { getRotatableClientSecret, withClientSecretRotation, isStandardInvalidClientError } from "./oauth-secret-rotation.ts";
 

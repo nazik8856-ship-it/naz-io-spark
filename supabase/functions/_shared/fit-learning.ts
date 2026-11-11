@@ -6,7 +6,7 @@
 // actually happened. Those measured results are read back here and fed to the
 // control engine, so the fit model stops parking things the business keeps
 // proving valuable — and keeps parking the ones that measured badly.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export type FitEvidence = {
   /** Overridden defers that measured well / badly. */

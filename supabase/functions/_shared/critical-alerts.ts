@@ -20,7 +20,7 @@
 // Delivery: Slack via slack_post_message when the account has a connected Slack
 // integration; otherwise a prominent server log. Never throws — alerting must
 // never break the decision path.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { slackPostMessage } from "./provider-writes.ts";
 import { isIncidentWorthy, openIncident } from "./incidents.ts";
 import { resolveNotificationRecipients, resolveAssignedRecipient, type MemberRow, type PreferenceRow } from "./notification-preferences.ts";

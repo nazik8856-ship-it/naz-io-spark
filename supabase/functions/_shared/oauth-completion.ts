@@ -6,7 +6,7 @@
 //   POST  (from that page)     → carries the signed-in person's token. The connection is finished only if that person is the one who
 //                                started it (peek_oauth_transaction); a different person gets 403 and the state stays unused.
 // Everything after the gate in each callback is the code that was there before; only its answer changes shape (JSON for the page).
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { requireCaller } from "./caller.ts";
 import { isAllowedRedirectOrigin, oauthCallbackPage, safeRedirectOrigin, type OAuthCallbackPageOptions } from "./oauth-callback-page.ts";
 

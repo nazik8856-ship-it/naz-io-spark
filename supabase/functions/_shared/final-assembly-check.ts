@@ -11,7 +11,7 @@
 // compile-agent-manifest/compile-website-manifest use -- just re-run now
 // against the CURRENT live row instead of a draft manifest being compiled,
 // and persists any fix it makes directly to the live row.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { ruleMatchesAction, selectRulesForEntity } from "./rule-matching.ts";
 import { loadSafetyRules, scanWithRules, type SafetyMatch } from "./safety-scanner.ts";
 import { repairContent } from "./repair-engine.ts";

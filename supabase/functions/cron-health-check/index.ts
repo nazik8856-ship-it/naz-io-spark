@@ -39,7 +39,7 @@
 // codebase's own test-harness noise pattern).
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { findUnhealthyJobs, jobsNeedingNewIncident, summarizeUnhealthyJob, type JobRequestOutcome } from "../_shared/cron-health.ts";
 import { findBrokenVectorRpcs, vectorRpcIncidentKind, summarizeBrokenVectorRpc, type VectorRpcSearchPathRow } from "../_shared/vector-rpc-search-path-health.ts";
 

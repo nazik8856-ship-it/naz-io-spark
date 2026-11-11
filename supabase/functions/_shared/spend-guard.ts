@@ -8,7 +8,7 @@
 //    kill_switch_auto = true so it clears itself on the next UTC day; the
 //    owner can also clear it manually at any time.
 // ============================================================================
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { slackPostMessage } from "./provider-writes.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { triggerWebhooks } from "./webhooks.ts";
