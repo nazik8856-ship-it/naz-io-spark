@@ -8,7 +8,7 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { ruleMatchesAction, selectRulesForAgent } from "../_shared/rule-matching.ts";
 import { scanWithRules, BUILTIN_SAFETY_RULES, type SafetyRule } from "../_shared/safety-scanner.ts";
 import { projectVerdict } from "../_shared/rule-simulator-logic.ts";

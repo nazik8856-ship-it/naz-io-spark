@@ -18,7 +18,7 @@ import { NO_EVIDENCE_MESSAGE, recordEvidence, sha256Of } from "./security-eviden
 // retrying a thrown network error or a 429/5xx, so a transient provider
 // hiccup is no longer indistinguishable from a real, permanent failure.
 // ============================================================================
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { readSecret } from "./integration-secrets.ts";
 import { canvaAuthedFetch } from "./canva.ts";
 import { figmaAuthedFetch } from "./figma.ts";

@@ -6,7 +6,7 @@
 // response is sent, so anything relying on background auto-instrumentation
 // risks losing events silently. Public DSN, safe to hardcode (same
 // convention as every other public key in this codebase).
-import * as Sentry from "npm:@sentry/deno@8";
+import * as Sentry from "npm:@sentry/deno@8.55.2";
 import { redactDeep, redactSecrets, scrubErrorEvent } from "./redact-secrets.ts";
 
 const SENTRY_DSN = "https://44ff55d0854209b82ab71c48874b00e6@o4512076695666688.ingest.de.sentry.io/4512076789121104";

@@ -2,7 +2,7 @@
 // createClient, except that every client it makes reads and writes the encrypted columns (encrypted-db.ts) with DATA_KEY. A
 // function imports createClient from here instead of esm.sh; src/test/field-encryption.test.ts checks that every function that
 // reaches those tables does.
-import { createClient as createSupabaseClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient as createSupabaseClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { dataKeysFromEnv, MIN_PASSPHRASE_CHARS } from "./field-crypto.ts";
 import { optionalSecret, requireSecret } from "./require-secret.ts";
 import { withFieldEncryption } from "./encrypted-db.ts";

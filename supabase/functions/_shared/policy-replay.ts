@@ -8,7 +8,7 @@
 //
 // It answers one question: does this draft policy change how the control
 // system judges the scenarios, and does it break anything that used to pass?
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { CONTROL_SCENARIOS, type Scenario, type Verdict } from "./control-scenarios.ts";
 import { BUILTIN_SAFETY_RULES, scanWithRules, type SafetyRule } from "./safety-scanner.ts";
 import {

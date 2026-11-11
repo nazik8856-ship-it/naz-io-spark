@@ -5,7 +5,7 @@
 // cause a real side effect twice (the provider write), not the whole
 // request/response — re-running the (side-effect-free) model judgement on
 // a retry is wasted cost, not a safety issue.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export type ClaimResult =
   | { status: "claimed" }

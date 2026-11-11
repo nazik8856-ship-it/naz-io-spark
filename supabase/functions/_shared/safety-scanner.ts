@@ -5,7 +5,7 @@
 // a model mistake alone can never let a high-stakes action through.
 //
 // Matches can force the verdict to "block" or "require_approval".
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { selectRulesForEntity, type EntityKind } from "./rule-matching.ts";
 
 // GAP 1 (Shared Criteria Library): mirrors control-gate.ts's own

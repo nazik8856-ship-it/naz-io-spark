@@ -7,7 +7,7 @@
 // that can't reach its own counter should not turn into a full outage for
 // legitimate traffic. Abuse protection and safety enforcement are
 // different risk classes with different correct failure directions.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 /** Pure — floors `now` to the start of its fixed window, as an ISO string. */
 export function computeWindowStart(now: Date, windowSeconds: number): string {

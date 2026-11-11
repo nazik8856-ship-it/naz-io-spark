@@ -17,7 +17,7 @@
 // Every stop writes to agent_decisions, so the audit trail is identical no
 // matter where the action originated. Escalations create a pending_approvals
 // row so a human has a real queue instead of a Slack ping.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { clearExpiredSpendKillSwitch, clearExpiredAgentSpendKillSwitch, getSpendStatus, getAgentSpendStatus, type SpendStatus } from "./spend-guard.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.ts";

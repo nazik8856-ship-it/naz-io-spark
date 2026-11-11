@@ -9,7 +9,7 @@
 //   - runUndo() performs the real compensating call and only reports ok:true
 //     after confirming the reversal actually landed on the provider.
 // ============================================================================
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { readSecret } from "./integration-secrets.ts";
 import { canvaAuthedFetch } from "./canva.ts";
 import { figmaAuthedFetch } from "./figma.ts";

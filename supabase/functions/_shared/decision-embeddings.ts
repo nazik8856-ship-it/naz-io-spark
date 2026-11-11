@@ -14,7 +14,7 @@
 // response shape ever differs, `generateEmbedding` fails closed (returns
 // null) rather than silently storing garbage.
 import { maskedJson } from "./outbound-guard.ts";
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { getApiKeySpendStatus, recordAiSpend } from "./spend-guard.ts";
 import { pickEmbeddingGateway, EMBEDDING_DIMENSIONS } from "./ai-gateway.ts";
 

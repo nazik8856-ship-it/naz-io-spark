@@ -5,7 +5,7 @@
 //
 // Canva uses PKCE + Basic-auth on the token endpoint per its Connect API docs
 // (https://www.canva.dev/docs/connect/authentication/).
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { readSecret, updateSecret } from "./integration-secrets.ts";
 import { fetchWithRetry } from "./fetch-retry.ts";
 import { getRotatableClientSecret, withClientSecretRotation } from "./oauth-secret-rotation.ts";

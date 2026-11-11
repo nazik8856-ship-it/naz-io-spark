@@ -1,7 +1,7 @@
 // Shared helpers to read/write agent_integrations credentials via Supabase Vault.
 // All plaintext credentials are stored encrypted at rest; the row only carries
 // a `credentials_secret_id` UUID that maps to `vault.decrypted_secrets`.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export type Creds = Record<string, unknown>;
 

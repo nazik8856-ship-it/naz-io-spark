@@ -98,7 +98,7 @@ import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@3.4.0";
 
 // src/lib/mcp/tools/list-agents.ts
 import { defineTool } from "npm:@lovable.dev/mcp-js@3.4.0";
-import { z } from "npm:zod@^3.25.76";
+import { z } from "npm:zod@4.6.7";
 
 // src/lib/mcp/server-read.ts
 async function serverRead(token, table, ops) {
@@ -140,7 +140,7 @@ var list_agents_default = defineTool({
 
 // src/lib/mcp/tools/get-agent.ts
 import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@3.4.0";
-import { z as z2 } from "npm:zod@^3.25.76";
+import { z as z2 } from "npm:zod@4.6.7";
 var get_agent_default = defineTool2({
   name: "get_agent",
   title: "Get NazAI agent",
@@ -170,7 +170,7 @@ var get_agent_default = defineTool2({
 
 // src/lib/mcp/tools/list-agent-events.ts
 import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@3.4.0";
-import { z as z3 } from "npm:zod@^3.25.76";
+import { z as z3 } from "npm:zod@4.6.7";
 async function readEvents(token, agentId, limit) {
   const resp = await fetch(`${process.env.SUPABASE_URL}/functions/v1/outer-control-read`, {
     method: "POST",
@@ -208,9 +208,9 @@ var list_agent_events_default = defineTool3({
 });
 
 // src/lib/mcp/tools/list-projects.ts
-import { createClient } from "npm:@supabase/supabase-js@^2.110.0";
+import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { defineTool as defineTool4 } from "npm:@lovable.dev/mcp-js@3.4.0";
-import { z as z4 } from "npm:zod@^3.25.76";
+import { z as z4 } from "npm:zod@4.6.7";
 function sb(ctx) {
   return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY, {
     global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
@@ -240,7 +240,7 @@ var list_projects_default = defineTool4({
 
 // src/lib/mcp/tools/run-agent.ts
 import { defineTool as defineTool5 } from "npm:@lovable.dev/mcp-js@3.4.0";
-import { z as z5 } from "npm:zod@^3.25.76";
+import { z as z5 } from "npm:zod@4.6.7";
 var run_agent_default = defineTool5({
   name: "run_agent",
   title: "Run NazAI agent now",

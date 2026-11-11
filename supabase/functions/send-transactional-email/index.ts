@@ -2,7 +2,7 @@ import "../_shared/redact-console.ts"; // first: secrets never reach the functio
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import { createClient } from 'npm:@supabase/supabase-js@2.116.0'
 import { TEMPLATES } from '../_shared/transactional-email-templates/registry.ts'
 import { checkIpRateLimit } from '../_shared/rate-limit.ts'
 import { readJson } from '../_shared/input.ts'

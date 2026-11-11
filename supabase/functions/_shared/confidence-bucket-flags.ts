@@ -8,7 +8,7 @@
 // escalation threshold in control-engine, until a human clears the flag by
 // setting cleared_at. Deliberately conservative: no automatic
 // threshold-narrowing, no silent recovery.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export type ActiveConfidenceFlag = { bucket_min: number; bucket_max: number };
 

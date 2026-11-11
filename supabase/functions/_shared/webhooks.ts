@@ -5,7 +5,7 @@
 // critical_alerts earlier this session: a silently-failing webhook (wrong
 // URL, endpoint down, timeout) must never be invisible.
 import { maskedJson } from "./outbound-guard.ts";
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { isRetryEligible, isExhausted, computeNextRetryAt } from "./webhook-retry.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { webhookSigningSecrets } from "./signing-secrets.ts";

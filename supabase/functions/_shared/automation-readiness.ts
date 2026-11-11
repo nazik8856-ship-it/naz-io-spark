@@ -7,7 +7,7 @@
 // into one real, readable answer. No new storage, no new detection --
 // purely a read/aggregation layer over data this system already
 // computes and records elsewhere.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { summarizeShadowObservations, evaluateShadowPromotionReadiness, type ShadowObservationRow, type ShadowPolicySummary, type ShadowPromotionReadiness } from "./api-key-policy.ts";
 
 /** How far back to look for this key's own recent decisions/citations -- same order of magnitude as calibrate-confidence's own lookback, since both are judging "is this key's recent, real behavior trustworthy." */

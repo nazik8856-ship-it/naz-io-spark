@@ -27,7 +27,7 @@
 // "flag anomalies", "stay within brand tone") are deliberately left as
 // prompt-level guidance only, since they don't map to a deterministic
 // block/approval decision at all.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export async function reconcileGuardrailsToHardRules(
   admin: SupabaseClient,

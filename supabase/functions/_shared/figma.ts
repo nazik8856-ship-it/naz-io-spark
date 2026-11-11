@@ -1,7 +1,7 @@
 // Shared Figma OAuth2 helpers. Mirrors the Gmail helper: HMAC-signed state,
 // authorization URL builder, code exchange, token refresh, and an authed fetch
 // wrapper that refreshes on 401. Credentials are stored in Supabase Vault.
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { readSecret, updateSecret } from "./integration-secrets.ts";
 import { fetchWithRetry } from "./fetch-retry.ts";
 import { getRotatableClientSecret, withClientSecretRotation } from "./oauth-secret-rotation.ts";

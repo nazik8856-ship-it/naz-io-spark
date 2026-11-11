@@ -7,7 +7,7 @@
 // "never a black box" idea gate-trace.ts already established for the
 // deterministic gate layers, applied here to a precedent-informed
 // override specifically.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import type { PrecedentAdvice } from "./precedent-advice.ts";
 import type { PrecedentMatch } from "./precedent-search.ts";
 

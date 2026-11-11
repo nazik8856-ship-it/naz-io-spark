@@ -6,7 +6,7 @@
 // fine action-by-action but is wildly outside how this agent normally
 // behaves (e.g. an agent that sends ~2 emails/day suddenly sending 40, or an
 // agent that has only ever posted to Slack suddenly writing Shopify orders).
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import type { Strictness } from "./decision-scoring.ts";
 
 export type ActionEvent = { created_at: string; action_type: string };

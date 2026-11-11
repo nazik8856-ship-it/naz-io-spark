@@ -13,7 +13,7 @@
 // a watch observation and a real-traffic-replay row are the same shape of
 // comparison, just captured continuously instead of in one backward-looking
 // batch.
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { evaluateAction, type GateOutcome, type PolicySnapshot } from "./policy-replay.ts";
 import { diffRealAction, summarizeRealTrafficReplay, type RealTrafficReplaySummary } from "./real-traffic-replay.ts";
 

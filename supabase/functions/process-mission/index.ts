@@ -5,7 +5,7 @@ import { guardOutputText } from "../_shared/output-guard.ts"
 import { array, object, text, withDefault } from "../_shared/schema.ts"
 import { readJson } from "../_shared/input.ts"
 import { cleanText } from "../_shared/clean-text.ts"
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.116.0'
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts"
 import { requireCaller } from "../_shared/caller.ts"
 

@@ -3,7 +3,7 @@
 // for a team member to receive anything at all. Pure recipient-resolution
 // logic, shared by every scheduled notification function (digest, weekly
 // trend, monthly report).
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 
 export type NotificationChannel = "digest_enabled" | "weekly_trend_enabled" | "critical_alert_email_enabled";
 
