@@ -67,8 +67,17 @@ Deno.serve(async (req) => {
   // PostgREST -- get_job_health_outcomes() is a SECURITY DEFINER function
   // in `public` that does the join server-side and returns just this shape.
   const since = new Date(Date.now() - LOOKBACK_MINUTES * 60 * 1000).toISOString();
-  const { data: rows, error: rpcErr } = await admin.rpc("get_job_health_outcomes", { _since: since });
-  if (rpcErr) return json({ error: rpcErr.message }, 500);
+  let { data: rows, error: rpcErr } = await admin.rpc("get_job_health_outcomes", { _since: since });
+  if (rpcErr) {
+    // One slow call (a cold cache) should not turn a whole run into a failure: say so in the log, wait, and ask once more.
+    console.error(`[cron-health-check] get_job_health_outcomes failed, retrying once: ${String(rpcErr.message).slice(0, 200)}`);
+    await new Promise((r) => setTimeout(r, 3000));
+    ({ data: rows, error: rpcErr } = await admin.rpc("get_job_health_outcomes", { _since: since }));
+  }
+  if (rpcErr) {
+    console.error(`[cron-health-check] get_job_health_outcomes failed again: ${String(rpcErr.message).slice(0, 200)}`);
+    return json({ error: rpcErr.message }, 500);
+  }
 
   // Excludes this function's OWN job -- confirmed live (2026-10-02) that
   // self-monitoring here is structurally broken, not just untested: the
