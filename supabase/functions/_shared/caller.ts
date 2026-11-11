@@ -4,17 +4,37 @@
 //                   The caller's own database client (their Authorization on it, so row level security applies a second time) comes
 //                   with it. An account named in the request is only ever a request: resolveCallerAccount() checks the caller's
 //                   team membership (the same is_account_member check the database rules use) before it is used.
+//                   Two-step sign-in: if the person has a confirmed authenticator app, a session that has not used it (aal1) is refused,
+//                   so the website's code screen can not be skipped by calling the function directly.
 //   assertOwned     before a function acts on an id it was sent (an agent, project, tool, session, approval, webhook, key…) with the
 //                   full-access key: the row must belong to the account. A row that belongs to someone else answers exactly like one
 //                   that does not exist, so ids of other accounts can not be probed ("not found", never "forbidden").
 import { resolveAccountScope, type AccountScopeClient } from "./account-scope.ts";
 
 export type CallerClient = AccountScopeClient & {
-  auth: { getUser: () => Promise<{ data: { user: { id: string; email?: string | null } | null }; error: unknown }> };
+  auth: { getUser: () => Promise<{ data: { user: { id: string; email?: string | null; factors?: { factor_type?: string; status?: string }[] | null } | null }; error: unknown }> };
 };
 
 export type Caller<C extends CallerClient = CallerClient> = { userId: string; email: string | null; authHeader: string; userClient: C };
-export type CallerResult<C extends CallerClient = CallerClient> = { ok: true; caller: Caller<C> } | { ok: false; status: 401; error: "unauthorized" };
+export type CallerResult<C extends CallerClient = CallerClient> = { ok: true; caller: Caller<C> } | { ok: false; status: 401; error: "unauthorized" | "mfa_required" };
+
+/** The "aal" claim of a token the sign-in service has already verified (getUser did): "aal2" once the authenticator-app code was used. */
+export function tokenAssuranceLevel(authHeader: string): string {
+  try {
+    const payload = authHeader.replace(/^Bearer\s+/i, "").split(".")[1] ?? "";
+    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "="));
+    const aal = (JSON.parse(json) as { aal?: unknown }).aal;
+    return typeof aal === "string" ? aal : "aal1";
+  } catch {
+    return "aal1";
+  }
+}
+
+/** Two-step sign-in (docs/two-step-sign-in.md): a person who has a confirmed authenticator app is only served by a session that used it. */
+export function mfaSatisfied(authHeader: string, factors: { factor_type?: string; status?: string }[] | null | undefined): boolean {
+  const hasVerifiedApp = (factors ?? []).some((f) => f?.status === "verified" && (f.factor_type ?? "totp") === "totp");
+  return !hasVerifiedApp || tokenAssuranceLevel(authHeader) === "aal2";
+}
 
 /** makeClient builds a client that sends the caller's Authorization header (anon key + their token), as the functions already do. */
 export async function requireCaller<C extends CallerClient>(req: Request, makeClient: (authHeader: string) => C): Promise<CallerResult<C>> {
@@ -24,6 +44,7 @@ export async function requireCaller<C extends CallerClient>(req: Request, makeCl
     const userClient = makeClient(authHeader);
     const { data, error } = await userClient.auth.getUser();
     if (error || !data?.user?.id) return { ok: false, status: 401, error: "unauthorized" };
+    if (!mfaSatisfied(authHeader, data.user.factors)) return { ok: false, status: 401, error: "mfa_required" };
     return { ok: true, caller: { userId: data.user.id, email: data.user.email ?? null, authHeader, userClient } };
   } catch {
     return { ok: false, status: 401, error: "unauthorized" };
