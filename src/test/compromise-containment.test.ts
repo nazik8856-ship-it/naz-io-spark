@@ -11,7 +11,7 @@ import { join } from "node:path";
 const ROOT = join(__dirname, "../..");
 const FN = join(ROOT, "supabase/functions");
 const read = (p: string) => readFileSync(join(FN, p), "utf8");
-const migration = readFileSync(join(ROOT, "supabase/migrations/20261114010000_containment_and_auditability.sql"), "utf8");
+const migration = readFileSync(join(ROOT, "supabase/migrations/20261110024754_containment_and_auditability.sql"), "utf8");
 const doc = (n: string) => readFileSync(join(ROOT, "docs", n), "utf8");
 
 describe("one tool is stopped, the rest keeps running", () => {

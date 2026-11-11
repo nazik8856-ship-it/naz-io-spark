@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { cleanCode, isCompleteCode, mfaErrorText, mfaStep, unverifiedFactors, verifiedTotp } from "@/lib/mfa";
 
 const ROOT = join(__dirname, "../..");
-const sql = readFileSync(join(ROOT, "supabase/migrations/20261116010000_two_step_sign_in_for_admin_roles.sql"), "utf8");
+const sql = readFileSync(join(ROOT, "supabase/migrations/20261111063801_two_step_sign_in_for_admin_roles.sql"), "utf8");
 const caller = readFileSync(join(ROOT, "supabase/functions/_shared/caller.ts"), "utf8");
 const guard = readFileSync(join(ROOT, "src/components/AuthGuard.tsx"), "utf8");
 
