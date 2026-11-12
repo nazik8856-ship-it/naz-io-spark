@@ -74,7 +74,23 @@ A missing, misnamed or too short `DATA_KEY` stops each of those functions at sta
 **Never lose this key.** Outer Control content (tasks, replies, results, memory, evaluations), website form submissions,
 connected-account snapshots, agent runs and events, Generator requests, knowledge-base entries, the /respond API's context,
 cache and questions, approvals' text and the governance backup files are stored encrypted with it; without it that content can
-not be read and the backups can not be restored. Keep a copy in your password manager.
+not be read and the backups can not be restored. Keep a copy in your password manager (saved 2026-11-12, see below).
+
+### How a key is set, and how to get a copy of one that was never saved
+
+- **Secrets are typed in by the owner, never by an assistant.** The `create_edge_function_secret` tool only asks the owner to enter the
+  value in the Supabase dashboard; the value never passes through the AI client. So an assistant can not set a `_PREVIOUS` copy for
+  you, and it never sees a key's value either.
+- **Supabase never shows a saved secret again.** A key that was not saved elsewhere at the time can not be read back from the dashboard.
+- **Getting a copy of a key you still need (done on 2026-11-12):** deploy a one-use function that answers only the platform's own
+  service key and copies `DATA_KEY` and `PROJECTS_KEY` into two Vault entries (`public.create_integration_secret`, which only the
+  server can call); it never logs or returns a value. Trigger it once from the database (`net.http_post` with the service key
+  kept in Vault as `email_queue_service_role_key`, used inside the query). Replace the function with an inert 410 stub at once. The
+  owner opens Supabase → Integrations → Vault, reveals each entry, and copies the key (the text inside `"value"`) into the password
+  manager. Then delete the two Vault entries (`delete from vault.secrets where name in ('escrow-data-key', 'escrow-projects-key')`)
+  and confirm none are left. Nothing is rotated and no data is re-encrypted.
+- **Rotating needs the old value.** The two-key rotation above needs the current value for `…_PREVIOUS`. Once the keys are in the
+  password manager, the owner can paste the current value into `…_PREVIOUS` in the dashboard. Do the copy-out first if there is no copy.
 
 ## RESEND_WEBHOOK_SECRET (verifies Resend's email events)
 
