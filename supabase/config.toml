@@ -115,3 +115,33 @@ verify_jwt = false
 # still refuses without a valid token (ctx.isAuthenticated) and reads data as the caller. See the @lovable.dev/mcp-js README.
 [functions.mcp]
 verify_jwt = false
+
+# Deployed with the gateway JWT check off, and each does its own caller check inside (docs: supabase/functions/_shared/function-access.ts).
+# They were missing here, so a CLI deploy from this file would have switched the check ON and broken them (found by the 2026-11-13
+# repo-versus-database drift check). src/test/function-jwt-config.test.ts keeps them listed.
+[functions.figma-oauth-start]
+verify_jwt = false
+
+[functions.figma-oauth-callback]
+verify_jwt = false
+
+[functions.control-incidents]
+verify_jwt = false
+
+[functions.stuck-approval-sweep]
+verify_jwt = false
+
+[functions.outcome-quality-sweep]
+verify_jwt = false
+
+[functions.control-api-abuse-sweep]
+verify_jwt = false
+
+[functions.outer-control-session-sweep]
+verify_jwt = false
+
+[functions.outer-control-stub-tool]
+verify_jwt = false
+
+[functions.generation-canary]
+verify_jwt = false
