@@ -2,7 +2,7 @@
 
 ## What is an outside tool
 
-An outside tool is a service somewhere else with an HTTPS address and (usually) a key. **NazAI's own projects are not outside tools**: its server, its website (`nazai.net` and every name under it), and the agents and sites built on it. Aimed at them, a request would be NazAI talking to itself. They are connected the NazAI way: **Workflows, New workflow, Add agent** (shown only when the account has an agent) needs no address and no key (`create_agent_tool`, endpoint `nazai-agent://<id>`).
+An outside tool is a service somewhere else with an HTTPS address and (usually) a key. **NazAI's own projects are not outside tools**: its server, its website (`nazai.net` and every name under it), and the agents and sites built on it. Aimed at them, a request would be NazAI talking to itself. They are connected the NazAI way: **Connect a tool → Your NazAI agents → Add** (or, in a workflow, Add agent) needs no address and no key. With no agent yet the section says so and links to creating one (`create_agent_tool`, endpoint `nazai-agent://<id>`).
 
 | Kind | Endpoint | Treated as |
 |---|---|---|

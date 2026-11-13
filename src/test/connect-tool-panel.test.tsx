@@ -183,4 +183,32 @@ describe("ConnectToolPanel", () => {
     fireEvent.click(screen.getAllByTestId("use-in-prompt")[0]);
     expect(onUse).toHaveBeenCalledWith(expect.objectContaining({ connected: true }));
   });
+
+  describe("Your NazAI agents", () => {
+    const withAgents = (agents: { id: string; name: string }[], onAddAgent = vi.fn(async () => true), toolList = tools) => {
+      render(<ConnectToolPanel open onOpenChange={vi.fn()} tools={toolList} busy={false} onConnect={vi.fn(async () => true)} agents={agents} onAddAgent={onAddAgent} />);
+      return onAddAgent;
+    };
+    it("with no agent it says so and links to creating one", () => {
+      withAgents([]);
+      expect(screen.getByTestId("no-agents").textContent).toMatch(/no NazAI agents yet/);
+      expect(screen.getByTestId("create-agent").getAttribute("href")).toBe("/generator-home");
+      expect(screen.queryByTestId("panel-agent")).toBeNull();
+    });
+    it("lists each agent with an Add button, and Add hands the agent over", async () => {
+      const onAdd = withAgents([{ id: "a1", name: "Sales bot" }, { id: "a2", name: "Support bot" }]);
+      expect(screen.getAllByTestId("panel-agent").map((r) => r.textContent)).toEqual(["Sales botAdd", "Support botAdd"]);
+      fireEvent.click(screen.getAllByTestId("add-agent")[0]);
+      await waitFor(() => expect(onAdd).toHaveBeenCalledWith({ id: "a1", name: "Sales bot" }));
+    });
+    it("an agent that is already a tool shows Added instead of Add", () => {
+      withAgents([{ id: "a1", name: "Sales bot" }], vi.fn(async () => true), [...tools, { ...tools[0], id: "t9", name: "Agent: Sales bot", endpoint_url: "nazai-agent://a1" }]);
+      expect(screen.getByTestId("panel-agent").textContent).toMatch(/Added/);
+      expect(screen.queryByTestId("add-agent")).toBeNull();
+    });
+    it("without the agent handler (Generator) the section is not shown", () => {
+      render(<ConnectToolPanel open onOpenChange={vi.fn()} tools={tools} busy={false} onConnect={vi.fn(async () => true)} />);
+      expect(screen.queryByTestId("agents-group")).toBeNull();
+    });
+  });
 });

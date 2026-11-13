@@ -4,13 +4,13 @@ vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
 import { MemoryRouter } from "react-router-dom";
 
 const state = vi.hoisted(() => ({
-  tools: [] as unknown[], sessions: [] as unknown[], steps: [] as unknown[], keys: [] as unknown[], memory: [] as unknown[], usage: [] as unknown[], archivedCount: 0,
+  tools: [] as unknown[], sessions: [] as unknown[], steps: [] as unknown[], keys: [] as unknown[], memory: [] as unknown[], usage: [] as unknown[], agents: [] as unknown[], archivedCount: 0,
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
   const result = (table: string) => {
     const data = table === "external_tools" ? state.tools : table === "outer_control_sessions" ? state.sessions
-      : table === "outer_control_session_steps" ? state.steps : table === "outer_control_memory" ? state.memory : table === "outer_control_tool_usage" ? state.usage : state.keys;
+      : table === "outer_control_session_steps" ? state.steps : table === "outer_control_memory" ? state.memory : table === "outer_control_tool_usage" ? state.usage : table === "agents" ? state.agents : state.keys;
     const q: Record<string, unknown> = {};
     for (const m of ["select", "eq", "is", "not", "in", "order", "limit"]) q[m] = () => q;
     q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data, error: null, count: state.archivedCount }).then(res);
@@ -37,7 +37,7 @@ const renderCard = () => render(<MemoryRouter><ActiveSessionsCard accountId="u1"
 
 describe("ActiveSessionsCard", () => {
   beforeEach(() => {
-    state.tools = []; state.sessions = []; state.steps = []; state.keys = []; state.memory = [];
+    state.tools = []; state.sessions = []; state.steps = []; state.keys = []; state.memory = []; state.agents = [];
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ok: true }) })));
   });
 
@@ -68,6 +68,24 @@ describe("ActiveSessionsCard", () => {
     fireEvent.click(screen.getByText("More"));
     expect(screen.getByText("Update key")).toBeTruthy();
     expect(screen.getByText("Remove")).toBeTruthy();
+  });
+
+  it("Connect a tool offers the account's agents, and Add makes one a tool through the server", async () => {
+    state.agents = [{ id: "11111111-1111-1111-1111-111111111111", name: "Sales bot" }];
+    renderCard();
+    fireEvent.click(await screen.findByTestId("connect-tool-button"));
+    const row = await screen.findByTestId("panel-agent");
+    expect(row.textContent).toMatch(/Sales bot/);
+    fireEvent.click(screen.getByTestId("add-agent"));
+    await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0));
+    const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse(String(init.body))).toMatchObject({ action: "create_agent_tool", agent_id: "11111111-1111-1111-1111-111111111111" });
+  });
+
+  it("Connect a tool with no agent says so", async () => {
+    renderCard();
+    fireEvent.click(await screen.findByTestId("connect-tool-button"));
+    expect((await screen.findByTestId("no-agents")).textContent).toMatch(/no NazAI agents yet/);
   });
 
   it("a NazAI agent is shown as built in: no 'not tested yet', and no key to update", async () => {
