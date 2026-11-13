@@ -30,7 +30,7 @@ function Tile({ icon, label }: { icon: string; label: string }) {
   );
 }
 
-export default function ConnectToolPanel({ open, onOpenChange, tools = [], busy = false, onConnect, onTest, testingId, onUse, attachedIds = [] }: {
+export default function ConnectToolPanel({ open, onOpenChange, tools = [], busy = false, onConnect, onTest, testingId, onUse, attachedIds = [], agents, onAddAgent, addingAgentId }: {
   open: boolean; onOpenChange: (o: boolean) => void; tools?: ConnectedTool[]; busy?: boolean;
   /** Saves the tool and tests it; resolves true when it was saved. Without it the AI models group and custom connector are not shown. */
   onConnect?: (p: ConnectPayload) => Promise<boolean>;
@@ -38,6 +38,8 @@ export default function ConnectToolPanel({ open, onOpenChange, tools = [], busy 
   onTest?: (t: ConnectedTool) => void; testingId?: string | null;
   /** Generator: use a connected productivity tool's data in the prompt. */
   onUse?: (row: ProductivityRow) => void; attachedIds?: string[];
+  /** The account's own NazAI agents, and how to make one a tool (no address, no key). Without onAddAgent the section is not shown. */
+  agents?: { id: string; name: string }[]; onAddAgent?: (agent: { id: string; name: string }) => Promise<boolean> | void; addingAgentId?: string | null;
 }) {
   const int = useProductivityIntegrations(open);
   const aiModels = !!onConnect;
@@ -106,6 +108,32 @@ export default function ConnectToolPanel({ open, onOpenChange, tools = [], busy 
                               <span className="flex items-center gap-1.5"><span className={`h-1.5 w-1.5 rounded-full ${DOT[h.key]}`} aria-hidden />{h.label}</span>
                               {onTest && <button type="button" disabled={testingId === t.id} onClick={() => onTest(t)} className={ACTION} data-testid="panel-test">{testingId === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}</button>}
                             </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </section>
+              )}
+
+              {aiModels && onAddAgent && (!searching || "your nazai agents".includes(query.trim().toLowerCase())) && (
+                <section aria-label="Your NazAI agents" data-testid="agents-group">
+                  <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300/80">Your NazAI agents</h3>
+                  {(agents ?? []).length === 0 ? (
+                    <p className="mt-2 text-sm text-slate-400" data-testid="no-agents">
+                      You have no NazAI agents yet. An agent you build in NazAI can be a step in a Task, with no address and no key.{" "}
+                      <a href="/generator-home" className="text-cyan-300 underline-offset-2 hover:underline" data-testid="create-agent">Create an agent</a>
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-1.5">
+                      {(agents ?? []).map((a) => {
+                        const added = tools.some((t) => t.endpoint_url === `nazai-agent://${a.id}`);
+                        return (
+                          <li key={a.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm backdrop-blur" data-testid="panel-agent">
+                            <span className="min-w-0 truncate text-zinc-100">{a.name}</span>
+                            {added
+                              ? <span className="flex items-center gap-1 text-[11px] text-emerald-300"><Check className="h-3 w-3" />Added</span>
+                              : <button type="button" disabled={addingAgentId === a.id} onClick={() => void onAddAgent(a)} className={ACTION} data-testid="add-agent">{addingAgentId === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add"}</button>}
                           </li>
                         );
                       })}

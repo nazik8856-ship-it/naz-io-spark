@@ -70,6 +70,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
+  const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [usage, setUsage] = useState<Map<string, ToolUsage>>(new Map());
   const [records, setRecords] = useState<Map<string, ToolRecord>>(new Map());
   const [showArchived, setShowArchived] = useState(false);
@@ -89,11 +90,12 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       if (withArchive && !showArchived) q = q.is("archived_at", null);
       return q.order("started_at", { ascending: false }).limit(10);
     };
-    const [t, s0, k, u, rec] = await Promise.all([
+    const [t, s0, k, u, ag, rec] = await Promise.all([
       light ? null : anyDb.from("external_tools").select("id, name, endpoint_url, request_format, model, approved_at, last_ok_at, last_error, last_checked_at, suspended_at, suspended_reason").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
       sessionsQuery(true),
       light ? null : anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
       light ? null : anyDb.from("outer_control_tool_usage").select("tool_id, requests_30d, failed_30d, requests_today").eq("user_id", accountId),
+      light ? null : anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
       light ? null : anyDb.from("outer_control_tool_record").select("tool_id, sessions, completed, failed, stopped, replies, blocked, edited, escalated, median_seconds, last_used_at").eq("user_id", accountId),
     ]);
     const s = s0?.error ? await sessionsQuery(false) : s0;
@@ -109,6 +111,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     } catch { setArchivedCount(0); }
     setTools((t.data ?? []) as Tool[]);
     setKeys((k.data ?? []) as KeyOpt[]);
+    setAgents(ag?.error || !Array.isArray(ag?.data) ? [] : (ag.data as { id: string; name: string }[]));
     }
     const rows = (s.data ?? []) as Session[];
     setSessions(rows);
@@ -210,6 +213,18 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     if (id) await runTest(id, p.name);
     else toast.success("Tool connected. Press Test to check it.");
     return true;
+  };
+
+  /** One of the account's own NazAI agents becomes a tool: no address, no key, already approved. */
+  const addAgent = async (a: { id: string; name: string }): Promise<boolean> => {
+    setBusy(`agent-${a.id}`);
+    try {
+      const r = await callDrive("create_agent_tool", { agent_id: a.id });
+      if (!r.ok) { toast.error(r.message || "Could not add the agent."); return false; }
+      toast.success(`${a.name} added. Choose it as a tool when you start a task.`);
+      await load();
+      return true;
+    } finally { setBusy(null); }
   };
 
   /** Start task: one of the multi-tool actions. Each tool is asked (on its own or in a chain), then one controlled result is written. */
@@ -440,7 +455,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
         </button>
         </div>
       </div>
-      <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} onTest={(t) => runTest(t.id, t.name)} testingId={busy?.startsWith("test-") ? busy.slice(5) : null} />
+      <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} onTest={(t) => runTest(t.id, t.name)} testingId={busy?.startsWith("test-") ? busy.slice(5) : null} agents={agents} onAddAgent={addAgent} addingAgentId={busy?.startsWith("agent-") ? busy.slice(6) : null} />
       <FirstTaskChoice open={showChoice} onNazai={chooseNazai} onManual={() => { setShowChoice(false); setShowConnect(true); }} onClose={() => setShowChoice(false)} />
       <TaskPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startTask} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }} project={taskProject} onClearProject={() => setTaskProject(null)} records={records} />
 
