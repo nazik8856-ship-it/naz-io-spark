@@ -78,18 +78,13 @@ different address. Record what you did (date, account, what, why) in a note kept
 
 ### A customer asks for their data to be deleted
 
-What the **"request deletion" button does today:** after 7 days it deletes the governance data of that account: decisions, rules,
-incidents, spend history, audit trail, approvals and webhooks (`data-deletion-sweep`). The customer can cancel during the 7 days.
+A customer can delete everything themselves: **Account settings → Delete my account** (7 days to change their mind, then the daily sweep erases the account; `docs/account-erasure.md`). If they ask you to do it for them:
 
-What it does **not** do: it keeps the agents and team members, the login itself, and every table without a link to the login
-(projects, imported projects, missions, website pages and form submissions, the Credits ledger, tool records and others). So it is
-**not** a complete erasure, and you must not tell a customer it is. Until a complete erasure exists (section 7):
+1. Confirm the owner, then tell them exactly what is removed and what stays (the do-not-email address, encrypted backups for up to 30 days, anything the law makes us keep).
+2. Have them press the button while signed in (it needs their two-step code). They can cancel for 7 days; you can not skip the wait without the server key.
+3. After the run, check `select * from account_erasures order by erased_at desc limit 1` (date and row counts) and that `isolation_report()` is still empty. Tell the customer when it is done.
 
-1. Confirm the owner, then tell them exactly what will be removed and what must stay (the signed security record keeps no content, and
-   financial records may have to stay; ask an advisor for the rule that applies).
-2. Do the deletion yourself in this order: connected tools and integrations (their stored keys are removed with them), API keys, websites
-   and their images, projects, then the governance deletion, then the login. After each step run `isolation_report()` on the account.
-3. Write down what was deleted and when, and tell the customer when it is done.
+The older **"request deletion" on the Control System's Account data page** removes governance data only (decisions, rules, incidents, spend history, audit trail, approvals, webhooks); do not describe it as a deletion of the account.
 
 ## 5. Telling customers
 
@@ -112,7 +107,7 @@ What it does **not** do: it keeps the agents and team members, the login itself,
 | Gap | Effect today | Planned |
 |---|---|---|
 | Owner-assisted reset has no button | it is a function call (section 4) | a small screen for platform owners |
-| No complete account erasure | the deletion button removes governance data only | one complete erasure with a test that fails when a new table is missed |
+| Erasure waits on backups | encrypted governance backups hold an erased account for up to 30 days | none needed; a restore must re-run erasures (`account_erasures`) |
 | No second owner account | recovering the owner's own login depends on one person and the Supabase dashboard | decide with the owner |
 | Supabase Free plan | no automatic Supabase backups; only the governance backups exist | move to Pro before launch, then do a test restore |
 | Webhook and other customer secrets | customers rotate them with their own buttons | none needed |

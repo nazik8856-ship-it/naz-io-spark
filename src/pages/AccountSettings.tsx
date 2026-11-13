@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Input } from "@/components/ui/input";
 import { MfaCard } from "@/components/account/MfaCard";
+import { DeleteAccountCard } from "@/components/account/DeleteAccountCard";
 import { toast } from "sonner";
 import { validatePassword, PASSWORD_REQUIREMENTS_HINT } from "@/lib/password-policy";
 import { sendPasswordChangedNotification } from "@/lib/send-auth-notification-email";
@@ -150,6 +151,8 @@ const AccountSettings = () => {
             </button>
           </form>
         </div>
+
+        <DeleteAccountCard />
       </main>
     </div>
   );

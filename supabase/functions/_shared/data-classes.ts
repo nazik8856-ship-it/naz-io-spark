@@ -86,6 +86,7 @@ const S = "SECRET", R = "RULE", P = "PROJECT_CONTENT", X = "EXTERNAL_RESPONSE", 
 
 /** Every classified column, by table. Keep in step with the seed in the data_classification migrations (checked by the build). */
 export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
+  account_erasures: { user_hash: O, counts: O },
   account_members: { email: U, role: O, status: O, permissions: O },
   action_reversals: { provider: O, tool: O, undo_kind: O, undo_effect: O, irreversible_reason: O, ref: O, undo_payload: X, status: O, summary: O, error: O },
   agent_artifacts: { kind: O, title: P, url: P, ref: O, provider: O, account_email: U },
@@ -132,7 +133,7 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   critical_alerts: { event: O, summary: O, action_type: O, provider: O, actor: O, delivered_via: O },
   cross_account_precedent_stats: { action_type: O, provider: O },
   data_classification: { table_name: O, column_name: O, class: O, note: O },
-  data_deletion_requests: { status: O },
+  data_deletion_requests: { status: O, scope: O },
   decision_embeddings: { action_type: O, provider: O, embedding: P },
   decision_outcomes: { provider: O, linked_metric: O, direction: O, evidence: X },
   email_send_log: { message_id: O, template_name: O, recipient_email: U, status: O, error_message: O, metadata: O },

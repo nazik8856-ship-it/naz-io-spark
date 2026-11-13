@@ -70,6 +70,7 @@ export default function ControlAccountData() {
       .from("data_deletion_requests")
       .select("id, requested_at, execute_at, status, completed_at")
       .eq("user_id", user.id)
+      .eq("scope", "governance") // a whole-account erasure request lives in Account settings
       .order("requested_at", { ascending: false })
       .limit(1)
       .maybeSingle();
