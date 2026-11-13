@@ -70,6 +70,20 @@ describe("ActiveSessionsCard", () => {
     expect(screen.getByText("Remove")).toBeTruthy();
   });
 
+  it("a NazAI agent is shown as built in: no 'not tested yet', and no key to update", async () => {
+    state.tools = [{ ...tool, id: "ag", name: "Agent: Sales", endpoint_url: "nazai-agent://11111111-1111-1111-1111-111111111111", agent_id: "11111111-1111-1111-1111-111111111111" }];
+    renderCard();
+    await screen.findByText("Agent: Sales");
+    const row = screen.getByTestId("tool-row");
+    expect(row.querySelector("[data-testid=tool-status]")!.getAttribute("data-status")).toBe("working");
+    expect(row.textContent).toMatch(/Built in/);
+    expect(row.textContent).toMatch(/Your NazAI agent/);
+    expect(screen.getByTestId("tool-reason").textContent).not.toMatch(/Not tested yet/);
+    fireEvent.click(screen.getByText("More"));
+    expect(screen.queryByText("Update key")).toBeNull();
+    expect(screen.getByText("Remove")).toBeTruthy();
+  });
+
   it("says in plain words whether each tool works: Failed with the reason, Working, Needs attention (never tested, or tested long ago)", async () => {
     const recent = new Date(Date.now() - 5 * 60_000).toISOString();
     const old = new Date(Date.now() - 3 * 24 * 3600_000).toISOString();

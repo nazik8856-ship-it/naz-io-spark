@@ -8,7 +8,21 @@ import { ACTION_INFO, MAX_BACKGROUND, ROUTING_TEXT, TASK_LIMITS, type ReportKind
 
 export type ToolHealthKey = "working" | "failed" | "attention";
 export type ToolHealth = { key: ToolHealthKey; label: string; reason: string };
-export type ToolHealthInput = { approved_at: string | null; last_ok_at: string | null; last_checked_at: string | null; last_error: string | null };
+export type ToolHealthInput = { approved_at: string | null; last_ok_at: string | null; last_checked_at: string | null; last_error: string | null; endpoint_url?: string | null };
+
+// NazAI's own address is not an outside tool (the same rule as supabase/functions/_shared/outer-control-address.ts; a test checks they agree).
+export const NAZAI_SITE_HOSTS: readonly string[] = ["nazai.net"];
+export const NAZAI_ADDRESS_HELP = "That is a NazAI address. NazAI's own projects are not connected as outside tools: to use one of your agents in a Task choose Add a NazAI agent. Put an outside tool's own address here.";
+/** Why this address can not be an outside tool because it is NazAI's own, or null. `ownHost` is the host of NazAI's own server. */
+export function nazaiAddressProblem(rawUrl: string, ownHost: string | null): string | null {
+  let host: string;
+  try { host = new URL(rawUrl).hostname.toLowerCase().replace(/\.$/, ""); } catch { return null; }
+  if (ownHost && host === ownHost.toLowerCase().replace(/\.$/, "")) return NAZAI_ADDRESS_HELP;
+  if (NAZAI_SITE_HOSTS.some((s) => host === s || host.endsWith(`.${s}`))) return NAZAI_ADDRESS_HELP;
+  return null;
+}
+/** Built into NazAI, never an outside connection: the report writer, NazAI's starter AI, and the account's own agents. */
+export const isBuiltInTool = (endpoint: string | null | undefined): boolean => !!endpoint && (endpoint.startsWith("nazai-internal://") || endpoint.startsWith("nazai-agent://"));
 
 /** A good test older than this no longer proves the tool works today. */
 export const TEST_STALE_MS = 24 * 60 * 60 * 1000;
@@ -29,6 +43,8 @@ export function ago(iso: string, now: number): string {
  */
 export function toolHealth(t: ToolHealthInput, now = Date.now()): ToolHealth {
   if (t.last_checked_at && t.last_error) return { key: "failed", label: "Failed", reason: t.last_error };
+  // Part of NazAI itself: there is no address to test and no key to approve, so it is never "not tested yet".
+  if (isBuiltInTool(t.endpoint_url)) return { key: "working", label: "Built in", reason: "Part of NazAI. It is checked when a Task uses it." };
   if (!t.last_checked_at || !t.last_ok_at) return { key: "attention", label: "Needs attention", reason: "Not tested yet. Press Test to check the connection." };
   if (now - Date.parse(t.last_ok_at) > TEST_STALE_MS) return { key: "attention", label: "Needs attention", reason: `Last tested ${ago(t.last_ok_at, now)}. Press Test to check it again.` };
   if (!t.approved_at) return { key: "attention", label: "Needs attention", reason: "The first session asks you to approve contacting this tool." };
@@ -98,7 +114,7 @@ export function featuredPayload(f: Featured, token: string, model?: string) {
 export type ConnectorDraft = { name: string; url: string; format: string; token: string; model: string };
 
 /** What is wrong with the custom connector form, and a note when the address looks like an MCP server. */
-export function checkConnector(d: ConnectorDraft): { errors: string[]; notes: string[] } {
+export function checkConnector(d: ConnectorDraft, ownHost: string | null = null): { errors: string[]; notes: string[] } {
   const errors: string[] = [];
   const notes: string[] = [];
   if (!d.name.trim()) errors.push("Give the tool a name.");
@@ -110,6 +126,7 @@ export function checkConnector(d: ConnectorDraft): { errors: string[]; notes: st
   else if (!u) errors.push("That is not a web address. It must start with https://");
   else if (u.protocol !== "https:") errors.push("The address must start with https://");
   else if (u.username || u.password) errors.push("Leave the user name and password out of the address; use the key field.");
+  else { const own = nazaiAddressProblem(raw, ownHost); if (own) errors.push(own); }
   const looksMcp = !!u && /\/(mcp|sse)\/?$/i.test(u.pathname);
   if (d.format === "mcp") {
     notes.push("Outer Control will speak the MCP protocol (Streamable HTTP) to this server. The Test button lists its tools. Put the name of the tool to use in the Tool name field; it can stay empty when the server offers just one.");

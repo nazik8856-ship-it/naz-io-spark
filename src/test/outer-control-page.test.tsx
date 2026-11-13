@@ -3,13 +3,13 @@ import { render, screen, waitFor, fireEvent, within } from "@testing-library/rea
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
 import { MemoryRouter } from "react-router-dom";
 
-const state = vi.hoisted(() => ({ tables: {} as Record<string, unknown[]> }));
+const state = vi.hoisted(() => ({ tables: {} as Record<string, unknown[]>, errors: {} as Record<string, { message: string; code?: string }>, hang: new Set<string>() }));
 
 vi.mock("@/integrations/supabase/client", () => {
   const result = (table: string) => {
     const q: Record<string, unknown> = {};
     for (const m of ["select", "eq", "is", "not", "neq", "contains", "in", "order", "limit"]) q[m] = () => q;
-    q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: state.tables[table] ?? [], error: null }).then(res);
+    q.then = (res: (v: unknown) => unknown) => (state.hang.has(table) ? new Promise(() => {}) : Promise.resolve({ data: state.errors[table] ? null : state.tables[table] ?? [], error: state.errors[table] ?? null })).then(res);
     return q;
   };
   return {
@@ -34,6 +34,8 @@ const renderPage = () => render(<MemoryRouter><OuterControlSystem /></MemoryRout
 
 describe("Outer Control page", () => {
   beforeEach(() => {
+    state.errors = {};
+    state.hang = new Set();
     state.tables = {
       api_keys: [{ id: "k1", name: "Key 1" }],
       external_tools: [tool],
@@ -159,5 +161,45 @@ describe("Outer Control page", () => {
     expect(screen.getByTestId("health-text").textContent).toMatch(/Connect a tool and start a session/);
     expect(screen.getByTestId("trust-score").textContent).toBe("—");
     await waitFor(() => expect(screen.getAllByText("Connect a tool").length).toBeGreaterThan(0));
+  });
+
+  describe("loading always ends", () => {
+    it("a failed connections read shows the error and Try again, not 'set up your first key'", async () => {
+      state.errors.external_tools = { message: "boom" };
+      renderPage();
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toMatch(/could not read your connections/);
+      expect(screen.queryByText("Loading…")).toBeNull();
+      expect(screen.queryByTestId("status-bar")).toBeNull();
+    });
+
+    it("Try again reads again and opens the page once the read works", async () => {
+      state.errors.api_keys = { message: "boom" };
+      renderPage();
+      const retry = await screen.findByText("Try again");
+      state.errors = {}; // the connection is back
+      fireEvent.click(retry);
+      expect(await screen.findByTestId("status-bar")).toBeTruthy();
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("a read that never answers ends in the error, not in an endless 'Loading…'", async () => {
+      vi.useFakeTimers();
+      try {
+        state.hang.add("api_keys");
+        renderPage();
+        expect(screen.getByText("Loading…")).toBeTruthy();
+        await vi.advanceTimersByTimeAsync(25_000);
+        expect(screen.getByRole("alert").textContent).toMatch(/took too long/);
+        expect(screen.queryByText("Loading…")).toBeNull();
+      } finally { vi.useRealTimers(); }
+    });
+
+    it("a failed activity feed costs only the feed: the page opens with a notice", async () => {
+      state.errors.outer_control_evaluations = { message: "decrypt failed" };
+      renderPage();
+      expect(await screen.findByTestId("status-bar")).toBeTruthy();
+      expect(screen.getByRole("status").textContent).toMatch(/Recent activity could not be loaded/);
+    });
   });
 });

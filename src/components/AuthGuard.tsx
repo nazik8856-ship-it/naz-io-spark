@@ -1,3 +1,4 @@
+import { withTimeout } from "@/lib/with-timeout";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -14,6 +15,8 @@ const AuthSkeleton = () => (
   </div>
 );
 
+const MFA_CHECK_TIMEOUT_MS = 8_000;
+
 export const AuthGuard = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
@@ -22,7 +25,8 @@ export const AuthGuard = () => {
 
   const checkStep = useCallback(async () => {
     try {
-      const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      // The check waits on the browser's sign-in lock; a lock that never frees must not keep the page on its skeleton for ever.
+      const { data, error } = await withTimeout(supabase.auth.mfa.getAuthenticatorAssuranceLevel(), MFA_CHECK_TIMEOUT_MS, "The sign-in check");
       // If the check itself fails the person is not locked out of the page: the database still refuses admin/owner data without aal2.
       setStep(error ? "ok" : mfaStep(data));
     } catch {

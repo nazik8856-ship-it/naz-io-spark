@@ -72,7 +72,8 @@ export function assessOutput(text: string | null | undefined, objective: string)
   if (!raw) return { usable: false, code: "empty", detail: "the result is empty" };
   const visible = raw.replace(MARKER, "").trim();
   if (!visible || !/[\p{L}\p{N}]/u.test(visible)) return { usable: false, code: "empty", detail: "nothing is left of the result once removed text is taken out" };
-  if (PLACEHOLDER.test(visible)) return { usable: false, code: "placeholder", detail: `the result is only "${visible.slice(0, 30)}"` };
+  // "Done." and "OK!" are as empty as "done": trailing punctuation and spaces do not make a placeholder an answer.
+  if (PLACEHOLDER.test(visible.replace(/[\s.!?…]+$/u, ""))) return { usable: false, code: "placeholder", detail: `the result is only "${visible.slice(0, 30)}"` };
 
   // A structured "done" with no answer comes through as the raw JSON of the reply itself.
   if (visible.startsWith("{")) {

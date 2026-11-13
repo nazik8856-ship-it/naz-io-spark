@@ -44,6 +44,8 @@ import { acceptGoal, cancelWorkflow, continueSession, driveSession, extendGoal, 
 import { encodeChoice, findOption, type Handoff } from "../_shared/outer-control-handoff.ts";
 import { createAgentTool, ensureReportTool, removeTool, updateToolKey } from "../_shared/outer-control-tools.ts";
 import { resumeTool } from "../_shared/outer-control-containment.ts";
+import { nazaiAddressProblem } from "../_shared/outer-control-address.ts";
+import { ownProjectHost } from "../_shared/egress.ts";
 import { ensureStarterTools, isStarterUrl, STARTER_TASKS, STARTER_USED_UP, starterTasksUsed } from "../_shared/outer-control-starter.ts";
 import { buildPlanPrompt, cleanCount, cleanStyles, delegateInstruction, gatewayAi, improveInstruction, multistepInstruction, NEEDS_AI, parsePlan, REPORT_TOOL_URL, routeRequest, ROUTING_TEXT, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
 import { ACTION_INFO, MAX_BACKGROUND, REPORT_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
@@ -146,6 +148,8 @@ Deno.serve(async (req) => {
       const authName = String(body.auth_header ?? "Authorization").trim() || "Authorization";
       const scheme = typeof body.auth_scheme === "string" ? body.auth_scheme : "Bearer ";
       if (!HEADER_NAME.test(authName) || scheme.length > 20 || /[\r\n]/.test(scheme)) return json({ error: "invalid_auth", message: "That authentication header is not valid." }, 400);
+      const nazaiOwn = nazaiAddressProblem(endpoint, ownProjectHost());
+      if (nazaiOwn) return json({ error: "address_is_nazai", message: nazaiOwn }, 400);
       const url = await validateOutboundUrl(endpoint);
       if (!url.ok) return json({ error: "address_not_allowed", message: `That address can't be used: ${url.reason}.` }, 400);
       const { count } = await admin.from("external_tools").select("id", { count: "exact", head: true }).eq("user_id", accountId).is("removed_at", null);

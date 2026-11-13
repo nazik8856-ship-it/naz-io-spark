@@ -7,6 +7,7 @@ import { AlertTriangle, ArrowLeft, Check, Database, ExternalLink, Loader2, Plug,
 import { IntegrationLogo } from "@/components/IntegrationLogos";
 import { useProductivityIntegrations, type ProductivityRow } from "@/hooks/useProductivityIntegrations";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { OWN_SERVER_HOST } from "@/lib/server-host";
 import { checkConnector, FEATURED_TOOLS, featuredPayload, keyPageUrl, searchConnectors, toolHealth, type Featured, type ToolHealthInput } from "@/lib/outer-control-tools-ui";
 
 const inputCls = "w-full rounded-xl border border-cyan-400/20 bg-[#071226]/80 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-slate-500 outline-none transition focus:border-cyan-300/70 focus:shadow-[0_0_0_3px_rgba(34,211,238,0.15)]";
@@ -47,7 +48,7 @@ export default function ConnectToolPanel({ open, onOpenChange, tools = [], busy 
   const [custom, setCustom] = useState({ name: "", url: "", format: "generic_json", model: "", token: "" });
   const reset = () => { setView({ kind: "home" }); setQuery(""); setKey(""); setModel(""); setCustom({ name: "", url: "", format: "generic_json", model: "", token: "" }); };
   const close = (o: boolean) => { if (!o) reset(); onOpenChange(o); };
-  const checked = checkConnector({ name: custom.name, url: custom.url, format: custom.format, token: custom.token, model: custom.model });
+  const checked = checkConnector({ name: custom.name, url: custom.url, format: custom.format, token: custom.token, model: custom.model }, OWN_SERVER_HOST);
   const connectedFor = (f: Featured) => tools.find((t) => t.endpoint_url === f.endpoint_url);
   const found = useMemo(() => searchConnectors(FEATURED_TOOLS, query), [query]);
   const foundConnected = useMemo(() => searchConnectors(tools.map((t) => ({ ...t, blurb: t.endpoint_url })), query), [tools, query]);
