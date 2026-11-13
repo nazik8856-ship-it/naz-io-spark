@@ -19,7 +19,7 @@ describe("NazAI's own address is not an outside tool", () => {
 
   it("the server refuses them, with what to do instead", () => {
     for (const u of nazai) expect(server.nazaiAddressProblem(u, OWN), u).toBe(server.NAZAI_ADDRESS_HELP);
-    expect(server.NAZAI_ADDRESS_HELP).toMatch(/Add a NazAI agent/);
+    expect(server.NAZAI_ADDRESS_HELP).toMatch(/Workflows, New workflow, Add agent/);
   });
   it("outside tools, and look-alike names, pass", () => {
     for (const u of outside) expect(server.nazaiAddressProblem(u, OWN), u).toBeNull();
