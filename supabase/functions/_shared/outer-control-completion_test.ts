@@ -113,3 +113,11 @@ Deno.test("assessOutput: real answers are not flagged", () => {
     "The error rate fell to 2% after the fix.",
   ]) assert(assessOutput(t, OBJ).usable, `${t.slice(0, 40)} should be usable`);
 });
+
+Deno.test("assessOutput: a placeholder with punctuation is still a placeholder", () => {
+  for (const t of ["Done.", "OK!", "Success.", "Completed!!", "Okay…", "N/A."]) {
+    const u = assessOutput(t, "Write a summary");
+    if (u.usable || u.code !== "placeholder") throw new Error(`${t} should be a placeholder, got ${JSON.stringify(u)}`);
+  }
+  if (!assessOutput("Done. Refunds are paid within 14 days.", "Write a summary").usable) throw new Error("a real answer that starts with 'Done.' is usable");
+});
