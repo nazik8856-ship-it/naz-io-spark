@@ -1,6 +1,7 @@
 // Scheduled sweep (pg_cron, daily): executes any data_deletion_requests
-// whose 7-day grace period has elapsed, deleting the account's AI
-// Control System governance data -- decisions, rules, incidents, spend
+// whose 7-day grace period has elapsed. A request with scope "account" erases the whole account (docs/account-erasure.md): connected
+// services are cancelled at their providers, then erase_account() removes every row, the stored secrets and the login. A request with
+// scope "governance" deletes the account's AI Control System governance data -- decisions, rules, incidents, spend
 // history, audit trail, webhooks. Deliberately does NOT delete `agents`
 // or `account_members` -- those are the customer's actual product
 // configuration and team structure, not governance/audit data, and
@@ -9,6 +10,7 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data encryption, fronts 3 and 4)
+import { eraseAccount } from "../_shared/account-erasure.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,15 +53,26 @@ Deno.serve(async (req) => {
 
   const { data: due, error } = await admin
     .from("data_deletion_requests")
-    .select("id, user_id")
+    .select("id, user_id, scope")
     .eq("status", "pending")
     .lte("execute_at", new Date().toISOString());
   if (error) return json({ error: error.message }, 500);
 
   const outcomes: { requestId: string; userId: string; deletedByTable: Record<string, number>; error: string | null }[] = [];
 
-  for (const dueReq of (due ?? []) as { id: string; user_id: string }[]) {
+  for (const dueReq of (due ?? []) as { id: string; user_id: string; scope: string }[]) {
     const deletedByTable: Record<string, number> = {};
+    if (dueReq.scope === "account") {
+      // The request row goes with the account. On failure it stays pending, so tomorrow's run tries again.
+      const result = await eraseAccount(admin, dueReq.user_id);
+      if (result.ok) {
+        outcomes.push({ requestId: dueReq.id, userId: "erased", deletedByTable: result.counts, error: null });
+      } else {
+        console.error(`[data-deletion-sweep] account erasure failed (request ${dueReq.id}): ${result.error}`);
+        outcomes.push({ requestId: dueReq.id, userId: dueReq.user_id, deletedByTable, error: result.error });
+      }
+      continue;
+    }
     try {
       for (const table of GOVERNANCE_TABLES) {
         const { data } = await admin.from(table).delete().eq("user_id", dueReq.user_id).select("id");
