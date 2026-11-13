@@ -12,7 +12,7 @@ export type ToolHealthInput = { approved_at: string | null; last_ok_at: string |
 
 // NazAI's own address is not an outside tool (the same rule as supabase/functions/_shared/outer-control-address.ts; a test checks they agree).
 export const NAZAI_SITE_HOSTS: readonly string[] = ["nazai.net"];
-export const NAZAI_ADDRESS_HELP = "That is a NazAI address. NazAI's own projects are not connected as outside tools: to use one of your agents in a Task choose Add a NazAI agent. Put an outside tool's own address here.";
+export const NAZAI_ADDRESS_HELP = "That is a NazAI address. NazAI's own projects are not outside tools. To use one of your NazAI agents in a Task, add it as a step: Workflows, New workflow, Add agent. Here, put an outside tool's own address.";
 /** Why this address can not be an outside tool because it is NazAI's own, or null. `ownHost` is the host of NazAI's own server. */
 export function nazaiAddressProblem(rawUrl: string, ownHost: string | null): string | null {
   let host: string;

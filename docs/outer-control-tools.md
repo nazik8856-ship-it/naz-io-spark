@@ -2,7 +2,7 @@
 
 ## What is an outside tool
 
-An outside tool is a service somewhere else with an HTTPS address and (usually) a key. **NazAI's own projects are not outside tools**: its server, its website (`nazai.net` and every name under it), and the agents and sites built on it. Aimed at them, a request would be NazAI talking to itself. They are connected the NazAI way: **Add a NazAI agent** needs no address and no key (`create_agent_tool`, endpoint `nazai-agent://<id>`).
+An outside tool is a service somewhere else with an HTTPS address and (usually) a key. **NazAI's own projects are not outside tools**: its server, its website (`nazai.net` and every name under it), and the agents and sites built on it. Aimed at them, a request would be NazAI talking to itself. They are connected the NazAI way: **Workflows, New workflow, Add agent** (shown only when the account has an agent) needs no address and no key (`create_agent_tool`, endpoint `nazai-agent://<id>`).
 
 | Kind | Endpoint | Treated as |
 |---|---|---|
@@ -13,7 +13,7 @@ An outside tool is a service somewhere else with an HTTPS address and (usually) 
 ## Where the rule is applied (`supabase/functions/_shared/outer-control-address.ts`, mirrored for the form in `src/lib/outer-control-tools-ui.ts`)
 
 1. **The Connect form** shows the problem before anything is sent.
-2. **`create_tool`** refuses the address with `address_is_nazai` and says what to do instead.
+2. **`create_tool`** refuses the address with `address_is_nazai` and says where to go instead.
 3. **The connection test** reports it without sending a request.
 4. **A Task step** stops with the same message if a tool saved before this rule has such an address.
 5. NazAI's own server address was already refused by the general address check (`ownProjectProblem`); the website name is new.
@@ -44,4 +44,4 @@ Existing tools with such an address are not deleted; they show Failed with the m
 
 ## Keep-alive audit (2026-11-13)
 
-Question: does the 12-hour keep-alive test NazAI's own projects as if they were outside tools? **No.** Its query leaves out every tool with an `agent_id`, every `nazai-internal://` tool, and removed, disabled and never-approved tools. Live data agrees: the account has no `nazai-agent://` rows; the report writer and starter tools are `nazai-internal://`. One old test tool ("Bot2") pointed at NazAI's own server; its test already stopped before any request (the general address check), and now also says what to do instead. Pinned by a test in `src/test/outer-control-address.test.ts`.
+Question: does the 12-hour keep-alive test NazAI's own projects as if they were outside tools? **No.** Its query leaves out every tool with an `agent_id`, every `nazai-internal://` tool, and removed, disabled and never-approved tools. Live data agrees: the account has no `nazai-agent://` rows; the report writer and starter tools are `nazai-internal://`. One old test tool ("Bot2") pointed at NazAI's own server; its test already stopped before any request (the general address check), and now also says where to go instead. Pinned by a test in `src/test/outer-control-address.test.ts`.
