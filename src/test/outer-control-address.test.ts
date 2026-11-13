@@ -115,3 +115,19 @@ describe("wording and retries (server modules)", () => {
     expect(classifyFailure({ httpStatus: null, unreachable: true, attempt: 1 }).reason).toBe("The tool could not be reached.");
   });
 });
+
+describe("the keep-alive tests only real outside tools", () => {
+  const src = readFileSync(join(ROOT, "supabase/functions/_shared/outer-control-keepalive.ts"), "utf8");
+  it("leaves out agents, the report writer and the starter AI, removed and disabled tools, and untested approvals", () => {
+    expect(src).toContain('.is("agent_id", null)');
+    expect(src).toContain('.not("endpoint_url", "like", "nazai-internal://%")');
+    expect(src).toContain('.eq("enabled", true).is("removed_at", null)');
+    expect(src).toContain('.not("approved_at", "is", null)');
+  });
+  it("a tool with NazAI's own address is reported without any request, so the keep-alive never contacts NazAI itself", () => {
+    const test = readFileSync(join(ROOT, "supabase/functions/_shared/outer-control-tool-test.ts"), "utf8");
+    expect(test.indexOf("nazaiAddressProblem(")).toBeGreaterThan(0);
+    expect(test.indexOf("nazaiAddressProblem(")).toBeLessThan(test.indexOf("deps.fetchImpl(tool.endpoint_url"));
+    expect(test.indexOf("nazaiAddressProblem(")).toBeLessThan(test.indexOf("deps.validateUrl(tool.endpoint_url)"));
+  });
+});

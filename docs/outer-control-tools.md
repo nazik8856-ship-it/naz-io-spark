@@ -41,3 +41,7 @@ Existing tools with such an address are not deleted; they show Failed with the m
 ## Checks
 
 `src/test/outer-control-address.test.ts` (the rule, the form agreeing with the server, the real server host, built-in health, every failure kind, retry behaviour), `src/test/active-sessions-card.test.tsx` (an agent row), `supabase/functions/_shared/network-failure_test.ts` (Deno).
+
+## Keep-alive audit (2026-11-13)
+
+Question: does the 12-hour keep-alive test NazAI's own projects as if they were outside tools? **No.** Its query leaves out every tool with an `agent_id`, every `nazai-internal://` tool, and removed, disabled and never-approved tools. Live data agrees: the account has no `nazai-agent://` rows; the report writer and starter tools are `nazai-internal://`. One old test tool ("Bot2") pointed at NazAI's own server; its test already stopped before any request (the general address check), and now also says what to do instead. Pinned by a test in `src/test/outer-control-address.test.ts`.
