@@ -1,5 +1,6 @@
 // Outer Control (active): run several tools as one workflow. Steps with nothing to wait for
 // start together; a step that waits receives the results of the steps it depends on.
+import { usePoller } from "@/hooks/usePoller";
 import { useCallback, useEffect, useState } from "react";
 import { Workflow, Plus, X } from "lucide-react";
 import { toast } from "sonner";
@@ -52,8 +53,9 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
   const [context, setContext] = useState("");
   const [drafts, setDrafts] = useState<DraftLeg[]>([emptyLeg()]);
 
-  const load = useCallback(async () => {
-    if (!accountId) return;
+  const load = useCallback(async (light = false): Promise<boolean> => {
+    // light = a refresh while a Task runs: the tool and agent lists do not change meanwhile.
+    if (!accountId) return true;
     const WF_COLS = "id, objective, status, summary, started_at, kind, current_leg, steps_total, steps_done, final_output, final_leg, failed_leg, stop_reason, final_artifact, origin";
     const GOAL_COLS = "mode, criteria_state, max_rounds, rounds_used, blocked_reason";
     // Archived Tasks are left out of the list (nothing is deleted). Before a newer column exists the older query still works.
@@ -63,16 +65,18 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
       return q.order("started_at", { ascending: false }).limit(8);
     };
     const [t, w0, a] = await Promise.all([
-      anyDb.from("external_tools").select("id, name, endpoint_url, agent_id, model, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).eq("enabled", true).is("removed_at", null).order("created_at", { ascending: false }),
+      light ? null : anyDb.from("external_tools").select("id, name, endpoint_url, agent_id, model, approved_at, last_ok_at, last_error, last_checked_at").eq("user_id", accountId).eq("enabled", true).is("removed_at", null).order("created_at", { ascending: false }),
       // One-tool runs are Tasks too, but they are shown as sessions: this list is for several steps.
       wfQuery(true, true),
-      anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
+      light ? null : anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
     ]);
     let w = w0;
     if (w?.error) w = await wfQuery(true, false);
     if (w?.error) w = await wfQuery(false, false);
-    setTools((t.data ?? []) as ToolOpt[]);
-    setAgents((a.data ?? []) as AgentOpt[]);
+    // A failed refresh keeps what is shown (it used to empty the list) and tells the poller to wait longer.
+    if (w?.error) return false;
+    if (t) setTools((t.data ?? []) as ToolOpt[]);
+    if (a) setAgents((a.data ?? []) as AgentOpt[]);
     const rows = (w.data ?? []) as WorkflowRow[];
     setWorkflows(rows);
     if (rows.length) {
@@ -82,15 +86,12 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
         .select("id, workflow_id, leg_no, tool_id, objective, status, stop_reason, final_output, depends_on, final_artifact").in("workflow_id", rows.map((r) => r.id)).order("leg_no");
       setLegs((l.data ?? []) as LegRow[]);
     } else { setLegs([]); setHandoffs([]); }
+    return true;
   }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
   const anyOpen = workflows.some((w) => w.status === "running" || w.status === "awaiting_human");
-  useEffect(() => {
-    if (!anyOpen) return;
-    const id = setInterval(load, 3000);
-    return () => clearInterval(id);
-  }, [anyOpen, load]);
+  usePoller(() => load(true), { active: anyOpen, fast: workflows.some((w) => w.status === "running") });
 
   const setLeg = (i: number, patch: Partial<DraftLeg>) => setDrafts((d) => d.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   const toolName = (id: string) => tools.find((t) => t.id === id)?.name ?? "Tool";
@@ -150,7 +151,7 @@ export default function WorkflowsCard({ accountId }: { accountId: string | null 
         </div>
       </div>
 
-      {showGoal && <GoalTaskForm tools={tools.filter((t) => !(t.endpoint_url ?? "").startsWith("nazai-internal://"))} onStarted={async () => { setShowGoal(false); await load(); }} onRefresh={load} />}
+      {showGoal && <GoalTaskForm tools={tools.filter((t) => !(t.endpoint_url ?? "").startsWith("nazai-internal://"))} onStarted={async () => { setShowGoal(false); await load(); }} onRefresh={async () => { await load(); }} />}
 
       {show && (
         <div className="mt-4 space-y-3 rounded-xl border border-white/10 bg-black/20 p-3">

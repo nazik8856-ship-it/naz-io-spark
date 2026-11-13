@@ -1,6 +1,7 @@
 // Outer Control: the Tasks started from Start task, on the main page. Each one shows what is happening now in one line, a step for
 // every tool and for NazAI's writer, and, once it is done, the one controlled result with its proof. A Task that finishes while the
 // page is open says so ("Result ready") and opens its result.
+import { usePoller } from "@/hooks/usePoller";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Ban, Check, ChevronDown, Clock, FileCheck2, Hand, Loader2, RotateCcw, ShieldCheck, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
@@ -94,13 +95,13 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
   const [writing, setWriting] = useState<string | null>(null);
   const autoOpened = useRef<Set<string>>(new Set());
 
-  const load = useCallback(async () => {
-    if (!accountId) return;
-    // A failed refresh keeps what is shown; the next one tries again.
-    try { await loadTasks(accountId); } catch { /* keep the last view */ }
+  const load = useCallback(async (): Promise<boolean> => {
+    if (!accountId) return true;
+    // A failed refresh keeps what is shown; the poller waits longer before the next one.
+    try { return await loadTasks(accountId); } catch { return false; }
   }, [accountId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadTasks = async (accountId: string) => {
+  const loadTasks = async (accountId: string): Promise<boolean> => {
     const COLS = "id, objective, status, started_at, stop_reason, final_artifact";
     // Before the project column exists the older query still works.
     const q = (withArchive: boolean, withProject: boolean) => {
@@ -111,6 +112,7 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
     let w = await q(true, true);
     if (w?.error) w = await q(true, false);
     if (w?.error) w = await q(false, false);
+    if (w?.error) return false; // keep the last view
     const rows = (Array.isArray(w?.data) ? w.data : []) as TaskRow[];
     const ids = rows.map((r) => r.id);
     const [l, t] = await Promise.all([
@@ -138,16 +140,13 @@ export default function TaskTracker({ accountId, refreshKey = 0 }: { accountId: 
     setTools(allTools);
     setLegs(allLegs.filter((x) => mine.some((m) => m.id === x.workflow_id)));
     setTasks(mine);
+    return true;
   };
 
   useEffect(() => { load(); }, [load, refreshKey]);
   const anyOpen = tasks.some((t) => isOpen(t.status));
   // A Task started from this page is already running when the start returns, so polling while one is open is enough.
-  useEffect(() => {
-    if (!anyOpen) return;
-    const id = setInterval(load, 3000);
-    return () => clearInterval(id);
-  }, [anyOpen, load]);
+  usePoller(load, { active: anyOpen, fast: tasks.some((t) => t.status === "running") });
 
   // The newest Task is open by itself; a Task that finishes while the page is open opens and says so.
   useEffect(() => {

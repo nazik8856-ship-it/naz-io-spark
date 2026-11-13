@@ -2,6 +2,7 @@
 // session on every row, the sessions that are running or need you, and a short history.
 // Update key / Remove sit behind "More"; step logs open only for the session you click. Outer Control does the contacting, rule checking
 // and deciding; this card only shows it and collects the few things a person must give.
+import { usePoller } from "@/hooks/usePoller";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Activity, Gauge, Plus, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
@@ -78,8 +79,9 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   /** Counts the Tasks started here, so Your tasks loads the new one at once. */
   const [taskStarts, setTaskStarts] = useState(0);
 
-  const load = useCallback(async () => {
-    if (!accountId) return;
+  const load = useCallback(async (light = false): Promise<boolean> => {
+    // light = a refresh while a Task runs: only the sessions can have changed (tools, keys, usage and records are read on open and after an action).
+    if (!accountId) return true;
     const SESSION_COLS = "id, tool_id, objective, status, step_count, max_steps, final_output, stop_reason, pending_kind, pending_question, started_at, handoff, workflow_id, leg_no, completion, final_artifact, finished_at";
     // Archived items are left out unless asked for. Before the archive column exists the plain query still works.
     const sessionsQuery = (withArchive: boolean) => {
@@ -88,30 +90,35 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       return q.order("started_at", { ascending: false }).limit(10);
     };
     const [t, s0, k, u, rec] = await Promise.all([
-      anyDb.from("external_tools").select("id, name, endpoint_url, request_format, model, approved_at, last_ok_at, last_error, last_checked_at, suspended_at, suspended_reason").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
+      light ? null : anyDb.from("external_tools").select("id, name, endpoint_url, request_format, model, approved_at, last_ok_at, last_error, last_checked_at, suspended_at, suspended_reason").eq("user_id", accountId).is("removed_at", null).order("created_at", { ascending: false }),
       sessionsQuery(true),
-      anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
-      anyDb.from("outer_control_tool_usage").select("tool_id, requests_30d, failed_30d, requests_today").eq("user_id", accountId),
-      anyDb.from("outer_control_tool_record").select("tool_id, sessions, completed, failed, stopped, replies, blocked, edited, escalated, median_seconds, last_used_at").eq("user_id", accountId),
+      light ? null : anyDb.from("api_keys").select("id, name").eq("user_id", accountId).is("revoked_at", null),
+      light ? null : anyDb.from("outer_control_tool_usage").select("tool_id, requests_30d, failed_30d, requests_today").eq("user_id", accountId),
+      light ? null : anyDb.from("outer_control_tool_record").select("tool_id, sessions, completed, failed, stopped, replies, blocked, edited, escalated, median_seconds, last_used_at").eq("user_id", accountId),
     ]);
+    const s = s0?.error ? await sessionsQuery(false) : s0;
+    // A failed refresh keeps what is shown (it used to empty the list) and tells the poller to wait longer.
+    if (s?.error) return false;
+    if (!light) {
     // The track record is optional: before its view exists the page works without it.
     setRecords(new Map((rec?.error || !Array.isArray(rec?.data) ? [] : (rec.data as ToolRecordRow[])).filter((x) => x && typeof x.tool_id === "string").map((x) => [x.tool_id, toolRecord(x)])));
     setUsage(new Map((Array.isArray(u?.data) ? (u.data as ToolUsage[]) : []).filter((x) => x && typeof x.tool_id === "string").map((x) => [x.tool_id, x])));
-    const s = s0?.error ? await sessionsQuery(false) : s0;
     try {
       const c = await anyDb.from("outer_control_sessions").select("id", { count: "exact", head: true }).eq("user_id", accountId).not("archived_at", "is", null);
       setArchivedCount(Number(c?.count ?? 0) || 0);
     } catch { setArchivedCount(0); }
     setTools((t.data ?? []) as Tool[]);
+    setKeys((k.data ?? []) as KeyOpt[]);
+    }
     const rows = (s.data ?? []) as Session[];
     setSessions(rows);
-    setKeys((k.data ?? []) as KeyOpt[]);
     // A one-tool run is a Task of one step: it is not "step 1 of a workflow".
     const wfIds = [...new Set(rows.map((r) => r.workflow_id).filter((x): x is string => !!x))];
     if (wfIds.length) {
       const w = await anyDb.from("outer_control_workflows").select("id, kind").in("id", wfIds);
       setSingles(new Set(((Array.isArray(w.data) ? w.data : []) as { id: string; kind?: string }[]).filter((x) => x?.kind === "single").map((x) => x.id)));
     } else setSingles(new Set());
+    return true;
   }, [accountId, showArchived]);
 
   const loadSteps = useCallback(async (sessionId: string) => {
@@ -154,11 +161,11 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   };
   // Poll while anything is open, so a running session visibly moves and an approval resumes it on screen.
   const anyOpen = sessions.some((s) => isOpen(s.status));
-  useEffect(() => {
-    if (!anyOpen) return;
-    const id = setInterval(() => { load(); if (expanded) loadSteps(expanded); }, 3000);
-    return () => clearInterval(id);
-  }, [anyOpen, expanded, load, loadSteps]);
+  usePoller(async () => {
+    const ok = await load(true);
+    if (expanded) await loadSteps(expanded);
+    return ok;
+  }, { active: anyOpen, fast: sessions.some((x) => x.status === "running" || x.status === "queued") });
   useEffect(() => { if (expanded) loadSteps(expanded); }, [expanded, loadSteps]);
   // A session that is running opens by itself once, so the person sees which tool is used and what Outer Control does.
   const autoOpened = useRef<Set<string>>(new Set());
