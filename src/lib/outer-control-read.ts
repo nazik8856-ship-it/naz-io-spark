@@ -3,24 +3,31 @@
 // like supabase.from(table) for a read: the same select, filters, order and limit, the same { data, error } result. It runs as the
 // signed-in user (same row level security) and the content comes back decrypted.
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
+import { fetchWithTimeout, isTimeout, withTimeout } from "@/lib/with-timeout";
+
+/** A read that has not answered after this long is an error the screen shows, not a spinner that never ends. */
+export const READ_TIMEOUT_MS = 15_000;
+/** Reading the saved sign-in can wait on the browser's auth lock; it must not hold a read forever. */
+export const SESSION_TIMEOUT_MS = 8_000;
 
 type Op = { m: string; a: unknown[] };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ReadResult = { data: any; error: { message: string; code?: string } | null; count?: number | null };
 
 async function run(table: string, ops: Op[]): Promise<ReadResult> {
-  const { data: sess } = await supabase.auth.getSession();
-  const token = sess.session?.access_token ?? SUPABASE_ANON;
   try {
-    const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/outer-control-read`, {
+    const { data: sess } = await withTimeout(supabase.auth.getSession(), SESSION_TIMEOUT_MS, "Checking your sign-in");
+    const token = sess.session?.access_token ?? SUPABASE_ANON;
+    const resp = await fetchWithTimeout(fetch, `${SUPABASE_FUNCTIONS_URL}/outer-control-read`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON },
       body: JSON.stringify({ table, ops }),
-    });
+    }, READ_TIMEOUT_MS, "Outer Control");
     const body = await resp.json().catch(() => null);
     if (!body) return { data: null, error: { message: `Could not read (HTTP ${resp.status}).` } };
     return { data: body.data ?? null, error: body.error ?? null, count: typeof body.count === "number" ? body.count : null };
-  } catch {
+  } catch (e) {
+    if (isTimeout(e)) return { data: null, error: { message: "Outer Control took too long to answer. Try again.", code: "timeout" } };
     return { data: null, error: { message: "Could not reach Outer Control. Try again." } };
   }
 }

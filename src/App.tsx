@@ -1,3 +1,4 @@
+import { withTimeout } from "@/lib/with-timeout";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/query-client"; // shared so a session change can empty it (session-reset.ts)
@@ -29,9 +30,13 @@ function BuildFreshnessWatcher() {
 // stale chunk hash from a previous deploy ("Failed to fetch dynamically
 // imported module"). Without this, the app white-screens until the user
 // manually refreshes.
+const CHUNK_TIMEOUT_MS = 30_000;
 const lazyWithReload = <T,>(factory: () => Promise<{ default: React.ComponentType<T> }>) =>
   lazy(() =>
-    factory().catch((err) => {
+    // A page file that never arrives ends in the error screen with Reload, not in a skeleton that never goes away.
+    withTimeout(factory(), CHUNK_TIMEOUT_MS, "Loading the page")
+    .then((m) => { try { sessionStorage.removeItem("__nazai_chunk_reload__"); } catch { /* storage may be blocked */ } return m; })
+    .catch((err) => {
       const msg = String(err?.message || err);
       if (/dynamically imported module|Importing a module script failed|ChunkLoadError/i.test(msg)) {
         const key = "__nazai_chunk_reload__";

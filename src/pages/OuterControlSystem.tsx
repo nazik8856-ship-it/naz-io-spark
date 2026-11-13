@@ -21,6 +21,8 @@ import RecentDecisions, { type DecisionRow } from "@/components/control/outer/Re
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { healthText, type Verdict } from "@/lib/outer-control-ui";
 import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
+import { withTimeout } from "@/lib/with-timeout";
+import { loadErrorText, loadVerdict, PAGE_LOAD_TIMEOUT_MS } from "@/lib/outer-control-load";
 
 type EvaluationRow = DecisionRow;
 
@@ -263,6 +265,10 @@ export default function OuterControlSystem() {
     navigate("/dashboard", { state: { firstValueDone: true } });
   };
   const [loading, setLoading] = useState(true);
+  // Loading always ends: with the page, or with a plain error and a Retry (docs/outer-control-loading.md).
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [feedFailed, setFeedFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   /** An API key, or a connected tool: either opens the live page instead of the setup step. */
   const [hasAccess, setHasAccess] = useState(false);
   const [rows, setRows] = useState<EvaluationRow[]>([]);
@@ -308,10 +314,12 @@ export default function OuterControlSystem() {
     if (!accountId) return;
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     (async () => {
-      // Tools already connected (or NazAI's starter AI) also open the page: their tasks are shown even without an API key.
-      const toolsRes = await anyDb.from("external_tools").select("id", { count: "exact", head: true }).eq("user_id", accountId).is("removed_at", null);
-      const [keysRes, evalRes, keyActivityRes, hardRulesRes, safetyRulesRes] = await Promise.all([
+     try {
+      const [toolsRes, keysRes, evalRes, keyActivityRes, hardRulesRes, safetyRulesRes] = await withTimeout(Promise.all([
+        // Tools already connected (or NazAI's starter AI) also open the page: their tasks are shown even without an API key.
+        anyDb.from("external_tools").select("id", { count: "exact", head: true }).eq("user_id", accountId).is("removed_at", null),
         anyDb
           .from("api_keys")
           .select("id, name")
@@ -341,8 +349,11 @@ export default function OuterControlSystem() {
         // 0 here means "no account-specific business rule," never "unprotected."
         anyDb.from("hard_rules").select("id, agent_id, api_key_id, enabled").eq("user_id", accountId),
         anyDb.from("safety_rules").select("id, agent_id, api_key_id, enabled").eq("user_id", accountId),
-      ]);
+      ]), PAGE_LOAD_TIMEOUT_MS, "Loading Outer Control");
       if (cancelled) return;
+      const verdict = loadVerdict({ tools: toolsRes, keys: keysRes, evals: evalRes });
+      if (verdict.blocking) { setLoadError(verdict.blocking); return; }
+      setFeedFailed(verdict.feedFailed);
       const keys = (keysRes.data ?? []) as { id: string; name: string }[];
       setHasAccess(keys.length > 0 || Number(toolsRes?.count ?? 0) > 0);
       const lastSeenByKey = new Map<string, string>();
@@ -360,10 +371,14 @@ export default function OuterControlSystem() {
         ruleCount: ruleCountFor(k.id),
       })));
       setRows((evalRes.data ?? []) as EvaluationRow[]);
-      setLoading(false);
+     } catch (e) {
+      if (!cancelled) setLoadError(loadErrorText(e));
+     } finally {
+      if (!cancelled) setLoading(false);
+     }
     })();
     return () => { cancelled = true; };
-  }, [accountId]);
+  }, [accountId, reloadKey]);
 
   const stats = useMemo(() => {
     const since7d = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -427,17 +442,36 @@ export default function OuterControlSystem() {
         <div className="mx-auto max-w-6xl px-6 py-16 text-center text-sm text-zinc-500">Loading…</div>
       )}
 
-      {!loading && !hasAccess && !firstValue && <SetupRequired navigate={navigate} />}
+      {!loading && loadError && (
+        <div role="alert" className="mx-auto max-w-xl px-6 py-16 text-center">
+          <p className="text-sm text-zinc-300 mb-4">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="h-10 px-5 rounded-xl text-white text-sm font-semibold"
+            style={{ background: "#00A3FF" }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
-      {!loading && !hasAccess && firstValue && (
+      {!loading && !loadError && !hasAccess && !firstValue && <SetupRequired navigate={navigate} />}
+
+      {!loading && !loadError && !hasAccess && firstValue && (
         <div className="mx-auto max-w-4xl px-6 py-8 space-y-5">
           <FirstValueBanner accountId={accountId} onStartTask={startFirstTask} onOpenFull={openFullNazai} onFinished={finishFirstValue} />
           <ActiveSessionsCard accountId={accountId} />
         </div>
       )}
 
-      {!loading && hasAccess && (
+      {!loading && !loadError && hasAccess && (
         <div className="mx-auto max-w-4xl px-6 py-8 space-y-5">
+          {feedFailed && (
+            <p role="status" className="text-xs text-amber-300">Recent activity could not be loaded just now. Everything else works.{" "}
+              <button type="button" className="underline" onClick={() => setReloadKey((k) => k + 1)}>Try again</button>
+            </p>
+          )}
           {firstValue && <FirstValueBanner accountId={accountId} onStartTask={startFirstTask} onOpenFull={openFullNazai} onFinished={finishFirstValue} />}
           {/* 1. Status */}
           {!firstValue && <OuterStatusBar

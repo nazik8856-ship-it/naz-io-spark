@@ -78,6 +78,13 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
         const stored = sessionStorage.getItem(STORAGE_KEY);
         setAccountIdState(resolveActiveAccountId(stored, opts, user.id));
         setLoading(false);
+      })
+      // A failed lookup must not leave the app "loading" for ever: the person's own account is still usable.
+      .catch(() => {
+        if (cancelled) return;
+        setAccounts(buildAccountOptions(user.id, [], {}, user.email || "My account"));
+        setAccountIdState(user.id);
+        setLoading(false);
       });
     return () => { cancelled = true; };
   }, [user]);

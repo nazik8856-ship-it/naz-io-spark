@@ -40,3 +40,19 @@ describe("ocRead", () => {
     ]);
   });
 });
+
+describe("ocRead never waits forever", () => {
+  beforeEach(() => vi.unstubAllGlobals());
+  it("a server that never answers ends as a timeout error the screen can show", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("fetch", vi.fn((_u: unknown, init: RequestInit) => new Promise((_res, rej) => init.signal?.addEventListener("abort", () => rej(new DOMException("aborted", "AbortError"))))));
+      const p = Promise.resolve(ocRead("outer_control_sessions").select("id")); // the read starts when awaited
+      await vi.advanceTimersByTimeAsync(15_000);
+      const r = await p;
+      expect(r.data).toBeNull();
+      expect(r.error?.code).toBe("timeout");
+      expect(r.error?.message).toMatch(/too long/);
+    } finally { vi.useRealTimers(); }
+  });
+});

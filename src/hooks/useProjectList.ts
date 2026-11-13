@@ -1,5 +1,6 @@
 // All projects of the active account as one list: imported projects (not archived), agents and websites. After an import,
 // archive or rename, announceProjectsChanged() makes every open list load again, so the Projects card appears without a reload.
+import { withTimeout } from "@/lib/with-timeout";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
@@ -29,11 +30,11 @@ export function useProjectList() {
     // Until the account is known the list is still loading: an empty list then would wrongly mean "no projects".
     if (!accountId) { setItems([]); setLoading(!!accountLoading); return; }
     try {
-      const [i, a, w] = await Promise.all([
+      const [i, a, w] = await withTimeout(Promise.all([
         anyDb.from("imported_projects").select(PROJECT_COLS).eq("user_id", accountId).is("archived_at", null).order("updated_at", { ascending: false }),
         anyDb.from("agents").select("id, name, created_at").eq("user_id", accountId),
         anyDb.from("websites").select("id, name, title, created_at").eq("user_id", accountId),
-      ]);
+      ]), 15_000, "Loading projects");
       // Before the imported projects table exists the generated ones still show.
       setItems(toItems(i?.error ? [] : (i?.data ?? []), a?.data ?? [], w?.data ?? []));
     } catch { /* keep what is shown */ }
