@@ -71,6 +71,7 @@ The fields are found by reading the code (names used on the parsed body), so tre
 | `knowledge-base-auto-draft-sweep` | system | no body | — | — | — | `authorization` |
 | `mcp` | user | no body | — | — | — | — |
 | `measure-decision-outcomes` | system | readJson | 256 KB | `userId` | — | `authorization` |
+| `mfa-recovery` | user | readJson | 4 * 1024 | `action`, `reason`, `user_id` | — | — |
 | `nazai-chat` | public | readJson | 256 KB | — | — | `cf-connecting-ip`, `x-forwarded-for` |
 | `notion-oauth-callback` | public | no body | — | — | `code`, `error`, `state` | — |
 | `notion-oauth-start` | user | readJson | 256 KB | `origin` | — | — |

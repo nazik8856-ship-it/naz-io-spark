@@ -47,6 +47,7 @@ export const FUNCTION_ACCESS: Record<string, FunctionAccess> = {
   "gmail-oauth-start": USER,
   "integration-connect": USER,
   "integration-sync": USER,
+  "mfa-recovery": { access: "user", reason: "generate, status and support_reset need the code (requireCaller); use is the one door open to a first-step session, for a person who lost their phone" },
   "mcp": { access: "user", reason: "every tool runs with the caller's own token (Lovable MCP bundle)" },
   "notion-oauth-start": USER,
   "outer-control-drive": USER,
