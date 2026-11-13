@@ -37,14 +37,19 @@ export function mfaSatisfied(authHeader: string, factors: { factor_type?: string
 }
 
 /** makeClient builds a client that sends the caller's Authorization header (anon key + their token), as the functions already do. */
-export async function requireCaller<C extends CallerClient>(req: Request, makeClient: (authHeader: string) => C): Promise<CallerResult<C>> {
+export async function requireCaller<C extends CallerClient>(
+  req: Request,
+  makeClient: (authHeader: string) => C,
+  // Only the recovery door (mfa-recovery, "I lost my phone") sets this: that person can not give the code by definition. Nothing else may.
+  opts: { allowFirstStep?: boolean } = {},
+): Promise<CallerResult<C>> {
   const authHeader = req.headers.get("Authorization") || "";
   if (!/^Bearer\s+\S+/i.test(authHeader)) return { ok: false, status: 401, error: "unauthorized" };
   try {
     const userClient = makeClient(authHeader);
     const { data, error } = await userClient.auth.getUser();
     if (error || !data?.user?.id) return { ok: false, status: 401, error: "unauthorized" };
-    if (!mfaSatisfied(authHeader, data.user.factors)) return { ok: false, status: 401, error: "mfa_required" };
+    if (!opts.allowFirstStep && !mfaSatisfied(authHeader, data.user.factors)) return { ok: false, status: 401, error: "mfa_required" };
     return { ok: true, caller: { userId: data.user.id, email: data.user.email ?? null, authHeader, userClient } };
   } catch {
     return { ok: false, status: 401, error: "unauthorized" };

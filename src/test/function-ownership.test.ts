@@ -28,10 +28,22 @@ export function readsIdentityFromRequest(src: string): string[] {
   return src.split("\n").filter((l) => !/^\s*(\/\/|\*)/.test(l) && FROM_REQUEST.some((rx) => rx.test(l))).map((l) => l.trim());
 }
 
+// A user id from the request that is not verified against the caller's own account, on purpose. A new entry needs a reason and a test.
+const ID_FROM_REQUEST_OK: Record<string, string> = {
+  "mfa-recovery": "support_reset names ANOTHER account on purpose; the caller must hold the owner role, which support_remove_two_step checks in the database, and a reset of oneself is refused (src/test/two-step-sign-in.test.ts)",
+};
+
 const functions = readdirSync(ROOT).filter((d) => !d.startsWith("_") && existsSync(join(ROOT, d, "index.ts")));
 const source = (fn: string) => readFileSync(join(ROOT, fn, "index.ts"), "utf8");
 
 describe("an account or user id sent with the request is only used after it is verified", () => {
+  it("the one exception is checked in the database", () => {
+    const sql = readFileSync(join(__dirname, "../../supabase/migrations/20261113025529_two_step_for_customers.sql"), "utf8");
+    expect(Object.keys(ID_FROM_REQUEST_OK)).toEqual(["mfa-recovery"]);
+    expect(sql).toContain("r.user_id = _by AND r.role::text = 'owner'");
+    expect(source("mfa-recovery")).toContain("_by: userId");
+  });
+
   it("the check finds what it looks for (the guard itself works)", () => {
     expect(readsIdentityFromRequest('const a = body?.account_id;')).toHaveLength(1);
     expect(readsIdentityFromRequest('const u = url.searchParams.get("user_id");')).toHaveLength(1);
@@ -45,6 +57,7 @@ describe("an account or user id sent with the request is only used after it is v
     const hits = readsIdentityFromRequest(source(fn));
     if (!hits.length) return;
     const access = FUNCTION_ACCESS[fn]?.access;
+    if (ID_FROM_REQUEST_OK[fn]) return; // a recorded exception (below): the check is somewhere else, and says where
     // A scheduled job is started only with the server key, so the account it is scoped to comes from a trusted caller.
     const ok = access === "system" || VERIFIES.test(source(fn));
     expect(ok, `${fn} reads an identity from the request (${hits[0]}) without verifying it`).toBe(true);

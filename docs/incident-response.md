@@ -40,9 +40,10 @@ The accounts that can change NazAI, and where each one is recovered:
 | Namecheap | the domain nazai.net | recovery codes in Bitwarden | change the password, check the nameservers and DNS records, keep Domain Lock on |
 | Bitwarden | all of the above | its own recovery sheet, kept offline | change the master password, rotate everything it held |
 
-NazAI's own two-step sign-in has **no recovery codes**. If the owner loses that phone, a project admin removes the factor in the Supabase
-dashboard (Authentication → Users → the user → remove the MFA factor), and the owner signs in and sets it up again. A second owner
-account would make this routine; it does not exist yet (see section 7).
+NazAI's own two-step sign-in has **recovery codes** (8, single use, shown once when it is turned on; `docs/two-step-sign-in.md`). Keep them
+in Bitwarden. If the owner loses that phone, the sign-in screen's "Lost your phone? Use a recovery code" turns it off and the owner sets it up
+again. With no code left, a project admin removes the factor in the Supabase dashboard (Authentication → Users → the user → remove the MFA
+factor). A second owner account would make this routine; it does not exist yet (see section 7).
 
 ## 3. If a secret leaked
 
@@ -61,12 +62,10 @@ different address. Record what you did (date, account, what, why) in a note kept
 
 ### A customer is locked out (lost phone, two-step sign-in)
 
-1. Confirm the owner as above.
-2. Supabase dashboard → Authentication → Users → the account → remove the MFA factor. Do not change anything else.
-3. Tell the customer to sign in and set two-step sign-in up again, and to save the "Can't scan?" key this time.
-4. Check `my_security_activity` for that account afterwards: no refused-access spike, nothing unusual.
-
-Until recovery codes exist (section 7) this is manual for every customer who loses a phone.
+1. Ask first whether they saved their recovery codes: on the sign-in code screen, **Lost your phone? Use a recovery code** lets them back in by themselves (it turns two-step sign-in off; they turn it on again and save new codes). Nothing for you to do.
+2. No code left: confirm the owner as above, then reset it as a platform owner (signed in with your own two-step sign-in): call the `mfa-recovery` function with `{"action":"support_reset","user_id":"<their account id>","reason":"lost_phone"}`. It removes their authenticator apps and codes and writes who did it to their signed security record. (The Supabase dashboard, Authentication → Users → the account → remove the MFA factor, also works but is not recorded.)
+3. Tell the customer to sign in and set two-step sign-in up again, and to save the new recovery codes.
+4. Check `my_security_activity` for that account afterwards: no refused-access spike, nothing unusual. Many `access_refused` rows with door `mfa_recovery` mean someone is guessing codes.
 
 ### A customer thinks the account was taken over
 
@@ -112,8 +111,7 @@ What it does **not** do: it keeps the agents and team members, the login itself,
 
 | Gap | Effect today | Planned |
 |---|---|---|
-| No recovery codes for customers' two-step sign-in | a customer who loses a phone needs a manual rescue (section 4) | recovery codes + an owner-assisted reset recorded as evidence |
-| Two-step sign-in not enforced on customers' own database rows | a password-only session could read its own rows directly through the API even if the customer turned it on | an aal2 condition on the row rules |
+| Owner-assisted reset has no button | it is a function call (section 4) | a small screen for platform owners |
 | No complete account erasure | the deletion button removes governance data only | one complete erasure with a test that fails when a new table is missed |
 | No second owner account | recovering the owner's own login depends on one person and the Supabase dashboard | decide with the owner |
 | Supabase Free plan | no automatic Supabase backups; only the governance backups exist | move to Pro before launch, then do a test restore |

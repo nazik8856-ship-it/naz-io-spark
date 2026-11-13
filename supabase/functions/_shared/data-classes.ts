@@ -165,6 +165,8 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   isolation_tables: { table_name: O, access: O, owner_column: O, read_all_reason: O, note: O },
   knowledge_base_entries: { entry_text: P, action_type_pattern: R, provider: R },
   meaning_rules: { name: R, description: R, action: R },
+  mfa_recovery_attempts: { id: O, user_id: O },
+  mfa_recovery_codes: { code_hash: O, id: O, user_id: O },
   missions: { directive: P, attachment_urls: P, status: O },
   notion_oauth_transactions: { state: S, request_origin: O },
   onboarding_feedback: { answer: O, reason: O },

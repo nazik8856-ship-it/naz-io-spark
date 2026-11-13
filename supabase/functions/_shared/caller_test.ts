@@ -125,4 +125,10 @@ Deno.test("requireCaller: two-step sign-in. A confirmed authenticator app needs 
   assert((await requireCaller(req(`Bearer ${jwt("aal1")}`), () => withFactors([{ factor_type: "totp", status: "unverified" }]))).ok);
   assert((await requireCaller(req(`Bearer ${jwt("aal1")}`), () => withFactors([]))).ok);
   assert((await requireCaller(req(`Bearer ${jwt("aal1")}`), () => client(A))).ok);
+  // the recovery door alone may serve a first-step session (the person has lost the phone); everything else stays refused
+  const door = await requireCaller(req(`Bearer ${jwt("aal1")}`), () => withFactors(verified), { allowFirstStep: true });
+  assert(door.ok);
+  assertEquals(door.ok && door.caller.userId, A);
+  const noToken = await requireCaller(req(), () => withFactors(verified), { allowFirstStep: true });
+  assert(!noToken.ok); // the option skips only the code check, never the sign-in check
 });

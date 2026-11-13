@@ -41,3 +41,30 @@ export function mfaErrorText(message: string | null | undefined): string {
   if (m.includes("aal2") || m.includes("assurance")) return "Confirm with a code from your authenticator app first.";
   return "Something went wrong. Try again.";
 }
+
+// --- Recovery codes (docs/two-step-sign-in.md) --------------------------------------------------------------------------------------
+// 16 characters from A-Z and 2-9 without I, L, O (31 characters), shown as ABCD-EFGH-JKMN-PQRS. The server is the judge; these only tidy the input.
+const RECOVERY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+/** What a person typed or pasted, upper-cased, without spaces; dashes are put back every 4 characters while typing. */
+export function cleanRecoveryInput(input: string): string {
+  const letters = String(input ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+  return letters.match(/.{1,4}/g)?.join("-") ?? "";
+}
+
+export function isCompleteRecoveryCode(input: string): boolean {
+  const c = String(input ?? "").toUpperCase().replace(/[\s-]/g, "");
+  return c.length === 16 && [...c].every((ch) => RECOVERY_ALPHABET.includes(ch));
+}
+
+/** Wording for what the recovery function answers (its error codes), never its raw text. */
+export function recoveryErrorText(code: string | null | undefined): string {
+  switch (code) {
+    case "wrong_code": return "That code is not right, or it was used already. Check it and try again.";
+    case "locked": return "Too many wrong tries. Wait 15 minutes and try again.";
+    case "too_many": return "Too many tries. Wait a while and try again.";
+    case "two_step_off": return "Two-step sign-in is not on for this account.";
+    case "unauthorized": return "Your session has ended. Sign in again.";
+    default: return "Something went wrong. Try again.";
+  }
+}

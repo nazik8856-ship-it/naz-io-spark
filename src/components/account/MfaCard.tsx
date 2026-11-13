@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { cleanCode, isCompleteCode, mfaErrorText, unverifiedFactors, verifiedTotp, type FactorLike } from "@/lib/mfa";
+import { cleanCode, isCompleteCode, mfaErrorText, recoveryErrorText, unverifiedFactors, verifiedTotp, type FactorLike } from "@/lib/mfa";
+import { callRecovery } from "@/lib/mfa-recovery";
 
 type Enrollment = { factorId: string; qr: string; secret: string };
 
@@ -14,6 +15,43 @@ export const MfaCard = () => {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Recovery codes: shown once, right after they are made. `left` is how many unused ones remain.
+  const [newCodes, setNewCodes] = useState<string[] | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [left, setLeft] = useState<number | null>(null);
+
+  const loadLeft = useCallback(async () => {
+    const answer = await callRecovery<{ left: number }>("status");
+    setLeft(answer.ok ? Number(answer.data?.left ?? 0) : null);
+  }, []);
+
+  const makeCodes = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const answer = await callRecovery<{ codes: string[] }>("generate");
+      if (!answer.ok) {
+        setError(recoveryErrorText(answer.error));
+        return;
+      }
+      setNewCodes(answer.data!.codes);
+      setSaved(false);
+      setLeft(answer.data!.codes.length);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const downloadCodes = () => {
+    if (!newCodes) return;
+    const text = `NazAI recovery codes\nEach code works once. Keep them somewhere safe, away from your phone.\n\n${newCodes.join("\n")}\n`;
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "nazai-recovery-codes.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const load = useCallback(async () => {
     const { data, error: listError } = await supabase.auth.mfa.listFactors();
@@ -30,6 +68,10 @@ export const MfaCard = () => {
   }, [load]);
 
   const on = verifiedTotp(factors).length > 0;
+
+  useEffect(() => {
+    if (on) void loadLeft();
+  }, [on, loadLeft]);
 
   const start = async () => {
     setBusy(true);
@@ -65,6 +107,13 @@ export const MfaCard = () => {
       setCode("");
       toast.success("Two-step sign-in is on", { description: "From now on, signing in asks for a code from your authenticator app." });
       await load();
+      // The new session has used the code (aal2), so recovery codes can be made right away.
+      const answer = await callRecovery<{ codes: string[] }>("generate");
+      if (answer.ok) {
+        setNewCodes(answer.data!.codes);
+        setSaved(false);
+        setLeft(answer.data!.codes.length);
+      }
     } finally {
       setBusy(false);
     }
@@ -91,6 +140,8 @@ export const MfaCard = () => {
         return;
       }
       toast.success("Two-step sign-in is off");
+      setNewCodes(null);
+      setLeft(null);
       await load();
     } finally {
       setBusy(false);
@@ -144,8 +195,30 @@ export const MfaCard = () => {
       ) : on ? (
         <>
           <p className="text-sm text-zinc-500 mb-4">
-            On. Every sign-in asks for a code from your authenticator app. Keep that phone safe: without it you cannot sign in.
+            On. Every sign-in asks for a code from your authenticator app. If you lose the phone, a recovery code gets you back in.
           </p>
+          {newCodes ? (
+            <div className="mb-4 p-3 rounded-lg border border-amber-400/30 bg-amber-400/5">
+              <p className="text-sm text-amber-200 mb-2">Save these recovery codes now. They are shown only once, and each works one time.</p>
+              <ul className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-sm text-white select-all mb-3" aria-label="Recovery codes">
+                {newCodes.map((c) => <li key={c}>{c}</li>)}
+              </ul>
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="button" onClick={() => void navigator.clipboard?.writeText(newCodes.join("\n")).then(() => toast.success("Copied")).catch(() => undefined)} className="h-9 px-3 rounded-lg border border-white/10 text-xs text-zinc-200 hover:text-white">Copy</button>
+                <button type="button" onClick={downloadCodes} className="h-9 px-3 rounded-lg border border-white/10 text-xs text-zinc-200 hover:text-white">Download</button>
+                <label className="flex items-center gap-2 text-xs text-zinc-300">
+                  <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} /> I saved them
+                </label>
+                <button type="button" disabled={!saved} onClick={() => setNewCodes(null)} className="h-9 px-3 rounded-lg text-xs font-semibold text-white disabled:opacity-40" style={{ background: "#00A3FF" }}>Done</button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-zinc-500 mb-4">
+              {left === null ? null : left === 0 ? "You have no recovery codes left. Make new ones." : `${left} recovery code${left === 1 ? "" : "s"} left.`}{" "}
+              <button type="button" onClick={() => void makeCodes()} disabled={busy} className="underline text-zinc-300 hover:text-white disabled:opacity-40">Make new recovery codes</button>
+              <span className="block mt-1">Making new codes stops the old ones from working.</span>
+            </p>
+          )}
           <button
             type="button"
             onClick={() => void turnOff()}
