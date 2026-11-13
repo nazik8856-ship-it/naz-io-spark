@@ -13,7 +13,7 @@ A session is Completed only when all of these hold (`outer-control-completion.ts
 ## Database guards (only the move into "completed" is checked)
 
 - Session (`guard_outer_control_completed`): a passing checklist with outcome completed, a final result, a matching artifact.
-- Task (`guard_outer_control_task_completed`), **tightened 2026-11-13** (migration `20261113120000`): additionally no step may still be queued, running or waiting, and at least one step must have finished with a passing checklist. Before, the encrypted branch only checked that a result and an artifact existed.
+- Task (`guard_outer_control_task_completed`), **tightened 2026-11-13** (migration `20261113071940`): additionally no step may still be queued, running or waiting, and at least one step must have finished with a passing checklist. Before, the encrypted branch only checked that a result and an artifact existed.
 
 ## Changed on 2026-11-13
 
