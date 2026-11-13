@@ -5,6 +5,9 @@ import { extractExternalText } from "./outer-control-intake.ts";
 import { readGenericPayload } from "./outer-control-session.ts";
 import { mcpTest } from "./outer-control-mcp.ts";
 import { parseStrictObject } from "./model-output.ts";
+import { describeNetworkFailure, networkFailureKind } from "./network-failure.ts";
+import { nazaiAddressProblem } from "./outer-control-address.ts";
+import { ownProjectHost } from "./egress.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -27,7 +30,11 @@ export type TestOutcome = { ok: boolean; error: string | null; ms: number | null
 export function describeHttpFailure(status: number): string {
   if (status === 401 || status === 403) return `The tool rejected the key (HTTP ${status}). Update the key and test again.`;
   if (status >= 300 && status < 400) return `The tool redirected the request (HTTP ${status}). Outer Control does not follow redirects: use the final address.`;
-  if (status === 404) return "Nothing answers at that address (HTTP 404). Check the address.";
+  if (status === 400 || status === 422) return `The tool did not accept the request (HTTP ${status}). Check the request format and the model name.`;
+  if (status === 402) return "The tool says the account behind this key has no credit or an unpaid plan (HTTP 402). Check the account at the tool's provider.";
+  if (status === 404 || status === 410) return `Nothing answers at that address (HTTP ${status}). Check the address.`;
+  if (status === 413) return "The tool refused the request as too large (HTTP 413).";
+  if (status === 415) return "The tool does not accept this request format (HTTP 415). Check the request format.";
   if (status === 405) return "That address does not accept requests of this kind (HTTP 405). Check the address and the request format.";
   if (status === 408 || status === 504) return `The tool took too long to answer (HTTP ${status}).`;
   if (status === 429) return "The tool is limiting requests (HTTP 429). Try again shortly.";
@@ -50,6 +57,9 @@ export function readTestReply(payload: unknown): { ok: true; text: string } | { 
 }
 
 export async function runConnectionTest(admin: AnyAdmin, tool: TestableTool, deps: TestDeps): Promise<TestOutcome> {
+  // NazAI's own address is not an outside tool: say so and what to do instead, before any request.
+  const own = nazaiAddressProblem(tool.endpoint_url, ownProjectHost());
+  if (own) return { ok: false, error: own, ms: null, sample: null };
   const check = await deps.validateUrl(tool.endpoint_url);
   if (!check.ok) return { ok: false, error: `The address is not allowed: ${check.reason}.`, ms: null, sample: null };
   let token = "";
@@ -79,6 +89,6 @@ export async function runConnectionTest(admin: AnyAdmin, tool: TestableTool, dep
     const reply = readTestReply(payload);
     return reply.ok ? { ok: true, error: null, ms, sample: reply.text.slice(0, 80) } : { ok: false, error: reply.error, ms, sample: null };
   } catch (e) {
-    return { ok: false, error: e instanceof Error && e.name === "TimeoutError" ? "The tool did not answer in time." : "The tool could not be reached.", ms: null, sample: null };
+    return { ok: false, error: describeNetworkFailure(networkFailureKind(e)).reason, ms: null, sample: null };
   }
 }

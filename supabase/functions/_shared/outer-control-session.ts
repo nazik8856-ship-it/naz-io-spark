@@ -25,6 +25,9 @@ import { buildInstruction, buildToolRequest, parseToolReply, type RuleLine, type
 import { AGENT_FAILURE_TEXT, readAgentRun } from "./outer-control-task.ts";
 import { mcpCall } from "./outer-control-mcp.ts";
 import { gatewayAi, REPORT_TOOL_URL, writeReport, type ReportResult } from "./outer-control-report.ts";
+import { networkFailureKind, type NetworkFailureKind } from "./network-failure.ts";
+import { nazaiAddressProblem } from "./outer-control-address.ts";
+import { ownProjectHost } from "./egress.ts";
 import { askStarter, gatewayStarterAi, isStarterUrl, starterAllowed, STARTER_USED_UP, type StarterAi } from "./outer-control-starter.ts";
 import type { ReportDoc } from "./outer-control-report-doc.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
@@ -622,6 +625,9 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         return { status: "stopped", steps };
       }
       if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isStarterUrl(tool.endpoint_url)) {
+        // NazAI's own address was never an outside tool (a tool saved before this rule existed stops here, with what to do instead).
+        const own = nazaiAddressProblem(tool.endpoint_url, ownProjectHost());
+        if (own) { await finish(admin, s, "failed", own, deps); return { status: "failed", steps }; }
         const urlCheck = await deps.validateUrl(tool.endpoint_url);
         if (!urlCheck.ok) { await finish(admin, s, "failed", `The tool's address is not allowed: ${urlCheck.reason}.`, deps); return { status: "failed", steps }; }
         // A loop that keeps asking would spend the person's own provider key: one tool is asked at most this many times a day.
@@ -688,6 +694,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       let failed = false;
       let timedOut = false;
       let unreachable = false;
+      let networkKind: NetworkFailureKind | null = null;
       let outboundRefused = false;
       let mcpDetail: string | null = null;
       let retryAfterMs: number | null = null;
@@ -748,7 +755,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         if (!res.ok || mcpDetail) failed = true;
       } catch (e) {
         failed = true;
-        if (e instanceof Error && e.name === "TimeoutError") timedOut = true; else unreachable = true;
+        if (e instanceof Error && e.name === "TimeoutError") timedOut = true; else { unreachable = true; networkKind = networkFailureKind(e); }
         outboundRefused = await noteOutboundBlock(admin, s.user_id, e, actorOf(s), s.api_key_id ?? null, { tool: tool.id, session: s.id, step: stepNo });
       }
       // What came back, recorded next to what was sent (the outcome and the hash of the reply, never the reply).
@@ -805,7 +812,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         }
       }
       const failureClass = failed
-        ? classifyFailure({ httpStatus: httpStatus !== null && httpStatus < 400 ? null : httpStatus, timedOut, unreachable, retryAfterMs, incomplete, unusableCode, detail: mcpDetail, attempt: s.failures_used + 1 })
+        ? classifyFailure({ httpStatus: httpStatus !== null && httpStatus < 400 ? null : httpStatus, timedOut, unreachable, networkKind, retryAfterMs, incomplete, unusableCode, detail: mcpDetail, attempt: s.failures_used + 1 })
         : null;
 
       const stepBase = {

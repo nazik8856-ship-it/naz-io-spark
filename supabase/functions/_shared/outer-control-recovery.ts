@@ -3,6 +3,7 @@
 
 import { AGENT_FAILURE_TEXT } from "./outer-control-task.ts";
 import { REPORT_FAILURE_TEXT } from "./outer-control-report.ts";
+import { describeNetworkFailure, type NetworkFailureKind } from "./network-failure.ts";
 
 export type FailureKind = "transient" | "rate_limited" | "auth" | "client" | "incomplete" | "unusable";
 
@@ -26,6 +27,8 @@ export type FailureInput = {
   httpStatus: number | null;
   timedOut?: boolean;
   unreachable?: boolean;
+  /** What the connection failure was (DNS, certificate, refused, cut off), when it is known. */
+  networkKind?: NetworkFailureKind | null;
   retryAfterMs?: number | null;
   /** The reply arrived but is not usable as an answer. */
   incomplete?: "empty" | "truncated" | "too_long" | null;
@@ -67,7 +70,11 @@ export function classifyFailure(i: FailureInput): FailureClass {
     return { kind: "client", retry: false, delayMs: 0, correction: null, reason: s === 404 ? "The tool's address was not found (HTTP 404)." : `The tool rejected the request (HTTP ${s}).` };
   }
   if (i.timedOut) return { kind: "transient", retry: true, delayMs: backoff(i.attempt), correction: null, reason: "The tool did not answer in time." };
-  if (i.unreachable) return { kind: "transient", retry: true, delayMs: backoff(i.attempt), correction: null, reason: "The tool could not be reached." };
+  if (i.unreachable) {
+    const n = describeNetworkFailure(i.networkKind ?? "other");
+    // A bad certificate does not fix itself: asking again would only repeat it.
+    return { kind: n.retry ? "transient" : "unusable", retry: n.retry, delayMs: n.retry ? backoff(i.attempt) : 0, correction: null, reason: n.reason };
+  }
   return { kind: "transient", retry: true, delayMs: backoff(i.attempt), correction: null, reason: s ? `The tool answered HTTP ${s}.` : "The tool failed." };
 }
 

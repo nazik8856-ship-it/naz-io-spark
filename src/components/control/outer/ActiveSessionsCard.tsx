@@ -14,7 +14,7 @@ import { honestStatus } from "@/lib/outer-control-status";
 import { supabase } from "@/integrations/supabase/client";
 import { callDrive } from "@/lib/outer-control-drive";
 import { DEFAULT_HISTORY, splitSessions, TONE_BORDER, TONE_DOT, TONE_TEXT, visibleItems, type Tone } from "@/lib/outer-control-ui";
-import { describeClosure, describeRecord, describeUsage, healthSummary, isInternalTool, isStarterTool, toolHealth, toolRecord, type ActivityStep, type ToolRecord, type ToolRecordRow, type ToolUsage } from "@/lib/outer-control-tools-ui";
+import { isBuiltInTool, describeClosure, describeRecord, describeUsage, healthSummary, isInternalTool, isStarterTool, toolHealth, toolRecord, type ActivityStep, type ToolRecord, type ToolRecordRow, type ToolUsage } from "@/lib/outer-control-tools-ui";
 import TaskTracker from "./TaskTracker";
 import TaskPanel, { type TaskProject, type TaskRequest } from "./TaskPanel";
 import FirstTaskChoice from "@/components/onboarding/FirstTaskChoice";
@@ -494,7 +494,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
               {more && (
                 <div className="mt-3 border-t border-white/5 pt-3">
                   <div className="flex flex-wrap gap-2">
-                    {!isStarterTool(t.endpoint_url) && <button onClick={() => { setKeyFor(keyFor === t.id ? null : t.id); setNewKey(""); }} className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/10">
+                    {!isBuiltInTool(t.endpoint_url) && <button onClick={() => { setKeyFor(keyFor === t.id ? null : t.id); setNewKey(""); }} className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/10">
                       Update key
                     </button>}
                     <button disabled={busy === `remove-${t.id}`} onClick={() => remove(t)} className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-xs text-rose-300 hover:bg-rose-500/10 disabled:opacity-40">
