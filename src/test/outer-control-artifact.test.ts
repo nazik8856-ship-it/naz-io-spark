@@ -12,6 +12,27 @@ describe("the app and the edge functions share one copy of the artifact and stat
   }
 });
 
+describe("the look chosen before a Task starts (docs/outer-control-outputs.md)", () => {
+  it("is kept in the Task's artifact, which is still valid, and shown for what it is", () => {
+    const a = taskArtifact("Dear Dana, returns take thirty days.", { template: "executive" });
+    expect((a as { template?: string }).template).toBe("executive");
+    expect(validateArtifact(a, "task").ok).toBe(true);
+    expect(officialOutput(a, "task")).toBe("Dear Dana, returns take thirty days.");
+  });
+
+  it("a Task without a choice has none; a name that is not one of the looks is left out, never stored", () => {
+    expect("template" in taskArtifact("Dear Dana, returns take thirty days.")).toBe(false);
+    for (const bad of ["<script>", "", "EXECUTIVE", "executive "]) expect("template" in taskArtifact("Dear Dana, returns take thirty days.", { template: bad })).toBe(false);
+  });
+
+  it("an artifact that carries an unknown look is not valid, so it can not be shown as Completed", () => {
+    const a = taskArtifact("Dear Dana, returns take thirty days.", { template: "data" });
+    expect(validateArtifact({ ...a, template: "neon" }, "task")).toEqual({ ok: false, reason: "the chosen look is not one of the known looks" });
+    expect(validateArtifact({ ...a, template: 5 }, "task").ok).toBe(false);
+    expect(honestStatus({ kind: "task", status: "completed", artifact: { ...a, template: "neon" } }).key).toBe("failed");
+  });
+});
+
 describe("final artifact", () => {
   it("is built from a passed checklist and carries the controlled output, proof, rules and changes", () => {
     const a = sessionArtifact("Returns take thirty days.", { changes: true });

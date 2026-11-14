@@ -215,10 +215,10 @@ export async function progressWorkflow(admin: AnyAdmin, workflowId: string, goal
   const started: string[] = [];
   const ai = goalAi === undefined ? gatewayAi : goalAi;
   const { data: wf } = await admin.from("outer_control_workflows")
-    .select("id, context, status, kind, objective, user_id, origin, mode, goal_pool, done_criteria, criteria_state, max_rounds, rounds_used, goal_judged_leg, goal_accepted_at, blocked_reason, blocked_at, updated_at")
+    .select("id, context, status, kind, objective, user_id, origin, mode, goal_pool, done_criteria, criteria_state, max_rounds, rounds_used, goal_judged_leg, goal_accepted_at, blocked_reason, blocked_at, updated_at, output_template")
     .eq("id", workflowId).maybeSingle();
   if (!wf) return started;
-  const workflow = wf as { id: string; context: string | null; status: string; kind: TaskKind; objective: string; user_id: string; origin: unknown } & GoalWf;
+  const workflow = wf as { id: string; context: string | null; status: string; kind: TaskKind; objective: string; user_id: string; origin: unknown; output_template?: string | null } & GoalWf;
   const isGoal = workflow.mode === "goal";
 
   let legs = await loadLegs(admin, workflowId);
@@ -310,7 +310,7 @@ export async function progressWorkflow(admin: AnyAdmin, workflowId: string, goal
       const built = buildTaskArtifact({
         id: workflowId, request: workflow.objective, origin: (workflow.origin as { source_model?: string; verdict?: string } | null) ?? null, completedAt: iso(),
         legs: legs.map((l) => ({ leg_no: l.leg_no, tool: tools.get(l.tool_id)?.name ?? "tool", status: l.status, artifact: l.final_artifact })),
-        finalLeg: state.final_leg,
+        finalLeg: state.final_leg, template: workflow.output_template ?? null,
         handoffs: ((hand ?? []) as { from_leg: number | null; from_label: string; to_leg: number; outcome: string; rules: string[] }[])
           .map((h): TaskArtifactHandoff => ({ from: h.from_leg, from_label: h.from_label, to: h.to_leg, outcome: h.outcome, rules: h.rules ?? [] })),
       });

@@ -1069,6 +1069,18 @@ await t("task 9: text the receiving agent's rule can remove is handed over witho
   assert.ok(!JSON.stringify(ag.body).includes("zzcodename"), "the removed text never reached the agent"); assert.equal(handoffs()[0].outcome, "modified"); assert.deepEqual(handoffs()[0].rules, ["Hide codename"]);
   assert.equal(task().status, "completed");
 });
+await t("look: the look chosen when the Task started is carried into its final artifact; an unknown one is left out", async () => {
+  for (const [chosen, expected] of [["executive", "executive"], ["neon", undefined], [null, undefined]] as const) {
+    taskSetup();
+    script = () => ({ json: { status: "done", answer: "Returns are accepted within thirty days of delivery." } });
+    const r = await H.startTask(H.createClient("u", "k"), U, { request: "Summarise the returns policy", context: null, steps: [{ tool_id: T1, instruction: "Summarise it" }] });
+    task().output_template = chosen;
+    await runTask(r);
+    assert.equal(task().status, "completed", String(chosen));
+    assert.equal(task().final_artifact.template, expected, String(chosen));
+    assert.equal(task().final_artifact.final_output, "Returns are accepted within thirty days of delivery.");
+  }
+});
 await t("task 8: external tool -> Outer Control -> NazAI agent: the agent runs through agent-runtime with the controlled result, as the account owner", async () => {
   taskSetup();
   script = (n, b, url) => isAgent(url) ? agentRun("Reply drafted by the agent.") : { json: { status: "done", answer: "Customer wants a returns policy summary." } };

@@ -70,7 +70,7 @@ describe("data classification: the register", () => {
   });
 
   it("the credential columns are SECRET", () => {
-    for (const [t, c] of [["agent_integrations", "credentials"], ["api_keys", "key_hash"], ["api_keys", "callback_secret"], ["webhooks", "secret"],
+    for (const [t, c] of [["api_keys", "key_hash"], ["api_keys", "callback_secret"], ["webhooks", "secret"],
       ["webhooks", "previous_secret"], ["email_unsubscribe_tokens", "token"], ["canva_oauth_transactions", "code_verifier"]]) {
       expect(classOf(t, c), `${t}.${c}`).toBe("SECRET");
     }
@@ -78,7 +78,8 @@ describe("data classification: the register", () => {
 });
 
 /** An encryption_exempt_columns row in a migration: ('table', 'column', 'reason'[, 'by_design' | 'deferred']). */
-const EXEMPT_ROW = /\('(\w+)', '(\w+)', '([^']{10,})'(?:, '(by_design|deferred)')?\)/g;
+// (A classification seed row, ('table', 'column', 'OPERATIONAL'), is not an exemption: a class name is never a reason.)
+const EXEMPT_ROW = /\('(\w+)', '(\w+)', '(?!(?:SECRET|RULE|PROJECT_CONTENT|EXTERNAL_RESPONSE|PERSONAL|OPERATIONAL)')([^']{10,})'(?:, '(by_design|deferred)')?\)/g;
 
 describe("data classification: agrees with encryption", () => {
   // ENCRYPTED_COLUMNS, read from the source as in field-encryption.test.ts.

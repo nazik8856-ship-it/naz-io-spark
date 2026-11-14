@@ -250,6 +250,63 @@ describe("connecting a tool and generating a report", () => {
     }));
   });
 
+  // Look of the result (docs/outer-control-outputs.md): chosen before the task starts, unless the request already says what it wants.
+  it("look: five looks are offered once NazAI has read the request; the original is chosen; keeping it sends nothing extra", async () => {
+    state.tools = [good("a", "ChatGPT"), writer];
+    state.route = { kind: "opinions" };
+    render_();
+    await describe("Should we adopt a control layer?");
+    await planLine();
+    const looks = screen.getByTestId("task-look").querySelectorAll('[role="radio"]');
+    expect([...looks].map((e) => e.getAttribute("data-testid"))).toEqual(["task-look-nazai", "task-look-executive", "task-look-editorial", "task-look-brief", "task-look-data"]);
+    expect(screen.getByTestId("task-look-nazai").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("task-look-nazai").textContent).toContain("default");
+    fireEvent.click(screen.getByLabelText("Ask ChatGPT"));
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()).toEqual({ action: "start_report", task: "opinions", topic: "Should we adopt a control layer?", tool_ids: ["a"] }));
+  });
+
+  it("look: the one chosen before the task starts is sent with it", async () => {
+    state.tools = [good("a", "ChatGPT"), writer];
+    state.route = { kind: "opinions" };
+    render_();
+    await describe("Should we adopt a control layer?");
+    await planLine();
+    fireEvent.click(screen.getByTestId("task-look-executive"));
+    expect(screen.getByTestId("task-look-executive").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("task-look-nazai").getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(screen.getByLabelText("Ask ChatGPT"));
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()).toEqual({ action: "start_report", task: "opinions", topic: "Should we adopt a control layer?", tool_ids: ["a"], template: "executive" }));
+  });
+
+  it("look: a request that already names its file type or place is followed, not asked about, and no look is sent", async () => {
+    state.tools = [good("a", "ChatGPT"), writer];
+    state.route = { kind: "draft" };
+    render_();
+    await describe("Write a summary of our returns policy as a PDF");
+    await planLine();
+    expect(screen.getByTestId("task-look-followed").textContent).toMatch(/\(a PDF file\), so NazAI follows it and does not ask for a look/);
+    expect(screen.queryByTestId("task-look-executive")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Ask ChatGPT"));
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()?.template).toBeUndefined());
+  });
+
+  it("look: ...unless the person chooses one anyway", async () => {
+    state.tools = [good("a", "ChatGPT"), writer];
+    state.route = { kind: "draft" };
+    render_();
+    await describe("Draft an email to the team about the returns policy");
+    await planLine();
+    expect(screen.getByTestId("task-look-followed").textContent).toMatch(/\(an email\)/);
+    fireEvent.click(screen.getByTestId("task-look-anyway"));
+    fireEvent.click(screen.getByTestId("task-look-editorial"));
+    fireEvent.click(screen.getByLabelText("Ask ChatGPT"));
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()?.template).toBe("editorial"));
+  });
+
   it("alternatives: the number of options NazAI read can be changed and is sent", async () => {
     state.tools = [good("a", "Alpha"), writer];
     state.route = { kind: "alternatives", text: "Names for a budgeting app", count: 4 };

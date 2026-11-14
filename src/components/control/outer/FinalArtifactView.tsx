@@ -1,31 +1,38 @@
 // Outer Control: the official result of a Completed session or Task. The controlled output is always visible; the
 // proof, rules and changes are one tap away, as readable text or as the structured JSON (the same record).
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AlertTriangle, Check, Copy, Download, ExternalLink, Fingerprint, ListChecks, ShieldCheck, Workflow } from "lucide-react";
 import { toast } from "sonner";
 import { validateArtifact, type Artifact } from "@/lib/outer-control-artifact";
-import { composeReportText, isReportDoc, kindOf, KIND_NOUN, reportHtml } from "@/lib/outer-control-report-doc";
+import { composeReportText, isOutputTemplate, isReportDoc, kindOf, KIND_NOUN, type OutputTemplate, type ReportDoc } from "@/lib/outer-control-report-doc";
+import { artifactToDoc } from "@/lib/outer-control-result-doc";
+import { renderTemplate } from "@/lib/outer-control-templates";
 import { proofTiles, type ProofTile } from "@/lib/outer-control-task-progress";
 import ReportView from "./ReportView";
+import { FileMenu, LookPicker, LookPreview } from "./ResultFormats";
 
 const TILE_ICON: Record<ProofTile["key"], typeof Check> = { done: ListChecks, tools: Workflow, rules: ShieldCheck, checks: Fingerprint };
 
 export default function FinalArtifactView({ artifact, kind }: { artifact: unknown; kind: "session" | "task" }) {
   const [view, setView] = useState<"readable" | "json">("readable");
+  // The look chosen before the Task started (or the original one); the viewer can switch it.
+  const [look, setLook] = useState<OutputTemplate>(() => { const t = (artifact as { template?: unknown } | null)?.template; return isOutputTemplate(t) ? t : "nazai"; });
   const valid = validateArtifact(artifact, kind);
+  const a = valid.ok ? (artifact as Artifact) : null;
+  // The designed report is shown only while the stored result is exactly that report's text; otherwise the plain result is shown.
+  const candidate = (a as { report?: unknown } | null)?.report;
+  const report: ReportDoc | null = a && isReportDoc(candidate) && composeReportText(candidate) === a.final_output ? candidate : null;
+  const doc = useMemo(() => (a ? artifactToDoc(a, isReportDoc) : null), [a]);
+  const lookHtml = useMemo(() => (doc && look !== "nazai" ? renderTemplate(doc, look, report) : ""), [doc, look, report]);
   // Never render a result from something that is not a valid artifact.
-  if (!valid.ok) return null;
-  const a = artifact as Artifact;
+  if (!a || !doc) return null;
   const json = JSON.stringify(a, null, 2);
+  const request = "request" in a ? a.request : a.objective;
 
   const copy = async (text: string, what: string) => {
     try { await navigator.clipboard.writeText(text); toast.success(`${what} copied.`); }
     catch { toast.error("Could not copy. Select the text and copy it by hand."); }
   };
-
-  // The designed report is shown only while the stored result is exactly that report's text; otherwise the plain result is shown.
-  const candidate = (a as { report?: unknown }).report;
-  const report = isReportDoc(candidate) && composeReportText(candidate) === a.final_output ? candidate : null;
 
   /** The result as a file: a report is a styled page (opens in a browser or Word, prints to PDF); anything else is plain text. */
   const save = (name: string, body: string, type: string) => {
@@ -36,8 +43,9 @@ export default function FinalArtifactView({ artifact, kind }: { artifact: unknow
       document.body.appendChild(el); el.click(); el.remove(); URL.revokeObjectURL(url);
     } catch { toast.error("Could not download. Use Copy result instead."); }
   };
-  const download = () => (report
-    ? save(`nazai-${KIND_NOUN[kindOf(report)].replace(/[^a-z]+/g, "-")}-${a.id.slice(0, 8)}.html`, reportHtml(report), "text/html")
+  const noun = report ? KIND_NOUN[kindOf(report)].replace(/[^a-z]+/g, "-") : "result";
+  const download = () => (report || look !== "nazai"
+    ? save(`nazai-${noun}-${a.id.slice(0, 8)}.html`, renderTemplate(doc, look, report), "text/html")
     : save(`result-${a.id.slice(0, 8)}.txt`, a.final_output, "text/plain"));
 
   return (
@@ -50,6 +58,7 @@ export default function FinalArtifactView({ artifact, kind }: { artifact: unknow
           <button type="button" onClick={download} className="flex items-center gap-1 rounded border border-white/15 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/10" data-testid="download-result">
             <Download className="h-3 w-3" /> {report ? `Download ${KIND_NOUN[kindOf(report)]}` : "Download"}
           </button>
+          <FileMenu doc={doc} look={look} report={report} noun={noun} id={a.id} request={request} />
           <button type="button" onClick={() => copy(a.final_output, "Result")} className="flex items-center gap-1 rounded border border-white/15 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/10">
             <Copy className="h-3 w-3" /> Copy result
           </button>
@@ -70,7 +79,10 @@ export default function FinalArtifactView({ artifact, kind }: { artifact: unknow
           );
         })}
       </div>
-      {report ? (
+      <LookPicker look={look} onLook={setLook} />
+      {look !== "nazai" ? (
+        <LookPreview html={lookHtml} title={`Result in the ${look} look`} />
+      ) : report ? (
         <div className="mt-2"><ReportView doc={report} /></div>
       ) : (
         <p className="mt-1.5 whitespace-pre-wrap text-sm text-zinc-100" data-testid="final-artifact-output">{a.final_output}</p>
