@@ -2,7 +2,7 @@
 // Hard rules and safety rules sit together; each row says what it is, whether it is on,
 // and has Edit / Disable / Delete. Adding a rule is the prominent action.
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Gavel, MessageCircle, Pencil, Plus, ScanSearch, Trash2, Eye } from "lucide-react";
+import { ChevronDown, ChevronUp, Gavel, Plus, ScanSearch } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -41,10 +41,10 @@ export default function YourRulesCard({
   const visible = showAll ? rules : rules.slice(0, RULES_SHOWN);
 
   return (
-    <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4 sm:p-5" aria-label="Your rules" data-testid="your-rules">
+    <section aria-label="Your rules" data-testid="your-rules">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold text-zinc-100">Your rules</h2>
+          <h2 className="text-xl font-semibold text-zinc-50">Your rules</h2>
           <p className="mt-0.5 text-xs text-zinc-500">
             {counts.total === 0
               ? "Nothing governs your AI yet."
@@ -54,7 +54,7 @@ export default function YourRulesCard({
         {canWrite && (
           <button
             onClick={onAdd}
-            className="inline-flex items-center gap-2 rounded-lg border border-cyan-300/60 bg-cyan-400 px-4 py-2 text-sm font-semibold text-black shadow-[0_0_18px_rgba(34,211,238,0.3)] transition hover:bg-cyan-300"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-400 px-3.5 py-2 text-sm font-semibold text-black shadow-[0_0_18px_rgba(34,211,238,0.3)] transition hover:bg-cyan-300"
           >
             <Plus className="h-4 w-4" /> Add rule
           </button>
@@ -88,82 +88,54 @@ export default function YourRulesCard({
           )}
         </div>
       ) : (
-        <ul className="mt-4 space-y-2">
+        <ul className="mt-4 space-y-3">
           {visible.map((r) => {
             const off = r.status === "disabled";
+            // A shadow rule is watched, not enforced: it is shown dimmed with its own status.
+            const dim = off || (r.shadow && !off);
             const busy = busyKey === r.key;
+            const link = "rounded px-1 py-0.5 text-xs text-zinc-400 transition hover:text-cyan-200 disabled:opacity-50";
             return (
               <li
                 key={r.key}
                 data-testid={`rule-row-${r.key}`}
                 data-status={r.status}
-                className={`rounded-lg border px-3 py-2.5 transition ${
-                  highlightKey === r.key ? "border-cyan-400/70 ring-2 ring-cyan-400/40" : off ? "border-white/5 bg-black/20" : "border-white/10 bg-black/30"
+                className={`rounded-2xl border px-4 py-3.5 transition ${
+                  highlightKey === r.key ? "border-cyan-400/70 ring-2 ring-cyan-400/40"
+                    : dim ? "border-white/10 bg-white/[0.03]"
+                    : "border-cyan-400/25 bg-gradient-to-br from-cyan-400/[0.07] to-white/[0.02] shadow-[0_0_18px_rgba(34,211,238,0.06)]"
                 }`}
               >
-                <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
-                  <div className="min-w-0 flex-1 basis-56">
-                    <p className={`break-words text-sm ${off ? "text-zinc-500 line-through decoration-zinc-700" : "text-zinc-100"}`}>{r.name}</p>
-                    <p className="mt-0.5 break-words text-[11px] text-zinc-500">{r.effect} · {r.scope}</p>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      <span className="inline-flex items-center gap-1 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider text-zinc-300">
-                        {r.kind === "hard" ? <Gavel className="h-3 w-3" /> : <ScanSearch className="h-3 w-3" />}
-                        {KIND_LABEL[r.kind]}
-                      </span>
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider ${
-                          off ? "bg-zinc-500/15 text-zinc-400" : "bg-emerald-500/15 text-emerald-300"
-                        }`}
-                      >
-                        {off ? "Disabled" : "Active"}
-                      </span>
-                      {r.shadow && !off && (
-                        <span
-                          title="Watched and logged only. It never changes an outcome until it is promoted to live."
-                          className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider text-amber-300"
-                        >
-                          <Eye className="h-3 w-3" /> Shadow
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                    <button
-                      onClick={() => onAsk(r)}
-                      aria-label={`Ask the chat about: ${r.name}`}
-                      title="Ask the chat about this rule"
-                      className="rounded-md border border-white/10 p-1.5 text-zinc-400 hover:bg-white/5 hover:text-cyan-200"
-                    >
-                      <MessageCircle className="h-3.5 w-3.5" />
-                    </button>
-                    {canWrite && (
-                      <>
-                        <button
-                          onClick={() => onEdit(r)}
-                          aria-label={`Edit rule: ${r.name}`}
-                          className="inline-flex items-center gap-1 rounded-md border border-white/15 px-2.5 py-1 text-xs text-zinc-200 hover:bg-white/5"
-                        >
-                          <Pencil className="h-3 w-3" /> Edit
-                        </button>
-                        <button
-                          onClick={() => onToggle(r)}
-                          disabled={busy}
-                          aria-label={`${off ? "Enable" : "Disable"} rule: ${r.name}`}
-                          className="rounded-md border border-white/15 px-2.5 py-1 text-xs text-zinc-200 hover:bg-white/5 disabled:opacity-50"
-                        >
-                          {off ? "Enable" : "Disable"}
-                        </button>
-                        <button
-                          onClick={() => setConfirming(r)}
-                          disabled={busy}
-                          aria-label={`Delete rule: ${r.name}`}
-                          className="inline-flex items-center gap-1 rounded-md border border-rose-500/30 px-2.5 py-1 text-xs text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
-                        >
-                          <Trash2 className="h-3 w-3" /> Delete
-                        </button>
-                      </>
-                    )}
-                  </div>
+                <div className="flex items-start justify-between gap-3">
+                  <p className={`min-w-0 flex-1 break-words text-[15px] font-medium leading-snug ${dim ? "text-zinc-400" : "text-zinc-50"} ${off ? "line-through decoration-zinc-700" : ""}`}>{r.name}</p>
+                  <span
+                    title={r.shadow && !off ? "Watched and logged only. It never changes an outcome until it is promoted to live." : undefined}
+                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      off ? "bg-zinc-500/20 text-zinc-300" : r.shadow ? "bg-zinc-200/10 text-zinc-200 ring-1 ring-white/15" : "bg-emerald-400/20 text-emerald-200"
+                    }`}
+                  >
+                    {off ? "Disabled" : r.shadow ? "Shadow" : "Active"}
+                  </span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-white/[0.07] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-300">
+                    {r.kind === "hard" ? <Gavel className="h-3 w-3" /> : <ScanSearch className="h-3 w-3" />}
+                    {KIND_LABEL[r.kind]}
+                  </span>
+                  <span className="min-w-0 break-words text-xs text-zinc-500">{r.effect} · {r.scope}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-x-0.5">
+                  <button onClick={() => onAsk(r)} aria-label={`Ask the chat about: ${r.name}`} title="Ask the chat about this rule" className={link}>Ask</button>
+                  {canWrite && (
+                    <>
+                      <span aria-hidden className="text-zinc-700">·</span>
+                      <button onClick={() => onEdit(r)} aria-label={`Edit rule: ${r.name}`} className={link}>Edit</button>
+                      <span aria-hidden className="text-zinc-700">·</span>
+                      <button onClick={() => onToggle(r)} disabled={busy} aria-label={`${off ? "Enable" : "Disable"} rule: ${r.name}`} className={link}>{off ? "Enable" : "Disable"}</button>
+                      <span aria-hidden className="text-zinc-700">·</span>
+                      <button onClick={() => setConfirming(r)} disabled={busy} aria-label={`Delete rule: ${r.name}`} className={`${link} hover:!text-rose-300`}>Delete</button>
+                    </>
+                  )}
                 </div>
               </li>
             );
@@ -175,7 +147,7 @@ export default function YourRulesCard({
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={showAll}
           data-testid="rules-expand"
-          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/10 py-2 text-xs text-zinc-300 hover:bg-white/5 hover:text-white"
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/10 py-2 text-xs text-zinc-300 hover:bg-white/5 hover:text-white"
         >
           {showAll ? <>Show fewer <ChevronUp className="h-3.5 w-3.5" /></> : <>Show all {rules.length} rules <ChevronDown className="h-3.5 w-3.5" /></>}
         </button>

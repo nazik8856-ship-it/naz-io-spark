@@ -60,7 +60,7 @@ describe("Inner Control page", () => {
     state.tables = { hard_rules: [hardRule], safety_rules: [], agents: [AGENT], websites: [], project_time: [], agent_decisions: [decision] };
   });
 
-  it("puts setup & status first, then your rules, then recent activity, then the detail cards", async () => {
+  it("puts status first, then your rules, then recent activity, then the closed details", async () => {
     renderPage();
     const status = await screen.findByTestId("setup-status");
     await screen.findByTestId("rule-row-hard:h1");
@@ -69,8 +69,13 @@ describe("Inner Control page", () => {
       expect(order[i].compareDocumentPosition(order[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
     expect(status.querySelector("[data-testid=status-line]")?.textContent).toBe("1 rule active – Coverage 50%");
-    const coverage = screen.getByLabelText("Rule coverage and system health");
-    expect(order[2].compareDocumentPosition(coverage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The numbers behind the status come after the three sections and stay closed until asked for.
+    const details = screen.getByTestId("details-toggle");
+    expect(order[2].compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByLabelText("Rule coverage and system health")).toBeNull();
+    fireEvent.click(details);
+    expect(screen.getByLabelText("Rule coverage and system health")).toBeTruthy();
+    expect(screen.getByTestId("coverage-ring").getAttribute("aria-label")).toBe("Coverage 50%");
   });
 
   it("with no rules, shows the primary template button and the rules empty state", async () => {
@@ -92,6 +97,7 @@ describe("Inner Control page", () => {
   it("an activity row jumps to its rule and can put its question in the chat", async () => {
     renderPage();
     const act = await screen.findByTestId("activity-row");
+    fireEvent.click(within(act).getByRole("button", { expanded: false }));
     fireEvent.click(within(act).getByRole("button", { name: /Rule: Never email/ }));
     expect(screen.getByTestId("rule-row-hard:h1").className).toMatch(/ring-2/);
     fireEvent.click(within(act).getByRole("button", { name: /Ask the chat/ }));
@@ -206,13 +212,13 @@ describe("Inner Control always shows one existing project", () => {
   it("opens on the project the person has spent the most time on, and says which one it is", async () => {
     state.tables.project_time = [{ kind: "website", project_id: "w1", seconds: 4000 }, { kind: "agent", project_id: "a1", seconds: 60 }];
     renderPage();
-    expect((await screen.findByTestId("project-heading")).textContent).toMatch(/Lisbon Yoga Studio.*website/);
+    expect((await screen.findByTestId("project-heading")).textContent).toMatch(/Lisbon Yoga Studio.*website/i);
     expect(screen.getByLabelText("Choose the project Inner Control shows").getAttribute("data-value")).toBe("website:w1");
   });
 
   it("with no time recorded opens on the newest project", async () => {
     renderPage();
-    expect((await screen.findByTestId("project-heading")).textContent).toMatch(/Support agent.*agent/);
+    expect((await screen.findByTestId("project-heading")).textContent).toMatch(/Support agent.*agent/i);
   });
 
   it("changing the project changes what the page is about", async () => {
@@ -238,7 +244,7 @@ describe("Inner Control always shows one existing project", () => {
     fireEvent.click(within(check).getByRole("button"));
     expect(check.textContent).toMatch(/price was not in your brief/);
     expect((await screen.findByTestId("activity-empty")).textContent).toMatch(/takes no actions of its own/);
-    expect(screen.getByTestId("setup-status").textContent).toMatch(/Website generated/);
+    expect(screen.getByTestId("setup-status").textContent).toMatch(/3 of 4 steps done · next: Safety rules/);
     await screen.findByTestId("rule-row-hard:h1");
   });
 

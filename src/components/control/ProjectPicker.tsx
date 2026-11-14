@@ -6,6 +6,20 @@ import { KIND_LABEL, type InnerProject } from "@/lib/inner-projects";
 
 const KIND_ICON = { agent: Bot, website: Globe } as const;
 
+// The project shown in the header: an icon tile, its name and what kind of project it is.
+const CARD = "flex min-w-0 items-center gap-2.5 rounded-xl border border-cyan-400/25 bg-cyan-400/[0.06] px-2.5 py-1.5 text-left";
+function Tile({ Icon }: { Icon: typeof Bot }) {
+  return <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10"><Icon className="h-4 w-4 text-cyan-300" /></span>;
+}
+function Label({ name, kind }: { name: string; kind: string }) {
+  return (
+    <span className="min-w-0 flex-1">
+      <span className="block truncate text-sm font-medium leading-tight text-zinc-50">{name}</span>
+      <span className="block truncate text-[11px] leading-tight text-zinc-400">{kind}</span>
+    </span>
+  );
+}
+
 function Group({ title, items, selectedKey, onPick }: { title: string; items: InnerProject[]; selectedKey: string; onPick: (key: string) => void }) {
   if (items.length === 0) return null;
   const Icon = KIND_ICON[items[0].kind];
@@ -68,10 +82,9 @@ export default function ProjectPicker({
   const websites = projects.filter((p) => p.kind === "website");
   if (projects.length === 1 && imported.length === 0) {
     return (
-      <div className="flex items-center gap-1.5 rounded border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300" data-testid="project-picker-single">
-        <Icon className="h-3.5 w-3.5 text-cyan-300" />
-        <span className="text-zinc-500">{KIND_LABEL[selected.kind]}</span>
-        <span className="max-w-[200px] truncate normal-case tracking-normal text-zinc-100">{selected.name}</span>
+      <div className={CARD} data-testid="project-picker-single">
+        <Tile Icon={Icon} />
+        <Label name={selected.name} kind={KIND_LABEL[selected.kind]} />
       </div>
     );
   }
@@ -95,22 +108,21 @@ function PickerMenu({ agents, websites, selected, Icon, onSelect, imported, onOp
   }, [open]);
   const pick = (key: string) => { setOpen(false); if (key !== selected.key) onSelect(key); };
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative min-w-0">
       <button
         ref={trigger} type="button" role="combobox" aria-haspopup="listbox" aria-expanded={open}
         aria-label="Choose the project Inner Control shows" title="Choose the project Inner Control shows"
         data-testid="project-picker" data-value={selected.key} onClick={() => setOpen((o) => !o)}
-        className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider transition-colors ${open ? "border-cyan-400/60 bg-cyan-500/15" : "border-cyan-500/30 bg-cyan-500/[0.06] hover:border-cyan-400/50 hover:bg-cyan-500/10"}`}
+        className={`${CARD} w-full transition-colors ${open ? "border-cyan-400/60 bg-cyan-500/15" : "hover:border-cyan-400/50 hover:bg-cyan-500/10"}`}
       >
-        <Icon className="h-3.5 w-3.5 text-cyan-300" />
-        <span className="text-zinc-500">{KIND_LABEL[selected.kind]}</span>
-        <span className="max-w-[200px] truncate normal-case tracking-normal text-zinc-100">{selected.name}</span>
-        <ChevronDown className={`h-3 w-3 text-zinc-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        <Tile Icon={Icon} />
+        <Label name={selected.name} kind={KIND_LABEL[selected.kind]} />
+        <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div
           role="listbox" aria-label="Your projects"
-          className="absolute left-0 top-full z-50 mt-2 w-[280px] overflow-hidden rounded-xl border border-cyan-500/25 bg-[#050b1a]/95 text-zinc-100 shadow-[0_12px_40px_rgba(0,0,0,0.6),0_0_0_1px_rgba(34,211,238,0.06)] backdrop-blur"
+          className="absolute left-0 top-full z-50 mt-2 w-[min(86vw,300px)] overflow-hidden rounded-xl border border-cyan-500/25 bg-[#050b1a]/95 text-zinc-100 shadow-[0_12px_40px_rgba(0,0,0,0.6),0_0_0_1px_rgba(34,211,238,0.06)] backdrop-blur"
         >
           <div className="max-h-[320px] divide-y divide-white/5 overflow-y-auto">
             <Group title="Agents" items={agents} selectedKey={selected.key} onPick={pick} />
