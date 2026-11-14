@@ -47,7 +47,7 @@ describe("ProjectPicker", () => {
   });
   it("with one project it is a label with its type, not a dropdown", () => {
     render(<ProjectPicker {...base} projects={[projects[0]]} selected={projects[0]} loading={false} />);
-    expect(screen.getByTestId("project-picker-single").textContent).toMatch(/Agent.*Support agent/);
+    expect(screen.getByTestId("project-picker-single").textContent).toMatch(/Support agent.*Agent/);
     expect(screen.queryByRole("combobox")).toBeNull();
   });
   it("with none it invites creating the first one", () => {

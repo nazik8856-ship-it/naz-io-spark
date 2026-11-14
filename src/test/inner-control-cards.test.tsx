@@ -48,9 +48,19 @@ describe("YourRulesCard", () => {
     expect(screen.getByRole("button", { name: "Request deletion" })).toBeTruthy();
   });
 
-  it("marks shadow rules as observe-only", () => {
+  it("marks shadow rules as observe-only: a Shadow status instead of Active, and the card is dimmed", () => {
     render(<YourRulesCard {...cardProps([rule({ shadow: true })])} />);
-    expect(screen.getByText("Shadow")).toBeTruthy();
+    const row = screen.getByTestId(/^rule-row-/);
+    expect(within(row).getByText("Shadow")).toBeTruthy();
+    expect(within(row).queryByText("Active")).toBeNull();
+    expect(row.className).not.toMatch(/cyan-400\/25/);
+  });
+  it("lights an enforcing rule's card and shows one status pill per rule", () => {
+    render(<YourRulesCard {...cardProps([rule()])} />);
+    const row = screen.getByTestId(/^rule-row-/);
+    expect(row.className).toMatch(/cyan-400\/25/);
+    expect(within(row).getByText("Active")).toBeTruthy();
+    expect(within(row).getAllByRole("button").map((b) => b.textContent)).toEqual(["Ask", "Edit", "Disable", "Delete"]);
   });
 
   it("has a prominent Add rule button", () => {
@@ -78,12 +88,16 @@ describe("YourRulesCard", () => {
   });
 });
 
+// A decision is one line; tapping it opens the reason, the rule that decided it and the chat link.
+const openRow = () => fireEvent.click(within(screen.getByTestId("activity-row")).getByRole("button", { expanded: false }));
+
 describe("RecentActivityCard", () => {
   const item = { id: "d1", at: new Date().toISOString(), verdict: "Blocked", tone: "bad" as const, title: "Send email to all customers", reason: "A hard rule always blocks this.", ruleId: "h1", ruleName: "Never email more than 1 person", question: 'Why was "Send email to all customers" blocked?' };
   it("links a row to its rule and to the chat", () => {
     const onShowRule = vi.fn();
     const onAsk = vi.fn();
     render(<RecentActivityCard items={[item]} loading={false} onShowRule={onShowRule} onAsk={onAsk} onViewAll={() => {}} />);
+    openRow();
     fireEvent.click(screen.getByRole("button", { name: /Rule: Never email/ }));
     expect(onShowRule).toHaveBeenCalledWith("h1");
     fireEvent.click(screen.getByRole("button", { name: /Ask the chat/ }));
@@ -92,6 +106,7 @@ describe("RecentActivityCard", () => {
   it("tags an agent's action with the Outer Control Task that asked for it, and shows the Task's result", () => {
     const task = { id: "task-1", goal: "Find the return rules", status: "completed", tools: ["ChatGPT", "Agent: Support"], result: "Premium customers can return items within thirty days." };
     render(<RecentActivityCard items={[{ ...item, task }]} loading={false} onShowRule={() => {}} onAsk={() => {}} onViewAll={() => {}} />);
+    openRow();
     const tag = screen.getByTestId("activity-task");
     expect(tag.textContent).toMatch(/Part of an Outer Control Task/);
     expect(tag.textContent).toMatch(/Find the return rules/);
@@ -103,8 +118,20 @@ describe("RecentActivityCard", () => {
     const { rerender } = render(<RecentActivityCard items={[item]} loading={false} onShowRule={() => {}} onAsk={() => {}} onViewAll={() => {}} />);
     expect(screen.queryByTestId("activity-task")).toBeNull();
     rerender(<RecentActivityCard items={[{ ...item, task: { id: "t", goal: "g", status: "running", tools: [], result: null } }]} loading={false} onShowRule={() => {}} onAsk={() => {}} onViewAll={() => {}} />);
+    openRow();
     expect(screen.getByTestId("activity-task")).toBeTruthy();
     expect(screen.queryByTestId("activity-task-result")).toBeNull();
+  });
+  it("shows one line per decision (outcome, action, age) and keeps the detail closed until the row is tapped", () => {
+    render(<RecentActivityCard items={[item]} loading={false} onShowRule={() => {}} onAsk={() => {}} onViewAll={() => {}} />);
+    const row = screen.getByTestId("activity-row");
+    expect(row.textContent).toMatch(/Blocked.*Send email to all customers.*just now/);
+    expect(screen.queryByTestId("activity-detail")).toBeNull();
+    expect(screen.queryByText("A hard rule always blocks this.")).toBeNull();
+    openRow();
+    expect(screen.getByText("A hard rule always blocks this.")).toBeTruthy();
+    fireEvent.click(within(row).getByRole("button", { expanded: true }));
+    expect(screen.queryByTestId("activity-detail")).toBeNull();
   });
   it("explains what will appear when there is nothing yet", () => {
     render(<RecentActivityCard items={[]} loading={false} onShowRule={() => {}} onAsk={() => {}} onViewAll={() => {}} />);

@@ -192,6 +192,40 @@ const GROUPS: MenuGroup[] = [
   },
 ];
 
+
+/** Every page of the Inner Control System, grouped, each with a one-line description. Used by the "All pages" menu and the settings sheet. */
+export function ControlPagesGrid({ badges = {}, onNavigate, columns = "sm:grid-cols-2 lg:grid-cols-3" }: { badges?: Record<string, number>; onNavigate: (path: string) => void; columns?: string }) {
+  return (
+          <div className={`grid grid-cols-1 gap-4 ${columns}`}>
+            {GROUPS.map((group) => (
+              <div key={group.title}>
+                <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">{group.title}</div>
+                <ul className="space-y-0.5">
+                  {group.items.map((item) => (
+                    <li key={item.path}>
+                      <button
+                        onClick={() => onNavigate(item.path)}
+                        className="block w-full rounded px-1.5 py-1.5 text-left transition hover:bg-white/5"
+                      >
+                        <span className="flex items-center gap-1.5 text-xs font-medium text-zinc-200">
+                          {item.label}
+                          {!!badges[item.path] && (
+                            <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-mono text-amber-300">
+                              {badges[item.path]}
+                            </span>
+                          )}
+                        </span>
+                        <span className="block text-[11px] leading-snug text-zinc-500">{item.description}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+  );
+}
+
 // UX audit: this menu is explicitly "the one place that lists literally
 // everything" (see the header comment above), yet gave no indication
 // anything needed attention -- a user had to open each page individually
@@ -231,33 +265,7 @@ export default function ControlPagesMenu({ badges = {} }: { badges?: Record<stri
       </button>
       {open && (
         <div className="absolute right-0 top-full z-50 mt-1.5 w-[min(92vw,820px)] max-h-[80vh] overflow-y-auto rounded-lg border border-white/10 bg-[#0a0f1e] p-4 shadow-2xl shadow-black/60">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {GROUPS.map((group) => (
-              <div key={group.title}>
-                <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">{group.title}</div>
-                <ul className="space-y-0.5">
-                  {group.items.map((item) => (
-                    <li key={item.path}>
-                      <button
-                        onClick={() => { setOpen(false); navigate(item.path); }}
-                        className="block w-full rounded px-1.5 py-1.5 text-left transition hover:bg-white/5"
-                      >
-                        <span className="flex items-center gap-1.5 text-xs font-medium text-zinc-200">
-                          {item.label}
-                          {!!badges[item.path] && (
-                            <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-mono text-amber-300">
-                              {badges[item.path]}
-                            </span>
-                          )}
-                        </span>
-                        <span className="block text-[11px] leading-snug text-zinc-500">{item.description}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+          <ControlPagesGrid badges={badges} onNavigate={(path) => { setOpen(false); navigate(path); }} />
         </div>
       )}
     </div>
