@@ -56,7 +56,11 @@ const ORDER = Object.keys(LABEL) as CriterionId[];
 // ---------------------------------------------------------------------------------------
 // Is the result usable?
 
-export type Usability = { usable: boolean; code: "ok" | "empty" | "placeholder" | "refusal" | "error_text" | "status_only" | "echo"; detail: string };
+export type Usability = {
+  usable: boolean;
+  code: "ok" | "empty" | "placeholder" | "refusal" | "error_text" | "status_only" | "echo" | "filler" | "repetitive" | "thin" | "generic" | "unstructured";
+  detail: string;
+};
 
 const MARKER = /\[REDACTED:[a-z_]+\]/gi;
 const PLACEHOLDER = /^(?:n\/?a|none|null|undefined|nil|nothing|ok|okay|done|success|completed|finished|acknowledged|\{\s*\}|\[\s*\]|[-.…]+)$/i;
@@ -93,7 +97,128 @@ export function assessOutput(text: string | null | undefined, objective: string)
   const a = norm(visible);
   const o = norm(objective);
   if (a && o && a === o) return { usable: false, code: "echo", detail: "the tool only repeated the request" };
+
+  // The quality floor (task 3): deterministic checks for a result that is technically an answer but not a useful one.
+  const low = lowQuality(visible, objective);
+  if (low) return { usable: false, ...low };
   return { usable: true, code: "ok", detail: `${visible.length} characters` };
+}
+
+// ---------------------------------------------------------------------------------------
+// The quality floor. Each check names what is wrong and what to do about it, because that sentence is what the tool is told when its
+// reply is sent back (correctionFor). The thresholds are deliberately loose: a short, direct answer to a short question passes.
+
+const wordCount = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
+
+// Sentences that carry no content. Only the first and last sentences of a result are ever looked at, and a sentence is matched as a
+// whole: "Sure! Here's the report:" and "I hope this helps!" are pleasantries, "Sure, revenue grew 12%." is content.
+const FILLER_OPEN = [
+  /^(?:certainly|sure|of course|absolutely|great question|good question)[!.,:]*$/i,
+  /^(?:certainly|sure|of course|absolutely)[!,.:]*\s+(?:here(?:'|’)?s|here is|here are|below is|below are)\b.{0,100}:$/i,
+  /^(?:here(?:'|’)?s|here is|here are|below is|below are)\b.{0,100}:$/i,
+  /^i(?:'|’)?d be (?:happy|glad) to help\b.{0,80}$/i,
+];
+const FILLER_CLOSE = [
+  /^(?:i hope (?:this|that) helps|hope (?:this|that) helps)\b.{0,80}$/i,
+  /^(?:let me know|please let me know|don(?:'|’)?t hesitate to|feel free to (?:ask|reach out|contact|let me know))\b.{0,160}$/i,
+  /^(?:if you (?:have|need|would like|want) (?:any |more |further |additional )?(?:questions|help|assistance|changes|adjustments|anything|more)|is there anything (?:else|more))\b.{0,160}$/i,
+];
+const MAX_FILLER_UNITS = 2;
+
+/** The text without its opening and closing pleasantries (at most two sentences each side), and what was taken out. */
+export function stripFiller(text: string): { text: string; removed: string[] } {
+  // Sentence-sized units with their position, so what is kept is the original text, not a rebuilt copy.
+  const units = [...text.matchAll(/[^\n.!?]+(?:[.!?]+|(?=\n)|$)/g)].map((m) => ({ t: m[0].trim(), start: m.index ?? 0, end: (m.index ?? 0) + m[0].length })).filter((u) => u.t);
+  const removed: string[] = [];
+  let lo = 0;
+  let hi = units.length;
+  for (let n = 0; n < MAX_FILLER_UNITS && lo < hi; n++) {
+    if (units[lo].t.length > 140 || !FILLER_OPEN.some((re) => re.test(units[lo].t))) break;
+    removed.push(units[lo].t); lo++;
+  }
+  for (let n = 0; n < MAX_FILLER_UNITS && lo < hi; n++) {
+    if (units[hi - 1].t.length > 200 || !FILLER_CLOSE.some((re) => re.test(units[hi - 1].t))) break;
+    removed.push(units[hi - 1].t); hi--;
+  }
+  if (!removed.length) return { text: text.trim(), removed };
+  return { text: lo < hi ? text.slice(units[lo].start, units[hi - 1].end).trim() : "", removed };
+}
+
+/**
+ * The stored result: opening and closing pleasantries removed. Left alone when little would remain (a short answer that is mostly
+ * pleasantry is judged, not rewritten) and whenever nothing matched.
+ */
+export function tidyOutput(text: string): { text: string; removed: string[] } {
+  const s = stripFiller(text);
+  if (!s.removed.length || wordCount(s.text) < 20) return { text, removed: [] };
+  return s;
+}
+
+const GENERIC_PHRASES = [
+  "it is important to note", "it's important to note", "it is worth noting", "in today's fast-paced", "in today's digital age", "in today's world",
+  "plays a crucial role", "plays a vital role", "a wide range of", "a variety of", "various factors", "at the end of the day", "needless to say",
+  "delve into", "ever-evolving", "game-changer", "unlock the potential", "take it to the next level", "in the realm of", "navigate the complexities",
+  "in conclusion", "to sum up", "overall, it is clear",
+];
+// A document is asked for with a verb: "write a report on…", not "log in and report". Only then is a very short reply too thin.
+const DELIVERABLE = /\b(?:write|draft|prepare|produce|compose|generate|create|make|put together|give me)\b[^.?!\n]{0,40}?\b(report|analysis|plan|proposal|strategy|comparison|article|essay|memo|checklist|outline|roadmap|guide)\b/i;
+const WORD_CAP = /\b(?:at most|no more than|maximum|max|under|within|up to|fewer than|less than)\s+\d{1,4}\s+words?\b|\b\d{1,4}\s+words?\b|\b(?:one|1)[ -]?(?:line|sentence)\b|\bbrief(?:ly)?\b|\bshort\b|\btl;?dr\b/i;
+
+/** Concrete detail: numbers, names (a capital letter inside a sentence), quoted text, links and list items. */
+function specifics(text: string): number {
+  let n = 0;
+  for (const line of text.split("\n")) {
+    if (/^\s*(?:[-*•]|\d+[.)])\s+\S/.test(line)) n++;
+    for (const sentence of line.split(/(?<=[.!?])\s+/)) {
+      const tokens = sentence.split(/\s+/).filter(Boolean);
+      tokens.forEach((t, i) => {
+        if (/\d/.test(t) || /^https?:\/\//i.test(t) || /["“”`]/.test(t)) n++;
+        else if (i > 0 && /^[A-Z][a-z]{2,}/.test(t)) n++;
+      });
+    }
+  }
+  return n;
+}
+
+/** What is wrong with a result that is an answer but not a useful one; null when it clears the floor. */
+export function lowQuality(text: string, objective: string): { code: "filler" | "repetitive" | "thin" | "generic" | "unstructured"; detail: string } | null {
+  const stripped = stripFiller(text);
+  const body = stripped.text;
+  const words = wordCount(body);
+
+  // Pleasantries and nothing else.
+  if (stripped.removed.length && words < 5) {
+    return { code: "filler", detail: "the reply is only pleasantries (such as \"Certainly!\" or \"I hope this helps\") and contains no content. Give the content itself, without opening or closing pleasantries" };
+  }
+
+  // The same sentences again and again.
+  const sentences = body.split(/(?<=[.!?])\s+|\n+/).map((s) => norm(s)).filter((s) => s.split(" ").length >= 3);
+  if (sentences.length >= 6 && new Set(sentences).size / sentences.length < 0.5) {
+    return { code: "repetitive", detail: "the reply repeats the same sentences. Say each thing once and add what is missing" };
+  }
+
+  // A document was asked for and almost nothing came back. A stated length or a request to be brief is respected.
+  if (DELIVERABLE.test(objective) && !WORD_CAP.test(objective)) {
+    const items = body.split("\n").filter((l) => /^\s*(?:[-*•]|\d+[.)])\s+\S/.test(l)).length;
+    if (words < 40 && items < 3) {
+      return { code: "thin", detail: `the goal asks for a ${objective.match(DELIVERABLE)![1].toLowerCase()} but the reply is only ${words} words. Write it out in full: the main points, each with its reasoning or detail` };
+    }
+  }
+
+  // General statements with nothing concrete in them.
+  if (words >= 80) {
+    const lower = body.toLowerCase();
+    const hits = GENERIC_PHRASES.filter((p) => lower.includes(p)).length;
+    if (hits >= 3 && specifics(body) < Math.max(3, Math.floor(words / 50))) {
+      return { code: "generic", detail: "the reply is generic: it makes general statements and gives no concrete fact, number, name or step. Give specific facts, numbers, names or steps for this goal" };
+    }
+  }
+
+  // A long answer as one block of text.
+  if (words >= 300 && body.split("\n").filter((l) => l.trim()).length <= 1) {
+    return { code: "unstructured", detail: `the reply is ${words} words in one block. Reply again in short paragraphs, with headings or a list so it can be read and checked` };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------------------

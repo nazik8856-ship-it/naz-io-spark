@@ -73,6 +73,14 @@ export type MissingTool = { tool: string; reason: string };
 
 export const kindOf = (d: Pick<ReportDoc, "kind">): ReportKind => d.kind ?? "opinions";
 
+/**
+ * The looks a result can be shown and downloaded in (src/lib/outer-control-templates.ts draws them). Chosen before a Task starts, kept
+ * with the Task's final artifact; a viewer can switch at any time. "nazai" is the original dark page.
+ */
+export const OUTPUT_TEMPLATES = ["nazai", "executive", "editorial", "brief", "data"] as const;
+export type OutputTemplate = (typeof OUTPUT_TEMPLATES)[number];
+export const isOutputTemplate = (x: unknown): x is OutputTemplate => typeof x === "string" && (OUTPUT_TEMPLATES as readonly string[]).includes(x);
+
 export type ActionLimits = {
   minTools: number; maxTools: number; maxText: number;
   /** A list the action needs: styles (rewrite), roles (roles), audiences (adapt). */

@@ -97,7 +97,7 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
     deferred_detail: O, modified_params: P,
   },
   agent_events: { kind: O, payload: P, reasoning: P, confidence: O, payload_ref: O, payload_original_event_id: O },
-  agent_integrations: { provider: O, credentials: S, metadata: X, status: O, last_error: O, metadata_shop: O, metadata_workspace_id: O, metadata_team_id: O },
+  agent_integrations: { provider: O, metadata: X, status: O, last_error: O, metadata_shop: O, metadata_workspace_id: O, metadata_team_id: O },
   agent_memory: { key: P, value: P, source: O },
   agent_reports: { title: P, kind: O, body_markdown: P },
   agent_runs: { trigger: O, status: O, summary: P, instruction: P, outcome: P },
@@ -166,8 +166,7 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   isolation_tables: { table_name: O, access: O, owner_column: O, read_all_reason: O, note: O },
   knowledge_base_entries: { entry_text: P, action_type_pattern: R, provider: R },
   meaning_rules: { name: R, description: R, action: R },
-  mfa_recovery_attempts: { id: O, user_id: O },
-  mfa_recovery_codes: { code_hash: O, id: O, user_id: O },
+  mfa_recovery_codes: { code_hash: O },
   missions: { directive: P, attachment_urls: P, status: O },
   notion_oauth_transactions: { state: S, request_origin: O },
   onboarding_feedback: { answer: O, reason: O },
@@ -189,7 +188,7 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   outer_control_task_handoffs: { from_label: O, outcome: O, rules: R, text_sha256: O, note: O },
   outer_control_workflows: {
     objective: P, context: P, status: O, summary: P, kind: O, origin: O, final_output: P, stop_reason: O, final_artifact: P, mode: O,
-    goal_pool: P, done_criteria: P, criteria_state: P, blocked_reason: O,
+    goal_pool: P, done_criteria: P, criteria_state: P, blocked_reason: O, output_template: O,
   },
   pending_approval_events: { event_type: O, note: O },
   pending_approvals: {

@@ -233,7 +233,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     const r = await act("report", "start_report", {
       task: t.kind, topic: t.text, background: t.background || undefined, styles: t.styles.length ? t.styles : undefined,
       count: t.kind === "alternatives" ? t.count : undefined, tool_ids: t.toolIds, confirm_override: t.keepChoice || undefined,
-      project_id: taskProject?.id,
+      project_id: taskProject?.id, template: t.template ?? undefined,
     }, `${ACTION_INFO[t.kind].title} started: asking ${label}. Follow it in Your tasks below; the result appears there when it is done.`);
     if (r.ok) { setTaskStarts((n) => n + 1); setTaskProject(null); }
     return r.ok;

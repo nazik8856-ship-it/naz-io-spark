@@ -85,7 +85,8 @@ export function parseTaskTitle(objective: string): { kind: ReportKind; text: str
 const quoted = (label: string, text: string) => `${label}:\n<<<\n${text}\n>>>`;
 const headings = (word: string, labels: string[]) => labels.map((l) => `### ${word}: ${l}`).join("\n");
 /** Said to every tool: an honest "I don't know" is better than a confident guess. */
-const HONEST_TOOL = "If you do not know something, say so plainly instead of guessing.";
+const HONEST_TOOL = "If you do not know something, say so plainly instead of guessing. " +
+  "Be specific: give concrete facts, numbers, names or steps rather than general statements, and no opening or closing pleasantries.";
 
 /**
  * What each tool is asked, by action (the actions where every tool gets the same request). The tool answers on its own.
@@ -165,6 +166,9 @@ export function writerInstructionFor(kind: ReportKind, text: string): string {
 export type Opinion = { n: number; tool: string; text: string; shortened: boolean; sha256: string; at: string; links: ArtifactLink[]; instruction?: string };
 export type Analysis = { summary: string; agreements: string[]; differences: string[]; conclusion: string };
 
+/** A summary, conclusion or result must say something: a stub ("s", "Fine.") is not an analysis. Source references do not count as words. */
+const isThin = (s: string) => s.replace(/\[\d{1,3}\]/g, " ").trim().split(/\s+/).filter(Boolean).length < 3;
+
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
 /** The question a report step asks every tool. */
@@ -216,7 +220,7 @@ export function parseAnalysis(raw: string, sourceCount: number): Analysis | null
   const conclusion = typeof o.conclusion === "string" ? o.conclusion.trim() : "";
   const agreements = asStrings(o.agreements, 6);
   const differences = asStrings(o.differences, 6);
-  if (!summary || !conclusion || agreements === null || differences === null) return null;
+  if (isThin(summary) || isThin(conclusion) || agreements === null || differences === null) return null;
   const all = [summary, conclusion, ...agreements, ...differences].join("\n");
   for (const m of all.matchAll(/\[(\d{1,3})\]/g)) {
     const k = Number(m[1]);
@@ -293,7 +297,7 @@ export function parseFactcheck(raw: string, sourceCount: number): FactcheckAnaly
   const conclusion = typeof o.conclusion === "string" ? o.conclusion.trim() : "";
   const findings = asStrings(o.findings, 6);
   const corrections = asStrings(o.corrections, 6);
-  if (!summary || !conclusion || findings === null || corrections === null) return null;
+  if (isThin(summary) || isThin(conclusion) || findings === null || corrections === null) return null;
   if (!refsOk([summary, conclusion, ...findings, ...corrections], sourceCount)) return null;
   return { verdict: verdict as Verdict, summary: clip(summary, 1200), conclusion: clip(conclusion, 1200), findings: findings.map((x) => clip(x, 400)), corrections: corrections.map((x) => clip(x, 400)) };
 }
@@ -365,7 +369,7 @@ export function parseResearch(raw: string, sourceCount: number): ResearchAnalysi
   const conclusion = typeof o.conclusion === "string" ? o.conclusion.trim() : "";
   const points = asStrings(o.points, 10);
   const open = asStrings(o.open_questions, 6);
-  if (!summary || !conclusion || !points || points.length === 0 || open === null) return null;
+  if (isThin(summary) || isThin(conclusion) || !points || points.length === 0 || open === null) return null;
   if (!refsOk([summary, conclusion, ...points, ...open], sourceCount)) return null;
   return { summary: clip(summary, 1200), conclusion: clip(conclusion, 1200), points: points.map((x) => clip(x, 400)), open_questions: open.map((x) => clip(x, 400)) };
 }
@@ -390,7 +394,7 @@ export function parseDecision(raw: string, sourceCount: number): DecisionAnalysi
   const summary = typeof o.summary === "string" ? o.summary.trim() : "";
   const recommendation = typeof o.recommendation === "string" ? o.recommendation.trim() : "";
   const risks = asStrings(o.risks, 6);
-  if (!summary || !recommendation || risks === null || !Array.isArray(o.options) || o.options.length === 0) return null;
+  if (isThin(summary) || isThin(recommendation) || risks === null || !Array.isArray(o.options) || o.options.length === 0) return null;
   const options: DecisionOption[] = [];
   for (const r of o.options.slice(0, 6)) {
     const option = r && typeof r === "object" && typeof (r as DecisionOption).option === "string" ? (r as DecisionOption).option.trim() : "";
@@ -456,7 +460,7 @@ export function parseCombine(raw: string, sourceCount: number, requireEvery: boo
   if (!o || typeof o !== "object" || Array.isArray(o)) return null;
   const summary = typeof o.summary === "string" ? o.summary.trim() : "";
   const result = typeof o.result === "string" ? o.result.trim() : "";
-  if (!summary || !result || !refsOk([summary, result], sourceCount)) return null;
+  if (isThin(summary) || isThin(result) || !refsOk([summary, result], sourceCount)) return null;
   if (requireEvery) {
     const cited = new Set([...result.matchAll(/\[(\d{1,3})\]/g)].map((m) => Number(m[1])));
     for (let k = 1; k <= sourceCount; k++) if (!cited.has(k)) return null;

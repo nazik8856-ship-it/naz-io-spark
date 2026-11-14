@@ -48,7 +48,7 @@ import { nazaiAddressProblem } from "../_shared/outer-control-address.ts";
 import { ownProjectHost } from "../_shared/egress.ts";
 import { ensureStarterTools, isStarterUrl, STARTER_TASKS, STARTER_USED_UP, starterTasksUsed } from "../_shared/outer-control-starter.ts";
 import { buildPlanPrompt, cleanCount, cleanStyles, delegateInstruction, gatewayAi, improveInstruction, multistepInstruction, NEEDS_AI, parsePlan, REPORT_TOOL_URL, routeRequest, ROUTING_TEXT, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
-import { ACTION_INFO, MAX_BACKGROUND, REPORT_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
+import { ACTION_INFO, isOutputTemplate, MAX_BACKGROUND, OUTPUT_TEMPLATES, REPORT_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
 import { checkFreeLimit } from "../_shared/free-limits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
@@ -299,6 +299,9 @@ Deno.serve(async (req) => {
       const styles = lim.labels ? cleanStyles(body.styles) : [];
       if (lim.labels && styles.length === 0) return json({ error: "invalid_styles", message: `Choose at least one ${lim.labels === "styles" ? "style" : lim.labels === "roles" ? "role" : "audience or platform"}.` }, 400);
       const count = kind === "alternatives" ? cleanCount(body.count) : 0;
+      // The look of the result, chosen before the Task starts. Absent: the page's own default. Anything else is refused before a credit is used.
+      if (body.template !== undefined && body.template !== null && !isOutputTemplate(body.template)) return json({ error: "invalid_template", message: `template must be one of: ${OUTPUT_TEMPLATES.join(", ")}.` }, 400);
+      const template = isOutputTemplate(body.template) ? body.template : null;
       const ids = Array.isArray(body.tool_ids) ? [...new Set((body.tool_ids as unknown[]).map(String))] : [];
       if (ids.length < lim.minTools || ids.length > lim.maxTools) return json({ error: "invalid_tools", message: `Choose ${lim.minTools === lim.maxTools ? lim.minTools : `${lim.minTools} to ${lim.maxTools}`} tool${lim.maxTools === 1 ? "" : "s"} for ${ACTION_INFO[kind].title}.` }, 400);
       const { data: chosen } = await admin.from("external_tools").select("id, name, enabled, endpoint_url, suspended_at").eq("user_id", accountId).is("removed_at", null).in("id", ids);
@@ -368,7 +371,7 @@ Deno.serve(async (req) => {
       }
       // Marks the Task as paid for, so that if it ends without a result the credit goes back (once).
       // (A free starter Task was not charged, so nothing is given back for it.)
-      await admin.from("outer_control_workflows").update({ credit_charged: cost > 0, ...(project ? { project_id: project.id } : {}) }).eq("id", started.workflowId);
+      await admin.from("outer_control_workflows").update({ credit_charged: cost > 0, ...(project ? { project_id: project.id } : {}), ...(template ? { output_template: template } : {}) }).eq("id", started.workflowId);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, task_id: started.workflowId, steps: steps.length });
     }

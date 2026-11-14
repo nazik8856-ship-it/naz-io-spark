@@ -1,5 +1,5 @@
 // Run with: deno test supabase/functions/_shared/outer-control-completion_test.ts
-import { assessOutput, buildChecklist, correctionFor, passedCount, settle, type ChecklistInput } from "./outer-control-completion.ts";
+import { assessOutput, buildChecklist, correctionFor, passedCount, settle, stripFiller, tidyOutput, type ChecklistInput } from "./outer-control-completion.ts";
 
 function assertEquals<T>(a: T, b: T, m?: string) { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(m ?? `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); }
 function assert(c: unknown, m: string) { if (!c) throw new Error(m); }
@@ -120,4 +120,81 @@ Deno.test("assessOutput: a placeholder with punctuation is still a placeholder",
     if (u.usable || u.code !== "placeholder") throw new Error(`${t} should be a placeholder, got ${JSON.stringify(u)}`);
   }
   if (!assessOutput("Done. Refunds are paid within 14 days.", "Write a summary").usable) throw new Error("a real answer that starts with 'Done.' is usable");
+});
+
+// ---------------------------------------------------------------------------------------
+// The quality floor (task 3)
+
+const WORDS_60 = "Premium customers return items within thirty days of delivery and receive a full credit to the original payment method within five business days. " +
+  "Items must be unused and in the original packaging, and the return label is free for orders above 50 EUR. ";
+
+Deno.test("quality: only pleasantries is not a result", () => {
+  for (const t of ["Certainly! I hope this helps.", "Sure! Here's the report:\n\nLet me know if you need anything else."]) {
+    const u = assessOutput(t, "Write a report on returns");
+    if (u.usable || u.code !== "filler") throw new Error(`${t} should be filler, got ${JSON.stringify(u)}`);
+  }
+  assert(assessOutput("Yes", OBJ).usable && assessOutput("42", OBJ).usable, "a short direct answer is not filler");
+  assert(assessOutput("Sure, premium customers can return items within thirty days.", OBJ).usable, "a sentence that starts with Sure and says something is content");
+});
+
+Deno.test("quality: pleasantries around a real answer are removed, the answer is untouched", () => {
+  const t = `Certainly! Here's the policy:\n\n${WORDS_60}\n\nI hope this helps! Let me know if you have any questions.`;
+  const s = stripFiller(t);
+  assertEquals(s.removed.length, 4);
+  assertEquals(s.text, WORDS_60.trim());
+  assertEquals(tidyOutput(t).text, WORDS_60.trim());
+  // nothing to remove -> the very same text comes back
+  assertEquals(tidyOutput(WORDS_60).removed, []);
+  assertEquals(tidyOutput(WORDS_60).text, WORDS_60);
+  // little would remain -> left as it is (judged, not rewritten)
+  assertEquals(tidyOutput("Sure! Here you go:\n\nParis.").text, "Sure! Here you go:\n\nParis.");
+  // a real line in the middle is never touched
+  const mid = `${WORDS_60}\nFeel free to adjust the limit in settings.\n${WORDS_60}`;
+  assertEquals(tidyOutput(mid).text, mid);
+});
+
+Deno.test("quality: the same sentences again and again are sent back", () => {
+  const u = assessOutput("Returns are accepted within thirty days. ".repeat(8), "Explain returns");
+  if (u.usable || u.code !== "repetitive") throw new Error(JSON.stringify(u));
+});
+
+Deno.test("quality: a document was asked for and almost nothing came back", () => {
+  const u = assessOutput("Returns are generally fine and customers are happy with the process.", "Write a report on our returns process");
+  if (u.usable || u.code !== "thin") throw new Error(JSON.stringify(u));
+  assert(u.detail.includes("report"), "the detail names what was asked for");
+  // a stated length, or a request to be brief, is respected
+  assert(assessOutput("Returns are generally fine.", "Write a report on returns in at most 30 words").usable, "word limit");
+  assert(assessOutput("Returns are generally fine.", "Write a brief report on returns").usable, "brief");
+  // a short list of real items is a checklist, not thin
+  assert(assessOutput("- Check the invoice\n- Inspect the parcel\n- Refund within 5 days", "Write a checklist for returns").usable, "three list items");
+  // an answer to a question is never judged thin
+  assert(assessOutput("Thirty days.", "How long do premium customers have to return items?").usable, "a question");
+});
+
+Deno.test("quality: general statements with nothing concrete in them are sent back; concrete ones are not", () => {
+  const fluff = "In today's fast-paced world, it is important to note that returns play a crucial role. A wide range of factors influence how companies handle them, " +
+    "and various approaches exist. At the end of the day, the process matters, and it is worth noting that customers value a good experience in every part of the journey. " +
+    "Companies that want to succeed should think about what customers want and how they feel about the whole experience over time and across channels, " +
+    "and they should always look for ways to improve what they do so that everyone involved can benefit from a smooth and pleasant process.";
+  const u = assessOutput(fluff, "Explain how returns work");
+  if (u.usable || u.code !== "generic") throw new Error(JSON.stringify(u));
+  assert(assessOutput(WORDS_60 + WORDS_60, "Explain how returns work").usable, "concrete details pass");
+  // filler phrases with real numbers and names are fine
+  assert(assessOutput(fluff + " Zalando accepts returns for 100 days and Amazon for 30 days in 2025.", "Explain how returns work").usable, "specifics outweigh the phrases");
+});
+
+Deno.test("quality: a long answer in one block is sent back to be structured", () => {
+  const block = ("Premium customers return items within thirty days and receive a credit to the original payment method. " + "The warehouse scans the parcel and the refund follows. ").repeat(9).replace(/Premium/g, (m, i) => (i % 2 ? m : m));
+  const varied = Array.from({ length: 40 }, (_, i) => `Step ${i + 1} concerns parcel ${1000 + i} and the customer account ${2000 + i} in the warehouse queue.`).join(" ");
+  const u = assessOutput(varied, "Explain the returns process");
+  if (u.usable || u.code !== "unstructured") throw new Error(JSON.stringify(u));
+  assert(assessOutput(varied.replace(/\. /g, ".\n"), "Explain the returns process").usable, "the same text in lines is fine");
+  assert(block.length > 0, "fixture built");
+});
+
+Deno.test("quality: a result below the floor becomes a retry with a specific correction, then a person's decision", () => {
+  const c = buildChecklist(base({ text: "Certainly! I hope this helps." , objective: "Write a report on returns", stored: { text: "Certainly! I hope this helps." } }));
+  assertEquals(c.outcome, "retry");
+  assert(correctionFor(c).includes("pleasantries"), "the tool is told what was wrong");
+  assertEquals(settle(c, false).outcome, "needs_attention");
 });

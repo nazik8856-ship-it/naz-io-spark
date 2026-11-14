@@ -6,7 +6,7 @@
 // Pure and dependency-free. THIS FILE EXISTS TWICE, byte for byte: src/lib/outer-control-artifact.ts (the app) and
 // supabase/functions/_shared/outer-control-artifact.ts (the edge functions). A test fails when they differ.
 
-import { isReportDoc, type ReportDoc } from "./outer-control-report-doc.ts";
+import { isOutputTemplate, isReportDoc, type OutputTemplate, type ReportDoc } from "./outer-control-report-doc.ts";
 
 export const ARTIFACT_VERSION = 1;
 
@@ -64,6 +64,8 @@ export type TaskArtifact = {
   what_done?: string;
   links?: ArtifactLink[];
   report?: ReportDoc;
+  /** The look chosen before the Task started (docs/outer-control-outputs.md); the viewer can still switch. */
+  template?: OutputTemplate;
   proof: { steps_total: number; steps_done: number; all_checklists_passed: true; steps: TaskArtifactStep[] };
   handoffs: TaskArtifactHandoff[];
   rules: ArtifactRules;
@@ -271,6 +273,8 @@ export type TaskArtifactInput = {
   legs: TaskLegEvidence[];
   finalLeg: number | null;
   handoffs: TaskArtifactHandoff[];
+  /** The look chosen for this Task, if any (anything that is not a known look is left out). */
+  template?: string | null;
 };
 
 export function buildTaskArtifact(i: TaskArtifactInput): Built<TaskArtifact> {
@@ -305,6 +309,7 @@ export function buildTaskArtifact(i: TaskArtifactInput): Built<TaskArtifact> {
     ...(taskDone ? { what_done: clip(taskDone, 600) } : {}),
     ...(taskLinks.length ? { links: taskLinks } : {}),
     ...(fin.report ? { report: fin.report } : {}),
+    ...(isOutputTemplate(i.template) ? { template: i.template } : {}),
     proof: {
       steps_total: i.legs.length, steps_done: completed.length, all_checklists_passed: true,
       steps: i.legs.map((l) => ({ step: l.leg_no, tool: clip(l.tool, 120), status: l.status, output_sha256: parts.get(l.leg_no)?.output_sha256 ?? null })),
@@ -348,6 +353,7 @@ export function validateArtifact(a: unknown, kind?: "session" | "task"): Validit
     return { ok: false, reason: "a link to the work is not a valid http(s) link" };
   }
   if (a.report !== undefined && !isReportDoc(a.report)) return { ok: false, reason: "the report section is not a valid report" };
+  if (a.template !== undefined && !isOutputTemplate(a.template)) return { ok: false, reason: "the chosen look is not one of the known looks" };
   if (typeof a.human_text !== "string" || !a.human_text.trim()) return { ok: false, reason: "the readable version is missing" };
   const { human_text: _drop, ...rest } = a;
   void _drop;

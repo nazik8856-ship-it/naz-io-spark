@@ -41,7 +41,7 @@ import { buildSessionArtifact, describeWhatDone, type StepEvidence } from "./out
 import { diffForReply } from "./outer-control-diff.ts";
 import { judgeMeaning, loadMeaningRules, meaningRecord, mergeMeaning, type JudgeAi } from "./meaning-judge.ts";
 import { checkAgainstProject, projectReferenceOf } from "./project-consistency.ts";
-import { buildChecklist, correctionFor, passedCount, settle, type Checklist, type ChecklistInput } from "./outer-control-completion.ts";
+import { buildChecklist, correctionFor, passedCount, settle, tidyOutput, type Checklist, type ChecklistInput } from "./outer-control-completion.ts";
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
 import { buildHandoff, decodeChoice, type HandoffKind } from "./outer-control-handoff.ts";
@@ -403,6 +403,16 @@ async function completeSession(
   admin: AnyAdmin, s: SessionRow, tool: ToolRow, stepNo: number, a: Accept,
   advance: Record<string, unknown>, reason: string, deps: SessionDeps,
 ): Promise<void> {
+  // Quality floor: opening and closing pleasantries ("Certainly! Here's…", "I hope this helps") are not part of the controlled result.
+  // A person's own text and a report written by the report writer are kept exactly as they are. Everything below (rules, goal check,
+  // storage, hash, artifact) sees the tidied text, so the stored result is exactly what was checked; the raw reply stays in the step.
+  if (!a.fromPerson && !a.report) {
+    const tidy = tidyOutput(a.text);
+    if (tidy.removed.length) {
+      a = { ...a, text: tidy.text };
+      reason = `${reason} Removed ${tidy.removed.length} line${tidy.removed.length === 1 ? "" : "s"} of opening or closing pleasantries from the result.`.trim();
+    }
+  }
   const input = await gatherCompletionInput(admin, s, stepNo, a, deps);
   let c = buildChecklist(input);
 

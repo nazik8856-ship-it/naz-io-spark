@@ -4,10 +4,11 @@
 // Change to pick another action; when the request is unclear NazAI asks instead of guessing. Every tool reply is checked against
 // the person's rules, then one clean result is written. Reading the request is free; starting uses the action's credits.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Coins, FileEdit, Gauge, Lightbulb, ListChecks, ListOrdered, Loader2, Megaphone, Network, PenLine, Plus, Scale, Search, ShieldCheck, Sparkles, Target, UserCog, Users, Wand2, X, type LucideIcon } from "lucide-react";
+import { BookOpen, Coins, FileEdit, Gauge, Lightbulb, ListChecks, ListOrdered, Loader2, Megaphone, Network, Palette, PenLine, Plus, Scale, Search, ShieldCheck, Sparkles, Target, UserCog, Users, Wand2, X, type LucideIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DEFAULT_TEMPLATE, detectRequestedOutput, TEMPLATE_IDS, TEMPLATE_INFO } from "@/lib/outer-control-templates";
 import { callDrive } from "@/lib/outer-control-drive";
-import { ACTION_INFO, MAX_STYLES, REPORT_KINDS, ROUTING_TEXT, TASK_CREDITS, TASK_LIMITS, type ReportKind } from "@/lib/outer-control-report-doc";
+import { ACTION_INFO, MAX_STYLES, REPORT_KINDS, ROUTING_TEXT, TASK_CREDITS, TASK_LIMITS, type OutputTemplate, type ReportKind } from "@/lib/outer-control-report-doc";
 import { checkTaskForm, describeRecord, isStarterTool, LABEL_PRESETS, START_LABEL, suggestTools, toolHealth, toolsHint, type ToolHealthInput, type ToolRecord } from "@/lib/outer-control-tools-ui";
 import ToolPlanBox, { useToolPlan } from "./ToolPlanBox";
 
@@ -33,7 +34,8 @@ export const EXAMPLES = [
 export const READ_DELAY_MS = 1000;
 
 export type TaskTool = ToolHealthInput & { id: string; name: string; model?: string | null; endpoint_url?: string | null };
-export type TaskRequest = { kind: ReportKind; text: string; background: string; styles: string[]; count: number; toolIds: string[]; keepChoice: boolean };
+/** template: a look other than the original one, chosen before the Task starts; null when the original look was kept, or when the request itself says what it wants (a file type, a place) and no look was asked for. */
+export type TaskRequest = { kind: ReportKind; text: string; background: string; styles: string[]; count: number; toolIds: string[]; keepChoice: boolean; template: OutputTemplate | null };
 /** NazAI's reading of the request (outer-control-drive route_task). */
 export type TaskRoute = { kind: ReportKind | "unclear"; text: string; background: string; labels: string[]; count: number; question: string; source: "ai" | "rules" };
 
@@ -70,6 +72,10 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   const [count, setCount] = useState(3);
   const [customLabel, setCustomLabel] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
+  // The look of the result, chosen before the Task starts. When the request already says what it wants (a PDF, an email, a post), that
+  // is followed and no look is asked for, unless the person chooses one anyway.
+  const [template, setTemplate] = useState<OutputTemplate>(DEFAULT_TEMPLATE);
+  const [chooseAnyway, setChooseAnyway] = useState(false);
   const readId = useRef(0);
 
   // NazAI reads the request a moment after the person stops typing. An older reading that arrives late is ignored.
@@ -135,10 +141,12 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   const suggestion = useMemo(() => !lim || !records ? [] : suggestTools(records, tools.map((t) => ({ id: t.id, name: t.name, working: toolHealth(t).key === "working" })), Math.max(lim.minTools, Math.min(lim.maxTools, 2))), [lim, records, tools]);
   const toolsLine = useMemo(() => picked.map((id) => tools.find((t) => t.id === id)?.name ?? "tool").join(" → "), [picked, tools]);
 
-  const reset = () => { setRequest(""); setRoute(null); setChosenKind(null); setLabels([]); setCount(3); setPicked([]); };
+  const requested = useMemo(() => detectRequestedOutput(request), [request]);
+  const askLook = !requested.specified || chooseAnyway;
+  const reset = () => { setRequest(""); setRoute(null); setChosenKind(null); setLabels([]); setCount(3); setPicked([]); setTemplate(DEFAULT_TEMPLATE); setChooseAnyway(false); };
   const start = async () => {
     if (busy || !kind || problem || reading) return;
-    const ok = await onStart({ kind, text, background, styles: lim?.labels ? labels : [], count, toolIds: picked, keepChoice: plan.kept });
+    const ok = await onStart({ kind, text, background, styles: lim?.labels ? labels : [], count, toolIds: picked, keepChoice: plan.kept, template: askLook && template !== DEFAULT_TEMPLATE ? template : null });
     if (ok) { reset(); onOpenChange(false); }
   };
 
@@ -327,6 +335,37 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
                 </ul>
               )}
               {lim!.minTools > tools.length && tools.length > 0 && <p className="mt-2 text-xs text-amber-200/90">{ACTION_INFO[kind].title} needs at least {lim!.minTools} connected tools.</p>}
+            </fieldset>
+          )}
+
+          {kind && (
+            <fieldset className="oc-in" data-testid="task-look">
+              <legend className={sectionTitle}><Palette className="mr-1 inline h-3 w-3" />Look of the result</legend>
+              {askLook ? (
+                <div className="mt-2 grid gap-2 sm:grid-cols-5" role="radiogroup" aria-label="Look of the result">
+                  {TEMPLATE_IDS.map((id) => {
+                    const c = TEMPLATE_INFO[id].colors;
+                    const on = id === template;
+                    return (
+                      <button key={id} type="button" role="radio" aria-checked={on} onClick={() => setTemplate(id)} data-testid={`task-look-${id}`} title={TEMPLATE_INFO[id].blurb}
+                        className={`flex flex-col gap-1.5 rounded-xl border p-2 text-left transition ${on ? "border-cyan-400/60 bg-cyan-400/10 shadow-[0_0_18px_-8px_rgba(34,211,238,0.7)]" : "border-white/10 bg-white/[0.03] hover:bg-white/[0.07]"}`}>
+                        <span className="block h-9 w-full overflow-hidden rounded-md border border-white/20" style={{ background: c.bg }} aria-hidden>
+                          <span className="block h-2 w-3/5 rounded-sm" style={{ background: c.accent, margin: "6px 0 0 6px" }} />
+                          <span className="mt-1 block h-1 w-4/5 rounded-sm opacity-60" style={{ background: c.text, marginLeft: 6 }} />
+                          <span className="mt-0.5 block h-1 w-2/5 rounded-sm opacity-40" style={{ background: c.text, marginLeft: 6 }} />
+                        </span>
+                        <span className="text-[11px] font-medium leading-tight text-zinc-100">{TEMPLATE_INFO[id].name}{id === DEFAULT_TEMPLATE ? " · default" : ""}</span>
+                        <span className="text-[10px] leading-snug text-zinc-500">{TEMPLATE_INFO[id].blurb}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-emerald-400/30 bg-emerald-400/[0.06] px-3 py-2 text-xs text-emerald-100" data-testid="task-look-followed">
+                  <span>Your request says what it wants ({requested.file ? `a ${requested.file === "md" ? "Markdown" : requested.file === "docx" ? "Word" : requested.file === "xlsx" ? "Excel" : requested.file.toUpperCase()} file` : `${/^[aeiou]/.test(requested.surface ?? "") ? "an" : "a"} ${requested.surface}`}), so NazAI follows it and does not ask for a look.</span>
+                  <button type="button" onClick={() => setChooseAnyway(true)} className="rounded border border-emerald-300/40 px-2 py-0.5 text-[11px] text-emerald-50 hover:bg-emerald-400/10" data-testid="task-look-anyway">Choose a look anyway</button>
+                </p>
+              )}
             </fieldset>
           )}
 
