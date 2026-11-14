@@ -24,7 +24,7 @@ A report that is still in the original look is drawn by the report's own page (`
 
 - **The request already says what it wants** (`detectRequestedOutput`): a file type ("as a PDF", "in Excel", "a Word document", "CSV", "markdown") or a place it is meant for ("an email", "a LinkedIn post", "a slide deck", "a README", "a memo"…). Then NazAI follows it, the look is not asked for, and no look is sent. A line says so, with **Choose a look anyway**. The file type that was asked for is listed first in the result's *Download as* menu, marked **asked for**.
 - A look other than the original is sent with the request (`start_report` → `template`, validated against the list; an unknown name is refused with `invalid_template` before any credit is used). The original look is not sent: no choice and the original are the same thing.
-- The choice is kept on the Task (`outer_control_workflows.output_template`, migration `20261114030000`, classified OPERATIONAL, check constraint on the five names) and stamped into the Task's final artifact (`final_artifact.template`) when it completes. An artifact whose look is not one of the five is **not valid**, so it can never be shown as Completed.
+- The choice is kept on the Task (`outer_control_workflows.output_template`, migration `20261114031025`, classified OPERATIONAL, check constraint on the five names) and stamped into the Task's final artifact (`final_artifact.template`) when it completes. An artifact whose look is not one of the five is **not valid**, so it can never be shown as Completed.
 
 Only *Start a task* (report Tasks) takes a look today. A single session or a goal Task has none and opens in the original look; the viewer can switch.
 
