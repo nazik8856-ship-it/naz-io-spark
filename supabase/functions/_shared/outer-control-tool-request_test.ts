@@ -30,6 +30,8 @@ Deno.test("format shapes match the provider APIs", () => {
   assertEquals(o.model, "gpt-x"); assertEquals(o.messages.map((m: any) => m.role), ["system", "user"]);
   const a = buildToolRequest({ ...base, format: "anthropic_messages" }).body as any;
   assert(typeof a.system === "string" && a.max_tokens > 0 && a.messages[0].role === "user", "anthropic shape");
+  // A full answer (up to about 800 words plus the JSON around it) must fit: 1,024 tokens cut one off near 700 words.
+  assert(a.max_tokens >= 2048, `anthropic max_tokens is ${a.max_tokens}`);
   const g = buildToolRequest({ ...base, format: "generic_json" }).body as any;
   assertEquals(g.session_id, "sess-1"); assertEquals(g.response_contract, RESPONSE_CONTRACT); assert(Array.isArray(g.rules), "rules array");
 });

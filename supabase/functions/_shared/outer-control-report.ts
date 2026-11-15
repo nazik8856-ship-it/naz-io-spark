@@ -18,7 +18,8 @@ type AnyAdmin = any;
 
 export const REPORT_TOOL_URL = "nazai-internal://report";
 export const MAX_REPORT_SOURCES = 5;
-const MAX_OPINION_CHARS = 4000;
+// A tool answer is kept whole up to this: 500 to 800 words are about 3,500 to 5,600 characters, and a longer one is cut, not squeezed.
+export const MAX_OPINION_CHARS = 9000;
 
 export const REPORT_FAILURE_TEXT: Record<string, string> = {
   report_no_sources: "The report has nothing to work from: none of the earlier steps produced a verified answer",
@@ -88,6 +89,14 @@ const headings = (word: string, labels: string[]) => labels.map((l) => `### ${wo
 const HONEST_TOOL = "If you do not know something, say so plainly instead of guessing. " +
   "Be specific: give concrete facts, numbers, names or steps rather than general statements, and no opening or closing pleasantries.";
 
+// What every tool must do in its answer, said as requirements and not only as prohibitions (docs/outer-control-context.md). The rules of
+// an account say what a tool must not do; these say what a useful answer must do, and each is something the result can be checked for.
+const REQ_SPECIFIC = "Be specific to the situation in the context you are given; where something your answer depends on is not stated there, write it as \"Assumption: …\" instead of guessing silently.";
+const REQ_BASIS = "Give a basis for every number, date or claim of fact: where it comes from, or that it is your estimate.";
+const REQ_ACTION = "No generic advice: every recommendation says what to do, for whom, and what it would change.";
+/** How long a useful answer is, by action. A range, because a question can be answered fully in fewer words and should not be padded. */
+export const ANSWER_WORDS = { research: "500 to 800", opinions: "350 to 600", compare: "350 to 600", factcheck: "300 to 500", decision: "450 to 700" } as const;
+
 /**
  * What each tool is asked, by action (the actions where every tool gets the same request). The tool answers on its own.
  * The person's own text comes first and NazAI's instructions after it: the final check of each reply looks for the key terms at
@@ -96,15 +105,18 @@ const HONEST_TOOL = "If you do not know something, say so plainly instead of gue
 export function stepInstructionFor(kind: ReportKind, text: string, styles: string[] = [], count = 3): string {
   switch (kind) {
     case "compare":
-      return `${text}\n\nAnswer the above. Your answer will be compared side by side with other AI tools' answers to the same prompt, so be direct, specific and complete. ${HONEST_TOOL} Keep it concise, around 250 words.`;
+      return `${text}\n\nAnswer the above. Your answer will be compared side by side with other AI tools' answers to the same prompt, so be direct, specific and complete. ${HONEST_TOOL} ${REQ_SPECIFIC} ${REQ_BASIS} Aim for ${ANSWER_WORDS.compare} words.`;
     case "factcheck":
       return `${quoted("CLAIM", text)}\n\nChallenge or verify the claim above. For each part say whether it is correct, partly correct or wrong, and why. ` +
-        "Give a correction for anything wrong. If you can not verify something, say so plainly instead of guessing. Keep it concise, around 250 words.";
+        `Give a correction for anything wrong. If you can not verify something, say so plainly instead of guessing. ${REQ_BASIS} Aim for ${ANSWER_WORDS.factcheck} words.`;
     case "rewrite":
       return `${quoted("TEXT", text)}\n\nRewrite the text above in each of these styles: ${styles.join("; ")}. Keep its meaning and facts; add nothing new. ` +
         `Put each version under its own heading line, in this order, and write nothing else:\n${headings("Style", styles)}`;
     case "research":
-      return `TOPIC: ${text}\n\nGive the key points on the topic above: the main facts, ideas and arguments, each as a short point, and how sure you are of each. ${HONEST_TOOL} Keep it concise, around 250 words.`;
+      return `TOPIC: ${text}\n\nGive the key findings on the topic above as specific points (names, figures, dates or steps where they exist), each with how sure you are of it. ` +
+        "Then, under a heading \"What this means for you\", say what applies to the person asking, using the context you are given (if there is none, say what you would need to know to tailor it). " +
+        "Then \"Assumptions\": what you assumed because the context did not say. Then \"Next steps\": 3 to 5 concrete actions, in order. " +
+        `${HONEST_TOOL} ${REQ_SPECIFIC} ${REQ_BASIS} Aim for ${ANSWER_WORDS.research} words.`;
     case "draft":
       return `${quoted("REQUEST", text)}\n\nWrite a first draft for the request above. Write only the draft. ${HONEST_TOOL}`;
     case "alternatives":
@@ -120,7 +132,8 @@ export function stepInstructionFor(kind: ReportKind, text: string, styles: strin
       return `${quoted("QUESTION", text)}\n\nAnswer the question above once for each of these roles: ${styles.join("; ")}. In each role, answer as that role would (its focus and its words), ` +
         `and keep to the same rules and facts. ${HONEST_TOOL} Put each answer under its own heading line, in this order, and write nothing else:\n${headings("Role", styles)}`;
     case "decision":
-      return `QUESTION: ${text}\n\nHelp decide on the question above. Give the realistic options; for each, its pros and its cons; then your recommendation and the main risks. ${HONEST_TOOL} Keep it concise, around 300 words.`;
+      return `QUESTION: ${text}\n\nHelp decide on the question above. Give the realistic options; for each, its pros, its cons and what it would cost or require; then your recommendation for the person's situation, the main risks, and what would change your mind. ` +
+        `${HONEST_TOOL} ${REQ_SPECIFIC} ${REQ_BASIS} ${REQ_ACTION} Aim for ${ANSWER_WORDS.decision} words.`;
     case "adapt":
       return `${quoted("MESSAGE", text)}\n\nAdapt the message above for each of these audiences or platforms: ${styles.join("; ")}. Keep its meaning and facts; fit the length, tone and format to each. ` +
         `Put each version under its own heading line, in this order, and write nothing else:\n${headings("For", styles)}`;
@@ -173,7 +186,7 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trim
 
 /** The question a report step asks every tool. */
 export const opinionInstruction = (topic: string) =>
-  `Give your own opinion and insights on: ${topic}\nStart by naming the topic in one short phrase, then give your opinion, your reasoning and where you are unsure. Keep it concise, around 250 words.`;
+  `Give your own opinion and insights on: ${topic}\nStart by naming the topic in one short phrase, then give your opinion, your reasoning, where you are unsure, and what you would do in the asker's situation. ${REQ_SPECIFIC} ${REQ_BASIS} Aim for ${ANSWER_WORDS.opinions} words.`;
 
 export const reportInstruction = (topic: string) => `Write the final report for: ${topic}`;
 

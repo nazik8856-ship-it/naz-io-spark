@@ -46,3 +46,25 @@ The same sentence is in the downloadable readable version (`CONTEXT THE TOOLS WE
 ## Tests
 
 `outer-control-context-brief_test.ts` (Deno: the cap, empty, order, markers, the merge with typed text, the 8,000 limit, a failing read), `context-brief-wiring.test.ts` (every start path adds and records it; the relay and the other functions never load it), the artifact, tile and *Start a task* tests.
+
+## What each tool is asked (requirements, and how long an answer is)
+
+An account's rules say what a tool must **not** do (block, needs approval, remove text). The analysis actions also say what a useful answer **must** do, in the request every tool receives (`stepInstructionFor`, `opinionInstruction` in `outer-control-report.ts`):
+
+1. **Be specific to the situation** in the context given; where something the answer depends on is not stated, write it as `Assumption: …` instead of guessing silently.
+2. **A basis for every number, date or claim of fact**: where it comes from, or that it is an estimate.
+3. **No generic advice** (decisions): every recommendation says what to do, for whom, and what it would change.
+
+| Action | Answer asked for (before) | Shape |
+|---|---|---|
+| Research | **500 to 800 words** (250) | specific findings with how sure; *What this means for you*; *Assumptions*; *Next steps* (3 to 5, in order) |
+| Decision | **450 to 700 words** (300) | options with pros, cons and cost; a recommendation for this situation; risks; what would change the answer |
+| Opinions | **350 to 600 words** (250) | the opinion, the reasoning, where unsure, and what the tool would do in the asker's situation |
+| Compare | **350 to 600 words** (250) | direct, specific and complete |
+| Fact-check | **300 to 500 words** (250) | each part correct, partly correct or wrong, with a correction and a basis |
+
+Rewrite, alternatives, explain, key points, roles, adapt, draft and the multi-step and delegation actions are unchanged. The range is a range on purpose: a question that can be answered fully in fewer words should not be padded.
+
+Two limits moved with it: a tool's answer is kept whole up to **9,000 characters** (it was 4,000, which cut a 700-word answer mid-sentence), and an Anthropic-format tool may use **2,048 tokens** (it was 1,024).
+
+Tests: `outer-control-report-instructions_test.ts`.
