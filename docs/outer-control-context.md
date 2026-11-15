@@ -40,7 +40,7 @@ The same sentence is in the downloadable readable version (`CONTEXT THE TOOLS WE
 
 - `supabase/functions/_shared/outer-control-context-brief.ts`: `buildContextBrief` (pure), `loadContextBrief`, `withContextBrief`.
 - `supabase/functions/outer-control-drive/index.ts`: `withBrief` / `markContext` around every start action.
-- Migration `20261115060000_outer_control_context_used.sql`; `context_used` is class OPERATIONAL (kinds and sizes).
+- Migration `20261115032535_outer_control_context_used.sql`; `context_used` is class OPERATIONAL (kinds and sizes).
 - `src/lib/outer-control-artifact.ts` (identical in `supabase/functions/_shared`): `ContextUsed`, `cleanContextUsed`, `contextUsedLine`; the tile is in `outer-control-task-progress.ts` and `FinalArtifactView.tsx`.
 
 ## Tests
