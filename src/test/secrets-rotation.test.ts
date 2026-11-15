@@ -9,7 +9,7 @@ const RUNBOOK = readFileSync(join(__dirname, "../../docs/secrets-rotation.md"), 
 
 /** Names that are configuration, not secrets (public ids, addresses, labels), or are given by Supabase itself. */
 const NOT_SECRETS = new Set([
-  "SUPABASE_URL", "SUPABASE_ANON_KEY", "SENTRY_ENVIRONMENT", "RESEND_FROM",
+  "SUPABASE_URL", "SUPABASE_ANON_KEY", "SENTRY_ENVIRONMENT", "RESEND_FROM", "OPENAI_IMAGE_MODEL",
   "GOOGLE_OAUTH_CLIENT_ID", "NOTION_CLIENT_ID", "FIGMA_CLIENT_ID", "CANVA_CLIENT_ID", "SHOPIFY_CLIENT_ID", "SLACK_CLIENT_ID",
 ]);
 

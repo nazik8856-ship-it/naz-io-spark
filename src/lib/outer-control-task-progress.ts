@@ -1,7 +1,7 @@
 // Outer Control: what a multi-tool Task (Start task) is doing right now, in one line, and the proof of a finished result at a
 // glance. Pure: the Task panel and the result card render what these return.
-import type { Artifact } from "@/lib/outer-control-artifact";
-import { isReportDoc, KIND_NOUN, kindOf } from "@/lib/outer-control-report-doc";
+import { contextUsedLine, type Artifact } from "@/lib/outer-control-artifact";
+import { isReportDoc, isSingleSource, KIND_NOUN, kindOf } from "@/lib/outer-control-report-doc";
 
 export const REPORT_TOOL_PREFIX = "nazai-internal://report";
 
@@ -91,7 +91,7 @@ export function taskProgress(task: { status: string; stop_reason?: string | null
 // ---------------------------------------------------------------------------------------
 // The proof of a finished result, at a glance
 
-export type ProofTile = { key: "done" | "tools" | "rules" | "checks"; title: string; text: string; tone: "ok" | "warn" };
+export type ProofTile = { key: "done" | "context" | "tools" | "rules" | "checks"; title: string; text: string; tone: "ok" | "warn" };
 
 export function proofTiles(a: Artifact): ProofTile[] {
   const report = isReportDoc(a.report) ? a.report : null;
@@ -103,16 +103,23 @@ export function proofTiles(a: Artifact): ProofTile[] {
     : (a.what_done ?? (a.kind === "task" ? `${a.proof.steps_done} of ${a.proof.steps_total} steps finished.` : `Got a checked answer from ${a.tool}.`));
   tiles.push({ key: "done", title: "What was done", text: did, tone: "ok" });
 
+  // What the tools knew about the person's situation (a Task made before this was recorded has no line)
+  if (a.kind === "task" && a.context_used !== undefined) {
+    tiles.push({ key: "context", title: "What the tools knew", text: contextUsedLine(a.context_used), tone: a.context_used.length === 0 ? "warn" : "ok" });
+  }
+
   // Which tools
   if (a.kind === "task") {
     const steps = a.proof.steps.filter((s) => s.tool !== "NazAI report writer");
     const ok = steps.filter((s) => s.status === "completed").map((s) => s.tool);
     const missed = steps.filter((s) => s.status !== "completed").map((s) => s.tool);
     const when = report?.parallel ? "at the same time" : steps.length > 1 ? "one after another" : "";
+    const single = !!report && isSingleSource(report);
     tiles.push({
       key: "tools", title: "Tools used",
-      text: `${ok.length ? `Answered: ${names([...new Set(ok)])}` : "No tool answered"}${when && ok.length > 1 ? ` (${when})` : ""}.${missed.length ? ` Did not answer: ${names([...new Set(missed)])}.` : ""}`,
-      tone: missed.length ? "warn" : "ok",
+      text: `${ok.length ? `Answered: ${names([...new Set(ok)])}` : "No tool answered"}${when && ok.length > 1 ? ` (${when})` : ""}.${missed.length ? ` Did not answer: ${names([...new Set(missed)])}.` : ""}` +
+        (single ? " Single source: nothing was cross-checked." : ""),
+      tone: missed.length || single ? "warn" : "ok",
     });
   } else {
     tiles.push({ key: "tools", title: "Tool used", text: `${a.tool}.`, tone: "ok" });

@@ -188,7 +188,7 @@ export const DATA_CLASSIFICATION: Record<string, Record<string, DataClass>> = {
   outer_control_task_handoffs: { from_label: O, outcome: O, rules: R, text_sha256: O, note: O },
   outer_control_workflows: {
     objective: P, context: P, status: O, summary: P, kind: O, origin: O, final_output: P, stop_reason: O, final_artifact: P, mode: O,
-    goal_pool: P, done_criteria: P, criteria_state: P, blocked_reason: O, output_template: O,
+    goal_pool: P, done_criteria: P, criteria_state: P, blocked_reason: O, output_template: O, context_used: O,
   },
   pending_approval_events: { event_type: O, note: O },
   pending_approvals: {

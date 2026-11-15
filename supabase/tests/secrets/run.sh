@@ -30,4 +30,6 @@ run -f site_images_cleanup_test.sql
 run -f realtime_checks_test.sql
 run -f two_user_isolation_test.sql
 run -f oauth_peek_test.sql
+run -f email_queue_idle_test.sql
+run -f function_access_test.sql
 echo "secrets database tests: all passed"

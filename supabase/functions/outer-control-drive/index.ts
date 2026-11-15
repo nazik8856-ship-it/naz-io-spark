@@ -22,6 +22,8 @@
 //   POST { action: "cancel", session_id }
 //   POST { action: "start_workflow", objective, context?, legs[], api_key_id?, max_steps? }
 //   POST { action: "cancel_workflow", workflow_id }
+//   share_context?: false on any start_* action leaves out the context brief (what NazAI knows about the business: profile, notes, knowledge entries);
+//        what was sent is recorded on the Task as context_used (kinds and sizes) and shown in the result (docs/outer-control-context.md)
 //
 // start_session, start_goal and start_report refuse (409 tool_mismatch, before any credit is used) when the request names a
 // connected tool that was not chosen, or names a word that fits several tools. confirm_override: true keeps the chosen tools.
@@ -53,6 +55,7 @@ import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.
 import { checkFreeLimit } from "../_shared/free-limits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
 import { projectContextFor } from "../_shared/projects.ts";
+import { BRIEF_ROOM_WITH_PROJECT, CONTEXT_LIMIT, withContextBrief, type ContextSource } from "../_shared/outer-control-context-brief.ts"; // what NazAI knows about the business goes to every tool of a Task
 import { projectKeysFromEnv } from "../_shared/project-crypto.ts";
 
 import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
@@ -222,6 +225,13 @@ Deno.serve(async (req) => {
     }
 
     // ---- start_session: a one-tool run, carried as a Task of one step ------------------------------
+    // The context brief (docs/outer-control-context.md): what NazAI knows about the business (profile, the person's notes, knowledge entries)
+    // goes after what the person typed, for Tasks the account owner starts here; share_context: false leaves it out. What went in is
+    // recorded on the Task (kinds and sizes) so the result can say what the tools knew.
+    const shareContext = body.share_context !== false;
+    const withBrief = (typed: string | null, sources: ContextSource[], limit?: number) => withContextBrief(admin, accountId, typed, sources, { enabled: shareContext, limit });
+    const markContext = (workflowId: string, used: unknown) => admin.from("outer_control_workflows").update({ context_used: used }).eq("id", workflowId).eq("user_id", accountId);
+
     if (action === "start_session") {
       const objective = String(body.objective ?? "").trim();
       const context = typeof body.context === "string" && body.context.trim() ? body.context.trim() : null;
@@ -236,11 +246,13 @@ Deno.serve(async (req) => {
         const { data: fb } = await admin.from("external_tools").select("id, enabled, suspended_at").eq("id", String(body.fallback_tool_id)).eq("user_id", accountId).maybeSingle();
         if (!fb || !fb.enabled || fb.suspended_at || fb.id === tool.id) return json({ error: "invalid_fallback", message: "The fallback tool must be a different, enabled tool." }, 400);
       }
+      const briefed = await withBrief(context, context ? [{ kind: "background", chars: context.length }] : []);
       const started = await startWorkflow(admin, accountId, {
-        objective, context, api_key_id: body.api_key_id, max_steps: body.max_steps, kind: "single",
+        objective, context: briefed.context, api_key_id: body.api_key_id, max_steps: body.max_steps, kind: "single",
         legs: [{ tool_id: tool.id, instruction: objective, fallback_tool_id: body.fallback_tool_id || null, on_failure: body.on_failure === "reject" ? "reject" : "handoff" }],
       });
       if (!started.ok) return json(startFailure(started), started.code === "free_limit" ? 402 : started.code === "internal_error" ? 500 : 400);
+      await markContext(started.workflowId, briefed.used);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, session_id: started.legIds[0], task_id: started.workflowId, status: "running" });
     }
@@ -267,8 +279,12 @@ Deno.serve(async (req) => {
 
     // ---- start_task: several tools in sequence; each step receives the previous step's controlled result ----
     if (action === "start_task") {
-      const started = await startTask(admin, accountId, { request: body.request, context: body.context, steps: body.steps, api_key_id: body.api_key_id, max_steps: body.max_steps });
+      const typed = typeof body.context === "string" && body.context.trim() ? body.context.trim() : null;
+      // A background that is already over the limit is refused by startTask as before; the brief is only added to one that fits.
+      const briefed = typed && typed.length > CONTEXT_LIMIT ? { context: body.context as string, used: [] } : await withBrief(typed, typed ? [{ kind: "background", chars: typed.length }] : []);
+      const started = await startTask(admin, accountId, { request: body.request, context: briefed.context ?? body.context, steps: body.steps, api_key_id: body.api_key_id, max_steps: body.max_steps });
       if (!started.ok) return json(startFailure(started), started.code === "free_limit" ? 402 : started.code === "internal_error" ? 500 : 400);
+      await markContext(started.workflowId, briefed.used);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, task_id: started.workflowId });
     }
@@ -316,7 +332,8 @@ Deno.serve(async (req) => {
       let project: { id: string; text: string } | null = null;
       if (body.project_id) {
         // The Task's context holds at most 8000 characters; the project gets what the background leaves.
-        const pc = await projectContextFor(admin, accountId, String(body.project_id), await projectsKey, 8000 - (background ? background.length + 2 : 0));
+        // (and a part of it is kept for the context brief, which matters less than the project's own text but is not nothing).
+        const pc = await projectContextFor(admin, accountId, String(body.project_id), await projectsKey, CONTEXT_LIMIT - (background ? background.length + 2 : 0) - (shareContext ? BRIEF_ROOM_WITH_PROJECT : 0));
         if (!pc.ok) return json({ error: "project_unavailable", message: pc.message }, 409);
         project = { id: String(body.project_id), text: pc.text };
       }
@@ -363,7 +380,8 @@ Deno.serve(async (req) => {
       // The project's text was fitted into what the background leaves of the Task's 8000 characters (its end marker included).
       const projectText = project ? project.text : "";
       const taskContext = [projectText, background].filter(Boolean).join("\n\n") || null;
-      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: taskContext, steps, max_steps: 3, parallel });
+      const briefed = await withBrief(taskContext, [...(project ? [{ kind: "project" as const, chars: project.text.length }] : []), ...(background ? [{ kind: "background" as const, chars: background.length }] : [])]);
+      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: briefed.context, steps, max_steps: 3, parallel });
       if (!started.ok) {
         // The credits were taken before the Task could start: give them back.
         for (let r = 0; r < cost; r++) await admin.rpc("refund_generation_credit", { p_user_id: accountId });
@@ -371,7 +389,7 @@ Deno.serve(async (req) => {
       }
       // Marks the Task as paid for, so that if it ends without a result the credit goes back (once).
       // (A free starter Task was not charged, so nothing is given back for it.)
-      await admin.from("outer_control_workflows").update({ credit_charged: cost > 0, ...(project ? { project_id: project.id } : {}), ...(template ? { output_template: template } : {}) }).eq("id", started.workflowId);
+      await admin.from("outer_control_workflows").update({ credit_charged: cost > 0, context_used: briefed.used, ...(project ? { project_id: project.id } : {}), ...(template ? { output_template: template } : {}) }).eq("id", started.workflowId);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, task_id: started.workflowId, steps: steps.length });
     }
@@ -383,14 +401,17 @@ Deno.serve(async (req) => {
       if (namedG) return namedG;
       const credit = await consumeGenerationCredit(accountId);
       if (!credit.ok) return json({ error: "no_credits", message: NO_CREDITS_MESSAGE }, 402);
-      const started = await startGoal(admin, accountId, body, { aiAvailable: pickAiGateway() !== null });
+      const goalTyped = typeof body.context === "string" && body.context.trim() ? body.context.trim() : null;
+      const goalRoom = CONTEXT_LIMIT - String(body.goal ?? "").trim().length - 20;
+      const briefedGoal = goalTyped && goalTyped.length > goalRoom ? { context: body.context as string, used: [] } : await withBrief(goalTyped, goalTyped ? [{ kind: "background", chars: goalTyped.length }] : [], goalRoom);
+      const started = await startGoal(admin, accountId, { ...body, context: briefedGoal.context ?? body.context }, { aiAvailable: pickAiGateway() !== null });
       if (!started.ok) {
         // The credit was taken before the Task could start: give it back.
         await admin.rpc("refund_generation_credit", { p_user_id: accountId });
         return json(startFailure(started), started.code === "free_limit" ? 402 : started.code === "internal_error" ? 500 : started.code === "ai_unavailable" ? 503 : 400);
       }
       // Marks the Task as paid for, so that if it ends without a result the credit goes back (once).
-      await admin.from("outer_control_workflows").update({ credit_charged: true }).eq("id", started.workflowId);
+      await admin.from("outer_control_workflows").update({ credit_charged: true, context_used: briefedGoal.used }).eq("id", started.workflowId);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, task_id: started.workflowId });
     }
@@ -475,8 +496,11 @@ Deno.serve(async (req) => {
 
     // ---- start_workflow / cancel_workflow --------------------------------------------
     if (action === "start_workflow") {
-      const started = await startWorkflow(admin, accountId, body);
+      const wfTyped = typeof body.context === "string" && body.context.trim() ? body.context.trim() : null;
+      const briefedWf = wfTyped && wfTyped.length > CONTEXT_LIMIT ? { context: body.context as string, used: [] } : await withBrief(wfTyped, wfTyped ? [{ kind: "background", chars: wfTyped.length }] : []);
+      const started = await startWorkflow(admin, accountId, { ...body, context: briefedWf.context ?? body.context });
       if (!started.ok) return json(startFailure(started), started.code === "free_limit" ? 402 : started.code === "internal_error" ? 500 : 400);
+      await markContext(started.workflowId, briefedWf.used);
       inBackground(Promise.all(started.running.map((id) => driveSession(admin, id))));
       return json({ ok: true, workflow_id: started.workflowId });
     }

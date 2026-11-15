@@ -66,6 +66,8 @@ export type ReportDoc = {
   risks?: string[];
   /** The tools that were asked but did not answer; the result was written from the others. */
   missing?: MissingTool[];
+  /** Only one tool answered an action that is meant to compare sources: nothing here was cross-checked. Set when the report is made; older reports are judged by isSingleSource(). */
+  single_source?: boolean;
   /** The tools were asked at the same time (not one after another). */
   parallel?: boolean;
 };
@@ -183,6 +185,7 @@ export function isReportDoc(x: unknown): x is ReportDoc {
   if (d.items !== undefined && !(Array.isArray(d.items) && d.items.every((v) => !!v && typeof v === "object" && Number.isInteger((v as LabeledItem).n) && isStr((v as LabeledItem).label) && isStr((v as LabeledItem).text)))) return false;
   if (d.missing !== undefined && !(Array.isArray(d.missing) && d.missing.every((m) => !!m && typeof m === "object" && isStr((m as MissingTool).tool) && isStr((m as MissingTool).reason)))) return false;
   if (d.parallel !== undefined && typeof d.parallel !== "boolean") return false;
+  if (d.single_source !== undefined && typeof d.single_source !== "boolean") return false;
   if (d.decision !== undefined && !(Array.isArray(d.decision) && d.decision.every((o) => !!o && typeof o === "object" && isStr((o as DecisionOption).option) && isStrList((o as DecisionOption).pros) && isStrList((o as DecisionOption).cons)))) return false;
   return true;
 }
@@ -204,9 +207,21 @@ export const fingerprint = (sha: string) => sha.slice(0, 16);
 export const missingLine = (d: Pick<ReportDoc, "missing">) =>
   d.missing?.length ? `Not included because ${d.missing.length === 1 ? "it" : "they"} did not answer: ${d.missing.map((m) => `${m.tool} (${m.reason.replace(/\.$/, "")})`).join("; ")}.` : "";
 
+/** The actions whose value is comparing sources: with one source they look like a multi-source report but nothing was cross-checked. */
+export const SINGLE_SOURCE_KINDS: readonly ReportKind[] = ["opinions", "research", "factcheck", "decision"];
+
+/** True when only one tool answered an action that is meant to compare sources (older reports too: judged by the answers kept). */
+export const isSingleSource = (d: ReportDoc): boolean => d.opinions.length === 1 && SINGLE_SOURCE_KINDS.includes(kindOf(d));
+
+/** The plain statement: said at the top of the result, in every look and file. */
+export const singleSourceLine = (d: ReportDoc): string =>
+  `Single source: only ${d.opinions[0]?.tool ?? "one tool"} answered, so nothing here was cross-checked. Ask a second tool to compare before relying on it.`;
+
 export const REPORT_INTRO = (d: ReportDoc) =>
   `Compiled ${when(d.compiled_at)} by NazAI Outer Control from ${d.opinions.length} external tool${d.opinions.length === 1 ? "" : "s"}. Every answer was checked against the account's rules before it was used.` +
-  (d.missing?.length ? ` ${missingLine(d)}` : "");
+  (d.missing?.length ? ` ${missingLine(d)}` : "") +
+  // Only a report made with the flag says it in its stored text: an older one keeps the text it was stored with.
+  (d.single_source ? ` ${singleSourceLine(d)}` : "");
 
 export const REPORT_METHOD =
   "Each tool was asked on its own, in order. Each answer was checked against your rules before it was kept. " +
@@ -352,8 +367,11 @@ export function composeReportText(d: ReportDoc): string {
       r.points.forEach((p, i) => out.push(`• [${i + 1}] ${d.opinions[i]?.tool ?? "tool"}: ${p}`));
     }
   }
-  out.push("", "WHERE THEY AGREE", ...bullets(d.agreements, "No shared points were identified."));
-  out.push("", "WHERE THEY DIFFER", ...bullets(d.differences, "No differences were identified."));
+  // With one source there is nothing to agree or differ on; a report made with the flag leaves the two sections out.
+  if (!d.single_source) {
+    out.push("", "WHERE THEY AGREE", ...bullets(d.agreements, "No shared points were identified."));
+    out.push("", "WHERE THEY DIFFER", ...bullets(d.differences, "No differences were identified."));
+  }
   out.push("", "CONCLUSION", d.conclusion, "", `HOW THIS ${KIND_NOUN[kind].toUpperCase()} WAS MADE`, kindMethod(d));
   return out.join("\n");
 }

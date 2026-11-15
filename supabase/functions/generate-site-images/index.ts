@@ -13,6 +13,7 @@ import { readJson } from "../_shared/input.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts stored content (data at rest)
 import { OUT_OF_CREDITS, openIncidentOnce, OUTAGE_SUMMARY, PROVIDER_OUTAGE_KIND } from "../_shared/provider-health.ts";
 import { pickAiGateway, aiGatewayHeaders, type GatewayConfig } from "../_shared/ai-gateway.ts";
+import { openaiImageModels } from "../_shared/image-models.ts"; // gpt-image-1 was retired 2026-10-23: the list of models to try
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { customerFetch } from "../_shared/url-safety.ts"; // data in transit: a model-given image address is fetched like a customer address
 import {
@@ -170,7 +171,7 @@ async function run(admin: AnyAdmin, gw: GatewayConfig, opts: { verify: boolean; 
     };
 
     let modelIdx = 0;
-    const models = gw.provider === "openai" ? ["gpt-image-1"] : LOVABLE_IMAGE_MODELS;
+    const models = gw.provider === "openai" ? openaiImageModels(Deno.env.get("OPENAI_IMAGE_MODEL")) : LOVABLE_IMAGE_MODELS;
     let cursor = 0;
     const worker = async () => {
       while (cursor < slots.length && Date.now() - started < SITE_DEADLINE_MS) {

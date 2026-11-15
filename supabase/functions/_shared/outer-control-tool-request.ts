@@ -109,7 +109,8 @@ export function buildToolRequest(i: ToolRequestInput): { body: Record<string, un
       headers,
       body: {
         model: i.model || "claude-haiku-4-5",
-        max_tokens: 1024,
+        // A full answer (up to about 800 words, plus the JSON around it) must fit; 1024 tokens cut one off near 700 words.
+        max_tokens: 2048,
         system: "Follow the instruction exactly and reply in the requested JSON shape.",
         messages: [{ role: "user", content: instruction }],
       },

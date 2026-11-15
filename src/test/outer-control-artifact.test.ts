@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { buildSessionArtifact, buildTaskArtifact, evidenceFromSteps, officialOutput, renderArtifactText, validateArtifact, type SessionArtifact } from "@/lib/outer-control-artifact";
+import { buildSessionArtifact, buildTaskArtifact, cleanContextUsed, contextUsedLine, evidenceFromSteps, officialOutput, renderArtifactText, validateArtifact, type SessionArtifact } from "@/lib/outer-control-artifact";
 import { honestStatus } from "@/lib/outer-control-status";
 import { sessionArtifact, taskArtifact } from "./artifact-fixture";
 
@@ -179,5 +179,45 @@ describe("honest status", () => {
     expect(t({ status: "running", current_leg: 2, steps_total: 3, steps_done: 1 }).reason).toBe("Step 2 of 3 is running; 1 done.");
     expect(s({ status: "awaiting_human", waiting_for: "Waiting for your answer to the tool's question" }).reason).toBe("Waiting for your answer to the tool's question.");
     expect(s({ status: "running", step_count: 2, max_steps: 5 }).live).toBe(true);
+  });
+});
+
+describe("what the tools were told about the person's situation (docs/outer-control-context.md)", () => {
+  const T = "Dear Dana, returns take thirty days.";
+  const used = [{ kind: "business", chars: 412 }, { kind: "profile", chars: 120 }, { kind: "knowledge", chars: 300, n: 2 }, { kind: "project", chars: 5200 }, { kind: "background", chars: 80 }];
+
+  it("is kept in the Task's artifact, in the readable version, and the artifact is still valid", () => {
+    const a = taskArtifact(T, { contextUsed: used }) as { context_used?: unknown; human_text: string };
+    expect(a.context_used).toEqual(used);
+    expect(a.human_text).toContain("CONTEXT THE TOOLS WERE GIVEN");
+    expect(a.human_text).toContain("The tools were given: your business profile, your own notes, 2 knowledge entries, the project you attached, the background you typed.");
+    expect(validateArtifact(a, "task").ok).toBe(true);
+  });
+
+  it("an empty list is kept and says the tools knew nothing; no record at all (an older Task) leaves the field out", () => {
+    const none = taskArtifact(T, { contextUsed: [] }) as { context_used?: unknown; human_text: string };
+    expect(none.context_used).toEqual([]);
+    expect(none.human_text).toContain("The tools were given no information about your situation, so the answer is general.");
+    expect(validateArtifact(none, "task").ok).toBe(true);
+    for (const nothing of [undefined, null]) expect("context_used" in taskArtifact(T, { contextUsed: nothing })).toBe(false);
+    expect(taskArtifact(T).human_text).not.toContain("CONTEXT THE TOOLS WERE GIVEN");
+  });
+
+  it("keeps only known kinds with sensible sizes, once each, and never any text", () => {
+    expect(cleanContextUsed([{ kind: "business", chars: 10, text: "secret" }, { kind: "business", chars: 20 }, { kind: "spy", chars: 5 }, { kind: "profile", chars: -1 }, { kind: "profile", chars: "9" }, { kind: "knowledge", chars: 40, n: 3.5 }, 7, null]))
+      .toEqual([{ kind: "business", chars: 10 }, { kind: "knowledge", chars: 40 }]);
+    expect(cleanContextUsed("business")).toEqual([]);
+  });
+
+  it("an artifact whose list is not valid is not valid, so it is never shown as Completed", () => {
+    const a = taskArtifact(T, { contextUsed: used });
+    expect(validateArtifact({ ...a, context_used: [{ kind: "spy", chars: 1 }] }, "task")).toEqual({ ok: false, reason: "the list of what the tools were given is not valid" });
+    expect(validateArtifact({ ...a, context_used: "business" }, "task").ok).toBe(false);
+    expect(honestStatus({ kind: "task", status: "completed", artifact: { ...a, context_used: [{ kind: "spy", chars: 1 }] } }).key).toBe("failed");
+  });
+
+  it("one sentence per case", () => {
+    expect(contextUsedLine([{ kind: "knowledge", chars: 10, n: 1 }])).toBe("The tools were given: 1 knowledge entry.");
+    expect(contextUsedLine([{ kind: "business", chars: 10 }])).toBe("The tools were given: your business profile.");
   });
 });

@@ -1,7 +1,7 @@
 // Outer Control: the official result of a Completed session or Task. The controlled output is always visible; the
 // proof, rules and changes are one tap away, as readable text or as the structured JSON (the same record).
 import { useMemo, useState } from "react";
-import { AlertTriangle, Check, Copy, Download, ExternalLink, Fingerprint, ListChecks, ShieldCheck, Workflow } from "lucide-react";
+import { AlertTriangle, Briefcase, Check, Copy, Download, ExternalLink, Fingerprint, ListChecks, ShieldCheck, Workflow } from "lucide-react";
 import { toast } from "sonner";
 import { validateArtifact, type Artifact } from "@/lib/outer-control-artifact";
 import { composeReportText, isOutputTemplate, isReportDoc, kindOf, KIND_NOUN, type OutputTemplate, type ReportDoc } from "@/lib/outer-control-report-doc";
@@ -11,7 +11,7 @@ import { proofTiles, type ProofTile } from "@/lib/outer-control-task-progress";
 import ReportView from "./ReportView";
 import { FileMenu, LookPicker, LookPreview } from "./ResultFormats";
 
-const TILE_ICON: Record<ProofTile["key"], typeof Check> = { done: ListChecks, tools: Workflow, rules: ShieldCheck, checks: Fingerprint };
+const TILE_ICON: Record<ProofTile["key"], typeof Check> = { done: ListChecks, context: Briefcase, tools: Workflow, rules: ShieldCheck, checks: Fingerprint };
 
 export default function FinalArtifactView({ artifact, kind }: { artifact: unknown; kind: "session" | "task" }) {
   const [view, setView] = useState<"readable" | "json">("readable");

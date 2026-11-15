@@ -180,3 +180,17 @@ are removed.
   public functions, `analyze-inputs`, `compile-agent-manifest`, `compile-website-manifest` (sign-in optional) and the generated `mcp` bundle.
 
 The last layer, the page and the running server instances, is in `docs/session-isolation.md`.
+
+## Who may call a database function (release check, migration `20261115030602`)
+
+The security advisor lists every `SECURITY DEFINER` function a visitor (`anon`) or a signed-in person (`authenticated`) can call: 23 and 45 before this change. Every one of them already checks who is calling inside its own body, so a stranger gets an error, not data. The migration also closes the door in front of the check where nobody but the server needs to knock.
+
+| Group | Functions | Who may call |
+|---|---|---|
+| **Server only** | the six `consume_*_oauth_transaction`; the eight trigger functions (`guard_decision_human_response`, `guard_kill_switch`, `guard_pending_approval_update`, `log_config_change`, `log_profile_config_change`, `set_account_member_invited_by`, `set_platform_incident_resolved_by`, `sign_agent_decision`); `get_business_context`; `verify_decision_signature` | the service role only |
+| **Signed-in only** | `read_webhook_secret`, `rotate_webhook_secret` (both forms), `record_approval_signoff`, `verify_decision_signatures_batch` (4 arguments) | signed-in people and the server, no visitors |
+| **Left open on purpose** | `has_role`, `is_account_member`, `session_mfa_ok`, `can_access` (row rules call them for whoever is asking); `get_public_site` (a visitor opens a published site through it); the signed-in functions the app calls (`add_project_time`, the policy-change, approval and data-deletion functions, …) | as before |
+
+The advisor keeps listing the last group; that is expected. A trigger function is checked for `EXECUTE` when the trigger is created, not when it fires, so the existing triggers keep working (tested).
+
+Checked by `supabase/tests/secrets/function_access_test.sql` (who may call what afterwards, a trigger created before still fires, the migration is safe to run twice) and `src/test/function-access-grants.test.ts` (nothing the browser calls is on the server-only list; an edge function reaches a server-only function only with the service-role client). Not covered here: **leaked-password protection** is an Auth setting in the Supabase dashboard (Authentication → Sign In / Providers → password security), not a database object.
