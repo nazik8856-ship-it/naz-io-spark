@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const sql = readFileSync(join(__dirname, "..", "..", "supabase/migrations/20261115050000_fix_search_response_cache_search_path.sql"), "utf8");
+const sql = readFileSync(join(__dirname, "..", "..", "supabase/migrations/20261115030608_fix_search_response_cache_search_path.sql"), "utf8");
 
 describe("search_response_cache search path", () => {
   it("sets the schema pgvector lives in on the exact 4-argument function, and skips a function that is not there", () => {

@@ -181,7 +181,7 @@ are removed.
 
 The last layer, the page and the running server instances, is in `docs/session-isolation.md`.
 
-## Who may call a database function (release check, migration `20261115040000`)
+## Who may call a database function (release check, migration `20261115030602`)
 
 The security advisor lists every `SECURITY DEFINER` function a visitor (`anon`) or a signed-in person (`authenticated`) can call: 23 and 45 before this change. Every one of them already checks who is calling inside its own body, so a stranger gets an error, not data. The migration also closes the door in front of the check where nobody but the server needs to knock.
 

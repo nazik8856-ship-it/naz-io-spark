@@ -1,4 +1,4 @@
--- Quota: 20261115030000 email_queue_has_ready() and the cron job that uses it. An empty queue makes no edge-function call;
+-- Quota: 20261115030549 email_queue_has_ready() and the cron job that uses it. An empty queue makes no edge-function call;
 -- a waiting message makes one per tick; a message waiting out its retry delay, or a provider cool-down, makes none.
 \set ON_ERROR_STOP 1
 RESET ROLE;
@@ -23,8 +23,8 @@ CREATE TABLE IF NOT EXISTS public.email_send_state (id int PRIMARY KEY DEFAULT 1
 INSERT INTO public.email_send_state (id) VALUES (1) ON CONFLICT DO NOTHING;
 UPDATE public.email_send_state SET retry_after_until = NULL;
 
-\ir ../../migrations/20261115030000_email_queue_only_when_mail_waits.sql
-\ir ../../migrations/20261115030000_email_queue_only_when_mail_waits.sql
+\ir ../../migrations/20261115030549_email_queue_only_when_mail_waits.sql
+\ir ../../migrations/20261115030549_email_queue_only_when_mail_waits.sql
 
 -- the job: same name and schedule, the 12 ticks stay (a sleep of 0 here so the test does not wait a minute)
 SELECT pg_temp.check((SELECT count(*) FROM cron.job WHERE jobname = 'process-email-queue-every-5s') = 1 AND (SELECT schedule FROM cron.job WHERE jobname = 'process-email-queue-every-5s') = '* * * * *', 'one job, still every minute, still under its old name');

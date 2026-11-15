@@ -1,4 +1,4 @@
--- Release check: 20261115040000 closes the visitor / signed-in door in front of SECURITY DEFINER functions that do not need it,
+-- Release check: 20261115030602 closes the visitor / signed-in door in front of SECURITY DEFINER functions that do not need it,
 -- and leaves open the ones that do. The functions here are stand-ins with the same names and arguments, given the grants a Supabase
 -- project gives every new function (to PUBLIC, anon, authenticated and service_role); what is tested is who may call them afterwards.
 \set ON_ERROR_STOP 1
@@ -46,8 +46,8 @@ CREATE TABLE IF NOT EXISTS public.fa_probe (id int, note text);
 DROP TRIGGER IF EXISTS fa_probe_guard ON public.fa_probe;
 CREATE TRIGGER fa_probe_guard BEFORE INSERT ON public.fa_probe FOR EACH ROW EXECUTE FUNCTION public.guard_kill_switch();
 
-\ir ../../migrations/20261115040000_close_function_access.sql
-\ir ../../migrations/20261115040000_close_function_access.sql
+\ir ../../migrations/20261115030602_close_function_access.sql
+\ir ../../migrations/20261115030602_close_function_access.sql
 
 -- true when the role can run EVERY copy (every argument list) of the named functions
 CREATE OR REPLACE FUNCTION pg_temp.can(r text, VARIADIC names text[]) RETURNS boolean LANGUAGE sql AS $$

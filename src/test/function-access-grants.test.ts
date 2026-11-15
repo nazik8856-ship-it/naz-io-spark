@@ -1,4 +1,4 @@
-// Release check: 20261115040000_close_function_access.sql takes the visitor / signed-in door away from database functions that only the
+// Release check: 20261115030602_close_function_access.sql takes the visitor / signed-in door away from database functions that only the
 // server needs. This keeps it honest: nothing the browser or a signed-in-person client calls may be on the server-only list, and every
 // function on either list is named once and spelled the way the advisor spells it.
 import { describe, expect, it } from "vitest";
@@ -6,7 +6,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(__dirname, "..", "..");
-const migration = readFileSync(join(root, "supabase/migrations/20261115040000_close_function_access.sql"), "utf8");
+const migration = readFileSync(join(root, "supabase/migrations/20261115030602_close_function_access.sql"), "utf8");
 
 function listOf(name: string): string[] {
   const block = new RegExp(`${name} text\\[\\] := ARRAY\\[([\\s\\S]*?)\\];`).exec(migration);
