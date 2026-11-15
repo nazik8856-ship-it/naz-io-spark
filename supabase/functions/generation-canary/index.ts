@@ -21,6 +21,7 @@ import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI cre
 import { readJson } from "../_shared/input.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.116.0";
 import { aiGatewayHeaders, pickAiGateway } from "../_shared/ai-gateway.ts";
+import { openaiImageModels } from "../_shared/image-models.ts"; // the same models, in the same order, as generate-site-images
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 import { CANARY_BRIEF, CANARY_STRUCTURE, judgeGeneration, judgeProbe, type CanaryVerdict } from "../_shared/canary-judge.ts";
 import {
@@ -67,8 +68,15 @@ Deno.serve(async (req) => {
     const probes: (Probe & { outOfCredits: boolean })[] = [];
     probes.push(await probe("chat", gw.url, aiGatewayHeaders(gw), { model: gw.model, messages: [{ role: "user", content: "Reply with OK" }], max_tokens: 3 }, 30_000));
     if (gw.provider === "openai") {
-      probes.push(await probe("image", "https://api.openai.com/v1/images/generations", aiGatewayHeaders(gw),
-        { model: "gpt-image-1", prompt: "A single flat yellow circle centred on a plain white background", size: "1024x1024", quality: "low", n: 1 }, 90_000));
+      // The same candidates, in the same order, as generate-site-images: a model the API does not know (400/404) falls through to the next,
+      // and only the last answer counts, so a retired first choice does not raise an incident while the generator still works.
+      let imageProbe: Probe & { outOfCredits: boolean } | null = null;
+      for (const model of openaiImageModels(Deno.env.get("OPENAI_IMAGE_MODEL"))) {
+        imageProbe = await probe("image", "https://api.openai.com/v1/images/generations", aiGatewayHeaders(gw),
+          { model, prompt: "A single flat yellow circle centred on a plain white background", size: "1024x1024", quality: "low", n: 1 }, 90_000);
+        if (imageProbe.ok || (imageProbe.status !== 400 && imageProbe.status !== 404)) break;
+      }
+      if (imageProbe) probes.push(imageProbe);
       estCost = 0.011;
     }
     outOfCredits = probes.some((p) => p.outOfCredits);
