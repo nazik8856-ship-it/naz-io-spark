@@ -121,6 +121,22 @@ describe("connecting a tool and generating a report", () => {
     await waitFor(() => expect(lastStart()).toEqual({ action: "start_report", task: "opinions", topic: "Should we adopt a control layer?", tool_ids: ["c", "a", "b"] }));
   });
 
+  it("what NazAI knows about the business goes to the tools unless the person switches it off, and the switch is a plain checkbox that starts on", async () => {
+    state.tools = [good("a", "ChatGPT"), writer];
+    state.route = { kind: "opinions" };
+    render_();
+    await describe("Should we adopt a control layer?");
+    await planLine();
+    const box = screen.getByLabelText(/Give the tools what NazAI knows about my business/) as HTMLInputElement;
+    expect(box.type).toBe("checkbox");
+    expect(box.checked).toBe(true);
+    fireEvent.click(screen.getByLabelText("Ask ChatGPT"));
+    fireEvent.click(box);
+    expect(box.checked).toBe(false);
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()).toEqual({ action: "start_report", task: "opinions", topic: "Should we adopt a control layer?", tool_ids: ["a"], share_context: false }));
+  });
+
   it("track record: each tool says how it did in 30 days; NazAI suggests the most reliable ones and one press picks them", async () => {
     state.tools = [good("a", "ChatGPT"), good("b", "Claude"), good("c", "Grok"), writer];
     state.records = [

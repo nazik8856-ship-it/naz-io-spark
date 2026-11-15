@@ -35,7 +35,9 @@ export const READ_DELAY_MS = 1000;
 
 export type TaskTool = ToolHealthInput & { id: string; name: string; model?: string | null; endpoint_url?: string | null };
 /** template: a look other than the original one, chosen before the Task starts; null when the original look was kept, or when the request itself says what it wants (a file type, a place) and no look was asked for. */
-export type TaskRequest = { kind: ReportKind; text: string; background: string; styles: string[]; count: number; toolIds: string[]; keepChoice: boolean; template: OutputTemplate | null };
+export type TaskRequest = { kind: ReportKind; text: string; background: string; styles: string[]; count: number; toolIds: string[]; keepChoice: boolean; template: OutputTemplate | null;
+  /** Give the tools what NazAI knows about the business (profile, the person's notes, knowledge entries). On unless the person switches it off. */
+  shareContext: boolean };
 /** NazAI's reading of the request (outer-control-drive route_task). */
 export type TaskRoute = { kind: ReportKind | "unclear"; text: string; background: string; labels: string[]; count: number; question: string; source: "ai" | "rules" };
 
@@ -76,6 +78,8 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   // is followed and no look is asked for, unless the person chooses one anyway.
   const [template, setTemplate] = useState<OutputTemplate>(DEFAULT_TEMPLATE);
   const [chooseAnyway, setChooseAnyway] = useState(false);
+  // What NazAI knows about the business goes to the tools with the request, unless switched off here (the result says what was sent).
+  const [shareContext, setShareContext] = useState(true);
   const readId = useRef(0);
 
   // NazAI reads the request a moment after the person stops typing. An older reading that arrives late is ignored.
@@ -143,10 +147,10 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
 
   const requested = useMemo(() => detectRequestedOutput(request), [request]);
   const askLook = !requested.specified || chooseAnyway;
-  const reset = () => { setRequest(""); setRoute(null); setChosenKind(null); setLabels([]); setCount(3); setPicked([]); setTemplate(DEFAULT_TEMPLATE); setChooseAnyway(false); };
+  const reset = () => { setRequest(""); setRoute(null); setChosenKind(null); setLabels([]); setCount(3); setPicked([]); setTemplate(DEFAULT_TEMPLATE); setChooseAnyway(false); setShareContext(true); };
   const start = async () => {
     if (busy || !kind || problem || reading) return;
-    const ok = await onStart({ kind, text, background, styles: lim?.labels ? labels : [], count, toolIds: picked, keepChoice: plan.kept, template: askLook && template !== DEFAULT_TEMPLATE ? template : null });
+    const ok = await onStart({ kind, text, background, styles: lim?.labels ? labels : [], count, toolIds: picked, keepChoice: plan.kept, template: askLook && template !== DEFAULT_TEMPLATE ? template : null, shareContext });
     if (ok) { reset(); onOpenChange(false); }
   };
 
@@ -372,6 +376,12 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
           {kind && <ToolPlanBox state={plan} mode="pick" max={lim!.maxTools} busy={busy} onUse={setPicked} onFix={(t) => onFix?.(t as TaskTool)} fixing={fixing} onConnect={onConnect} />}
           {kind && problem && <p className="text-xs text-zinc-400" data-testid="task-problem">{problem}</p>}
           <div className="space-y-1.5">
+            {kind && (
+              <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] leading-snug text-zinc-300" data-testid="task-share-context">
+                <input type="checkbox" checked={shareContext} onChange={(e) => setShareContext(e.target.checked)} className="mt-0.5 accent-cyan-400" />
+                <span>Give the tools what NazAI knows about my business (profile, my notes, knowledge entries), so the answer fits my situation. The result lists what was sent.</span>
+              </label>
+            )}
             {kind && (
               <p className="flex items-center justify-center gap-1.5 text-[11px] text-zinc-500">
                 <Coins className="h-3 w-3 text-amber-300/80" /> {freeStarter ? "Free · one of your 2 free NazAI tasks" : <>Uses {TASK_CREDITS[kind]} credit{TASK_CREDITS[kind] === 1 ? "" : "s"} · given back if no result comes</>}

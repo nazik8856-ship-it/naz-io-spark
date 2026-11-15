@@ -21,12 +21,13 @@ export function sessionArtifact(text = "Returns take thirty days.", over: { id?:
   return r.artifact;
 }
 
-export function taskArtifact(text = "Dear Dana, returns take thirty days.", over: { template?: string; request?: string } = {}) {
+export function taskArtifact(text = "Dear Dana, returns take thirty days.", over: { template?: string; request?: string; contextUsed?: unknown } = {}) {
   const leg = sessionArtifact(text);
   const r = buildTaskArtifact({
     id: "w1", request: over.request ?? "Reply to Dana", origin: null, completedAt: "2026-10-17T00:00:00Z",
     legs: [{ leg_no: 1, tool: "Research Bot", status: "completed", artifact: leg }], finalLeg: 1, handoffs: [],
     ...(over.template ? { template: over.template } : {}),
+    ...(over.contextUsed !== undefined ? { contextUsed: over.contextUsed } : {}),
   });
   if (r.ok !== true) throw new Error("fixture: task artifact did not build");
   return r.artifact;

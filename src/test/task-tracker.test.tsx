@@ -90,6 +90,19 @@ describe("proofTiles: the proof of a result at a glance", () => {
     expect(tiles[2].text).toBe("1 rule checked every answer; none had to change anything.");
     expect(tiles[3].text).toMatch(/^Every kept answer passed its completion check\. Fingerprint c{12}\.$/);
   });
+
+  it("says what the tools knew about the person's situation, right after what was done, for a Task that recorded it", () => {
+    const tiles = proofTiles({ ...taskArt(), context_used: [{ kind: "business", chars: 400 }, { kind: "knowledge", chars: 90, n: 2 }] } as never);
+    expect(tiles.map((t) => t.key)).toEqual(["done", "context", "tools", "rules", "checks"]);
+    expect(tiles[1]).toMatchObject({ title: "What the tools knew", tone: "ok", text: "The tools were given: your business profile, 2 knowledge entries." });
+  });
+
+  it("warns when the tools were given nothing about the situation, and says nothing for a Task made before this was recorded", () => {
+    const none = proofTiles({ ...taskArt(), context_used: [] } as never);
+    expect(none[1]).toMatchObject({ key: "context", tone: "warn" });
+    expect(none[1].text).toContain("so the answer is general");
+    expect(proofTiles(taskArt()).some((t) => t.key === "context")).toBe(false);
+  });
 });
 
 describe("TaskTracker", () => {

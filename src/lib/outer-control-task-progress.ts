@@ -1,6 +1,6 @@
 // Outer Control: what a multi-tool Task (Start task) is doing right now, in one line, and the proof of a finished result at a
 // glance. Pure: the Task panel and the result card render what these return.
-import type { Artifact } from "@/lib/outer-control-artifact";
+import { contextUsedLine, type Artifact } from "@/lib/outer-control-artifact";
 import { isReportDoc, KIND_NOUN, kindOf } from "@/lib/outer-control-report-doc";
 
 export const REPORT_TOOL_PREFIX = "nazai-internal://report";
@@ -91,7 +91,7 @@ export function taskProgress(task: { status: string; stop_reason?: string | null
 // ---------------------------------------------------------------------------------------
 // The proof of a finished result, at a glance
 
-export type ProofTile = { key: "done" | "tools" | "rules" | "checks"; title: string; text: string; tone: "ok" | "warn" };
+export type ProofTile = { key: "done" | "context" | "tools" | "rules" | "checks"; title: string; text: string; tone: "ok" | "warn" };
 
 export function proofTiles(a: Artifact): ProofTile[] {
   const report = isReportDoc(a.report) ? a.report : null;
@@ -102,6 +102,11 @@ export function proofTiles(a: Artifact): ProofTile[] {
     ? `NazAI wrote this ${KIND_NOUN[kindOf(report)]} from ${report.opinions.length} checked answer${report.opinions.length === 1 ? "" : "s"}.`
     : (a.what_done ?? (a.kind === "task" ? `${a.proof.steps_done} of ${a.proof.steps_total} steps finished.` : `Got a checked answer from ${a.tool}.`));
   tiles.push({ key: "done", title: "What was done", text: did, tone: "ok" });
+
+  // What the tools knew about the person's situation (a Task made before this was recorded has no line)
+  if (a.kind === "task" && a.context_used !== undefined) {
+    tiles.push({ key: "context", title: "What the tools knew", text: contextUsedLine(a.context_used), tone: a.context_used.length === 0 ? "warn" : "ok" });
+  }
 
   // Which tools
   if (a.kind === "task") {

@@ -51,6 +51,41 @@ export type SessionArtifact = {
 export type TaskArtifactStep = { step: number; tool: string; status: string; output_sha256: string | null };
 export type TaskArtifactHandoff = { from: number | null; from_label: string; to: number; outcome: string; rules: string[] };
 
+/** What the tools were told about the person's situation (docs/outer-control-context.md): the kinds and sizes only, never the text. */
+export const CONTEXT_KINDS = ["business", "profile", "knowledge", "project", "background"] as const;
+export type ContextKind = (typeof CONTEXT_KINDS)[number];
+export type ContextUsed = { kind: ContextKind; chars: number; n?: number };
+
+/** Keeps what is a known kind with a sensible size; anything else is dropped. At most one entry per kind. */
+export function cleanContextUsed(v: unknown): ContextUsed[] {
+  if (!Array.isArray(v)) return [];
+  const out: ContextUsed[] = [];
+  for (const e of v) {
+    if (typeof e !== "object" || e === null) continue;
+    const kind = (e as { kind?: unknown }).kind;
+    const chars = (e as { chars?: unknown }).chars;
+    const n = (e as { n?: unknown }).n;
+    if (!CONTEXT_KINDS.includes(kind as ContextKind) || out.some((o) => o.kind === kind)) continue;
+    if (typeof chars !== "number" || !Number.isFinite(chars) || chars < 0 || chars > 100_000) continue;
+    out.push({ kind: kind as ContextKind, chars: Math.trunc(chars), ...(typeof n === "number" && Number.isInteger(n) && n > 0 && n < 1000 ? { n } : {}) });
+  }
+  return out;
+}
+
+const CONTEXT_WORDS: Record<ContextKind, (c: ContextUsed) => string> = {
+  business: () => "your business profile",
+  profile: () => "your own notes",
+  knowledge: (c) => `${c.n ?? 1} knowledge entr${(c.n ?? 1) === 1 ? "y" : "ies"}`,
+  project: () => "the project you attached",
+  background: () => "the background you typed",
+};
+
+/** One plain sentence for the result and the file: what the tools knew, or that they knew nothing about the situation. */
+export function contextUsedLine(list: ContextUsed[]): string {
+  if (list.length === 0) return "The tools were given no information about your situation, so the answer is general. Add background, a business profile or a project to make it specific.";
+  return `The tools were given: ${list.map((c) => CONTEXT_WORDS[c.kind](c)).join(", ")}.`;
+}
+
 export type TaskArtifact = {
   version: number;
   kind: "task";
@@ -66,6 +101,8 @@ export type TaskArtifact = {
   report?: ReportDoc;
   /** The look chosen before the Task started (docs/outer-control-outputs.md); the viewer can still switch. */
   template?: OutputTemplate;
+  /** What the tools were told about the person's situation: kinds and sizes. Absent on a Task made before this was recorded. */
+  context_used?: ContextUsed[];
   proof: { steps_total: number; steps_done: number; all_checklists_passed: true; steps: TaskArtifactStep[] };
   handoffs: TaskArtifactHandoff[];
   rules: ArtifactRules;
@@ -140,6 +177,7 @@ export function renderArtifactText(a: Omit<SessionArtifact, "human_text"> | Omit
   const out: string[] = [];
   out.push("FINAL RESULT (controlled version)", a.final_output.trim(), "");
   if (a.what_done) out.push("WHAT WAS DONE", a.what_done, "");
+  if (a.kind === "task" && a.context_used) out.push("CONTEXT THE TOOLS WERE GIVEN", contextUsedLine(a.context_used), "");
   if (a.links && a.links.length) out.push("LINKS TO THE WORK", ...a.links.map((l) => `- ${l.label}: ${l.url}`), "");
   out.push("PROOF");
   if (a.kind === "session") {
@@ -275,6 +313,8 @@ export type TaskArtifactInput = {
   handoffs: TaskArtifactHandoff[];
   /** The look chosen for this Task, if any (anything that is not a known look is left out). */
   template?: string | null;
+  /** What the tools were told (workflow.context_used). Null or absent: not recorded for this Task. */
+  contextUsed?: unknown;
 };
 
 export function buildTaskArtifact(i: TaskArtifactInput): Built<TaskArtifact> {
@@ -310,6 +350,7 @@ export function buildTaskArtifact(i: TaskArtifactInput): Built<TaskArtifact> {
     ...(taskLinks.length ? { links: taskLinks } : {}),
     ...(fin.report ? { report: fin.report } : {}),
     ...(isOutputTemplate(i.template) ? { template: i.template } : {}),
+    ...(Array.isArray(i.contextUsed) ? { context_used: cleanContextUsed(i.contextUsed) } : {}),
     proof: {
       steps_total: i.legs.length, steps_done: completed.length, all_checklists_passed: true,
       steps: i.legs.map((l) => ({ step: l.leg_no, tool: clip(l.tool, 120), status: l.status, output_sha256: parts.get(l.leg_no)?.output_sha256 ?? null })),
@@ -354,6 +395,7 @@ export function validateArtifact(a: unknown, kind?: "session" | "task"): Validit
   }
   if (a.report !== undefined && !isReportDoc(a.report)) return { ok: false, reason: "the report section is not a valid report" };
   if (a.template !== undefined && !isOutputTemplate(a.template)) return { ok: false, reason: "the chosen look is not one of the known looks" };
+  if (a.context_used !== undefined && (!Array.isArray(a.context_used) || cleanContextUsed(a.context_used).length !== a.context_used.length)) return { ok: false, reason: "the list of what the tools were given is not valid" };
   if (typeof a.human_text !== "string" || !a.human_text.trim()) return { ok: false, reason: "the readable version is missing" };
   const { human_text: _drop, ...rest } = a;
   void _drop;
