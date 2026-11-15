@@ -59,3 +59,32 @@ Deno.test("actions that are not analysis (rewrite, alternatives, explain, key po
   assert(!stepInstructionFor("keypoints", "Some text of some length").includes("Requirements"), "keypoints");
   assert(!stepInstructionFor("explain", "Some text of some length").includes("Assumption"), "explain");
 });
+
+// ---- one source on an action meant to compare sources ------------------------------------------------------------------------
+import { buildAnalysisPrompt, buildReportDoc } from "./outer-control-report.ts";
+
+const op = (n: number, tool: string) => ({ n, tool, text: `Answer ${n} with enough words to count as an answer.`, shortened: false, sha256: String(n).repeat(64).slice(0, 64), at: "2026-11-15T02:00:00Z" });
+const analysis = { summary: "s", agreements: [], differences: [], conclusion: "c" };
+
+Deno.test("a report built from one answer on opinions, research, fact-check or decision is marked single-source", () => {
+  for (const kind of [undefined, "research", "factcheck", "decision"] as const) {
+    const d = buildReportDoc({ topic: "t", at: "2026-11-15T02:01:00Z", opinions: [op(1, "ChatGPT")], analysis, extra: kind ? { kind } : {} });
+    assert(d.single_source === true, `${kind ?? "opinions"} with one answer is single-source`);
+  }
+});
+
+Deno.test("two answers, or an action that is not meant to compare, is not marked", () => {
+  const two = buildReportDoc({ topic: "t", at: "x", opinions: [op(1, "ChatGPT"), op(2, "Claude")], analysis, extra: { kind: "research" } });
+  assert(!("single_source" in two), "two answers");
+  for (const kind of ["rewrite", "explain", "keypoints", "draft"] as const) {
+    const d = buildReportDoc({ topic: "t", at: "x", opinions: [op(1, "ChatGPT")], analysis, extra: { kind } });
+    assert(!("single_source" in d), `${kind} is a one-tool action`);
+  }
+});
+
+Deno.test("the report writer is told there is one source and not to write agreement or disagreement", () => {
+  const solo = buildAnalysisPrompt("t", [op(1, "ChatGPT")]);
+  assert(solo.system.includes("There is only ONE source, so nothing can be cross-checked"), "one source");
+  const pair = buildAnalysisPrompt("t", [op(1, "ChatGPT"), op(2, "Claude")]);
+  assert(!pair.system.includes("only ONE source"), "two sources are not told that");
+});

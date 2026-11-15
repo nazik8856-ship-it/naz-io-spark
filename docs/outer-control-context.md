@@ -68,3 +68,16 @@ Rewrite, alternatives, explain, key points, roles, adapt, draft and the multi-st
 Two limits moved with it: a tool's answer is kept whole up to **9,000 characters** (it was 4,000, which cut a 700-word answer mid-sentence), and an Anthropic-format tool may use **2,048 tokens** (it was 1,024).
 
 Tests: `outer-control-report-instructions_test.ts`.
+
+## One source is said plainly
+
+Opinions, research, fact-check and decision are meant to compare tools. Asked of one tool, they used to look like a multi-source report ("where they agree", "where they differ") with nothing to compare. Now:
+
+- **Before the start**: with one tool chosen for one of these actions, *Start a task* says *One tool gives one point of view, so nothing can be cross-checked; the result will say so. Pick a second tool to compare.* It does not stop the Task (a person may have only one tool).
+- **The writer** is told there is one source and returns no agreements or differences.
+- **The result** says at the top: *Single source: only ChatGPT answered, so nothing here was cross-checked. Ask a second tool to compare before relying on it.* This appears on the page, in every look and every file, and in the *Tools used* tile (shown as a warning). The empty *Where they agree / differ* sections are left out.
+- **The stored text** says it too, for a report made from now on (`ReportDoc.single_source`). A report stored earlier keeps exactly the text it was stored with; its page, looks and files still show the warning (`isSingleSource`).
+
+Compare still needs two tools. The one-tool actions (rewrite, explain, key points, draft, alternatives, roles, adapt) are not marked.
+
+Tests: `single-source.test.tsx`, the single-source part of `outer-control-report-instructions_test.ts`, *Start a task* and the proof tile.

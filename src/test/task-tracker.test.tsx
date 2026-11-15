@@ -86,7 +86,8 @@ describe("proofTiles: the proof of a result at a glance", () => {
     const tiles = proofTiles(taskArt());
     expect(tiles.map((t) => t.key)).toEqual(["done", "tools", "rules", "checks"]);
     expect(tiles[0].text).toBe("NazAI wrote this research from 1 checked answer.");
-    expect(tiles[1]).toMatchObject({ tone: "warn", text: "Answered: Claude. Did not answer: ChatGPT." });
+    // Research from one answer: the tile also says nothing was cross-checked.
+    expect(tiles[1]).toMatchObject({ tone: "warn", text: "Answered: Claude. Did not answer: ChatGPT. Single source: nothing was cross-checked." });
     expect(tiles[2].text).toBe("1 rule checked every answer; none had to change anything.");
     expect(tiles[3].text).toMatch(/^Every kept answer passed its completion check\. Fingerprint c{12}\.$/);
   });

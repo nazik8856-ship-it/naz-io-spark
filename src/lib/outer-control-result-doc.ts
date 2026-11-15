@@ -1,7 +1,7 @@
 // Outer Control: one neutral shape for a result, used by every look (outer-control-templates.ts) and every file type
 // (outer-control-files.ts). A report is turned into sections once, here; the looks and the files only decide how to draw them, so a
 // Word file, a spreadsheet and a styled page can not disagree about what the result says. Pure, no dependencies.
-import { composeReportText, fingerprint, KIND_BADGE, kindMethod, kindOf, REPORT_INTRO, VERDICT_LABEL, when, type ReportDoc, type ReportKind } from "@/lib/outer-control-report-doc";
+import { composeReportText, fingerprint, isSingleSource, KIND_BADGE, kindMethod, kindOf, REPORT_INTRO, singleSourceLine, VERDICT_LABEL, when, type ReportDoc, type ReportKind } from "@/lib/outer-control-report-doc";
 
 export type Blk =
   | { k: "p"; text: string }
@@ -98,12 +98,17 @@ export function reportToDoc(d: ReportDoc): ResultDoc {
   } else {
     add("summary", "Summary", para(d.summary));
     sections.push(sources("Opinions by source"));
-    add("points", "Where they agree", [list(d.agreements, "No shared points were identified.")]);
-    add("contrast", "Where they differ", [list(d.differences, "No differences were identified.")]);
+    // With one source there is nothing to agree or differ on.
+    if (!isSingleSource(d)) {
+      add("points", "Where they agree", [list(d.agreements, "No shared points were identified.")]);
+      add("contrast", "Where they differ", [list(d.differences, "No differences were identified.")]);
+    }
     add("bottom", "Conclusion", para(d.conclusion));
   }
   add("method", `How this ${kindOf(d) === "opinions" ? "report" : "result"} was made`, para(kindMethod(d)));
-  return { badge: KIND_BADGE[kind], title: d.topic.replace(/\s+/g, " ").trim(), meta: REPORT_INTRO(d), sections, footer: FOOTER };
+  return { badge: KIND_BADGE[kind], title: d.topic.replace(/\s+/g, " ").trim(),
+    // A report made before the flag existed still says so here, in every look and file (its stored text is left as it was).
+    meta: isSingleSource(d) && !d.single_source ? `${REPORT_INTRO(d)} ${singleSourceLine(d)}` : REPORT_INTRO(d), sections, footer: FOOTER };
 }
 
 const LIST_LINE = /^\s*(?:[-*•]|\d{1,2}[.)])\s+(.*\S)\s*$/;

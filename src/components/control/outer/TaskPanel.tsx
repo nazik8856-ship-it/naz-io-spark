@@ -4,11 +4,11 @@
 // Change to pick another action; when the request is unclear NazAI asks instead of guessing. Every tool reply is checked against
 // the person's rules, then one clean result is written. Reading the request is free; starting uses the action's credits.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Coins, FileEdit, Gauge, Lightbulb, ListChecks, ListOrdered, Loader2, Megaphone, Network, Palette, PenLine, Plus, Scale, Search, ShieldCheck, Sparkles, Target, UserCog, Users, Wand2, X, type LucideIcon } from "lucide-react";
+import { AlertTriangle, BookOpen, Coins, FileEdit, Gauge, Lightbulb, ListChecks, ListOrdered, Loader2, Megaphone, Network, Palette, PenLine, Plus, Scale, Search, ShieldCheck, Sparkles, Target, UserCog, Users, Wand2, X, type LucideIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DEFAULT_TEMPLATE, detectRequestedOutput, TEMPLATE_IDS, TEMPLATE_INFO } from "@/lib/outer-control-templates";
 import { callDrive } from "@/lib/outer-control-drive";
-import { ACTION_INFO, MAX_STYLES, REPORT_KINDS, ROUTING_TEXT, TASK_CREDITS, TASK_LIMITS, type OutputTemplate, type ReportKind } from "@/lib/outer-control-report-doc";
+import { ACTION_INFO, MAX_STYLES, REPORT_KINDS, ROUTING_TEXT, SINGLE_SOURCE_KINDS, TASK_CREDITS, TASK_LIMITS, type OutputTemplate, type ReportKind } from "@/lib/outer-control-report-doc";
 import { checkTaskForm, describeRecord, isStarterTool, LABEL_PRESETS, START_LABEL, suggestTools, toolHealth, toolsHint, type ToolHealthInput, type ToolRecord } from "@/lib/outer-control-tools-ui";
 import ToolPlanBox, { useToolPlan } from "./ToolPlanBox";
 
@@ -375,6 +375,12 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
 
           {kind && <ToolPlanBox state={plan} mode="pick" max={lim!.maxTools} busy={busy} onUse={setPicked} onFix={(t) => onFix?.(t as TaskTool)} fixing={fixing} onConnect={onConnect} />}
           {kind && problem && <p className="text-xs text-zinc-400" data-testid="task-problem">{problem}</p>}
+          {kind && !problem && picked.length === 1 && SINGLE_SOURCE_KINDS.includes(kind) && (
+            <p className="flex items-start gap-1.5 rounded-xl border border-amber-400/30 bg-amber-400/[0.06] px-3 py-2 text-xs text-amber-100" data-testid="task-single-source">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
+              One tool gives one point of view, so nothing can be cross-checked; the result will say so. Pick a second tool to compare.
+            </p>
+          )}
           <div className="space-y-1.5">
             {kind && (
               <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] leading-snug text-zinc-300" data-testid="task-share-context">

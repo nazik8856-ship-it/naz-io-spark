@@ -1,7 +1,7 @@
 // Outer Control: a finished multi-tool result, designed: an opinions report, a comparison, a fact-check or a rewrite. The words
 // are the stored result word for word; this only lays them out.
 import { ShieldCheck, Layers, Scale, Sparkles, Quote, CalendarClock, Fingerprint, Table2, ListChecks, PenLine, Wand2, ListOrdered, HelpCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
-import { fingerprint, kindMethod, kindOf, KIND_BADGE, KIND_NOUN, missingLine, VERDICT_LABEL, when, type ReportDoc } from "@/lib/outer-control-report-doc";
+import { fingerprint, isSingleSource, kindMethod, kindOf, KIND_BADGE, KIND_NOUN, missingLine, singleSourceLine, VERDICT_LABEL, when, type ReportDoc } from "@/lib/outer-control-report-doc";
 
 const Section = ({ title, icon, tone = "cyan", children, testid }: { title: string; icon: React.ReactNode; tone?: "cyan" | "emerald" | "amber"; children: React.ReactNode; testid?: string }) => {
   const color = tone === "emerald" ? "text-emerald-300" : tone === "amber" ? "text-amber-300" : "text-cyan-300";
@@ -32,6 +32,8 @@ const VERDICT_TONE: Record<string, string> = {
 
 export default function ReportView({ doc }: { doc: ReportDoc }) {
   const n = doc.opinions.length;
+  // One tool answered an action meant to compare sources: said at the top, and the empty "agree / differ" boxes are left out.
+  const single = isSingleSource(doc);
   const kind = kindOf(doc);
   const toolOf = (n: number) => doc.opinions.find((o) => o.n === n)?.tool ?? "tool";
   const sources = (title: string) => (
@@ -95,6 +97,11 @@ export default function ReportView({ doc }: { doc: ReportDoc }) {
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />{missingLine(doc)}
             </p>
           ) : null}
+          {single && (
+            <p className="mt-3 flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/[0.07] px-3 py-2 text-xs text-amber-100" data-testid="report-single-source">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />{singleSourceLine(doc)}
+            </p>
+          )}
         </header>
 
         {kind === "rewrite" || kind === "roles" || kind === "adapt" ? (
@@ -238,14 +245,14 @@ export default function ReportView({ doc }: { doc: ReportDoc }) {
               </div>
             </Section>
             {sources("Answers by source")}
-            {agreeDiffer}
+            {!single && agreeDiffer}
             {conclusion}
           </>
         ) : (
           <>
             {summary}
             {sources("Opinions by source")}
-            {agreeDiffer}
+            {!single && agreeDiffer}
             {conclusion}
           </>
         )}

@@ -8,7 +8,7 @@
 
 import { callAiGateway, pickAiGateway } from "./ai-gateway.ts";
 import { officialOutput, extractLinks, type ArtifactLink, type SessionArtifact } from "./outer-control-artifact.ts";
-import { ACTION_INFO, composeReportText, TITLE_PREFIX, MAX_STYLES, REPORT_KINDS, TASK_LIMITS, VERDICTS, type ComparisonRow, type DecisionOption, type LabeledItem, type MissingTool, type ReportDoc, type ReportKind, type RewriteVersion, type Verdict } from "./outer-control-report-doc.ts";
+import { ACTION_INFO, composeReportText, SINGLE_SOURCE_KINDS, TITLE_PREFIX, MAX_STYLES, REPORT_KINDS, TASK_LIMITS, VERDICTS, type ComparisonRow, type DecisionOption, type LabeledItem, type MissingTool, type ReportDoc, type ReportKind, type RewriteVersion, type Verdict } from "./outer-control-report-doc.ts";
 import { parseModelObject } from "./model-output.ts";
 import { accountTools } from "./outer-control-boundary.ts";
 export { TASK_LIMITS, MAX_STYLES, NEEDS_AI, ROUTING_TEXT } from "./outer-control-report-doc.ts";
@@ -215,7 +215,8 @@ export function buildAnalysisPrompt(topic: string, opinions: Opinion[], backgrou
     "Refer to a source as [n] where n is its number. Reply with JSON only: " +
     '{"summary": "<at most 120 words>", "agreements": ["<point the sources share, with [n] references>"], ' +
     '"differences": ["<point where they differ, with [n] references>"], "conclusion": "<at most 120 words>"}. ' +
-    "If the sources do not disagree, return an empty differences list. At most 6 items in each list.";
+    "If the sources do not disagree, return an empty differences list. At most 6 items in each list." +
+    (opinions.length === 1 ? " There is only ONE source, so nothing can be cross-checked: return empty agreements and differences lists, and do not write that sources agree or differ." : "");
   const user = `${backgroundNote(background)}Topic: ${fence(topic)}\n\n${opinions.map((o) => `<<<SOURCE ${o.n}: ${fence(o.tool)}>>>\n${fence(o.text)}\n<<<END SOURCE ${o.n}>>>`).join("\n\n")}`;
   return { system, user };
 }
@@ -557,11 +558,14 @@ export async function routeRequest(request: string, ai: ReportAi | null): Promis
 
 /** The report as a document: the opinions word for word, the analysis from the AI. */
 export function buildReportDoc(i: { topic: string; at: string; opinions: Opinion[]; analysis: Analysis; extra?: Partial<ReportDoc> }): ReportDoc {
+  // One source on an action meant to compare sources: said in the result's own text (docs/outer-control-context.md).
+  const single = i.opinions.length === 1 && SINGLE_SOURCE_KINDS.includes(i.extra?.kind ?? "opinions");
   return {
     version: 1, topic: clip(i.topic.replace(/\s+/g, " ").trim(), 300), compiled_at: i.at,
     summary: i.analysis.summary, agreements: i.analysis.agreements, differences: i.analysis.differences, conclusion: i.analysis.conclusion,
     opinions: i.opinions.map((o) => ({ n: o.n, tool: o.tool, text: o.text, shortened: o.shortened, sha256: o.sha256, at: o.at })),
     ...(i.extra ?? {}),
+    ...(single ? { single_source: true } : {}),
   };
 }
 
