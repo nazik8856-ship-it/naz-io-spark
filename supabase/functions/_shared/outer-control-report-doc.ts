@@ -75,6 +75,8 @@ export type ReportDoc = {
    * on a fact from that situation, checked against its words, or is marked as an assumption. Never a new fact about the world.
    */
   implications?: Implication[];
+  /** research: the source [n] that challenged the other answers (what is missing, generic or unsupported). It is not an answer itself. */
+  challenge?: number;
 };
 export type MissingTool = { tool: string; reason: string };
 /** One next step for the person. basis "situation": `why` is a fact from their own context; "assumption": `why` is what had to be assumed. */
@@ -193,6 +195,7 @@ export function isReportDoc(x: unknown): x is ReportDoc {
   if (d.missing !== undefined && !(Array.isArray(d.missing) && d.missing.every((m) => !!m && typeof m === "object" && isStr((m as MissingTool).tool) && isStr((m as MissingTool).reason)))) return false;
   if (d.parallel !== undefined && typeof d.parallel !== "boolean") return false;
   if (d.single_source !== undefined && typeof d.single_source !== "boolean") return false;
+  if (d.challenge !== undefined && !(Number.isInteger(d.challenge) && (d.opinions as ReportOpinion[]).some((o) => o.n === d.challenge))) return false;
   if (d.implications !== undefined && !(Array.isArray(d.implications) && d.implications.every((m) => !!m && typeof m === "object"
     && isStr((m as Implication).step) && isStr((m as Implication).why) && ((m as Implication).basis === "situation" || (m as Implication).basis === "assumption")))) return false;
   if (d.decision !== undefined && !(Array.isArray(d.decision) && d.decision.every((o) => !!o && typeof o === "object" && isStr((o as DecisionOption).option) && isStrList((o as DecisionOption).pros) && isStrList((o as DecisionOption).cons)))) return false;
@@ -220,11 +223,21 @@ export const missingLine = (d: Pick<ReportDoc, "missing">) =>
 export const SINGLE_SOURCE_KINDS: readonly ReportKind[] = ["opinions", "research", "factcheck", "decision"];
 
 /** True when only one tool answered an action that is meant to compare sources (older reports too: judged by the answers kept). */
-export const isSingleSource = (d: ReportDoc): boolean => d.opinions.length === 1 && SINGLE_SOURCE_KINDS.includes(kindOf(d));
+export const isSingleSource = (d: ReportDoc): boolean => answersOf(d).length === 1 && SINGLE_SOURCE_KINDS.includes(kindOf(d));
+
+/** The sources that answered (a challenger, which only reviews the answers, is not one of them). */
+export const answersOf = (d: Pick<ReportDoc, "opinions" | "challenge">): ReportOpinion[] => d.opinions.filter((o) => o.n !== d.challenge);
+/** The challenger's source, when the result had one. */
+export const challengerOf = (d: Pick<ReportDoc, "opinions" | "challenge">): ReportOpinion | null => (d.challenge === undefined ? null : d.opinions.find((o) => o.n === d.challenge) ?? null);
 
 /** The plain statement: said at the top of the result, in every look and file. */
-export const singleSourceLine = (d: ReportDoc): string =>
-  `Single source: only ${d.opinions[0]?.tool ?? "one tool"} answered, so nothing here was cross-checked. Ask a second tool to compare before relying on it.`;
+export const singleSourceLine = (d: ReportDoc): string => {
+  const c = challengerOf(d);
+  const who = answersOf(d)[0]?.tool ?? "one tool";
+  return c
+    ? `Single source: only ${who} answered. ${c.tool} challenged that answer, but no second answer cross-checked it. Ask a second tool before relying on it.`
+    : `Single source: only ${who} answered, so nothing here was cross-checked. Ask a second tool to compare before relying on it.`;
+};
 
 /** The heading of the section that applies the answers to the person's own situation. */
 export const FOR_YOU_TITLE = "What this means for you";
@@ -282,8 +295,12 @@ function baseMethod(d: ReportDoc): string {
     case "rewrite":
       return "The text was sent to the tool with the styles you asked for. Its answer was checked against your rules before it was kept. " +
         `The versions are word for word from that checked answer; ${WORD_FOR_WORD}.`;
-    case "research":
-      return `Each tool was asked on its own for the key points on the topic. ${CHECKED} The summary, the key points, the open questions and the conclusion were written by NazAI's AI from those answers only. The answers are word for word.`;
+    case "research": {
+      const c = challengerOf(d);
+      return `Each tool was asked on its own for the key points on the topic. ${CHECKED} ` +
+        (c ? `Then ${c.tool} [${c.n}] was given those checked answers and asked to challenge them for your situation (what is missing, generic or unsupported); its challenge was checked the same way. ` : "") +
+        `The summary, the key points, the open questions and the conclusion were written by NazAI's AI from those ${c ? "answers and the challenge" : "answers"} only. The answers are word for word.`;
+    }
     case "draft":
       return `One tool wrote a draft, which was checked against your rules; a tool then improved the checked draft, and that answer was checked too. The final version is word for word from the checked improvement; ${WORD_FOR_WORD}.`;
     case "alternatives":
@@ -311,7 +328,7 @@ function baseMethod(d: ReportDoc): string {
 function sourceLines(d: ReportDoc): string[] {
   const out: string[] = [];
   for (const o of d.opinions) {
-    out.push("", `[${o.n}] ${o.tool} — received ${when(o.at)}`, o.text.trim());
+    out.push("", `[${o.n}] ${o.tool}${o.n === d.challenge ? " (challenge)" : ""} — received ${when(o.at)}`, o.text.trim());
     if (o.shortened) out.push("(Shortened for the report; the full controlled answer is stored in its step.)");
     out.push(`Fingerprint ${fingerprint(o.sha256)}`);
   }
@@ -408,7 +425,7 @@ const para = (s: string) => s.trim().split(/\n{2,}/).map((p) => `<p>${esc(p).rep
 export function reportHtml(d: ReportDoc): string {
   const kind = kindOf(d);
   const list = (items: string[], empty: string) => `<ul>${(items.length ? items : [empty]).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
-  const sources = (title: string) => `<section><h2>${title}</h2>${d.opinions.map((o) => `<div class="src"><div class="n">${o.n}</div><div><h3>${esc(o.tool)}</h3><small>Received ${esc(when(o.at))}</small><div class="quote">${para(o.text)}${o.shortened ? "<p class=\"fp\">Shortened for the report; the full controlled answer is stored in its step.</p>" : ""}</div><div class="fp">Fingerprint ${esc(fingerprint(o.sha256))}</div></div></div>`).join("")}</section>`;
+  const sources = (title: string) => `<section><h2>${title}</h2>${d.opinions.map((o) => `<div class="src"><div class="n">${o.n}</div><div><h3>${esc(o.tool)}${o.n === d.challenge ? " (challenge)" : ""}</h3><small>Received ${esc(when(o.at))}</small><div class="quote">${para(o.text)}${o.shortened ? "<p class=\"fp\">Shortened for the report; the full controlled answer is stored in its step.</p>" : ""}</div><div class="fp">Fingerprint ${esc(fingerprint(o.sha256))}</div></div></div>`).join("")}</section>`;
   const agreeDiffer = `<section class="agree"><h2>Where they agree</h2>${list(d.agreements, "No shared points were identified.")}</section>
 <section class="differ"><h2>Where they differ</h2>${list(d.differences, "No differences were identified.")}</section>`;
   const conclusion = `<section class="conclusion"><h2>Conclusion</h2>${para(d.conclusion)}</section>`;

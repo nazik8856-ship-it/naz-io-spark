@@ -110,3 +110,29 @@ describe("the clarifying step before a Task runs", () => {
     expect(screen.queryByTestId("task-clarify")).toBeNull();
   });
 });
+
+describe("the research challenger in the plan", () => {
+  beforeEach(() => {
+    state.tools = [good("a", "ChatGPT"), good("b", "Claude"), writer]; state.sessions = []; state.workflows = []; state.imported = []; state.records = []; state.routeFails = false;
+    state.route = { kind: "research" }; forgetReadings(); vi.clearAllMocks();
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      if (body.action === "route_task") return { ok: true, json: async () => ({ ok: true, text: body.request, background: "", labels: [], count: 0, question: "", source: "ai", ...state.route }) };
+      return { ok: true, json: async () => ({ ok: true, task_id: "w1" }) };
+    }));
+  });
+
+  it("says which tool challenges the answers: the second tool, or the only one; not for other actions", async () => {
+    render(<MemoryRouter><ActiveSessionsCard accountId="u1" /></MemoryRouter>);
+    fireEvent.click(await screen.findByTestId("start-task-button"));
+    fireEvent.change(screen.getByLabelText("Describe the task"), { target: { value: "Ways to evaluate AI safety" } });
+    await screen.findByTestId("task-plan-line", {}, { timeout: 3000 });
+    expect(screen.queryByTestId("task-challenger")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Ask ChatGPT"));
+    expect(screen.getByTestId("task-challenger").textContent).toMatch(/^Then ChatGPT challenges the answers for your situation/);
+    fireEvent.click(screen.getByLabelText("Ask Claude"));
+    expect(screen.getByTestId("task-challenger").textContent).toMatch(/^Then Claude challenges the answers/);
+    fireEvent.change(screen.getByLabelText("Change the action"), { target: { value: "opinions" } });
+    expect(screen.queryByTestId("task-challenger")).toBeNull();
+  });
+});

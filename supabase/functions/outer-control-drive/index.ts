@@ -50,7 +50,7 @@ import { resumeTool } from "../_shared/outer-control-containment.ts";
 import { nazaiAddressProblem } from "../_shared/outer-control-address.ts";
 import { ownProjectHost } from "../_shared/egress.ts";
 import { ensureStarterTools, isStarterUrl, STARTER_TASKS, STARTER_USED_UP, starterTasksUsed } from "../_shared/outer-control-starter.ts";
-import { buildPlanPrompt, cleanCount, cleanStyles, delegateInstruction, gatewayAi, improveInstruction, multistepInstruction, NEEDS_AI, parsePlan, REPORT_TOOL_URL, routeRequest, ROUTING_TEXT, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
+import { buildPlanPrompt, challengeInstruction, cleanCount, cleanStyles, delegateInstruction, gatewayAi, improveInstruction, multistepInstruction, NEEDS_AI, parsePlan, REPORT_TOOL_URL, routeRequest, ROUTING_TEXT, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
 import { ACTION_INFO, isOutputTemplate, MAX_BACKGROUND, OUTPUT_TEMPLATES, REPORT_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
 import { checkFreeLimit } from "../_shared/free-limits.ts";
@@ -61,6 +61,7 @@ import { projectKeysFromEnv } from "../_shared/project-crypto.ts";
 
 import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
 import { requireCaller } from "../_shared/caller.ts";
+import { MAX_LEGS } from "../_shared/outer-control-workflow-plan.ts";
 import { CLARIFY_KINDS, clarifyingQuestions } from "../_shared/outer-control-clarify.ts";
 
 /** How many requests NazAI's AI reads per account per day (route_task). */
@@ -379,7 +380,11 @@ Deno.serve(async (req) => {
       } else {
         toolSteps = ids.map((id) => ({ tool_id: id, instruction: stepInstructionFor(kind, topic, styles, count), handoff: "none" }));
       }
-      const steps = [...toolSteps, { tool_id: writer.tool.id, instruction: writerInstructionFor(kind, topic), handoff: "none" }];
+      // Research: a challenger step reads the checked answers and challenges them for this person before the result is written (the
+      // second tool, or the only one). It fits when the answers, the challenger and the writer stay within a Task's steps.
+      const challenge = kind === "research" && toolSteps.length + 2 <= MAX_LEGS;
+      const challenger: Step[] = challenge ? [{ tool_id: ids[1] ?? ids[0], instruction: challengeInstruction(topic), handoff: "pass" }] : [];
+      const steps = [...toolSteps, ...challenger, { tool_id: writer.tool.id, instruction: writerInstructionFor(kind, topic), handoff: "none" }];
       // Draft and multi-step build on the previous step, so they go one after another. Everything else asks its tools at the same
       // time, and the result is written from the tools that answered (a tool that fails is named in the result).
       const parallel = kind !== "draft" && kind !== "multistep";
@@ -387,7 +392,7 @@ Deno.serve(async (req) => {
       const projectText = project ? project.text : "";
       const taskContext = [projectText, background].filter(Boolean).join("\n\n") || null;
       const briefed = await withBrief(taskContext, [...(project ? [{ kind: "project" as const, chars: project.text.length }] : []), ...(background ? [{ kind: "background" as const, chars: background.length }] : [])]);
-      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: briefed.context, steps, max_steps: 3, parallel });
+      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: briefed.context, steps, max_steps: 3, parallel, challenge });
       if (!started.ok) {
         // The credits were taken before the Task could start: give them back.
         for (let r = 0; r < cost; r++) await admin.rpc("refund_generation_credit", { p_user_id: accountId });

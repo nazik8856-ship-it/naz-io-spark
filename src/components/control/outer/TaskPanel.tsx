@@ -43,6 +43,8 @@ export type TaskRequest = { kind: ReportKind; text: string; background: string; 
 /** A question NazAI asks before the Task runs when nothing says it yet (outer-control-clarify.ts): optional, one line. */
 export type ClarifyQuestion = { id: string; question: string; why: string; placeholder: string; label: string };
 export const MAX_ANSWER_CHARS = 160;
+/** A research Task gets a challenger step when the answers, the challenger and the writer fit in a Task's 6 steps. */
+export const MAX_CHALLENGED = 4;
 /** NazAI's reading of the request (outer-control-drive route_task). */
 export type TaskRoute = { kind: ReportKind | "unclear"; text: string; background: string; labels: string[]; count: number; question: string; source: "ai" | "rules"; questions?: ClarifyQuestion[] };
 
@@ -157,6 +159,8 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   // NazAI's suggestion: the most reliable working tools, with the reasons.
   const suggestion = useMemo(() => !lim || !records ? [] : suggestTools(records, tools.map((t) => ({ id: t.id, name: t.name, working: toolHealth(t).key === "working" })), Math.max(lim.minTools, Math.min(lim.maxTools, 2))), [lim, records, tools]);
   const toolsLine = useMemo(() => picked.map((id) => tools.find((t) => t.id === id)?.name ?? "tool").join(" → "), [picked, tools]);
+  // Research: one more step challenges the answers (the second tool, or the only one) when it fits in a Task (outer-control-drive).
+  const challenger = kind === "research" && picked.length > 0 && picked.length <= MAX_CHALLENGED ? tools.find((t) => t.id === (picked[1] ?? picked[0]))?.name ?? null : null;
 
   const requested = useMemo(() => detectRequestedOutput(request), [request]);
   const askLook = !requested.specified || chooseAnyway;
@@ -246,6 +250,7 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
                         <span className="text-amber-100" data-testid="task-question">{route?.question || "Which of these should NazAI do?"}</span>
                       )}
                       {kind && <p className="mt-0.5 text-xs text-zinc-400">{ACTION_INFO[kind].blurb.charAt(0).toUpperCase() + ACTION_INFO[kind].blurb.slice(1)}.</p>}
+                      {challenger && <p className="mt-0.5 text-xs text-amber-100/80" data-testid="task-challenger">Then {challenger} challenges the answers for your situation (what is missing, generic or unsupported) before the result is written.</p>}
                     </div>
                     <label className="flex items-center gap-1.5 text-xs text-zinc-400">
                       {kind ? "Change" : "Choose"}

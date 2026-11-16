@@ -125,3 +125,20 @@ add one. The next Task's brief then carries it, so the question is not asked aga
 and the person is told the answers were used but not kept.
 
 Tests: `supabase/functions/_shared/outer-control-clarify_test.ts`, `src/test/task-clarify.test.tsx`.
+
+## The challenger (research)
+
+A research Task asks its tools at the same time, then adds one step before the result is written: a **challenger**
+(`fanOutWithChallenge` in `outer-control-task.ts`, `challengeInstruction` in `outer-control-report.ts`). It is the second tool picked
+(or the only one), and it receives, as context, the person's situation and every checked answer. It does not answer the topic again:
+it says what is missing for this person, what is generic (and the specific version), and what has no basis.
+
+- Its reply goes through the same rules and checks as any answer, and is kept word for word as a source, marked **(challenge)**.
+- NazAI's AI is told that source is not an answer: it uses it for open questions and to qualify points, never as confirmation.
+- It is not counted as a second answer: one research tool plus its challenge is still a single source, and the result says that
+  answer was challenged but not cross-checked.
+- If the challenger does not answer, the result is written from the answers and names it as not answering.
+- It fits when the answers, the challenger and the writer stay within a Task's 6 steps, so with 1 to 4 research tools. *Start a task*
+  says which tool will challenge. It uses one more call to that tool and no extra credit.
+
+Tests: the "research challenger" engine tests, `src/test/report-challenge.test.tsx`, and the plan line in `src/test/task-clarify.test.tsx`.

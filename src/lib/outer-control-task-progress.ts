@@ -1,7 +1,7 @@
 // Outer Control: what a multi-tool Task (Start task) is doing right now, in one line, and the proof of a finished result at a
 // glance. Pure: the Task panel and the result card render what these return.
 import { contextUsedLine, type Artifact } from "@/lib/outer-control-artifact";
-import { isReportDoc, isSingleSource, KIND_NOUN, kindOf } from "@/lib/outer-control-report-doc";
+import { challengerOf, isReportDoc, isSingleSource, KIND_NOUN, kindOf } from "@/lib/outer-control-report-doc";
 
 export const REPORT_TOOL_PREFIX = "nazai-internal://report";
 
@@ -115,10 +115,13 @@ export function proofTiles(a: Artifact): ProofTile[] {
     const missed = steps.filter((s) => s.status !== "completed").map((s) => s.tool);
     const when = report?.parallel ? "at the same time" : steps.length > 1 ? "one after another" : "";
     const single = !!report && isSingleSource(report);
+    // A research challenger reviewed the answers; it is not one of them.
+    const challenger = report ? challengerOf(report)?.tool ?? null : null;
     tiles.push({
       key: "tools", title: "Tools used",
       text: `${ok.length ? `Answered: ${names([...new Set(ok)])}` : "No tool answered"}${when && ok.length > 1 ? ` (${when})` : ""}.${missed.length ? ` Did not answer: ${names([...new Set(missed)])}.` : ""}` +
-        (single ? " Single source: nothing was cross-checked." : ""),
+        (challenger ? ` ${challenger} challenged the answers.` : "") +
+        (single ? (challenger ? " Single source: one answer, challenged but not cross-checked." : " Single source: nothing was cross-checked.") : ""),
       tone: missed.length || single ? "warn" : "ok",
     });
   } else {

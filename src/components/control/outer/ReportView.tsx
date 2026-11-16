@@ -43,7 +43,7 @@ export default function ReportView({ doc }: { doc: ReportDoc }) {
           <li key={o.n} className="flex gap-3 rounded-xl border border-white/10 bg-black/20 p-3" data-testid="report-opinion">
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-cyan-300 to-blue-500 text-sm font-bold text-[#04101f]">{o.n}</span>
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-white">{o.tool}</div>
+              <div className="text-sm font-semibold text-white">{o.tool}{o.n === doc.challenge && <span className="ml-1.5 rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium text-amber-200" data-testid="report-challenge-badge">challenge</span>}</div>
               <div className="text-[11px] text-slate-400">Received {when(o.at)}</div>
               <div className="mt-2 border-l-2 border-cyan-400/50 pl-3 text-slate-100"><Paras text={o.text} /></div>
               {o.shortened && <p className="mt-1 text-[11px] text-slate-400">Shortened for the report; the full controlled answer is stored in its step.</p>}

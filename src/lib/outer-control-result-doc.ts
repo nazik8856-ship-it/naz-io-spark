@@ -41,7 +41,7 @@ export function reportToDoc(d: ReportDoc): ResultDoc {
     key: "sources", title,
     blocks: d.opinions.map((o) => ({
       k: "quote", text: o.text.trim() + (o.shortened ? "\n(Shortened for the report; the full controlled answer is stored in its step.)" : ""),
-      by: `[${o.n}] ${o.tool} · received ${when(o.at)} · fingerprint ${fingerprint(o.sha256)}`,
+      by: `[${o.n}] ${o.tool}${o.n === d.challenge ? " (challenge)" : ""} · received ${when(o.at)} · fingerprint ${fingerprint(o.sha256)}`,
     })),
   });
   const sections: Sec[] = [];

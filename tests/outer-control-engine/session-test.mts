@@ -1550,6 +1550,57 @@ await t("what this means for you: the writer applies the background; a step rest
   assert.match(w.final_output, /WHAT THIS MEANS FOR YOU\n• Start with the cheap benchmarks before paying for red-teaming \[2\] — From your situation: 3-person startup\n• Book an outside red-team for the launch month \[1\] — Assumption: you have a security team of ten/);
   assert.equal(H.composeReportText(doc), w.final_output);
 });
+// Research with a challenger (Day 2): the answers at the same time, then one tool challenges them, then the result.
+const RA1 = "- Red-teaming tools find safety failures (fairly sure).";
+const RA2 = "- Safety benchmarks are cheap. I do not know how they compare in cost.";
+const RCH = "- Missing: neither answer gives a cost for a 3-person startup. Fix: price one red-team day before choosing.";
+const challengeScript = (fail = false) => (n: number, b: any, url: string) => {
+  const req = String(b.objective ?? "");
+  if (req.startsWith(H.CHALLENGE_MARK)) return fail ? { status: 500, text: "upstream error" } : { json: { status: "done", answer: RCH } };
+  return { json: { status: "done", answer: String(url).includes("research") ? RA1 : RA2 } };
+};
+const startChallenged = async (topic: string, tools: string[], challengerTool: string) => {
+  const r = await H.startTask(H.createClient("u", "k"), U, {
+    request: H.taskTitle("research", topic), context: BG, max_steps: 3, parallel: true, challenge: true,
+    steps: [...fan("research", topic, tools), { tool_id: challengerTool, instruction: H.challengeInstruction(topic), handoff: "pass" }, { tool_id: RT, instruction: H.writerInstructionFor("research", topic), handoff: "none" }],
+  });
+  assert.ok(r.ok, JSON.stringify(r)); await runTask(r, reportDeps()); return task();
+};
+await t("research challenger: the answers are asked at the same time, the challenger gets them all checked, the writer cites it as the challenge", async () => {
+  reportSetup(); const topic = "Ways to evaluate the safety of AI tools";
+  aiAnswer = JSON.stringify({ summary: "Two approaches were given [1][2].", points: ["Red-teaming finds failures [1].", "Benchmarks are cheap [2]."], open_questions: ["Neither answer gives a cost for a 3-person startup [3]."], conclusion: "Price both before choosing [1][2][3]." });
+  script = challengeScript();
+  const w = await startChallenged(topic, [T1, T2], T2);
+  assert.equal(w.status, "completed", why());
+  const [l1, l2, ch, wr] = legs();
+  assert.deepEqual([l1.depends_on, l2.depends_on, ch.depends_on, wr.depends_on], [[], [], [1, 2], [1, 2, 3]], "answers in parallel, then the challenger, then the writer");
+  assert.ok(String(ch.context).includes(RA1.slice(2, 30)) && String(ch.context).includes(RA2.slice(2, 30)), "the challenger received both checked answers");
+  assert.match(String(ch.context), /3-person startup/, "and the person's situation");
+  assert.match(aiPrompts[0].system, /Source \[3\] is not an answer: it is a challenge to the other answers/);
+  const doc = w.final_artifact.report; assert.equal(doc.challenge, 3); assert.equal(doc.single_source, undefined);
+  assert.match(w.final_output, /\[3\] [^\n]+ \(challenge\) — received/);
+  assert.match(w.final_output, /Then [^\n]+ \[3\] was given those checked answers and asked to challenge them for your situation/);
+  assert.equal(doc.opinions[2].text, RCH, "the challenge is kept word for word");
+  assert.equal(H.composeReportText(doc), w.final_output);
+});
+await t("research challenger: a challenger that fails does not stop the result; it is written from the answers and names the challenger as not answering", async () => {
+  reportSetup(); const topic = "Ways to evaluate the safety of AI tools";
+  aiAnswer = JSON.stringify({ summary: "Two approaches were given [1][2].", points: ["Red-teaming finds failures [1].", "Benchmarks are cheap [2]."], open_questions: [], conclusion: "Use both approaches [1][2]." });
+  script = challengeScript(true);
+  const w = await startChallenged(topic, [T1, T2], T2);
+  assert.equal(w.status, "completed", why()); assert.equal(legs()[2].status, "failed", why());
+  const doc = w.final_artifact.report; assert.equal(doc.challenge, undefined); assert.equal(doc.opinions.length, 2); assert.equal(doc.missing.length, 1);
+  assert.ok(!/\(challenge\)/.test(w.final_output));
+});
+await t("research challenger: one research tool challenged by itself is still a single source, and the result says it was challenged", async () => {
+  reportSetup(); const topic = "Ways to evaluate the safety of AI tools";
+  aiAnswer = JSON.stringify({ summary: "One approach [1], challenged [2].", points: ["Red-teaming finds failures [1]."], open_questions: ["No cost was given [2]."], conclusion: "Price it first [1][2]." });
+  script = challengeScript();
+  const w = await startChallenged(topic, [T1], T1);
+  assert.equal(w.status, "completed", why());
+  const doc = w.final_artifact.report; assert.equal(doc.challenge, 2); assert.equal(doc.single_source, true);
+  assert.match(w.final_output, /Single source: only [^.]+ answered\. [^.]+ challenged that answer, but no second answer cross-checked it\./);
+});
 await t("action draft + improve: tool 1 drafts, tool 2 gets the checked draft and improves it; only the improved version is the result", async () => {
   reportSetup(); aiAnswer = null; const req = "A two-sentence launch email for our budgeting app.";
   script = answerBy("DRAFT: our app is out now go get it", "Our budgeting app is live today. Try it free for 30 days.");
