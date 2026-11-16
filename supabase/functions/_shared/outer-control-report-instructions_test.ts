@@ -1,6 +1,6 @@
 // Run with: deno test --no-check supabase/functions/_shared/outer-control-report-instructions_test.ts
 // What every tool is asked (docs/outer-control-context.md): positive requirements, and an answer long enough to be useful.
-import { ANSWER_WORDS, MAX_OPINION_CHARS, opinionInstruction, stepInstructionFor } from "./outer-control-report.ts";
+import { ANSWER_WORDS, challengeInstruction, MAX_OPINION_CHARS, NO_ASK, opinionInstruction, stepInstructionFor } from "./outer-control-report.ts";
 
 function assert(c: unknown, m: string) { if (!c) throw new Error(m); }
 const TOPIC = "How should a two-person candle shop start selling to gift buyers in Germany?";
@@ -28,7 +28,7 @@ Deno.test("the longest answer asked for fits what is kept of a tool's reply", ()
 Deno.test("research gives the answer a fixed shape: findings, what it means for you, assumptions, next steps", () => {
   const r = stepInstructionFor("research", TOPIC);
   for (const part of ["What this means for you", "Assumptions", "Next steps", "specific points"]) assert(r.includes(part), `research lacks "${part}"`);
-  assert(r.includes("if there is none, say what you would need to know"), "it also works when no context is given");
+  assert(r.includes("if there is none, say so in one line and carry on with stated assumptions"), "it also works when no context is given, without stopping to ask");
 });
 
 Deno.test("the requirements say what an answer must do, not only what it must not do", () => {
@@ -87,4 +87,13 @@ Deno.test("the report writer is told there is one source and not to write agreem
   assert(solo.system.includes("There is only ONE source, so nothing can be cross-checked"), "one source");
   const pair = buildAnalysisPrompt("t", [op(1, "ChatGPT"), op(2, "Claude")]);
   assert(!pair.system.includes("only ONE source"), "two sources are not told that");
+});
+
+Deno.test("a tool is told not to stop and ask: NazAI asks first, and a tool that stops holds the whole Task", () => {
+  for (const k of ["compare", "research", "decision"] as const) assert(stepInstructionFor(k, TOPIC).includes(NO_ASK), `${k} does not say it`);
+  assert(opinionInstruction(TOPIC).includes(NO_ASK), "opinions");
+  assert(challengeInstruction(TOPIC).includes(NO_ASK), "the challenger");
+  assert(!stepInstructionFor("research", TOPIC).includes("say what you would need to know"), "research no longer invites questions");
+  assert(NO_ASK.includes("answer anyway") && NO_ASK.includes("say what you assumed"), "it says what to do instead");
+  for (const k of ["compare", "research", "decision"] as const) assert(stepInstructionFor(k, "x".repeat(600)).length <= 2000, `${k} still fits an instruction`);
 });
