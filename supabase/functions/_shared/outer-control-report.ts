@@ -94,7 +94,10 @@ const HONEST_TOOL = "If you do not know something, say so plainly instead of gue
 
 // What every tool must do in its answer, said as requirements and not only as prohibitions (docs/outer-control-context.md). The rules of
 // an account say what a tool must not do; these say what a useful answer must do, and each is something the result can be checked for.
-const REQ_SPECIFIC = "Be specific to the situation in the context you are given; where something your answer depends on is not stated there, write it as \"Assumption: …\" instead of guessing silently.";
+// NazAI asks the person what it needs to know before the Task runs (outer-control-clarify.ts), and every tool of a Task is asked at
+// the same time: a tool that stops to ask holds the whole Task until a person answers. So a tool is told to answer with its assumptions.
+export const NO_ASK = "Do not stop to ask the person questions (NazAI asks them before the Task runs): where something is missing, say what you assumed and answer anyway.";
+const REQ_SPECIFIC = `Be specific to the situation in the context you are given; where something your answer depends on is not stated there, write it as "Assumption: …" instead of guessing silently. ${NO_ASK}`;
 const REQ_BASIS = "Give a basis for every number, date or claim of fact: where it comes from, or that it is your estimate.";
 const REQ_ACTION = "No generic advice: every recommendation says what to do, for whom, and what it would change.";
 /** How long a useful answer is, by action. A range, because a question can be answered fully in fewer words and should not be padded. */
@@ -117,7 +120,7 @@ export function stepInstructionFor(kind: ReportKind, text: string, styles: strin
         `Put each version under its own heading line, in this order, and write nothing else:\n${headings("Style", styles)}`;
     case "research":
       return `TOPIC: ${text}\n\nGive the key findings on the topic above as specific points (names, figures, dates or steps where they exist), each with how sure you are of it. ` +
-        "Then, under a heading \"What this means for you\", say what applies to the person asking, using the context you are given (if there is none, say what you would need to know to tailor it). " +
+        "Then, under a heading \"What this means for you\", say what applies to the person asking, using the context you are given (if there is none, say so in one line and carry on with stated assumptions). " +
         "Then \"Assumptions\": what you assumed because the context did not say. Then \"Next steps\": 3 to 5 concrete actions, in order. " +
         `${HONEST_TOOL} ${REQ_SPECIFIC} ${REQ_BASIS} Aim for ${ANSWER_WORDS.research} words.`;
     case "draft":
@@ -155,7 +158,7 @@ export const challengeInstruction = (topic: string) =>
   `${CHALLENGE_MARK} ${topic}\n\nYou are given, as context, the person's situation and the checked answers other AI tools gave on the topic above. ` +
   "Do not answer the topic again. Challenge those answers for this person: what is missing that matters in their situation; what is generic " +
   "(advice that would fit anyone) and what the specific version would be; what is stated without a basis or is likely wrong. Quote each weak " +
-  `point in a few words, then give the concrete fix. If you can not check something, say so plainly. ${REQ_BASIS} Aim for 300 to 500 words.`;
+  `point in a few words, then give the concrete fix. If you can not check something, say so plainly. ${REQ_BASIS} ${NO_ASK} Aim for 300 to 500 words.`;
 export const isChallenge = (instruction: string | null | undefined) => (instruction ?? "").startsWith(CHALLENGE_MARK);
 
 /** Draft + improve, step 2: the checked draft arrives as this step's context. */
