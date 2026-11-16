@@ -81,3 +81,24 @@ Opinions, research, fact-check and decision are meant to compare tools. Asked of
 Compare still needs two tools. The one-tool actions (rewrite, explain, key points, draft, alternatives, roles, adapt) are not marked.
 
 Tests: `single-source.test.tsx`, the single-source part of `outer-control-report-instructions_test.ts`, *Start a task* and the proof tile.
+
+## What this means for you (the report writer applies your situation)
+
+When a Task has a background (what you typed, a project, or what NazAI knows about the business), NazAI's AI is asked for 2 to 5
+next steps under **What this means for you**. This is the one place where it may use facts from your situation; it still adds no new
+fact about the world, and the sources stay word for word.
+
+Each step must say what it rests on, and the code checks it (`parseImplications` in `outer-control-report.ts`):
+
+- **From your situation**: the AI's "because" is checked against the words of your background (at least half of its meaningful
+  words must be there). Only then is it shown as from your situation.
+- **Assumption**: what the AI had to assume. A "because" that your background does not contain is shown as an assumption, never as
+  something you said.
+- A step with no basis at all, a step that cites a source that does not exist, or an empty step is left out. A bad step never fails
+  the result. At most 5 steps.
+
+Without a background nothing is asked and the section is absent. It is shown right under the header on the screen, near the top of
+every look (`foryou` in the section order), in every file, and the result's "How this was made" note says how it was made.
+
+Tests: `supabase/functions/_shared/outer-control-for-you_test.ts`, `src/test/report-for-you.test.tsx`, and the engine test
+"what this means for you" in `tests/outer-control-engine/session-test.mts`.

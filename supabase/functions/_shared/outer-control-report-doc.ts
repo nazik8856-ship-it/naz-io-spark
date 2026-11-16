@@ -70,8 +70,15 @@ export type ReportDoc = {
   single_source?: boolean;
   /** The tools were asked at the same time (not one after another). */
   parallel?: boolean;
+  /**
+   * What the answers mean for the person asking: next steps NazAI's AI tied to their own situation (the Task's context). Each one rests
+   * on a fact from that situation, checked against its words, or is marked as an assumption. Never a new fact about the world.
+   */
+  implications?: Implication[];
 };
 export type MissingTool = { tool: string; reason: string };
+/** One next step for the person. basis "situation": `why` is a fact from their own context; "assumption": `why` is what had to be assumed. */
+export type Implication = { step: string; basis: "situation" | "assumption"; why: string };
 
 export const kindOf = (d: Pick<ReportDoc, "kind">): ReportKind => d.kind ?? "opinions";
 
@@ -186,6 +193,8 @@ export function isReportDoc(x: unknown): x is ReportDoc {
   if (d.missing !== undefined && !(Array.isArray(d.missing) && d.missing.every((m) => !!m && typeof m === "object" && isStr((m as MissingTool).tool) && isStr((m as MissingTool).reason)))) return false;
   if (d.parallel !== undefined && typeof d.parallel !== "boolean") return false;
   if (d.single_source !== undefined && typeof d.single_source !== "boolean") return false;
+  if (d.implications !== undefined && !(Array.isArray(d.implications) && d.implications.every((m) => !!m && typeof m === "object"
+    && isStr((m as Implication).step) && isStr((m as Implication).why) && ((m as Implication).basis === "situation" || (m as Implication).basis === "assumption")))) return false;
   if (d.decision !== undefined && !(Array.isArray(d.decision) && d.decision.every((o) => !!o && typeof o === "object" && isStr((o as DecisionOption).option) && isStrList((o as DecisionOption).pros) && isStrList((o as DecisionOption).cons)))) return false;
   return true;
 }
@@ -216,6 +225,13 @@ export const isSingleSource = (d: ReportDoc): boolean => d.opinions.length === 1
 /** The plain statement: said at the top of the result, in every look and file. */
 export const singleSourceLine = (d: ReportDoc): string =>
   `Single source: only ${d.opinions[0]?.tool ?? "one tool"} answered, so nothing here was cross-checked. Ask a second tool to compare before relying on it.`;
+
+/** The heading of the section that applies the answers to the person's own situation. */
+export const FOR_YOU_TITLE = "What this means for you";
+
+/** One implication as a line: the step, then what it rests on. */
+export const implicationLine = (m: Implication): string =>
+  `${m.step} — ${m.basis === "situation" ? "From your situation" : "Assumption"}: ${m.why}`;
 
 export const REPORT_INTRO = (d: ReportDoc) =>
   `Compiled ${when(d.compiled_at)} by NazAI Outer Control from ${d.opinions.length} external tool${d.opinions.length === 1 ? "" : "s"}. Every answer was checked against the account's rules before it was used.` +
@@ -248,7 +264,14 @@ const ITEM_WORD: Partial<Record<ReportKind, string>> = { alternatives: "Option",
 const CHECKED = "Each answer was checked against your rules before it was kept.";
 const WORD_FOR_WORD = "nothing was added by NazAI";
 
+/** How the result was made, and, when it has one, how "what this means for you" was made. */
 export function kindMethod(d: ReportDoc): string {
+  return d.implications?.length ? `${baseMethod(d)} ${FOR_YOU_METHOD}` : baseMethod(d);
+}
+export const FOR_YOU_METHOD =
+  "\"What this means for you\" applies your own situation (the Task's background) to those answers: each step names the fact from your situation it rests on, checked against your words, or is marked as an assumption.";
+
+function baseMethod(d: ReportDoc): string {
   switch (kindOf(d)) {
     case "compare":
       return `Each tool was given the same prompt on its own, ${d.parallel ? "at the same time" : "in order"}. ${CHECKED} ` +
@@ -295,6 +318,8 @@ function sourceLines(d: ReportDoc): string[] {
   return out;
 }
 const bullets = (items: string[], empty: string) => (items.length ? items.map((x) => `• ${x}`) : [`• ${empty}`]);
+/** The "what this means for you" section as text lines (with a blank line after it); nothing when the report has none. */
+const forYouLines = (d: ReportDoc): string[] => (d.implications?.length ? [FOR_YOU_TITLE.toUpperCase(), ...d.implications.map((m) => `• ${implicationLine(m)}`), ""] : []);
 
 /** The result as clean text: no markup, headings in capitals, bullets as •. This is the Task's controlled result. */
 export function composeReportText(d: ReportDoc): string {
@@ -328,7 +353,7 @@ export function composeReportText(d: ReportDoc): string {
   if (kind === "alternatives" || kind === "multistep" || kind === "delegate") {
     const word = ITEM_WORD[kind]!.toUpperCase();
     out.push(KIND_BADGE[kind], topic, "", REPORT_INTRO(d), "");
-    if (kind !== "alternatives") out.push("SUMMARY", d.summary, "");
+    if (kind !== "alternatives") out.push("SUMMARY", d.summary, "", ...forYouLines(d));
     out.push(kind === "alternatives" ? "OPTIONS" : kind === "multistep" ? "STEPS" : "PARTS");
     (d.items ?? []).forEach((it, i) => out.push("", `${word} ${i + 1}: ${it.label} — by ${toolOf(it.n)} [${it.n}]`, it.text.trim()));
     if (kind !== "alternatives") out.push("", kind === "multistep" ? "SOLUTION" : "FINAL RESULT", (d.output ?? "").trim());
@@ -336,14 +361,14 @@ export function composeReportText(d: ReportDoc): string {
     return out.join("\n");
   }
   if (kind === "decision") {
-    out.push(KIND_BADGE.decision, topic, "", REPORT_INTRO(d), "", "SUMMARY", d.summary, "", "OPTIONS");
+    out.push(KIND_BADGE.decision, topic, "", REPORT_INTRO(d), "", "SUMMARY", d.summary, "", ...forYouLines(d), "OPTIONS");
     for (const o of d.decision ?? []) out.push("", o.option, "Pros:", ...bullets(o.pros, "None given."), "Cons:", ...bullets(o.cons, "None given."));
     out.push("", "RECOMMENDATION", d.conclusion, "", "RISKS", ...bullets(d.risks ?? [], "No risks were named."), "", "ANSWERS BY SOURCE", ...sourceLines(d));
     how();
     return out.join("\n");
   }
   if (kind === "research") {
-    out.push(KIND_BADGE.research, topic, "", REPORT_INTRO(d), "", "SUMMARY", d.summary, "", "KEY POINTS", ...bullets(d.points ?? [], "No key points were given."));
+    out.push(KIND_BADGE.research, topic, "", REPORT_INTRO(d), "", "SUMMARY", d.summary, "", ...forYouLines(d), "KEY POINTS", ...bullets(d.points ?? [], "No key points were given."));
     out.push("", "OPEN QUESTIONS", ...bullets(d.open_questions ?? [], "No open questions were named."), "", "ANSWERS BY SOURCE", ...sourceLines(d));
     out.push("", "CONCLUSION", d.conclusion);
     how();
@@ -351,14 +376,14 @@ export function composeReportText(d: ReportDoc): string {
   }
   out.push(KIND_BADGE[kind], topic, "", REPORT_INTRO(d), "");
   if (kind === "factcheck") {
-    out.push("VERDICT", `${VERDICT_LABEL[d.verdict ?? "cannot be verified"]}. ${d.summary}`.trim(), "");
+    out.push("VERDICT", `${VERDICT_LABEL[d.verdict ?? "cannot be verified"]}. ${d.summary}`.trim(), "", ...forYouLines(d));
     out.push("FINDINGS", ...bullets(d.findings ?? [], "No findings were given."), "");
     out.push("CORRECTIONS", ...bullets(d.corrections ?? [], "No corrections were needed."), "");
     out.push("ANSWERS BY SOURCE", ...sourceLines(d));
     out.push("", "CONCLUSION", d.conclusion, "", "HOW THIS FACT-CHECK WAS MADE", kindMethod(d));
     return out.join("\n");
   }
-  out.push("SUMMARY", d.summary, "");
+  out.push("SUMMARY", d.summary, "", ...forYouLines(d));
   out.push(kind === "compare" ? "ANSWERS BY SOURCE" : "OPINIONS BY SOURCE", ...sourceLines(d));
   if (kind === "compare") {
     out.push("", "SIDE BY SIDE");
@@ -387,6 +412,9 @@ export function reportHtml(d: ReportDoc): string {
   const agreeDiffer = `<section class="agree"><h2>Where they agree</h2>${list(d.agreements, "No shared points were identified.")}</section>
 <section class="differ"><h2>Where they differ</h2>${list(d.differences, "No differences were identified.")}</section>`;
   const conclusion = `<section class="conclusion"><h2>Conclusion</h2>${para(d.conclusion)}</section>`;
+  const forYou = d.implications?.length
+    ? `\n<section class="foryou"><h2>${FOR_YOU_TITLE}</h2><ul>${d.implications.map((m) => `<li>${esc(m.step)} <small>— ${m.basis === "situation" ? "From your situation" : "Assumption"}: ${esc(m.why)}</small></li>`).join("")}</ul></section>`
+    : "";
   let body: string;
   const toolOf = (n: number) => esc(d.opinions.find((o) => o.n === n)?.tool ?? "tool");
   const block = (head: string, n: number, text: string) => `<div class="style"><h3>${head} <small>— by ${toolOf(n)} [${n}]</small></h3><div class="quote">${para(text)}</div></div>`;
@@ -406,24 +434,24 @@ export function reportHtml(d: ReportDoc): string {
   } else if (kind === "alternatives" || kind === "multistep" || kind === "delegate") {
     const word = ITEM_WORD[kind]!;
     const items = `<section><h2>${kind === "alternatives" ? "Options" : kind === "multistep" ? "Steps" : "Parts"}</h2>${(d.items ?? []).map((it, i) => block(`${word} ${i + 1}: ${esc(it.label)}`, it.n, it.text)).join("")}</section>`;
-    body = kind === "alternatives" ? items : `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>
+    body = kind === "alternatives" ? items : `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>${forYou}
 ${items}
 <section class="conclusion"><h2>${kind === "multistep" ? "Solution" : "Final result"}</h2>${para(d.output ?? "")}</section>`;
   } else if (kind === "decision") {
     const rows = (d.decision ?? []).map((o) => `<tr><th>${esc(o.option)}</th><td>${list(o.pros, "None given.")}</td><td>${list(o.cons, "None given.")}</td></tr>`).join("");
-    body = `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>
+    body = `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>${forYou}
 <section><h2>Options</h2><table><tr><th>Option</th><th>Pros</th><th>Cons</th></tr>${rows}</table></section>
 <section class="conclusion"><h2>Recommendation</h2>${para(d.conclusion)}</section>
 <section class="differ"><h2>Risks</h2>${list(d.risks ?? [], "No risks were named.")}</section>
 ${sources("Answers by source")}`;
   } else if (kind === "research") {
-    body = `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>
+    body = `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>${forYou}
 <section class="agree"><h2>Key points</h2>${list(d.points ?? [], "No key points were given.")}</section>
 <section class="differ"><h2>Open questions</h2>${list(d.open_questions ?? [], "No open questions were named.")}</section>
 ${sources("Answers by source")}
 ${conclusion}`;
   } else if (kind === "factcheck") {
-    body = `<section class="summary"><h2>Verdict</h2><p class="verdict">${esc(VERDICT_LABEL[d.verdict ?? "cannot be verified"])}</p>${para(d.summary)}</section>
+    body = `<section class="summary"><h2>Verdict</h2><p class="verdict">${esc(VERDICT_LABEL[d.verdict ?? "cannot be verified"])}</p>${para(d.summary)}</section>${forYou}
 <section><h2>Findings</h2>${list(d.findings ?? [], "No findings were given.")}</section>
 <section class="differ"><h2>Corrections</h2>${list(d.corrections ?? [], "No corrections were needed.")}</section>
 ${sources("Answers by source")}
@@ -431,13 +459,13 @@ ${conclusion}`;
   } else if (kind === "compare") {
     const head = d.opinions.map((o) => `<th>[${o.n}] ${esc(o.tool)}</th>`).join("");
     const rows = (d.comparison ?? []).map((r) => `<tr><th>${esc(r.aspect)}</th>${r.points.map((p) => `<td>${esc(p)}</td>`).join("")}</tr>`).join("");
-    body = `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>
+    body = `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>${forYou}
 <section><h2>Side by side</h2><table><tr><th>Aspect</th>${head}</tr>${rows}</table></section>
 ${sources("Answers by source")}
 ${agreeDiffer}
 ${conclusion}`;
   } else {
-    body = `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>
+    body = `<section class="summary"><h2>Summary</h2>${para(d.summary)}</section>${forYou}
 ${sources("Opinions by source")}
 ${agreeDiffer}
 ${conclusion}`;
@@ -461,7 +489,7 @@ p{margin:0 0 10px}ul{margin:0;padding-left:20px}li{margin:0 0 8px}
 .src h3{margin:0;font-size:16px;color:#fff}.src small{color:#8fa6cc}
 .quote{border-left:2px solid rgba(103,232,249,.5);padding-left:14px;color:#e8f0ff}
 .fp{font:12px ui-monospace,Consolas,monospace;color:#7d93bb}
-.agree h2{color:#6ee7b7}.differ h2{color:#fcd34d}
+.agree h2{color:#6ee7b7}.differ h2{color:#fcd34d}.foryou{border-left:3px solid #6ee7b7}.foryou small{color:#9db3d8}
 .conclusion{border-color:rgba(103,232,249,.45);background:linear-gradient(135deg,rgba(34,211,238,.12),rgba(59,130,246,.1))}
 .method{color:#9db3d8;font-size:14px}
 table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;vertical-align:top;padding:8px 10px;border-top:1px solid rgba(125,170,255,.18)}th{color:#67e8f9;font-weight:600}.verdict{font-size:22px;font-weight:650;color:#fff;margin:0 0 8px}.style{margin:0 0 16px}.style h3{margin:0 0 6px;font-size:15px;color:#fff}

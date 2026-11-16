@@ -1491,6 +1491,25 @@ await t("action research: each tool gives points on its own; the background reac
   const doc = w.final_artifact.report; assert.equal(doc.kind, "research"); assert.deepEqual(doc.points, ["Red-teaming finds failures [1].", "Benchmarks are cheap [2]."]);
   assert.equal(H.composeReportText(doc), w.final_output); assert.match(w.final_output, /^NAZAI RESEARCH\n[\s\S]*OPEN QUESTIONS\n• The sources disagree on cost/);
 });
+await t("what this means for you: the writer applies the background; a step resting on it says so, one that does not is an assumption", async () => {
+  reportSetup(); const topic = "Ways to evaluate the safety of AI tools";
+  aiAnswer = JSON.stringify({
+    summary: "Two approaches were given [1][2].", points: ["Red-teaming finds failures [1].", "Benchmarks are cheap [2]."], open_questions: [], conclusion: "Use both approaches [1][2].",
+    implications: [
+      { step: "Start with the cheap benchmarks before paying for red-teaming [2]", because: "3-person startup" },
+      { step: "Book an outside red-team for the launch month [1]", because: "you have a security team of ten" },
+      { step: "Run benchmarks weekly [2]" },
+    ],
+  });
+  script = answerBy("- Red-teaming tools find safety failures (fairly sure).", "- Safety benchmarks are cheap. I do not know how they compare in cost.");
+  const w = await start10("research", topic, fan("research", topic, [T1, T2]), { background: BG });
+  assert.equal(w.status, "completed", why());
+  assert.match(aiPrompts[0].system, /"implications"/, "the writer is asked to apply the background");
+  const doc = w.final_artifact.report;
+  assert.deepEqual(doc.implications.map((m: any) => m.basis), ["situation", "assumption"], "a fact found in the background is from the situation; one not found is an assumption; no basis is left out");
+  assert.match(w.final_output, /WHAT THIS MEANS FOR YOU\n• Start with the cheap benchmarks before paying for red-teaming \[2\] — From your situation: 3-person startup\n• Book an outside red-team for the launch month \[1\] — Assumption: you have a security team of ten/);
+  assert.equal(H.composeReportText(doc), w.final_output);
+});
 await t("action draft + improve: tool 1 drafts, tool 2 gets the checked draft and improves it; only the improved version is the result", async () => {
   reportSetup(); aiAnswer = null; const req = "A two-sentence launch email for our budgeting app.";
   script = answerBy("DRAFT: our app is out now go get it", "Our budgeting app is live today. Try it free for 30 days.");
