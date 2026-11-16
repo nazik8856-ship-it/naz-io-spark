@@ -367,7 +367,9 @@ async function qualityScopeFor(admin: AnyAdmin, s: SessionRow, a: Accept): Promi
   const split = splitTaskTitle(wf.objective ?? "");
   const checks = split ? QUALITY_BY_KIND[split.kind] : ALL_QUALITY;
   if (checks.length === 0) return null;
-  return { request: split?.text ?? wf.objective ?? s.objective, context: wf.context ?? s.context, checks };
+  // Only the Task's own context is the person's situation. A step's own context can be the earlier steps' answers (a challenger, a
+  // chain): judging "uses your context" against those would pass a reply for repeating another tool.
+  return { request: split?.text ?? wf.objective ?? s.objective, context: wf.context ?? null, checks };
 }
 
 async function gatherCompletionInput(admin: AnyAdmin, s: SessionRow, stepNo: number, a: Accept, deps: SessionDeps): Promise<ChecklistInput> {

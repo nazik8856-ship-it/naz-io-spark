@@ -62,7 +62,7 @@ import { projectKeysFromEnv } from "../_shared/project-crypto.ts";
 import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
 import { requireCaller } from "../_shared/caller.ts";
 import { MAX_LEGS } from "../_shared/outer-control-workflow-plan.ts";
-import { CLARIFY_KINDS, clarifyingQuestions } from "../_shared/outer-control-clarify.ts";
+import { CLARIFY_KINDS, missingQuestions } from "../_shared/outer-control-clarify.ts";
 
 /** How many requests NazAI's AI reads per account per day (route_task). */
 const ROUTE_DAILY_CAP = 200;
@@ -302,10 +302,11 @@ Deno.serve(async (req) => {
       const cap = await checkRateLimit(admin, accountId, "outer_control_route_task", ROUTE_DAILY_CAP, 86_400);
       const route = await routeRequest(request, cap.allowed && pickAiGateway() !== null ? gatewayAi : null);
       // The clarifying step: what neither the request, its background nor what NazAI already knows says (stage, audience, main limit).
-      // Asked only for the actions whose answer depends on the situation; every answer is optional (docs/outer-control-context.md).
-      const brief = route.kind !== "unclear" && CLARIFY_KINDS.includes(route.kind) ? (await loadContextBrief(admin, accountId).catch(() => null))?.text ?? "" : "";
-      const questions = clarifyingQuestions({ kind: route.kind, request: route.text || request, background: route.background, brief });
-      return json({ ok: true, ...route, questions, capped: !cap.allowed });
+      // Worked out whatever action NazAI read, because the person may pick another one by hand; the page shows them only for the
+      // actions whose answer depends on the situation (question_kinds). Every answer is optional (docs/outer-control-context.md).
+      const brief = (await loadContextBrief(admin, accountId).catch(() => null))?.text ?? "";
+      const questions = missingQuestions({ request: route.text || request, background: route.background, brief });
+      return json({ ok: true, ...route, questions, question_kinds: CLARIFY_KINDS, capped: !cap.allowed });
     }
 
     if (action === "start_report") {

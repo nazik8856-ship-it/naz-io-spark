@@ -1559,9 +1559,9 @@ const challengeScript = (fail = false) => (n: number, b: any, url: string) => {
   if (req.startsWith(H.CHALLENGE_MARK)) return fail ? { status: 500, text: "upstream error" } : { json: { status: "done", answer: RCH } };
   return { json: { status: "done", answer: String(url).includes("research") ? RA1 : RA2 } };
 };
-const startChallenged = async (topic: string, tools: string[], challengerTool: string) => {
+const startChallenged = async (topic: string, tools: string[], challengerTool: string, context: string | null = BG) => {
   const r = await H.startTask(H.createClient("u", "k"), U, {
-    request: H.taskTitle("research", topic), context: BG, max_steps: 3, parallel: true, challenge: true,
+    request: H.taskTitle("research", topic), context, max_steps: 3, parallel: true, challenge: true,
     steps: [...fan("research", topic, tools), { tool_id: challengerTool, instruction: H.challengeInstruction(topic), handoff: "pass" }, { tool_id: RT, instruction: H.writerInstructionFor("research", topic), handoff: "none" }],
   });
   assert.ok(r.ok, JSON.stringify(r)); await runTask(r, reportDeps()); return task();
@@ -1591,6 +1591,17 @@ await t("research challenger: a challenger that fails does not stop the result; 
   assert.equal(w.status, "completed", why()); assert.equal(legs()[2].status, "failed", why());
   const doc = w.final_artifact.report; assert.equal(doc.challenge, undefined); assert.equal(doc.opinions.length, 2); assert.equal(doc.missing.length, 1);
   assert.ok(!/\(challenge\)/.test(w.final_output));
+});
+await t("research challenger: with no context of the Task, nobody is judged on 'uses your context' (the other tools' answers are not the person's situation)", async () => {
+  reportSetup(); const topic = "Ways to evaluate the safety of AI tools";
+  aiAnswer = JSON.stringify({ summary: "Two approaches were given [1][2].", points: ["Red-teaming finds failures [1]."], open_questions: [], conclusion: "Use both approaches [1][2][3]." });
+  script = challengeScript();
+  const w = await startChallenged(topic, [T1, T2], T2, null);
+  assert.equal(w.status, "completed", why());
+  for (const l of legs().slice(0, 3)) {
+    const checks = (l.completion?.quality?.checks ?? []).map((c: any) => c.id);
+    assert.ok(!checks.includes("context_used"), `step ${l.leg_no} was judged on a context the Task does not have: ${JSON.stringify(checks)}`);
+  }
 });
 await t("research challenger: one research tool challenged by itself is still a single source, and the result says it was challenged", async () => {
   reportSetup(); const topic = "Ways to evaluate the safety of AI tools";

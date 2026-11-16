@@ -99,6 +99,22 @@ describe("the clarifying step before a Task runs", () => {
     await waitFor(() => expect((toast.info as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]).toMatch(/used for this Task, but they could not be saved/));
   });
 
+  it("NazAI read another action, the person picks Research by hand: the questions still show; a rewrite still asks none", async () => {
+    state.route = { kind: "opinions", questions: QUESTIONS, question_kinds: ["opinions", "research", "compare", "decision", "multistep", "delegate"] };
+    await open();
+    expect(screen.getByTestId("task-clarify")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Change the action"), { target: { value: "research" } });
+    expect(screen.getByTestId("task-clarify")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Who is it for?"), { target: { value: "small business owners" } });
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()).toMatchObject({ task: "research", background: "Who it is for: small business owners" }));
+    state.route = { kind: "explain", questions: QUESTIONS, question_kinds: ["opinions", "research"] }; forgetReadings();
+    fireEvent.click(await screen.findByTestId("start-task-button"));
+    fireEvent.change(screen.getByLabelText("Describe the task"), { target: { value: "Explain simply: what is churn?" } });
+    await screen.findByTestId("task-plan-line", {}, { timeout: 3000 });
+    expect(screen.queryByTestId("task-clarify")).toBeNull();
+  });
+
   it("no questions when NazAI returned none, or when another action is chosen by hand", async () => {
     state.route = { kind: "research", questions: [] };
     await open();
