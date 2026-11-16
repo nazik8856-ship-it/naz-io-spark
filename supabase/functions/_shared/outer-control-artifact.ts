@@ -42,13 +42,18 @@ export type SessionArtifact = {
     criteria: ArtifactCriterion[];
     exchanges: number;
     decided_by: "tool" | "person";
+    /** Is the result specific to the request (context used, every part answered, concrete)? Absent when no such check applied. */
+    quality?: ArtifactQuality;
   };
   rules: ArtifactRules;
   changes: ArtifactChange[];
   human_text: string;
 };
 
-export type TaskArtifactStep = { step: number; tool: string; status: string; output_sha256: string | null };
+export type ArtifactQuality = { ok: boolean; warning?: string; checks: { id: string; label: string; ok: boolean; detail: string }[] };
+
+/** generic: the step's "Partly generic" warning, when its answer completed without being specific to the request. */
+export type TaskArtifactStep = { step: number; tool: string; status: string; output_sha256: string | null; generic?: string };
 export type TaskArtifactHandoff = { from: number | null; from_label: string; to: number; outcome: string; rules: string[] };
 
 /** What the tools were told about the person's situation (docs/outer-control-context.md): the kinds and sizes only, never the text. */
@@ -180,13 +185,20 @@ export function renderArtifactText(a: Omit<SessionArtifact, "human_text"> | Omit
   if (a.kind === "task" && a.context_used) out.push("CONTEXT THE TOOLS WERE GIVEN", contextUsedLine(a.context_used), "");
   if (a.links && a.links.length) out.push("LINKS TO THE WORK", ...a.links.map((l) => `- ${l.label}: ${l.url}`), "");
   out.push("PROOF");
-  if (a.kind === "session") {
+  if (a.kind === "session" && a.proof.quality) {
+    // The headline is what matters to the person: is the result specific to the request. The hard criteria follow as the proof.
+    const q = a.proof.quality;
+    out.push(q.ok ? "Completion check: passed. The result is specific to the request." : `Completion check: passed with a warning. ${q.warning ?? "Partly generic."}`);
+    for (const c of q.checks) out.push(`${mark(c.ok)} ${c.label} — ${c.detail}`);
+    for (const c of a.proof.criteria) out.push(`${mark(c.ok)} ${c.label} — ${c.detail}`);
+    out.push(`Tool: ${a.tool}. Exchanges recorded: ${a.proof.exchanges}. Decided by: ${a.proof.decided_by}.`);
+  } else if (a.kind === "session") {
     out.push(`Completion check: passed (${a.proof.criteria.filter((c) => c.ok === true).length}/${a.proof.criteria.length}). ${a.proof.summary}`);
     for (const c of a.proof.criteria) out.push(`${mark(c.ok)} ${c.label} — ${c.detail}`);
     out.push(`Tool: ${a.tool}. Exchanges recorded: ${a.proof.exchanges}. Decided by: ${a.proof.decided_by}.`);
   } else {
     out.push(`Steps completed: ${a.proof.steps_done} of ${a.proof.steps_total}. Every completed step passed its completion check.`);
-    for (const s of a.proof.steps) out.push(`${s.status === "completed" ? "✓" : "–"} Step ${s.step} (${s.tool}) — ${s.status}`);
+    for (const s of a.proof.steps) out.push(`${s.status === "completed" ? "✓" : "–"} Step ${s.step} (${s.tool}) — ${s.status}${s.generic ? ` — ${s.generic}` : ""}`);
     out.push(a.origin ? `Request came from an external agent (${a.origin.source_model}); it was judged "${a.origin.verdict}".` : "Request came from the account owner.");
     out.push(`The final result is the controlled output of step ${a.final_step}.`);
   }
@@ -252,7 +264,7 @@ export type SessionArtifactInput = {
   completedAt: string;
   finalText: string | null;
   sha256: string;
-  checklist: { passed: boolean; outcome: string; summary: string; criteria: ArtifactCriterion[]; output_sha256: string | null };
+  checklist: { passed: boolean; outcome: string; summary: string; criteria: ArtifactCriterion[]; output_sha256: string | null; quality?: ArtifactQuality };
   steps: StepEvidence[];
   rulesInForce: RuleInForce[];
   decidedBy: "tool" | "person";
@@ -282,6 +294,10 @@ export function buildSessionArtifact(i: SessionArtifactInput): Built<SessionArti
     proof: {
       checklist_passed: true, summary: i.checklist.summary, criteria: i.checklist.criteria.map((c) => ({ id: c.id, label: c.label, ok: c.ok, detail: c.detail })),
       exchanges: new Set(i.steps.map((s) => `${s.step_no}.${s.attempt}`)).size, decided_by: i.decidedBy,
+      ...(i.checklist.quality ? { quality: {
+        ok: i.checklist.quality.ok, ...(i.checklist.quality.warning ? { warning: i.checklist.quality.warning } : {}),
+        checks: i.checklist.quality.checks.map((c) => ({ id: c.id, label: c.label, ok: c.ok, detail: c.detail })),
+      } } : {}),
     },
     rules: { in_force: i.rulesInForce.slice(0, 60), triggered: ev.triggered }, changes: ev.changes,
   };
@@ -353,7 +369,10 @@ export function buildTaskArtifact(i: TaskArtifactInput): Built<TaskArtifact> {
     ...(Array.isArray(i.contextUsed) ? { context_used: cleanContextUsed(i.contextUsed) } : {}),
     proof: {
       steps_total: i.legs.length, steps_done: completed.length, all_checklists_passed: true,
-      steps: i.legs.map((l) => ({ step: l.leg_no, tool: clip(l.tool, 120), status: l.status, output_sha256: parts.get(l.leg_no)?.output_sha256 ?? null })),
+      steps: i.legs.map((l) => {
+        const warning = parts.get(l.leg_no)?.proof.quality?.warning;
+        return { step: l.leg_no, tool: clip(l.tool, 120), status: l.status, output_sha256: parts.get(l.leg_no)?.output_sha256 ?? null, ...(warning ? { generic: clip(warning, 300) } : {}) };
+      }),
     },
     handoffs: i.handoffs, rules: { in_force: [...inForce.values()].slice(0, 60), triggered }, changes,
   };
@@ -382,6 +401,12 @@ export function validateArtifact(a: unknown, kind?: "session" | "task"): Validit
     const crit = proof.criteria;
     if (proof.checklist_passed !== true || !Array.isArray(crit) || crit.length === 0 || crit.some((c) => !isObj(c) || c.ok !== true)) {
       return { ok: false, reason: "the proof does not show a passed completion checklist" };
+    }
+    const q = proof.quality;
+    if (q !== undefined && !(isObj(q) && typeof q.ok === "boolean" && (q.warning === undefined || typeof q.warning === "string") && Array.isArray(q.checks)
+      && q.checks.every((c) => isObj(c) && typeof c.id === "string" && typeof c.label === "string" && typeof c.ok === "boolean" && typeof c.detail === "string")
+      && q.ok === q.checks.every((c) => (c as { ok: boolean }).ok) && (q.ok || typeof q.warning === "string"))) {
+      return { ok: false, reason: "the specificity check in the proof is not valid" };
     }
   } else if (proof.all_checklists_passed !== true || !Array.isArray(proof.steps) || proof.steps.length === 0) {
     return { ok: false, reason: "the proof does not show every step passed its checklist" };

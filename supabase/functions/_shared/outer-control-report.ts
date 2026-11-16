@@ -11,6 +11,8 @@ import { officialOutput, extractLinks, type ArtifactLink, type SessionArtifact }
 import { ACTION_INFO, composeReportText, SINGLE_SOURCE_KINDS, TITLE_PREFIX, MAX_STYLES, REPORT_KINDS, TASK_LIMITS, VERDICTS, type ComparisonRow, type DecisionOption, type Implication, type LabeledItem, type MissingTool, type ReportDoc, type ReportKind, type RewriteVersion, type Verdict } from "./outer-control-report-doc.ts";
 import { parseModelObject } from "./model-output.ts";
 import { BRIEF_HEADER } from "./outer-control-context-brief.ts";
+import { contentWords, stem } from "./outer-control-words.ts";
+export { contentWords } from "./outer-control-words.ts";
 import { accountTools } from "./outer-control-boundary.ts";
 export { TASK_LIMITS, MAX_STYLES, NEEDS_AI, ROUTING_TEXT } from "./outer-control-report-doc.ts";
 
@@ -224,13 +226,6 @@ export function forYouAsk(background?: string | null): string {
     "This is the only place where you apply the person's own situation: you may use facts from the Background there, but never add a new fact about the world.";
 }
 
-const STOP = new Set(("about above after again also among because been before being below between both could does doing down during each from further have having " +
-  "here into itself just more most other over same should some such than that their them then there these they this those through under until very what when " +
-  "where which while will with would your yours you're they're it's isn't aren't don't doesn't didn't won't can't cannot").split(" "));
-/** The words that carry meaning: numbers, and words of 4 or more letters that are not common function words. */
-export const contentWords = (s: string): string[] =>
-  (s.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? []).filter((w) => /\d/.test(w) || (w.length >= 4 && !STOP.has(w)));
-const stem = (w: string) => w.slice(0, 5);
 
 /** True when at least half of the claim's meaningful words (and at least one) appear in the background: the claim rests on it. */
 export function restsOn(claim: string, background: string): boolean {

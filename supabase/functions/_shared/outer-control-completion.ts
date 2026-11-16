@@ -11,8 +11,14 @@
 //   rules_kept        the result keeps every blocking rule
 //   goal_matched      the result answers the goal (or a person decided it)
 //   output_stored     the stored result was read back and is identical to what was checked
+//
+// On top of these, a result is checked for being specific to the request (Quality, below): it uses the person's context, answers every
+// part of the request, and gives concrete detail. A result that is not is sent back once with the exact gap; if it is still not, it
+// completes with a visible "Partly generic" warning, never as a clean pass (docs/outer-control-completion.md).
 
 import { parseStrictObject } from "./model-output.ts";
+import { contentWords, stem, stems } from "./outer-control-words.ts";
+import type { ReportKind } from "./outer-control-report-doc.ts";
 export const COMPLETION_VERSION = 1;
 
 export type CriterionId =
@@ -39,6 +45,8 @@ export type Checklist = {
   summary: string;
   /** SHA-256 of the checked text (the text itself lives in the session's final_output). */
   output_sha256: string | null;
+  /** Is the result specific to the request? Absent when no such check applies (a person's decision, NazAI's own report, a rewrite). */
+  quality?: Quality;
 };
 
 const LABEL: Record<CriterionId, string> = {
@@ -222,6 +230,131 @@ export function lowQuality(text: string, objective: string): { code: "filler" | 
 }
 
 // ---------------------------------------------------------------------------------------
+// Specific to the request. Three deterministic checks, each applied only where it means something:
+//   context_used    the result refers to the person's situation (the distinctive words of the Task's context, not of the request)
+//   parts_answered  each numbered or bulleted part, each separate question, and each item of an "A, B and C" list is answered
+//   concrete        a long result gives concrete detail (numbers, names, list items, quotes) in proportion to its length
+// Each detail is written to be read by the tool when the result is sent back, and by the person in the warning.
+
+export type QualityId = "context_used" | "parts_answered" | "concrete";
+export type QualityCheck = { id: QualityId; label: string; ok: boolean; detail: string };
+export type Quality = { ok: boolean; checks: QualityCheck[]; warning?: string };
+/** What a result is checked against: the person's own request, the Task's context, and which checks apply. */
+export type QualityScope = { request: string; context: string | null; checks: QualityId[] };
+
+export const QUALITY_LABEL: Record<QualityId, string> = {
+  context_used: "Uses your context",
+  parts_answered: "Answers every part of the request",
+  concrete: "Gives concrete detail",
+};
+export const ALL_QUALITY: QualityId[] = ["context_used", "parts_answered", "concrete"];
+
+/**
+ * Which checks apply to a step of each action. A rewrite, an explanation, key points, role answers, an adaptation, options and a draft
+ * are told to add nothing, so nothing is asked of them here. A fact-check answers a claim, not the person's situation. A step of a
+ * multi-step or delegated Task does one part on purpose, so it is not asked to answer every part.
+ */
+export const QUALITY_BY_KIND: Record<ReportKind, QualityId[]> = {
+  opinions: ALL_QUALITY, research: ALL_QUALITY, compare: ALL_QUALITY, decision: ALL_QUALITY,
+  factcheck: ["concrete"], multistep: ["context_used", "concrete"], delegate: ["context_used", "concrete"],
+  rewrite: [], explain: [], keypoints: [], roles: [], adapt: [], alternatives: [], draft: [],
+};
+
+const MIN_WORDS_CONTEXT = 80;
+const MIN_WORDS_CONCRETE = 150;
+const MAX_PARTS = 8;
+// Words of the context's own structure (the brief's labels and its first line), not of the person's situation.
+const CONTEXT_LABELS = stems("what nazai knows about the person asking information instructions situation assumption answer business industry audience " +
+  "offers tone channels their own notes standing facts wrote background context project");
+// Words every request has ("write", "explain", "give me"): a part is answered by its subject, not by these.
+const REQUEST_FILLER = stems("write give explain list describe provide tell make help please include cover answer show find create prepare draft need want " +
+  "know best good also using based like think should could would");
+
+const quote = (s: string, n = 60) => `"${s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s}"`;
+
+/**
+ * The distinctive words of the context: names (a capital letter inside a sentence), numbers, and longer words; not the context's own
+ * structure, and not words already in the request (using those proves nothing).
+ */
+export function contextTerms(context: string, request: string): string[] {
+  const req = stems(request);
+  const out = new Map<string, string>();
+  for (const sentence of context.split(/(?<=[.!?:])\s+|\n+/)) {
+    (sentence.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? []).forEach((raw, i) => {
+      const [w] = contentWords(raw);
+      if (!w) return;
+      const name = i > 0 && /^\p{Lu}/u.test(raw);
+      if (!(name || /\d/.test(w) || w.length >= 6)) return;
+      const st = stem(w);
+      if (req.has(st) || CONTEXT_LABELS.has(st) || out.has(st)) return;
+      out.set(st, w);
+    });
+  }
+  return [...out.values()];
+}
+
+/** The parts of a request: numbered or bulleted lines, separate questions, or the items of an "A, B and C" list. Empty when it is one ask. */
+export function requestParts(request: string): string[] {
+  const t = request.replace(/<<<|>>>/g, " ").trim();
+  const listed = t.split("\n").map((l) => l.match(/^\s*(?:\d{1,2}[.)]|[-*•])\s+(.*\S)\s*$/)?.[1] ?? "").filter(Boolean);
+  // More than a few list lines is pasted material, not a list of asks.
+  if (listed.length >= 2) return listed.length <= MAX_PARTS ? listed : [];
+  const questions = t.split(/(?<=\?)\s+/).map((q) => q.trim()).filter((q) => q.endsWith("?") && contentWords(q).length > 0);
+  if (questions.length >= 2) return questions.length <= MAX_PARTS ? questions : [];
+  const m = t.match(/(?:\b(?:cover(?:ing)?|includ(?:e|ing)|about|regarding|for|on)\b|:)\s*([^.?!\n;,]{2,80}(?:,\s*[^.?!\n;,]{2,80}){1,6},?\s+and\s+[^.?!\n;,]{2,80})/i);
+  if (m) {
+    const items = m[1].split(/\s*,\s*(?:and\s+)?|\s+and\s+/).map((x) => x.trim()).filter(Boolean);
+    if (items.length >= 3 && items.length <= MAX_PARTS) return items;
+  }
+  return [];
+}
+
+/** True when the result says something about the part: enough of the part's subject words appear in it. */
+function answers(part: string, result: Set<string>): boolean {
+  const subject = [...stems(part)].filter((w) => !REQUEST_FILLER.has(w));
+  if (subject.length === 0) return true;
+  return subject.filter((w) => result.has(w)).length >= Math.max(1, Math.ceil(subject.length / 3));
+}
+
+/** The result checked for being specific to the request; null when none of the checks applies. Deterministic: no model call. */
+export function assessSpecific(text: string, scope: QualityScope): Quality | null {
+  const body = stripFiller(text ?? "").text;
+  const words = wordCount(body);
+  const have = stems(body);
+  const checks: QualityCheck[] = [];
+  const add = (id: QualityId, ok: boolean, detail: string) => checks.push({ id, label: QUALITY_LABEL[id], ok, detail });
+
+  if (scope.checks.includes("context_used") && scope.context && words >= MIN_WORDS_CONTEXT) {
+    const terms = contextTerms(scope.context, scope.request);
+    if (terms.length >= 3) {
+      const used = terms.filter((w) => have.has(stem(w)));
+      const need = terms.length >= 6 ? 2 : 1;
+      if (used.length >= need) add("context_used", true, `it refers to your situation (${used.slice(0, 3).map((w) => quote(w, 30)).join(", ")})`);
+      else add("context_used", false, `nothing in it refers to the person's situation given in the context (for example ${terms.slice(0, 3).map((w) => quote(w, 30)).join(", ")}): say what applies to them`);
+    }
+  }
+  if (scope.checks.includes("parts_answered")) {
+    const parts = requestParts(scope.request);
+    if (parts.length >= 2) {
+      const missing = parts.map((p, i) => ({ p, i })).filter(({ p }) => !answers(p, have));
+      if (missing.length === 0) add("parts_answered", true, `all ${parts.length} parts of the request are answered`);
+      else add("parts_answered", false, `${missing.length === 1 ? "this part of the request was" : "these parts of the request were"} not answered: ${missing.map(({ p, i }) => `${i + 1} (${quote(p)})`).join(", ")}`);
+    }
+  }
+  if (scope.checks.includes("concrete") && words >= MIN_WORDS_CONCRETE) {
+    const n = specifics(body);
+    const need = Math.max(3, Math.ceil(words / 100));
+    if (n >= need) add("concrete", true, `${n} concrete details in ${words} words`);
+    else add("concrete", false, `it is ${words} words but has only ${n} concrete detail${n === 1 ? "" : "s"} (numbers, names, steps or examples); give at least ${need}`);
+  }
+  if (checks.length === 0) return null;
+  return { ok: checks.every((c) => c.ok), checks };
+}
+
+/** The warning a result carries when it completes without being specific: what is missing, in plain words. */
+export const genericWarning = (q: Quality) => `Partly generic: ${q.checks.filter((c) => !c.ok).map((c) => c.detail).join("; ")}.`;
+
+// ---------------------------------------------------------------------------------------
 // The checklist
 
 export type StepExchange = { step_no: number; attempt: number; error: string | null };
@@ -247,6 +380,10 @@ export type ChecklistInput = {
   /** The read-back of the stored result; null before it was stored. */
   stored: { text: string | null } | null;
   outputSha256: string | null;
+  /** Is the result specific to the request (assessSpecific)? null or absent: no such check applies. */
+  quality?: Quality | null;
+  /** The result may still be sent back once. Default true. */
+  retriesLeft?: boolean;
 };
 
 const SETTLED_APPROVAL = new Set(["approved", "executed", "auto_approved"]);
@@ -308,13 +445,34 @@ export function buildChecklist(i: ChecklistInput): Checklist {
   else outcome = "failed";
 
   const first = failed[0];
+  const q = i.quality ?? null;
+  // Not specific enough, and nothing else wrong: sent back once with the exact gap, before anything is stored.
+  if (q && !q.ok && failed.length === 0 && (i.retriesLeft ?? true)) {
+    const gap = q.checks.find((x) => !x.ok)!;
+    return {
+      version: COMPLETION_VERSION, at: i.now, outcome: "retry", passed: false, criteria, quality: q,
+      summary: `Completion check: not specific enough — ${gap.label.toLowerCase()}: ${gap.detail}.`, output_sha256: i.outputSha256,
+    };
+  }
+  // Still not specific after the one retry: it completes (the hard criteria hold), with the warning in its own words.
+  const quality = q ? (q.ok ? q : { ...q, warning: genericWarning(q) }) : null;
   const summary = passed
-    ? `Completion check passed: all ${criteria.length} criteria met.`
+    ? quality
+      ? quality.ok
+        ? `Completion check passed. Specific to the request: ${quality.checks.map((x) => x.label.toLowerCase()).join("; ")}.`
+        : `Completion check passed with a warning. ${quality.warning}`
+      : `Completion check passed: all ${criteria.length} criteria met.`
     : pending && !first
       ? "Completion check not finished: the result was not stored and read back yet."
       : `Completion check failed: ${first ? `${first.label.toLowerCase()} — ${first.detail}` : "a criterion was not met"}.`;
-  return { version: COMPLETION_VERSION, at: i.now, outcome, passed, criteria, summary, output_sha256: i.outputSha256 };
+  return { version: COMPLETION_VERSION, at: i.now, outcome, passed, criteria, summary, output_sha256: i.outputSha256, ...(quality ? { quality } : {}) };
 }
+
+/** Everything that was not met, hard criteria first, then what is not specific. */
+export const problemsOf = (c: Checklist): string[] => [
+  ...c.criteria.filter((x) => x.ok === false).map((x) => x.detail),
+  ...(c.quality?.checks ?? []).filter((x) => !x.ok).map((x) => x.detail),
+];
 
 /** After a retry was already used, "retry" becomes a person's decision. */
 export function settle(c: Checklist, retriesLeft: boolean): Checklist {
@@ -326,6 +484,10 @@ export function settle(c: Checklist, retriesLeft: boolean): Checklist {
 export function correctionFor(c: Checklist): string {
   const bad = c.criteria.find((x) => x.ok === false && (x.id === "output_present" || x.id === "output_useful"));
   if (bad) return `Your previous reply had no usable result (${bad.detail}). Reply again with the actual answer to the goal.`;
+  if (c.quality && !c.quality.ok && !c.criteria.some((x) => x.ok === false)) {
+    const gaps = c.quality.checks.filter((x) => !x.ok).map((x) => x.detail).join("; ");
+    return `Your previous reply is not specific enough: ${gaps}. Reply again with the complete answer to the goal, fixing exactly this and keeping everything that was right.`;
+  }
   const goal = c.criteria.find((x) => x.id === "goal_matched" && x.ok === false);
   return `The result does not match the goal. ${goal?.detail ?? ""} Answer the goal directly.`.trim();
 }

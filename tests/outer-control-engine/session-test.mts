@@ -947,6 +947,46 @@ for (const [label, text] of [["a placeholder", "N/A"], ["a refusal", "I'm sorry,
     assert.equal(sess().status === "completed", false);
   });
 }
+// Specific to the request (Day 2, docs/outer-control-completion.md): sent back once with the exact gap; a second miss completes with a
+// visible "Partly generic" warning, never as a clean pass.
+const PARTS = "1. Pricing for gift sets\n2. Shipping to Austria\n3. Packaging";
+const TWO_PARTS = "Pricing: sell gift sets at 39 EUR each, three candles per set. Packaging: recycled boxes from a supplier in Leipzig.";
+const ALL_PARTS = `${TWO_PARTS} Shipping to Austria: DHL Paket at 9.90 EUR, 3 to 4 days.`;
+await t("specific: a part of the request that was not answered is sent back once, by number; the full answer completes and says it is specific", async () => {
+  setup({ objective: PARTS }); script = (n) => ({ json: { status: "done", answer: n === 1 ? TWO_PARTS : ALL_PARTS } });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(r.status, "completed", sess().stop_reason); assert.equal(calls.length, 2); assert.equal(sess().final_output, ALL_PARTS);
+  assert.match(JSON.stringify(calls[1].body), /not specific enough: this part of the request was not answered: 2 \(\\"Shipping to Austria\\"\)/);
+  assert.deepEqual(checks().map((x: any) => x.outcome), ["retry", "completed"]);
+  const c = sess().completion; assert.equal(c.quality.ok, true); assert.match(c.summary, /^Completion check passed\. Specific to the request: answers every part of the request/);
+  assert.match(sess().final_artifact.human_text, /Completion check: passed\. The result is specific to the request\.\n✓ Answers every part of the request — all 3 parts/);
+});
+await t("specific: still generic after the retry, it completes with the warning in the result's proof, never as a clean pass", async () => {
+  const ctx = "Business: Lumen Candles. Hand-poured soy candles sold on Etsy. Audience: gift buyers in Germany. Budget of 300 euros a month.";
+  const generic = [
+    "To find more customers before Christmas, focus on building a strong online presence and engaging with your audience on the channels they already use.",
+    "Create helpful content that people want to share with friends and family during the holiday season, and keep your messages warm and personal.",
+    "Partnerships with other small businesses can help you reach new people who are likely to enjoy what you offer, especially when gifts are on their minds.",
+    "Make sure your shop is easy to browse, your descriptions are clear, and your photos show the product in a cosy and inviting way.",
+    "Respond quickly to questions, thank every buyer, and ask happy customers to leave a review so that new visitors can trust you.",
+    "Plan your offers early so that shoppers can order in good time, and remind them gently as the holidays come closer.",
+    "Finally, keep an eye on what works and do more of it, while dropping the ideas that do not bring results for your shop.",
+  ].join(" ");
+  setup({ objective: "How should we find more customers before Christmas?", context: ctx }); script = () => ({ json: { status: "done", answer: generic } });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(r.status, "completed", sess().stop_reason); assert.equal(calls.length, 2, "sent back once, not more");
+  assert.match(JSON.stringify(calls[1].body), /not specific enough: nothing in it refers to the person's situation/);
+  const c = sess().completion; assert.equal(c.passed, true); assert.equal(c.quality.ok, false);
+  assert.match(c.summary, /^Completion check passed with a warning\. Partly generic: /); assert.ok(!/all 8 criteria met/.test(sess().stop_reason));
+  assert.match(sess().final_artifact.human_text, /Completion check: passed with a warning\. Partly generic: /);
+  assert.ok(H.validateArtifact(sess().final_artifact, "session").ok);
+});
+await t("specific: a short answer that skips a part is sent back once too (parts apply at any length); a second miss completes with the warning", async () => {
+  setup({ objective: PARTS }); script = () => ({ json: { status: "done", answer: "Gift sets at 39 EUR." } });
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(calls.length, 2, "a short answer that skips parts is still sent back once (parts apply at any length)");
+  assert.equal(sess().status, "completed"); assert.equal(sess().completion.quality.ok, false);
+});
 // Quality floor (task 3): pleasantries are not part of the result; a result of nothing else, or of nothing concrete, is sent back
 const POLICY = "Premium customers return items within thirty days of delivery and receive a full credit to the original payment method within five business days. " +
   "Items must be unused and in the original packaging, and the return label is free for orders above 50 EUR.";

@@ -72,17 +72,26 @@ export type CompletionView = {
   outcome: "completed" | "blocked" | "retry" | "needs_attention" | "failed";
   summary: string;
   criteria: { id: string; label: string; ok: boolean | null; detail: string }[];
+  /** Is the result specific to the request (context used, every part answered, concrete)? Absent on older sessions and where no check applies. */
+  quality?: { ok: boolean; warning?: string; checks: { id: string; label: string; ok: boolean; detail: string }[] };
 };
 
-/** "8/8 criteria met" or what was not met, plus one line per criterion with a mark. Null when no check was stored (older sessions). */
+/**
+ * The headline is what matters to the person: is the result specific to the request ("Partly generic: …" when it is not). Older
+ * sessions and results with no such check keep "8/8 criteria met". Then one line per check and per criterion, with a mark.
+ * Null when no check was stored (older sessions).
+ */
 export function describeCompletion(c: CompletionView | null | undefined): { headline: string; ok: boolean; lines: { mark: string; text: string; ok: boolean | null }[] } | null {
   if (!c || !Array.isArray(c.criteria)) return null;
   const met = c.criteria.filter((x) => x.ok === true).length;
-  return {
-    ok: c.passed,
-    headline: c.passed ? `Completion check passed (${met}/${c.criteria.length})` : `Completion check not passed (${met}/${c.criteria.length}): ${c.summary.replace(/^Completion check failed: /, "")}`,
-    lines: c.criteria.map((x) => ({ mark: x.ok === true ? "✓" : x.ok === false ? "✗" : "–", text: `${x.label} — ${x.detail}`, ok: x.ok })),
-  };
+  const q = c.quality && Array.isArray(c.quality.checks) ? c.quality : null;
+  const line = (x: { label: string; ok: boolean | null; detail: string }) => ({ mark: x.ok === true ? "✓" : x.ok === false ? "✗" : "–", text: `${x.label} — ${x.detail}`, ok: x.ok });
+  const headline = !c.passed
+    ? `Completion check not passed (${met}/${c.criteria.length}): ${c.summary.replace(/^Completion check(?: failed)?: /, "")}`
+    : q
+      ? q.ok ? `Completion check passed: specific to the request (${q.checks.map((x) => x.label.toLowerCase()).join(", ")})` : `Completion check passed with a warning. ${q.warning ?? "Partly generic."}`
+      : `Completion check passed (${met}/${c.criteria.length})`;
+  return { ok: c.passed && (q?.ok ?? true), headline, lines: [...(q ? q.checks.map(line) : []), ...c.criteria.map(line)] };
 }
 
 export type HandoffView = {

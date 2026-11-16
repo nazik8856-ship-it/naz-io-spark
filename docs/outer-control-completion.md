@@ -49,3 +49,34 @@ Limits, said plainly: these are surface checks. A reply can be well-formed and s
 ## Checks
 
 `src/test/outer-control-completion-contract.test.ts` (each kind of reply to its final status), `supabase/functions/_shared/outer-control-completion_test.ts`, `outer-control-task_test.ts`, `src/test/outer-control-artifact.test.ts`, and the engine tests "quality: …" in `tests/outer-control-engine/session-test.mts`.
+
+## Specific to the request (context used, every part answered, concrete)
+
+The eight criteria prove the process: the tool finished, the rules held, the result was stored. They do not prove the result is
+useful to *this* person. Three more checks do (`assessSpecific` in `outer-control-completion.ts`), deterministic, no model call:
+
+| Check | Passes when | Applies when |
+|---|---|---|
+| Uses your context | the result contains distinctive words of the Task's context (names, numbers, words of 6+ letters; not the brief's labels, not words already in the request): 1 of 3–5 such words, 2 of 6 or more | the Task has such a context and the result is 80+ words |
+| Answers every part of the request | each numbered or bulleted line, each separate question, and each item of an "A, B and C" list is answered (enough of its subject words appear) | the request has 2 to 8 such parts |
+| Gives concrete detail | numbers, names, list items, quotes and links: at least 3, and 1 per 100 words | the result is 150+ words |
+
+Which checks a step gets depends on its action (`QUALITY_BY_KIND`): opinions, research, compare, decision and plain Tasks get all
+three; a fact-check only concrete detail; a step of a multi-step or delegated Task context and concrete detail (it does one part on
+purpose). Rewrite, explain, key points, roles, adapt, alternatives and draft are told to add nothing, so none applies. Goal Tasks have
+their own judge; a person's own result and NazAI's report writer are never judged.
+
+What happens:
+
+1. **Not specific, a retry left**: the result is not stored; it is sent back once through the same path as a result that misses the
+   goal, and the tool is told the exact gap ("this part of the request was not answered: 2 ("Shipping to Austria")").
+2. **Still not specific after that**: the hard criteria hold, so it completes, but with `quality.warning` = "Partly generic: …". The
+   summary says "Completion check passed with a warning", never "all 8 criteria met"; the result's proof, the session's headline,
+   the activity line and the Checks tile all show the warning; a Task's proof names the step it came from. The artifact validator
+   refuses a proof that says `ok` while a check failed, or a failed check without a warning.
+3. **Specific**: the headline is "Completion check passed: specific to the request (…)" instead of "8/8".
+
+Results stored before this keep their exact text: the new headline only appears in a proof that carries the checks.
+
+Tests: `supabase/functions/_shared/outer-control-specific_test.ts`, `src/test/completion-specific.test.ts`, and the "specific:"
+engine tests in `tests/outer-control-engine/session-test.mts`.
