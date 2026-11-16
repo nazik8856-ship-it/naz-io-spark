@@ -9,7 +9,8 @@
 //   POST { action: "create_agent_tool", agent_id }   (one of the account's own NazAI agents as a step)
 //   POST { action: "start_goal", goal, criteria?: [up to 5 sentences], tool_ids: [1..3], max_rounds?, context?, api_key_id? }   (a Task that goes on until its criteria are met; costs one credit)
 //   POST { action: "task_decide", task_id, decision: "accept" | "more" | "stop" }   (what to do with a goal Task that is blocked)
-//   POST { action: "route_task", request }   (NazAI reads a request: which action, its text, background, labels; free, starts nothing)
+//   POST { action: "route_task", request }   (NazAI reads a request: which action, its text, background, labels, and up to 3 clarifying
+//        questions about what is not known yet (stage, audience, main limit); free, starts nothing)
 //   POST { action: "start_report", task?: <one of the 14 actions, default "opinions">, topic, background?, styles?, count?, tool_ids, project_id? }
 //        (a multi-tool action: every tool reply is checked, then one controlled result is written; uses TASK_CREDITS[task].
 //         Tool counts, text lengths and labels per action: TASK_LIMITS. styles = the styles / roles / audiences of rewrite / roles / adapt;
@@ -49,17 +50,19 @@ import { resumeTool } from "../_shared/outer-control-containment.ts";
 import { nazaiAddressProblem } from "../_shared/outer-control-address.ts";
 import { ownProjectHost } from "../_shared/egress.ts";
 import { ensureStarterTools, isStarterUrl, STARTER_TASKS, STARTER_USED_UP, starterTasksUsed } from "../_shared/outer-control-starter.ts";
-import { buildPlanPrompt, cleanCount, cleanStyles, delegateInstruction, gatewayAi, improveInstruction, multistepInstruction, NEEDS_AI, parsePlan, REPORT_TOOL_URL, routeRequest, ROUTING_TEXT, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
+import { buildPlanPrompt, challengeInstruction, cleanCount, cleanStyles, delegateInstruction, gatewayAi, improveInstruction, multistepInstruction, NEEDS_AI, parsePlan, REPORT_TOOL_URL, routeRequest, ROUTING_TEXT, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
 import { ACTION_INFO, isOutputTemplate, MAX_BACKGROUND, OUTPUT_TEMPLATES, REPORT_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
 import { checkFreeLimit } from "../_shared/free-limits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
 import { projectContextFor } from "../_shared/projects.ts";
-import { BRIEF_ROOM_WITH_PROJECT, CONTEXT_LIMIT, withContextBrief, type ContextSource } from "../_shared/outer-control-context-brief.ts"; // what NazAI knows about the business goes to every tool of a Task
+import { BRIEF_ROOM_WITH_PROJECT, CONTEXT_LIMIT, withContextBrief, type ContextSource, loadContextBrief } from "../_shared/outer-control-context-brief.ts"; // what NazAI knows about the business goes to every tool of a Task
 import { projectKeysFromEnv } from "../_shared/project-crypto.ts";
 
 import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
 import { requireCaller } from "../_shared/caller.ts";
+import { MAX_LEGS } from "../_shared/outer-control-workflow-plan.ts";
+import { CLARIFY_KINDS, clarifyingQuestions } from "../_shared/outer-control-clarify.ts";
 
 /** How many requests NazAI's AI reads per account per day (route_task). */
 const ROUTE_DAILY_CAP = 200;
@@ -298,7 +301,11 @@ Deno.serve(async (req) => {
       // keyword reading is used, so the box keeps working; the page also remembers what it has already read.
       const cap = await checkRateLimit(admin, accountId, "outer_control_route_task", ROUTE_DAILY_CAP, 86_400);
       const route = await routeRequest(request, cap.allowed && pickAiGateway() !== null ? gatewayAi : null);
-      return json({ ok: true, ...route, capped: !cap.allowed });
+      // The clarifying step: what neither the request, its background nor what NazAI already knows says (stage, audience, main limit).
+      // Asked only for the actions whose answer depends on the situation; every answer is optional (docs/outer-control-context.md).
+      const brief = route.kind !== "unclear" && CLARIFY_KINDS.includes(route.kind) ? (await loadContextBrief(admin, accountId).catch(() => null))?.text ?? "" : "";
+      const questions = clarifyingQuestions({ kind: route.kind, request: route.text || request, background: route.background, brief });
+      return json({ ok: true, ...route, questions, capped: !cap.allowed });
     }
 
     if (action === "start_report") {
@@ -373,7 +380,11 @@ Deno.serve(async (req) => {
       } else {
         toolSteps = ids.map((id) => ({ tool_id: id, instruction: stepInstructionFor(kind, topic, styles, count), handoff: "none" }));
       }
-      const steps = [...toolSteps, { tool_id: writer.tool.id, instruction: writerInstructionFor(kind, topic), handoff: "none" }];
+      // Research: a challenger step reads the checked answers and challenges them for this person before the result is written (the
+      // second tool, or the only one). It fits when the answers, the challenger and the writer stay within a Task's steps.
+      const challenge = kind === "research" && toolSteps.length + 2 <= MAX_LEGS;
+      const challenger: Step[] = challenge ? [{ tool_id: ids[1] ?? ids[0], instruction: challengeInstruction(topic), handoff: "pass" }] : [];
+      const steps = [...toolSteps, ...challenger, { tool_id: writer.tool.id, instruction: writerInstructionFor(kind, topic), handoff: "none" }];
       // Draft and multi-step build on the previous step, so they go one after another. Everything else asks its tools at the same
       // time, and the result is written from the tools that answered (a tool that fails is named in the result).
       const parallel = kind !== "draft" && kind !== "multistep";
@@ -381,7 +392,7 @@ Deno.serve(async (req) => {
       const projectText = project ? project.text : "";
       const taskContext = [projectText, background].filter(Boolean).join("\n\n") || null;
       const briefed = await withBrief(taskContext, [...(project ? [{ kind: "project" as const, chars: project.text.length }] : []), ...(background ? [{ kind: "background" as const, chars: background.length }] : [])]);
-      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: briefed.context, steps, max_steps: 3, parallel });
+      const started = await startTask(admin, accountId, { request: taskTitle(kind, topic, styles, count), context: briefed.context, steps, max_steps: 3, parallel, challenge });
       if (!started.ok) {
         // The credits were taken before the Task could start: give them back.
         for (let r = 0; r < cost; r++) await admin.rpc("refund_generation_credit", { p_user_id: accountId });

@@ -1,7 +1,7 @@
 // Outer Control: one neutral shape for a result, used by every look (outer-control-templates.ts) and every file type
 // (outer-control-files.ts). A report is turned into sections once, here; the looks and the files only decide how to draw them, so a
 // Word file, a spreadsheet and a styled page can not disagree about what the result says. Pure, no dependencies.
-import { composeReportText, fingerprint, isSingleSource, KIND_BADGE, kindMethod, kindOf, REPORT_INTRO, singleSourceLine, VERDICT_LABEL, when, type ReportDoc, type ReportKind } from "@/lib/outer-control-report-doc";
+import { composeReportText, fingerprint, FOR_YOU_TITLE, implicationLine, isSingleSource, KIND_BADGE, kindMethod, kindOf, REPORT_INTRO, singleSourceLine, VERDICT_LABEL, when, type ReportDoc, type ReportKind } from "@/lib/outer-control-report-doc";
 
 export type Blk =
   | { k: "p"; text: string }
@@ -16,13 +16,14 @@ export type Blk =
  * What a section is for, so a look can put them in its own order:
  *   bottom    the answer: conclusion, verdict, recommendation, final result
  *   summary   the short version, or what was given (the original text)
+ *   foryou    what it means for the person asking: next steps tied to their own situation, or marked as assumptions
  *   points    what holds: agreements, key points, findings
  *   contrast  what does not: differences, open questions, corrections, risks
  *   detail    the working: versions, options, steps, the side-by-side
  *   sources   the tools' own answers, word for word
  *   method    how it was made
  */
-export type SecKey = "bottom" | "summary" | "points" | "contrast" | "detail" | "sources" | "method";
+export type SecKey = "bottom" | "summary" | "foryou" | "points" | "contrast" | "detail" | "sources" | "method";
 export type Sec = { key: SecKey; title: string; blocks: Blk[] };
 export type ResultDoc = { badge: string; title: string; meta: string; sections: Sec[]; footer: string };
 
@@ -40,7 +41,7 @@ export function reportToDoc(d: ReportDoc): ResultDoc {
     key: "sources", title,
     blocks: d.opinions.map((o) => ({
       k: "quote", text: o.text.trim() + (o.shortened ? "\n(Shortened for the report; the full controlled answer is stored in its step.)" : ""),
-      by: `[${o.n}] ${o.tool} · received ${when(o.at)} · fingerprint ${fingerprint(o.sha256)}`,
+      by: `[${o.n}] ${o.tool}${o.n === d.challenge ? " (challenge)" : ""} · received ${when(o.at)} · fingerprint ${fingerprint(o.sha256)}`,
     })),
   });
   const sections: Sec[] = [];
@@ -105,6 +106,7 @@ export function reportToDoc(d: ReportDoc): ResultDoc {
     }
     add("bottom", "Conclusion", para(d.conclusion));
   }
+  if (d.implications?.length) add("foryou", FOR_YOU_TITLE, [{ k: "ul", items: d.implications.map(implicationLine) }]);
   add("method", `How this ${kindOf(d) === "opinions" ? "report" : "result"} was made`, para(kindMethod(d)));
   return { badge: KIND_BADGE[kind], title: d.topic.replace(/\s+/g, " ").trim(),
     // A report made before the flag existed still says so here, in every look and file (its stored text is left as it was).

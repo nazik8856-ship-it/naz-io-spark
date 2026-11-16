@@ -17,7 +17,7 @@ import {
   type BlockCause, type Criterion, type CriterionState, type NextRequest, type Verdict,
 } from "./outer-control-goal.ts";
 import {
-  chainLegs, fanOutLegs, contextFromHandoffs, deriveTaskState, makeHandoff, type HandoffCheck, type HandoffRecord, type TaskKind, type TaskLeg, type TaskOrigin,
+  chainLegs, fanOutLegs, fanOutWithChallenge, contextFromHandoffs, deriveTaskState, makeHandoff, type HandoffCheck, type HandoffRecord, type TaskKind, type TaskLeg, type TaskOrigin,
 } from "./outer-control-task.ts";
 import { accountTools } from "./outer-control-boundary.ts";
 import {
@@ -441,10 +441,11 @@ export async function startWorkflow(
  */
 export async function startTask(
   admin: AnyAdmin, userId: string,
-  input: { request: unknown; context: unknown; steps: unknown; api_key_id?: unknown; max_steps?: unknown; origin?: TaskOrigin | null; parallel?: boolean },
+  input: { request: unknown; context: unknown; steps: unknown; api_key_id?: unknown; max_steps?: unknown; origin?: TaskOrigin | null; parallel?: boolean; challenge?: boolean },
 ): Promise<StartWorkflowResult> {
   // parallel: every step but the last is asked at the same time, and the last one works with whatever answered (fanOutLegs).
-  const chain = input.parallel ? fanOutLegs(input.steps) : chainLegs(input.steps);
+  // challenge: the same, with a challenger step between the answers and the writer (fanOutWithChallenge).
+  const chain = input.challenge ? fanOutWithChallenge(input.steps) : input.parallel ? fanOutLegs(input.steps) : chainLegs(input.steps);
   if (!chain.ok) return { ok: false, code: "invalid_steps", message: chain.message };
   return startWorkflow(admin, userId, {
     objective: input.request, context: input.context, legs: chain.legs, api_key_id: input.api_key_id, max_steps: input.max_steps,

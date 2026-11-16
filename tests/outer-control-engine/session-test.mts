@@ -947,6 +947,46 @@ for (const [label, text] of [["a placeholder", "N/A"], ["a refusal", "I'm sorry,
     assert.equal(sess().status === "completed", false);
   });
 }
+// Specific to the request (Day 2, docs/outer-control-completion.md): sent back once with the exact gap; a second miss completes with a
+// visible "Partly generic" warning, never as a clean pass.
+const PARTS = "1. Pricing for gift sets\n2. Shipping to Austria\n3. Packaging";
+const TWO_PARTS = "Pricing: sell gift sets at 39 EUR each, three candles per set. Packaging: recycled boxes from a supplier in Leipzig.";
+const ALL_PARTS = `${TWO_PARTS} Shipping to Austria: DHL Paket at 9.90 EUR, 3 to 4 days.`;
+await t("specific: a part of the request that was not answered is sent back once, by number; the full answer completes and says it is specific", async () => {
+  setup({ objective: PARTS }); script = (n) => ({ json: { status: "done", answer: n === 1 ? TWO_PARTS : ALL_PARTS } });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(r.status, "completed", sess().stop_reason); assert.equal(calls.length, 2); assert.equal(sess().final_output, ALL_PARTS);
+  assert.match(JSON.stringify(calls[1].body), /not specific enough: this part of the request was not answered: 2 \(\\"Shipping to Austria\\"\)/);
+  assert.deepEqual(checks().map((x: any) => x.outcome), ["retry", "completed"]);
+  const c = sess().completion; assert.equal(c.quality.ok, true); assert.match(c.summary, /^Completion check passed\. Specific to the request: answers every part of the request/);
+  assert.match(sess().final_artifact.human_text, /Completion check: passed\. The result is specific to the request\.\n✓ Answers every part of the request — all 3 parts/);
+});
+await t("specific: still generic after the retry, it completes with the warning in the result's proof, never as a clean pass", async () => {
+  const ctx = "Business: Lumen Candles. Hand-poured soy candles sold on Etsy. Audience: gift buyers in Germany. Budget of 300 euros a month.";
+  const generic = [
+    "To find more customers before Christmas, focus on building a strong online presence and engaging with your audience on the channels they already use.",
+    "Create helpful content that people want to share with friends and family during the holiday season, and keep your messages warm and personal.",
+    "Partnerships with other small businesses can help you reach new people who are likely to enjoy what you offer, especially when gifts are on their minds.",
+    "Make sure your shop is easy to browse, your descriptions are clear, and your photos show the product in a cosy and inviting way.",
+    "Respond quickly to questions, thank every buyer, and ask happy customers to leave a review so that new visitors can trust you.",
+    "Plan your offers early so that shoppers can order in good time, and remind them gently as the holidays come closer.",
+    "Finally, keep an eye on what works and do more of it, while dropping the ideas that do not bring results for your shop.",
+  ].join(" ");
+  setup({ objective: "How should we find more customers before Christmas?", context: ctx }); script = () => ({ json: { status: "done", answer: generic } });
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(r.status, "completed", sess().stop_reason); assert.equal(calls.length, 2, "sent back once, not more");
+  assert.match(JSON.stringify(calls[1].body), /not specific enough: nothing in it refers to the person's situation/);
+  const c = sess().completion; assert.equal(c.passed, true); assert.equal(c.quality.ok, false);
+  assert.match(c.summary, /^Completion check passed with a warning\. Partly generic: /); assert.ok(!/all 8 criteria met/.test(sess().stop_reason));
+  assert.match(sess().final_artifact.human_text, /Completion check: passed with a warning\. Partly generic: /);
+  assert.ok(H.validateArtifact(sess().final_artifact, "session").ok);
+});
+await t("specific: a short answer that skips a part is sent back once too (parts apply at any length); a second miss completes with the warning", async () => {
+  setup({ objective: PARTS }); script = () => ({ json: { status: "done", answer: "Gift sets at 39 EUR." } });
+  await H.advanceSession(H.createClient("u", "k"), "s1", deps);
+  assert.equal(calls.length, 2, "a short answer that skips parts is still sent back once (parts apply at any length)");
+  assert.equal(sess().status, "completed"); assert.equal(sess().completion.quality.ok, false);
+});
 // Quality floor (task 3): pleasantries are not part of the result; a result of nothing else, or of nothing concrete, is sent back
 const POLICY = "Premium customers return items within thirty days of delivery and receive a full credit to the original payment method within five business days. " +
   "Items must be unused and in the original packaging, and the return label is free for orders above 50 EUR.";
@@ -1490,6 +1530,76 @@ await t("action research: each tool gives points on its own; the background reac
   assert.match(aiPrompts[0].user, /^Background the person gave[\s\S]*3-person startup/); assert.ok(aiPrompts[0].system.includes(H.HONEST_ANALYST));
   const doc = w.final_artifact.report; assert.equal(doc.kind, "research"); assert.deepEqual(doc.points, ["Red-teaming finds failures [1].", "Benchmarks are cheap [2]."]);
   assert.equal(H.composeReportText(doc), w.final_output); assert.match(w.final_output, /^NAZAI RESEARCH\n[\s\S]*OPEN QUESTIONS\n• The sources disagree on cost/);
+});
+await t("what this means for you: the writer applies the background; a step resting on it says so, one that does not is an assumption", async () => {
+  reportSetup(); const topic = "Ways to evaluate the safety of AI tools";
+  aiAnswer = JSON.stringify({
+    summary: "Two approaches were given [1][2].", points: ["Red-teaming finds failures [1].", "Benchmarks are cheap [2]."], open_questions: [], conclusion: "Use both approaches [1][2].",
+    implications: [
+      { step: "Start with the cheap benchmarks before paying for red-teaming [2]", because: "3-person startup" },
+      { step: "Book an outside red-team for the launch month [1]", because: "you have a security team of ten" },
+      { step: "Run benchmarks weekly [2]" },
+    ],
+  });
+  script = answerBy("- Red-teaming tools find safety failures (fairly sure).", "- Safety benchmarks are cheap. I do not know how they compare in cost.");
+  const w = await start10("research", topic, fan("research", topic, [T1, T2]), { background: BG });
+  assert.equal(w.status, "completed", why());
+  assert.match(aiPrompts[0].system, /"implications"/, "the writer is asked to apply the background");
+  const doc = w.final_artifact.report;
+  assert.deepEqual(doc.implications.map((m: any) => m.basis), ["situation", "assumption"], "a fact found in the background is from the situation; one not found is an assumption; no basis is left out");
+  assert.match(w.final_output, /WHAT THIS MEANS FOR YOU\n• Start with the cheap benchmarks before paying for red-teaming \[2\] — From your situation: 3-person startup\n• Book an outside red-team for the launch month \[1\] — Assumption: you have a security team of ten/);
+  assert.equal(H.composeReportText(doc), w.final_output);
+});
+// Research with a challenger (Day 2): the answers at the same time, then one tool challenges them, then the result.
+const RA1 = "- Red-teaming tools find safety failures (fairly sure).";
+const RA2 = "- Safety benchmarks are cheap. I do not know how they compare in cost.";
+const RCH = "- Missing: neither answer gives a cost for a 3-person startup. Fix: price one red-team day before choosing.";
+const challengeScript = (fail = false) => (n: number, b: any, url: string) => {
+  const req = String(b.objective ?? "");
+  if (req.startsWith(H.CHALLENGE_MARK)) return fail ? { status: 500, text: "upstream error" } : { json: { status: "done", answer: RCH } };
+  return { json: { status: "done", answer: String(url).includes("research") ? RA1 : RA2 } };
+};
+const startChallenged = async (topic: string, tools: string[], challengerTool: string) => {
+  const r = await H.startTask(H.createClient("u", "k"), U, {
+    request: H.taskTitle("research", topic), context: BG, max_steps: 3, parallel: true, challenge: true,
+    steps: [...fan("research", topic, tools), { tool_id: challengerTool, instruction: H.challengeInstruction(topic), handoff: "pass" }, { tool_id: RT, instruction: H.writerInstructionFor("research", topic), handoff: "none" }],
+  });
+  assert.ok(r.ok, JSON.stringify(r)); await runTask(r, reportDeps()); return task();
+};
+await t("research challenger: the answers are asked at the same time, the challenger gets them all checked, the writer cites it as the challenge", async () => {
+  reportSetup(); const topic = "Ways to evaluate the safety of AI tools";
+  aiAnswer = JSON.stringify({ summary: "Two approaches were given [1][2].", points: ["Red-teaming finds failures [1].", "Benchmarks are cheap [2]."], open_questions: ["Neither answer gives a cost for a 3-person startup [3]."], conclusion: "Price both before choosing [1][2][3]." });
+  script = challengeScript();
+  const w = await startChallenged(topic, [T1, T2], T2);
+  assert.equal(w.status, "completed", why());
+  const [l1, l2, ch, wr] = legs();
+  assert.deepEqual([l1.depends_on, l2.depends_on, ch.depends_on, wr.depends_on], [[], [], [1, 2], [1, 2, 3]], "answers in parallel, then the challenger, then the writer");
+  assert.ok(String(ch.context).includes(RA1.slice(2, 30)) && String(ch.context).includes(RA2.slice(2, 30)), "the challenger received both checked answers");
+  assert.match(String(ch.context), /3-person startup/, "and the person's situation");
+  assert.match(aiPrompts[0].system, /Source \[3\] is not an answer: it is a challenge to the other answers/);
+  const doc = w.final_artifact.report; assert.equal(doc.challenge, 3); assert.equal(doc.single_source, undefined);
+  assert.match(w.final_output, /\[3\] [^\n]+ \(challenge\) — received/);
+  assert.match(w.final_output, /Then [^\n]+ \[3\] was given those checked answers and asked to challenge them for your situation/);
+  assert.equal(doc.opinions[2].text, RCH, "the challenge is kept word for word");
+  assert.equal(H.composeReportText(doc), w.final_output);
+});
+await t("research challenger: a challenger that fails does not stop the result; it is written from the answers and names the challenger as not answering", async () => {
+  reportSetup(); const topic = "Ways to evaluate the safety of AI tools";
+  aiAnswer = JSON.stringify({ summary: "Two approaches were given [1][2].", points: ["Red-teaming finds failures [1].", "Benchmarks are cheap [2]."], open_questions: [], conclusion: "Use both approaches [1][2]." });
+  script = challengeScript(true);
+  const w = await startChallenged(topic, [T1, T2], T2);
+  assert.equal(w.status, "completed", why()); assert.equal(legs()[2].status, "failed", why());
+  const doc = w.final_artifact.report; assert.equal(doc.challenge, undefined); assert.equal(doc.opinions.length, 2); assert.equal(doc.missing.length, 1);
+  assert.ok(!/\(challenge\)/.test(w.final_output));
+});
+await t("research challenger: one research tool challenged by itself is still a single source, and the result says it was challenged", async () => {
+  reportSetup(); const topic = "Ways to evaluate the safety of AI tools";
+  aiAnswer = JSON.stringify({ summary: "One approach [1], challenged [2].", points: ["Red-teaming finds failures [1]."], open_questions: ["No cost was given [2]."], conclusion: "Price it first [1][2]." });
+  script = challengeScript();
+  const w = await startChallenged(topic, [T1], T1);
+  assert.equal(w.status, "completed", why());
+  const doc = w.final_artifact.report; assert.equal(doc.challenge, 2); assert.equal(doc.single_source, true);
+  assert.match(w.final_output, /Single source: only [^.]+ answered\. [^.]+ challenged that answer, but no second answer cross-checked it\./);
 });
 await t("action draft + improve: tool 1 drafts, tool 2 gets the checked draft and improves it; only the improved version is the result", async () => {
   reportSetup(); aiAnswer = null; const req = "A two-sentence launch email for our budgeting app.";

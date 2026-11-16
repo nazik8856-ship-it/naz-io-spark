@@ -29,27 +29,27 @@ export const TEMPLATE_INFO: Record<OutputTemplate, TemplateInfo> = {
   nazai: {
     name: "NazAI dark", blurb: "The original look: dark cards, the answer at the end.",
     colors: { bg: "#050b18", text: "#dbe7ff", accent: "#22d3ee", heading: "#0b6e80" },
-    order: ["summary", "sources", "detail", "points", "contrast", "bottom", "method"], font: "sans",
+    order: ["summary", "foryou", "sources", "detail", "points", "contrast", "bottom", "method"], font: "sans",
   },
   executive: {
     name: "Executive brief", blurb: "For decisions: the answer first, the sources in an appendix.",
     colors: { bg: "#ffffff", text: "#1b2733", accent: "#0f766e", heading: "#0b2545" },
-    order: ["bottom", "summary", "points", "contrast", "detail", "sources", "method"], font: "sans",
+    order: ["bottom", "foryou", "summary", "points", "contrast", "detail", "sources", "method"], font: "sans",
   },
   editorial: {
     name: "Editorial", blurb: "For reading: article style, serif type, pull-quotes.",
     colors: { bg: "#faf5ec", text: "#2a2320", accent: "#b4532a", heading: "#7a2e12" },
-    order: ["summary", "detail", "points", "contrast", "bottom", "sources", "method"], font: "serif",
+    order: ["summary", "foryou", "detail", "points", "contrast", "bottom", "sources", "method"], font: "serif",
   },
   brief: {
     name: "One-page brief", blurb: "For sharing: compact, numbered, agreements and differences side by side.",
     colors: { bg: "#ffffff", text: "#111111", accent: "#ea580c", heading: "#111111" },
-    order: ["bottom", "summary", "points", "contrast", "detail", "sources", "method"], font: "sans",
+    order: ["bottom", "foryou", "summary", "points", "contrast", "detail", "sources", "method"], font: "sans",
   },
   data: {
     name: "Data sheet", blurb: "For checking: everything in tables, monospace headings.",
     colors: { bg: "#f1f4f7", text: "#1c2430", accent: "#0f766e", heading: "#0f3d3a" },
-    order: ["summary", "bottom", "points", "contrast", "detail", "sources", "method"], font: "mono",
+    order: ["summary", "bottom", "foryou", "points", "contrast", "detail", "sources", "method"], font: "mono",
   },
 };
 

@@ -193,7 +193,10 @@ export function buildActivity(i: {
   const c = i.completion;
   if (c && Array.isArray(c.criteria) && !["running", "queued"].includes(i.status)) {
     const met = c.criteria.filter((x) => x.ok === true).length;
-    lines.push({ key: "completion", tone: c.passed ? "ok" : "bad", text: c.passed ? `Completion check passed (${met}/${c.criteria.length}).` : `Completion check not passed (${met}/${c.criteria.length}).` });
+    const q = (c as { quality?: { ok: boolean; warning?: string } }).quality;
+    lines.push(c.passed && q
+      ? { key: "completion", tone: q.ok ? "ok" : "warn", text: q.ok ? "Completion check passed: specific to the request." : `Completion check passed with a warning. ${q.warning ?? "Partly generic."}` }
+      : { key: "completion", tone: c.passed ? "ok" : "bad", text: c.passed ? `Completion check passed (${met}/${c.criteria.length}).` : `Completion check not passed (${met}/${c.criteria.length}).` });
   }
   return lines;
 }

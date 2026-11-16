@@ -29,7 +29,7 @@ import { networkFailureKind, type NetworkFailureKind } from "./network-failure.t
 import { nazaiAddressProblem } from "./outer-control-address.ts";
 import { ownProjectHost } from "./egress.ts";
 import { askStarter, gatewayStarterAi, isStarterUrl, starterAllowed, STARTER_USED_UP, type StarterAi } from "./outer-control-starter.ts";
-import type { ReportDoc } from "./outer-control-report-doc.ts";
+import { splitTaskTitle, type ReportDoc } from "./outer-control-report-doc.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
 import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.ts";
 import { containIfUnsafe } from "./outer-control-containment.ts"; // compromise containment: an unsafe tool is suspended
@@ -41,7 +41,7 @@ import { buildSessionArtifact, describeWhatDone, type StepEvidence } from "./out
 import { diffForReply } from "./outer-control-diff.ts";
 import { judgeMeaning, loadMeaningRules, meaningRecord, mergeMeaning, type JudgeAi } from "./meaning-judge.ts";
 import { checkAgainstProject, projectReferenceOf } from "./project-consistency.ts";
-import { buildChecklist, correctionFor, passedCount, settle, tidyOutput, type Checklist, type ChecklistInput } from "./outer-control-completion.ts";
+import { ALL_QUALITY, assessSpecific, buildChecklist, correctionFor, passedCount, problemsOf, QUALITY_BY_KIND, settle, tidyOutput, type Checklist, type ChecklistInput, type QualityScope } from "./outer-control-completion.ts";
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
 import { buildHandoff, decodeChoice, type HandoffKind } from "./outer-control-handoff.ts";
@@ -353,6 +353,23 @@ type Accept = {
  * ones that fired earlier in this task), the goal (unless a person decided it), the recorded exchanges, and whether
  * anything is still open for this session.
  */
+/**
+ * What the result is checked against for being specific (outer-control-completion.ts): the person's own request and the Task's context,
+ * and which checks apply to this kind of step. Null when none applies: a person's decision, NazAI's own report, a goal Task (it has its
+ * own judge), or an action that is told to add nothing (rewrite, explain, …).
+ */
+async function qualityScopeFor(admin: AnyAdmin, s: SessionRow, a: Accept): Promise<QualityScope | null> {
+  if (a.fromPerson || a.report) return null;
+  if (!s.workflow_id) return { request: s.objective, context: s.context, checks: ALL_QUALITY };
+  const { data } = await admin.from("outer_control_workflows").select("objective, context, mode").eq("id", s.workflow_id).eq("user_id", s.user_id).maybeSingle();
+  const wf = data as { objective?: string | null; context?: string | null; mode?: string | null } | null;
+  if (!wf || wf.mode === "goal") return null;
+  const split = splitTaskTitle(wf.objective ?? "");
+  const checks = split ? QUALITY_BY_KIND[split.kind] : ALL_QUALITY;
+  if (checks.length === 0) return null;
+  return { request: split?.text ?? wf.objective ?? s.objective, context: wf.context ?? s.context, checks };
+}
+
 async function gatherCompletionInput(admin: AnyAdmin, s: SessionRow, stepNo: number, a: Accept, deps: SessionDeps): Promise<ChecklistInput> {
   const rules = (await sessionRules(admin, s)).filter((r) => !r.shadow_mode && r.severity === "block");
   const wm = buildWorkingMemory((await loadMemory(admin, s)) as MemoryRow[]);
@@ -372,6 +389,8 @@ async function gatherCompletionInput(admin: AnyAdmin, s: SessionRow, stepNo: num
     approval, openPending: !!(cur as { pending_kind?: string | null } | null)?.pending_kind,
     text: a.text, objective: s.objective, brokenRules: broken, goal, fromPerson: !!a.fromPerson, stored: null,
     outputSha256: await sha256Hex(a.text ?? ""),
+    quality: await qualityScopeFor(admin, s, a).then((scope) => (scope ? assessSpecific(a.text ?? "", scope) : null), () => null),
+    retriesLeft: (s.align_used ?? 0) < MAX_ALIGN_RETRIES,
   };
 }
 
@@ -417,7 +436,8 @@ async function completeSession(
   let c = buildChecklist(input);
 
   // Store the result while the session is still open, then read it back before anything is called complete.
-  const readyToStore = c.criteria.filter((x) => x.id !== "output_stored").every((x) => x.ok === true);
+  // A result being sent back (not specific enough) is not stored: the tool's next answer replaces it.
+  const readyToStore = c.outcome !== "retry" && c.criteria.filter((x) => x.id !== "output_stored").every((x) => x.ok === true);
   if (readyToStore) {
     await patch(admin, s.id, { ...advance, final_output: a.text }, deps);
     const { data: back } = await admin.from("outer_control_sessions").select("final_output, status").eq("id", s.id).maybeSingle();
@@ -477,7 +497,7 @@ async function completeSession(
     const used = s.align_used ?? 0;
     const settled = c;
     const unusable = settled.criteria.some((x) => (x.id === "output_present" || x.id === "output_useful") && x.ok === false);
-    const problems = settled.criteria.filter((x) => x.ok === false).map((x) => x.detail);
+    const problems = problemsOf(settled);
     await recordMemory(admin, s, { stepNo, kind: "plan", data: { completion: { outcome: settled.outcome, problems } }, summary: `Step ${stepNo}: final check — ${problems[0]}` });
     if (settled.outcome === "retry") {
       await noteOnLastStep(admin, s, stepNo, "retry_with_correction", `Final check failed: ${problems[0]} Asking the tool once to fix it.`);

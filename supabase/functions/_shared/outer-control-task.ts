@@ -126,6 +126,30 @@ export function fanOutLegs(steps: unknown): { ok: true; legs: Record<string, unk
   return { ok: true, legs };
 }
 
+/**
+ * Research with a challenger (docs/outer-control-context.md): the answering steps are asked at the same time; then one step receives
+ * their checked answers and challenges them (what is missing, generic or unsupported); then the last step writes the result from all
+ * of them. The challenger runs with whatever answered, and the writer runs even if the challenger did not answer.
+ * steps: the answering steps, then the challenger, then the writer.
+ */
+export function fanOutWithChallenge(steps: unknown): { ok: true; legs: Record<string, unknown>[] } | { ok: false; message: string } {
+  if (!Array.isArray(steps) || steps.length < 3) return { ok: false, message: "Add at least one step, the challenger and the step that writes the result." };
+  const n = steps.length;
+  const answers = Array.from({ length: n - 2 }, (_, k) => k + 1);
+  const legs = steps.map((raw, i) => {
+    const s = (raw ?? {}) as ChainStepInput;
+    const challenger = i === n - 2;
+    const last = i === n - 1;
+    return {
+      tool_id: s.tool_id, instruction: s.instruction, fallback_tool_id: s.fallback_tool_id, handoff: challenger ? "pass" : "none",
+      depends_on: challenger ? answers : last ? [...answers, n - 1] : [], on_failure: s.on_failure ?? "reject",
+      ...(challenger ? { condition: { leg: n - 2, op: "any_completed", value: null } } : {}),
+      ...(last ? { condition: { leg: n - 1, op: "any_completed", value: null } } : {}),
+    } as Record<string, unknown>;
+  });
+  return { ok: true, legs };
+}
+
 // ---------------------------------------------------------------------------------------
 // Hand-off between steps
 

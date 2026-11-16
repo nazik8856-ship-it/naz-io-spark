@@ -81,3 +81,64 @@ Opinions, research, fact-check and decision are meant to compare tools. Asked of
 Compare still needs two tools. The one-tool actions (rewrite, explain, key points, draft, alternatives, roles, adapt) are not marked.
 
 Tests: `single-source.test.tsx`, the single-source part of `outer-control-report-instructions_test.ts`, *Start a task* and the proof tile.
+
+## What this means for you (the report writer applies your situation)
+
+When a Task has a background (what you typed, a project, or what NazAI knows about the business), NazAI's AI is asked for 2 to 5
+next steps under **What this means for you**. This is the one place where it may use facts from your situation; it still adds no new
+fact about the world, and the sources stay word for word.
+
+Each step must say what it rests on, and the code checks it (`parseImplications` in `outer-control-report.ts`):
+
+- **From your situation**: the AI's "because" is checked against the words of your background (at least half of its meaningful
+  words must be there). Only then is it shown as from your situation.
+- **Assumption**: what the AI had to assume. A "because" that your background does not contain is shown as an assumption, never as
+  something you said.
+- A step with no basis at all, a step that cites a source that does not exist, or an empty step is left out. A bad step never fails
+  the result. At most 5 steps.
+
+Without a background nothing is asked and the section is absent. It is shown right under the header on the screen, near the top of
+every look (`foryou` in the section order), in every file, and the result's "How this was made" note says how it was made.
+
+Tests: `supabase/functions/_shared/outer-control-for-you_test.ts`, `src/test/report-for-you.test.tsx`, and the engine test
+"what this means for you" in `tests/outer-control-engine/session-test.mts`.
+
+## A few details before the run (clarifying questions)
+
+When NazAI reads a request in *Start a task* (`route_task`), it also returns up to three short questions
+(`outer-control-clarify.ts`), but only what nothing already says:
+
+| Question | Not asked when |
+|---|---|
+| What stage is the business at? | the brief has a business line, or the request or its background says the stage (idea, launched, 2 years in, first 10 customers, …) |
+| Who is it for? | an audience is named or qualified ("Audience: …", B2B, students, "customers in Berlin"); a bare "customers" does not count |
+| What is the main limit: money, time or people? | a budget, deadline, amount, time span or team size is given |
+
+Only for the actions whose answer depends on the situation (opinions, research, compare, decision, multi-step, delegated); never for
+a rewrite, explanation, key points, fact-check, roles, adaptation, alternatives or draft.
+
+Every answer is optional and the Task never waits for them. Answers are added to the Task's background as "<label>: <answer>" (at
+most 160 characters each), so they reach every tool, go through the account's rules, and are listed as background under "What the
+tools knew". With **Remember these for my next Tasks** (on by default, shown once something is answered) each answer is also saved
+as a general knowledge entry, encrypted, through the same write the Knowledge base page uses; the account's own rules decide who may
+add one. The next Task's brief then carries it, so the question is not asked again. A save that is not allowed does not stop the Task
+and the person is told the answers were used but not kept.
+
+Tests: `supabase/functions/_shared/outer-control-clarify_test.ts`, `src/test/task-clarify.test.tsx`.
+
+## The challenger (research)
+
+A research Task asks its tools at the same time, then adds one step before the result is written: a **challenger**
+(`fanOutWithChallenge` in `outer-control-task.ts`, `challengeInstruction` in `outer-control-report.ts`). It is the second tool picked
+(or the only one), and it receives, as context, the person's situation and every checked answer. It does not answer the topic again:
+it says what is missing for this person, what is generic (and the specific version), and what has no basis.
+
+- Its reply goes through the same rules and checks as any answer, and is kept word for word as a source, marked **(challenge)**.
+- NazAI's AI is told that source is not an answer: it uses it for open questions and to qualify points, never as confirmation.
+- It is not counted as a second answer: one research tool plus its challenge is still a single source, and the result says that
+  answer was challenged but not cross-checked.
+- If the challenger does not answer, the result is written from the answers and names it as not answering.
+- It fits when the answers, the challenger and the writer stay within a Task's 6 steps, so with 1 to 4 research tools. *Start a task*
+  says which tool will challenge. It uses one more call to that tool and no extra credit.
+
+Tests: the "research challenger" engine tests, `src/test/report-challenge.test.tsx`, and the plan line in `src/test/task-clarify.test.tsx`.

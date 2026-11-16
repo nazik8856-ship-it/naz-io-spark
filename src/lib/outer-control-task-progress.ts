@@ -1,7 +1,7 @@
 // Outer Control: what a multi-tool Task (Start task) is doing right now, in one line, and the proof of a finished result at a
 // glance. Pure: the Task panel and the result card render what these return.
 import { contextUsedLine, type Artifact } from "@/lib/outer-control-artifact";
-import { isReportDoc, isSingleSource, KIND_NOUN, kindOf } from "@/lib/outer-control-report-doc";
+import { challengerOf, isReportDoc, isSingleSource, KIND_NOUN, kindOf } from "@/lib/outer-control-report-doc";
 
 export const REPORT_TOOL_PREFIX = "nazai-internal://report";
 
@@ -115,10 +115,13 @@ export function proofTiles(a: Artifact): ProofTile[] {
     const missed = steps.filter((s) => s.status !== "completed").map((s) => s.tool);
     const when = report?.parallel ? "at the same time" : steps.length > 1 ? "one after another" : "";
     const single = !!report && isSingleSource(report);
+    // A research challenger reviewed the answers; it is not one of them.
+    const challenger = report ? challengerOf(report)?.tool ?? null : null;
     tiles.push({
       key: "tools", title: "Tools used",
       text: `${ok.length ? `Answered: ${names([...new Set(ok)])}` : "No tool answered"}${when && ok.length > 1 ? ` (${when})` : ""}.${missed.length ? ` Did not answer: ${names([...new Set(missed)])}.` : ""}` +
-        (single ? " Single source: nothing was cross-checked." : ""),
+        (challenger ? ` ${challenger} challenged the answers.` : "") +
+        (single ? (challenger ? " Single source: one answer, challenged but not cross-checked." : " Single source: nothing was cross-checked.") : ""),
       tone: missed.length || single ? "warn" : "ok",
     });
   } else {
@@ -136,13 +139,19 @@ export function proofTiles(a: Artifact): ProofTile[] {
     : `${inForce} rule${inForce === 1 ? "" : "s"} checked every answer. ${changed ? `Text was removed ${changed} time${changed === 1 ? "" : "s"}` : "No text was removed"}${blocked ? `; ${blocked} repl${blocked === 1 ? "y was" : "ies were"} blocked and asked again` : ""}.`;
   tiles.push({ key: "rules", title: "What was controlled", text: ruleText, tone: fired || a.changes.length ? "warn" : "ok" });
 
-  // The checks
+  // The checks: an answer that completed without being specific to the request says so here (docs/outer-control-completion.md).
+  const generic = a.kind === "task"
+    ? a.proof.steps.filter((s) => s.generic).map((s) => `${s.tool}: ${s.generic}`)
+    : a.proof.quality && !a.proof.quality.ok ? [a.proof.quality.warning ?? "Partly generic."] : [];
+  const specific = a.kind === "session" && a.proof.quality?.ok ? " Specific to the request: it uses your context, answers every part and gives concrete detail where these apply." : "";
   tiles.push({
     key: "checks", title: "Checks",
     text: a.kind === "task"
-      ? `Every kept answer passed its completion check. Fingerprint ${a.output_sha256.slice(0, 12)}.`
-      : `${a.proof.summary} Fingerprint ${a.output_sha256.slice(0, 12)}.`,
-    tone: "ok",
+      ? `Every kept answer passed its completion check${generic.length ? `, but ${generic.length === 1 ? "one is" : `${generic.length} are`} partly generic (${generic.join(" ")})` : ""}. Fingerprint ${a.output_sha256.slice(0, 12)}.`
+      : a.proof.quality
+        ? `${a.proof.quality.ok ? `Completion check passed.${specific}` : `Completion check passed with a warning. ${generic[0]}`} Fingerprint ${a.output_sha256.slice(0, 12)}.`
+        : `${a.proof.summary} Fingerprint ${a.output_sha256.slice(0, 12)}.`,
+    tone: generic.length ? "warn" : "ok",
   });
   return tiles;
 }

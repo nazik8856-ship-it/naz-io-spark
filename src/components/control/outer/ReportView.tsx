@@ -1,7 +1,7 @@
 // Outer Control: a finished multi-tool result, designed: an opinions report, a comparison, a fact-check or a rewrite. The words
 // are the stored result word for word; this only lays them out.
-import { ShieldCheck, Layers, Scale, Sparkles, Quote, CalendarClock, Fingerprint, Table2, ListChecks, PenLine, Wand2, ListOrdered, HelpCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
-import { fingerprint, isSingleSource, kindMethod, kindOf, KIND_BADGE, KIND_NOUN, missingLine, singleSourceLine, VERDICT_LABEL, when, type ReportDoc } from "@/lib/outer-control-report-doc";
+import { ShieldCheck, Layers, Scale, Sparkles, Quote, CalendarClock, Fingerprint, Table2, ListChecks, PenLine, Wand2, ListOrdered, HelpCircle, AlertTriangle, CheckCircle2, Target } from "lucide-react";
+import { fingerprint, FOR_YOU_TITLE, isSingleSource, kindMethod, kindOf, KIND_BADGE, KIND_NOUN, missingLine, singleSourceLine, VERDICT_LABEL, when, type ReportDoc } from "@/lib/outer-control-report-doc";
 
 const Section = ({ title, icon, tone = "cyan", children, testid }: { title: string; icon: React.ReactNode; tone?: "cyan" | "emerald" | "amber"; children: React.ReactNode; testid?: string }) => {
   const color = tone === "emerald" ? "text-emerald-300" : tone === "amber" ? "text-amber-300" : "text-cyan-300";
@@ -43,7 +43,7 @@ export default function ReportView({ doc }: { doc: ReportDoc }) {
           <li key={o.n} className="flex gap-3 rounded-xl border border-white/10 bg-black/20 p-3" data-testid="report-opinion">
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-cyan-300 to-blue-500 text-sm font-bold text-[#04101f]">{o.n}</span>
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-white">{o.tool}</div>
+              <div className="text-sm font-semibold text-white">{o.tool}{o.n === doc.challenge && <span className="ml-1.5 rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium text-amber-200" data-testid="report-challenge-badge">challenge</span>}</div>
               <div className="text-[11px] text-slate-400">Received {when(o.at)}</div>
               <div className="mt-2 border-l-2 border-cyan-400/50 pl-3 text-slate-100"><Paras text={o.text} /></div>
               {o.shortened && <p className="mt-1 text-[11px] text-slate-400">Shortened for the report; the full controlled answer is stored in its step.</p>}
@@ -103,6 +103,24 @@ export default function ReportView({ doc }: { doc: ReportDoc }) {
             </p>
           )}
         </header>
+
+        {doc.implications?.length ? (
+          <Section title={FOR_YOU_TITLE} icon={<Target className="h-3.5 w-3.5" />} tone="emerald" testid="report-for-you">
+            <ul className="space-y-2.5 text-sm text-slate-100">
+              {doc.implications.map((m, i) => (
+                <li key={i} className="flex gap-2" data-testid="report-implication" data-basis={m.basis}>
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden />
+                  <div>
+                    <div>{m.step}</div>
+                    <div className={`mt-0.5 text-[11px] ${m.basis === "situation" ? "text-emerald-200/80" : "text-amber-200/80"}`}>
+                      {m.basis === "situation" ? "From your situation" : "Assumption"}: {m.why}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Section>
+        ) : null}
 
         {kind === "rewrite" || kind === "roles" || kind === "adapt" ? (
           <>
