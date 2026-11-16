@@ -15,6 +15,7 @@ import OnboardingWindows from "@/components/onboarding/OnboardingWindows";
 import OAuthReturnHandler from "@/components/OAuthReturnHandler";
 import IntegrationOAuthMessageBridge from "@/components/integrations/IntegrationOAuthMessageBridge";
 import { AuthGuard } from "@/components/AuthGuard";
+import { MfaGate } from "@/components/MfaGate";
 import { Sentry } from "@/lib/sentry";
 import { useBuildFreshnessCheck } from "@/hooks/useBuildFreshnessCheck";
 
@@ -148,6 +149,7 @@ const App = () => (
           <EntranceSplash>
             <OAuthReturnHandler />
             <Suspense fallback={<PageSkeleton />}>
+              <MfaGate>
               <Routes>
                 {/* Core Routes */}
                 <Route path="/" element={<Workflower />} />
@@ -229,6 +231,7 @@ const App = () => (
                 {/* Catch-all Redirect */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
+              </MfaGate>
 
               <Toaster />
               {/* sonner's own Toaster -- dozens of components (Generator, agents,
