@@ -9,7 +9,8 @@
 //   POST { action: "create_agent_tool", agent_id }   (one of the account's own NazAI agents as a step)
 //   POST { action: "start_goal", goal, criteria?: [up to 5 sentences], tool_ids: [1..3], max_rounds?, context?, api_key_id? }   (a Task that goes on until its criteria are met; costs one credit)
 //   POST { action: "task_decide", task_id, decision: "accept" | "more" | "stop" }   (what to do with a goal Task that is blocked)
-//   POST { action: "route_task", request }   (NazAI reads a request: which action, its text, background, labels; free, starts nothing)
+//   POST { action: "route_task", request }   (NazAI reads a request: which action, its text, background, labels, and up to 3 clarifying
+//        questions about what is not known yet (stage, audience, main limit); free, starts nothing)
 //   POST { action: "start_report", task?: <one of the 14 actions, default "opinions">, topic, background?, styles?, count?, tool_ids, project_id? }
 //        (a multi-tool action: every tool reply is checked, then one controlled result is written; uses TASK_CREDITS[task].
 //         Tool counts, text lengths and labels per action: TASK_LIMITS. styles = the styles / roles / audiences of rewrite / roles / adapt;
@@ -55,11 +56,12 @@ import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.
 import { checkFreeLimit } from "../_shared/free-limits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
 import { projectContextFor } from "../_shared/projects.ts";
-import { BRIEF_ROOM_WITH_PROJECT, CONTEXT_LIMIT, withContextBrief, type ContextSource } from "../_shared/outer-control-context-brief.ts"; // what NazAI knows about the business goes to every tool of a Task
+import { BRIEF_ROOM_WITH_PROJECT, CONTEXT_LIMIT, withContextBrief, type ContextSource, loadContextBrief } from "../_shared/outer-control-context-brief.ts"; // what NazAI knows about the business goes to every tool of a Task
 import { projectKeysFromEnv } from "../_shared/project-crypto.ts";
 
 import { detectMentions, namedButNotChosen } from "../_shared/outer-control-mentions.ts";
 import { requireCaller } from "../_shared/caller.ts";
+import { CLARIFY_KINDS, clarifyingQuestions } from "../_shared/outer-control-clarify.ts";
 
 /** How many requests NazAI's AI reads per account per day (route_task). */
 const ROUTE_DAILY_CAP = 200;
@@ -298,7 +300,11 @@ Deno.serve(async (req) => {
       // keyword reading is used, so the box keeps working; the page also remembers what it has already read.
       const cap = await checkRateLimit(admin, accountId, "outer_control_route_task", ROUTE_DAILY_CAP, 86_400);
       const route = await routeRequest(request, cap.allowed && pickAiGateway() !== null ? gatewayAi : null);
-      return json({ ok: true, ...route, capped: !cap.allowed });
+      // The clarifying step: what neither the request, its background nor what NazAI already knows says (stage, audience, main limit).
+      // Asked only for the actions whose answer depends on the situation; every answer is optional (docs/outer-control-context.md).
+      const brief = route.kind !== "unclear" && CLARIFY_KINDS.includes(route.kind) ? (await loadContextBrief(admin, accountId).catch(() => null))?.text ?? "" : "";
+      const questions = clarifyingQuestions({ kind: route.kind, request: route.text || request, background: route.background, brief });
+      return json({ ok: true, ...route, questions, capped: !cap.allowed });
     }
 
     if (action === "start_report") {

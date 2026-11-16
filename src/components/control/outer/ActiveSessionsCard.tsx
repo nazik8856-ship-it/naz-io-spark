@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Activity, Gauge, Plus, Play, ChevronDown, ChevronRight, Send, Square } from "lucide-react";
 import { toast } from "sonner";
+import { ocWrite } from "@/lib/encrypted-write";
 import ControlDiffView from "./ControlDiffView";
 import FinalArtifactView from "./FinalArtifactView";
 import { HonestStatusBadge, StatusReason } from "./HonestStatusBadge";
@@ -236,6 +237,15 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
       project_id: taskProject?.id, template: t.template ?? undefined, share_context: t.shareContext ? undefined : false,
     }, `${ACTION_INFO[t.kind].title} started: asking ${label}. Follow it in Your tasks below; the result appears there when it is done.`);
     if (r.ok) { setTaskStarts((n) => n + 1); setTaskProject(null); }
+    // Answers to the clarifying questions, kept for later Tasks as knowledge entries (encrypted, written through the server; the
+    // account's own rules decide who may add them). Not kept: this Task still used them.
+    if (r.ok && t.remember.length && accountId) {
+      const saved = await Promise.all(t.remember.map((a) => ocWrite("knowledge_base_entries").insert({
+        user_id: accountId, entry_text: `${a.label}: ${a.answer}`, action_type_pattern: "*", enabled: true, pending_review: false, auto_drafted: false,
+      }).then((x: { error: unknown }) => !x.error, () => false)));
+      if (saved.every(Boolean)) toast.success("Your answers are saved in your Knowledge base for your next Tasks.");
+      else toast.info("Your answers were used for this Task, but they could not be saved for next time (your role may not allow editing the Knowledge base).");
+    }
     return r.ok;
   };
 

@@ -102,3 +102,26 @@ every look (`foryou` in the section order), in every file, and the result's "How
 
 Tests: `supabase/functions/_shared/outer-control-for-you_test.ts`, `src/test/report-for-you.test.tsx`, and the engine test
 "what this means for you" in `tests/outer-control-engine/session-test.mts`.
+
+## A few details before the run (clarifying questions)
+
+When NazAI reads a request in *Start a task* (`route_task`), it also returns up to three short questions
+(`outer-control-clarify.ts`), but only what nothing already says:
+
+| Question | Not asked when |
+|---|---|
+| What stage is the business at? | the brief has a business line, or the request or its background says the stage (idea, launched, 2 years in, first 10 customers, …) |
+| Who is it for? | an audience is named or qualified ("Audience: …", B2B, students, "customers in Berlin"); a bare "customers" does not count |
+| What is the main limit: money, time or people? | a budget, deadline, amount, time span or team size is given |
+
+Only for the actions whose answer depends on the situation (opinions, research, compare, decision, multi-step, delegated); never for
+a rewrite, explanation, key points, fact-check, roles, adaptation, alternatives or draft.
+
+Every answer is optional and the Task never waits for them. Answers are added to the Task's background as "<label>: <answer>" (at
+most 160 characters each), so they reach every tool, go through the account's rules, and are listed as background under "What the
+tools knew". With **Remember these for my next Tasks** (on by default, shown once something is answered) each answer is also saved
+as a general knowledge entry, encrypted, through the same write the Knowledge base page uses; the account's own rules decide who may
+add one. The next Task's brief then carries it, so the question is not asked again. A save that is not allowed does not stop the Task
+and the person is told the answers were used but not kept.
+
+Tests: `supabase/functions/_shared/outer-control-clarify_test.ts`, `src/test/task-clarify.test.tsx`.

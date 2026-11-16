@@ -37,9 +37,14 @@ export type TaskTool = ToolHealthInput & { id: string; name: string; model?: str
 /** template: a look other than the original one, chosen before the Task starts; null when the original look was kept, or when the request itself says what it wants (a file type, a place) and no look was asked for. */
 export type TaskRequest = { kind: ReportKind; text: string; background: string; styles: string[]; count: number; toolIds: string[]; keepChoice: boolean; template: OutputTemplate | null;
   /** Give the tools what NazAI knows about the business (profile, the person's notes, knowledge entries). On unless the person switches it off. */
-  shareContext: boolean };
+  shareContext: boolean;
+  /** Answers to the clarifying questions to keep for later Tasks (saved as knowledge entries); empty when none, or "remember" is off. */
+  remember: { label: string; answer: string }[] };
+/** A question NazAI asks before the Task runs when nothing says it yet (outer-control-clarify.ts): optional, one line. */
+export type ClarifyQuestion = { id: string; question: string; why: string; placeholder: string; label: string };
+export const MAX_ANSWER_CHARS = 160;
 /** NazAI's reading of the request (outer-control-drive route_task). */
-export type TaskRoute = { kind: ReportKind | "unclear"; text: string; background: string; labels: string[]; count: number; question: string; source: "ai" | "rules" };
+export type TaskRoute = { kind: ReportKind | "unclear"; text: string; background: string; labels: string[]; count: number; question: string; source: "ai" | "rules"; questions?: ClarifyQuestion[] };
 
 /** What NazAI already read in this page, so the same request (ignoring case, spacing and a final full stop) is not read twice. */
 const readings = new Map<string, TaskRoute>();
@@ -80,6 +85,9 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   const [chooseAnyway, setChooseAnyway] = useState(false);
   // What NazAI knows about the business goes to the tools with the request, unless switched off here (the result says what was sent).
   const [shareContext, setShareContext] = useState(true);
+  // The clarifying step: answers to NazAI's questions (all optional) and whether to keep them for later Tasks.
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [remember, setRemember] = useState(true);
   const readId = useRef(0);
 
   // NazAI reads the request a moment after the person stops typing. An older reading that arrives late is ignored.
@@ -116,7 +124,12 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   const kind: ReportKind | null = chosenKind ?? (route && route.kind !== "unclear" ? route.kind : null);
   const lim = kind ? TASK_LIMITS[kind] : null;
   const text = route?.text?.trim() ? route.text : request.trim();
-  const background = route?.background ?? "";
+  const typedBackground = route?.background ?? "";
+  // Questions are asked for the action NazAI read; a different action chosen by hand may not need them.
+  const questions = route && kind && route.kind === kind ? (route.questions ?? []) : [];
+  const answered = questions.map((q) => ({ label: q.label, answer: (answers[q.id] ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_ANSWER_CHARS) })).filter((a) => a.answer);
+  // The answers reach every tool as part of the background, and are listed with it in the result.
+  const background = [typedBackground, ...answered.map((a) => `${a.label}: ${a.answer}`)].filter(Boolean).join("\n");
   // Tool names choose the tools only where the text is a request; in a text to check, rewrite, explain or adapt they are content.
   const routingText = !kind ? "" : ROUTING_TEXT.includes(kind) ? request : request.replace(text, "");
   const plan = useToolPlan(routingText, tools, picked, lim?.maxTools ?? 1);
@@ -147,10 +160,10 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
 
   const requested = useMemo(() => detectRequestedOutput(request), [request]);
   const askLook = !requested.specified || chooseAnyway;
-  const reset = () => { setRequest(""); setRoute(null); setChosenKind(null); setLabels([]); setCount(3); setPicked([]); setTemplate(DEFAULT_TEMPLATE); setChooseAnyway(false); setShareContext(true); };
+  const reset = () => { setRequest(""); setRoute(null); setChosenKind(null); setLabels([]); setCount(3); setPicked([]); setTemplate(DEFAULT_TEMPLATE); setChooseAnyway(false); setShareContext(true); setAnswers({}); setRemember(true); };
   const start = async () => {
     if (busy || !kind || problem || reading) return;
-    const ok = await onStart({ kind, text, background, styles: lim?.labels ? labels : [], count, toolIds: picked, keepChoice: plan.kept, template: askLook && template !== DEFAULT_TEMPLATE ? template : null, shareContext });
+    const ok = await onStart({ kind, text, background, styles: lim?.labels ? labels : [], count, toolIds: picked, keepChoice: plan.kept, template: askLook && template !== DEFAULT_TEMPLATE ? template : null, shareContext, remember: remember ? answered : [] });
     if (ok) { reset(); onOpenChange(false); }
   };
 
@@ -244,10 +257,10 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
                     </label>
                     {reading && <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-300" aria-label="Reading again" />}
                   </div>
-                  {kind && (text !== request.trim() || background) && (
+                  {kind && (text !== request.trim() || typedBackground) && (
                     <dl className="mt-3 space-y-1.5 border-t border-white/10 pt-3 text-xs">
                       {text !== request.trim() && <div className="flex gap-2" data-testid="task-text"><dt className="w-24 shrink-0 text-zinc-500">Works on: </dt><dd className="text-zinc-200">{clipLine(text, 200)}</dd></div>}
-                      {background && <div className="flex gap-2" data-testid="task-background"><dt className="w-24 shrink-0 text-zinc-500">Background sent to every tool: </dt><dd className="text-zinc-200">{clipLine(background, 200)}</dd></div>}
+                      {typedBackground && <div className="flex gap-2" data-testid="task-background"><dt className="w-24 shrink-0 text-zinc-500">Background sent to every tool: </dt><dd className="text-zinc-200">{clipLine(typedBackground, 200)}</dd></div>}
                     </dl>
                   )}
                 </>
@@ -381,6 +394,29 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
               One tool gives one point of view, so nothing can be cross-checked; the result will say so. Pick a second tool to compare.
             </p>
           )}
+          {kind && questions.length > 0 && (
+            <fieldset className="oc-in rounded-xl border border-cyan-400/20 bg-cyan-400/[0.04] px-3 py-3" data-testid="task-clarify">
+              <legend className="px-1 text-xs font-medium text-cyan-200">A few details make the answer fit you <span className="text-zinc-500">(optional)</span></legend>
+              <div className="space-y-2.5">
+                {questions.map((q) => (
+                  <label key={q.id} className="block text-xs" data-testid={`task-clarify-${q.id}`}>
+                    <span className="text-zinc-200">{q.question}</span>
+                    <span className="ml-1 text-[11px] text-zinc-500">{q.why}</span>
+                    <input type="text" value={answers[q.id] ?? ""} maxLength={MAX_ANSWER_CHARS} placeholder={q.placeholder} aria-label={q.question}
+                      onChange={(e) => setAnswers((a) => ({ ...a, [q.id]: e.target.value }))}
+                      className="mt-1 w-full rounded-lg border border-white/15 bg-black/40 px-2.5 py-1.5 text-xs text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/60" />
+                  </label>
+                ))}
+                {answered.length > 0 && (
+                  <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-snug text-zinc-400" data-testid="task-clarify-remember">
+                    <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="mt-0.5 accent-cyan-400" />
+                    <span>Remember these for my next Tasks (saved in my Knowledge base, where I can change or remove them).</span>
+                  </label>
+                )}
+              </div>
+            </fieldset>
+          )}
+
           <div className="space-y-1.5">
             {kind && (
               <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] leading-snug text-zinc-300" data-testid="task-share-context">

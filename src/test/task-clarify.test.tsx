@@ -1,0 +1,112 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
+import { MemoryRouter } from "react-router-dom";
+
+const state = vi.hoisted(() => ({ tools: [] as unknown[], sessions: [] as unknown[], workflows: [] as unknown[], imported: [] as unknown[], records: [] as unknown[], route: null as Record<string, unknown> | null, routeFails: false }));
+
+vi.mock("@/integrations/supabase/client", () => {
+  const result = (table: string) => {
+    const data = table === "external_tools" ? state.tools : table === "outer_control_sessions" ? state.sessions : table === "outer_control_workflows" ? state.workflows : table === "imported_projects" ? state.imported : table === "outer_control_tool_record" ? state.records : [];
+    const q: Record<string, unknown> = {};
+    let single = false;
+    for (const m of ["select", "eq", "neq", "not", "is", "in", "order", "limit"]) q[m] = () => q;
+    q.maybeSingle = () => { single = true; return q; };
+    q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: single ? (data as unknown[])[0] ?? null : data, error: null }).then(res);
+    return q;
+  };
+  return { supabase: { from: result, auth: { getSession: async () => ({ data: { session: { access_token: "jwt" } } }) } }, SUPABASE_FUNCTIONS_URL: "https://x.test/functions/v1", SUPABASE_ANON: "anon" };
+});
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+const saved = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], fail: false }));
+vi.mock("@/lib/encrypted-write", () => ({ ocWrite: (table: string) => ({ insert: async (row: Record<string, unknown>) => { saved.rows.push({ table, ...row }); return { error: saved.fail ? { message: "denied" } : null }; } }) }));
+
+import ActiveSessionsCard from "@/components/control/outer/ActiveSessionsCard";
+import { forgetReadings } from "@/components/control/outer/TaskPanel";
+import { toast } from "sonner";
+
+const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+const good = (id: string, name: string) => ({ id, name, endpoint_url: `https://${id}.example.com/chat`, request_format: "generic_json", approved_at: ago(500), last_ok_at: ago(3), last_checked_at: ago(3), last_error: null });
+const writer = { id: "rw", name: "NazAI report writer", endpoint_url: "nazai-internal://report", request_format: "generic_json", approved_at: ago(500), last_ok_at: ago(3), last_checked_at: ago(3), last_error: null };
+const render_ = () => render(<MemoryRouter><ActiveSessionsCard accountId="u1" /></MemoryRouter>);
+const calls = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([, init]) => JSON.parse((init as RequestInit).body as string));
+
+
+const QUESTIONS = [
+  { id: "stage", label: "Stage of the business", question: "What stage is the business at?", why: "Advice differs.", placeholder: "e.g. idea only" },
+  { id: "audience", label: "Who it is for", question: "Who is it for?", why: "So it speaks to your buyers.", placeholder: "e.g. gift buyers" },
+  { id: "constraint", label: "Main limit", question: "What is the main limit: money, time or people?", why: "So it fits.", placeholder: "e.g. 300 EUR a month" },
+];
+
+describe("the clarifying step before a Task runs", () => {
+  beforeEach(() => {
+    state.tools = [good("a", "ChatGPT"), writer]; state.sessions = []; state.workflows = []; state.imported = []; state.records = []; state.routeFails = false;
+    state.route = { kind: "research", questions: QUESTIONS }; saved.rows = []; saved.fail = false; forgetReadings();
+    vi.clearAllMocks();
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      if (body.action === "route_task") return { ok: true, json: async () => ({ ok: true, text: body.request, background: "", labels: [], count: 0, question: "", source: "ai", ...state.route }) };
+      return { ok: true, json: async () => ({ ok: true, task_id: "w1" }) };
+    }));
+  });
+  const open = async (request = "How do I find more customers?") => {
+    render(<MemoryRouter><ActiveSessionsCard accountId="u1" /></MemoryRouter>);
+    fireEvent.click(await screen.findByTestId("start-task-button"));
+    fireEvent.change(screen.getByLabelText("Describe the task"), { target: { value: request } });
+    await screen.findByTestId("task-plan-line", {}, { timeout: 3000 });
+    fireEvent.click(screen.getByLabelText("Ask ChatGPT"));
+  };
+  const lastStart = () => calls().filter((c) => c.action === "start_report").at(-1);
+
+  it("asks the questions NazAI returned, all optional: starting without answers works and saves nothing", async () => {
+    await open();
+    expect(screen.getByTestId("task-clarify").textContent).toMatch(/A few details make the answer fit you\s*\(optional\)/);
+    for (const q of QUESTIONS) expect(screen.getByLabelText(q.question)).toBeTruthy();
+    expect(screen.queryByTestId("task-clarify-remember")).toBeNull();
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()).toEqual({ action: "start_report", task: "research", topic: "How do I find more customers?", tool_ids: ["a"] }));
+    expect(saved.rows).toEqual([]);
+  });
+
+  it("answers reach every tool in the background, and are kept as knowledge entries for later Tasks", async () => {
+    await open();
+    fireEvent.change(screen.getByLabelText("Who is it for?"), { target: { value: "  gift buyers   in Germany " } });
+    fireEvent.change(screen.getByLabelText("What is the main limit: money, time or people?"), { target: { value: "300 EUR a month" } });
+    const remember = screen.getByLabelText(/Remember these for my next Tasks/) as HTMLInputElement;
+    expect(remember.checked).toBe(true);
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()?.background).toBe("Who it is for: gift buyers in Germany\nMain limit: 300 EUR a month"));
+    await waitFor(() => expect(saved.rows.length).toBe(2));
+    expect(saved.rows[0]).toEqual({ table: "knowledge_base_entries", user_id: "u1", entry_text: "Who it is for: gift buyers in Germany", action_type_pattern: "*", enabled: true, pending_review: false, auto_drafted: false });
+    expect((toast.success as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]).toBe("Your answers are saved in your Knowledge base for your next Tasks.");
+  });
+
+  it("with 'remember' off the answers are used for this Task only and nothing is saved", async () => {
+    await open();
+    fireEvent.change(screen.getByLabelText("What stage is the business at?"), { target: { value: "first 10 customers" } });
+    fireEvent.click(screen.getByLabelText(/Remember these for my next Tasks/));
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()?.background).toBe("Stage of the business: first 10 customers"));
+    expect(saved.rows).toEqual([]);
+  });
+
+  it("a save that is refused does not stop the Task and says why", async () => {
+    saved.fail = true;
+    await open();
+    fireEvent.change(screen.getByLabelText("Who is it for?"), { target: { value: "yoga teachers" } });
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()?.background).toBe("Who it is for: yoga teachers"));
+    await waitFor(() => expect((toast.info as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]).toMatch(/used for this Task, but they could not be saved/));
+  });
+
+  it("no questions when NazAI returned none, or when another action is chosen by hand", async () => {
+    state.route = { kind: "research", questions: [] };
+    await open();
+    expect(screen.queryByTestId("task-clarify")).toBeNull();
+    state.route = { kind: "research", questions: QUESTIONS }; forgetReadings();
+    fireEvent.change(screen.getByLabelText("Describe the task"), { target: { value: "How do I find more buyers?" } });
+    await waitFor(() => expect(screen.queryByTestId("task-clarify")).toBeTruthy(), { timeout: 3000 });
+    fireEvent.change(screen.getByLabelText("Change the action"), { target: { value: "rewrite" } });
+    expect(screen.queryByTestId("task-clarify")).toBeNull();
+  });
+});
