@@ -39,6 +39,14 @@ const CONSTRAINT = /(?:[$€£]\s?\d|\d\s?(?:k|eur|euros?|usd|dollars?|gbp|pound
  */
 export function clarifyingQuestions(i: { kind: ReportKind | "unclear"; request: string; background?: string | null; brief?: string | null }): ClarifyQuestion[] {
   if (i.kind === "unclear" || !CLARIFY_KINDS.includes(i.kind)) return [];
+  return missingQuestions(i);
+}
+
+/**
+ * What nothing says yet, whatever the action: the page shows these for any action in CLARIFY_KINDS, including one the person picks by
+ * hand after NazAI read the request as something else (route_task returns them with the list of actions they apply to).
+ */
+export function missingQuestions(i: { request: string; background?: string | null; brief?: string | null }): ClarifyQuestion[] {
   const said = [i.request, i.background ?? "", i.brief ?? ""].join("\n");
   const out: ClarifyQuestion[] = [];
   // The brief's business line ("Business: Lumen Candles. Hand-poured …") already says what the business is and how far along.

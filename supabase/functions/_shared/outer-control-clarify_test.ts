@@ -1,8 +1,16 @@
 // Run with: deno test --no-check supabase/functions/_shared/outer-control-clarify_test.ts
 // The clarifying step (docs/outer-control-context.md): ask only what nothing already says, only where the situation matters, at most 3.
-import { clarifyingQuestions, CLARIFY_QUESTIONS } from "./outer-control-clarify.ts";
+import { clarifyingQuestions, CLARIFY_KINDS, CLARIFY_QUESTIONS, missingQuestions } from "./outer-control-clarify.ts";
 
 function assert(c: unknown, m: string) { if (!c) throw new Error(m); }
+
+Deno.test("what is missing is worked out whatever action NazAI read, so a person who picks Research by hand still gets the questions", () => {
+  const req = { request: "How should a small AI startup get its first 10 paying customers?" };
+  // "startup" says the stage; nothing says who it is for or the main limit.
+  assert(missingQuestions(req).map((q) => q.id).join(",") === "audience,constraint", missingQuestions(req).map((q) => q.id).join(","));
+  assert(clarifyingQuestions({ ...req, kind: "explain" }).length === 0, "an action that needs no situation still asks nothing");
+  assert(CLARIFY_KINDS.includes("research") && !CLARIFY_KINDS.includes("rewrite"), "the page is told which actions they apply to");
+});
 const ids = (i: Parameters<typeof clarifyingQuestions>[0]) => clarifyingQuestions(i).map((q) => q.id).join(",");
 
 Deno.test("a bare request with nothing known gets all three questions", () => {

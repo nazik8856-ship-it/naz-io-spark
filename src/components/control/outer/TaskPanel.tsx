@@ -46,7 +46,9 @@ export const MAX_ANSWER_CHARS = 160;
 /** A research Task gets a challenger step when the answers, the challenger and the writer fit in a Task's 6 steps. */
 export const MAX_CHALLENGED = 4;
 /** NazAI's reading of the request (outer-control-drive route_task). */
-export type TaskRoute = { kind: ReportKind | "unclear"; text: string; background: string; labels: string[]; count: number; question: string; source: "ai" | "rules"; questions?: ClarifyQuestion[] };
+export type TaskRoute = { kind: ReportKind | "unclear"; text: string; background: string; labels: string[]; count: number; question: string; source: "ai" | "rules"; questions?: ClarifyQuestion[];
+  /** The actions the questions apply to (the ones whose answer depends on the person's situation). */
+  question_kinds?: ReportKind[] };
 
 /** What NazAI already read in this page, so the same request (ignoring case, spacing and a final full stop) is not read twice. */
 const readings = new Map<string, TaskRoute>();
@@ -127,8 +129,9 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   const lim = kind ? TASK_LIMITS[kind] : null;
   const text = route?.text?.trim() ? route.text : request.trim();
   const typedBackground = route?.background ?? "";
-  // Questions are asked for the action NazAI read; a different action chosen by hand may not need them.
-  const questions = route && kind && route.kind === kind ? (route.questions ?? []) : [];
+  // Questions are shown for any action whose answer depends on the situation, also one picked by hand after NazAI read the request
+  // as something else. (A server from before question_kinds only sent them for the action it read.)
+  const questions = route && kind && (route.question_kinds ? route.question_kinds.includes(kind) : route.kind === kind) ? (route.questions ?? []) : [];
   const answered = questions.map((q) => ({ label: q.label, answer: (answers[q.id] ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_ANSWER_CHARS) })).filter((a) => a.answer);
   // The answers reach every tool as part of the background, and are listed with it in the result.
   const background = [typedBackground, ...answered.map((a) => `${a.label}: ${a.answer}`)].filter(Boolean).join("\n");
