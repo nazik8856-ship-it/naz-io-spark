@@ -2,7 +2,20 @@
 // its own: three starter tools answer with NazAI's own AI, each from a different angle, so a Task still has several replies to
 // check and one clean result. They are internal tools (an address NazAI never fetches), and each account gets them for its
 // first STARTER_TASKS Tasks only: a session of a later Task is stopped before anything is asked, with a plain reason.
+//
+// Day 3, the built-in path made specific (docs/outer-control-context.md, "Built-in tools"):
+//   - a task card on top of every built-in call: the goal, the person's situation, the rules in force and what a useful answer is
+//     for this action (taskCard);
+//   - a distinct job per tool where the three answer the same question: the Writer gives the practical answer, the Analyst ranks
+//     what matters, the Reviewer challenges what a typical answer gets wrong (jobFor);
+//   - an anti-generic pass: an answer the completion gate would call generic is rewritten once, inside the call, before NazAI's
+//     checks run on it, so the rules still see the final text (askStarter).
 import { callAiGateway, pickAiGateway } from "./ai-gateway.ts";
+import { assessSpecific, type QualityId } from "./outer-control-completion.ts";
+import { isChallenge } from "./outer-control-report.ts";
+import { parseToolReply, type RuleLine } from "./outer-control-tool-request.ts";
+import type { ReportKind } from "./outer-control-report-doc.ts";
+import { fenceUntrusted } from "./untrusted-input.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -13,17 +26,81 @@ export const STARTER_TASKS = 2;
 export const STARTER_TOOLS = [
   {
     key: "writer", name: "NazAI Writer",
-    system: "You are a clear, practical writer. Answer the request directly and usefully, in plain language, with a concrete example where it helps.",
+    system: "You are a clear, practical writer: plain language, a concrete example where it helps.",
+    job: "Your job: the practical answer. Give the steps, wording or plan the person can use as it is, in the order they would do it, written for their situation. Do not rank options or list risks: the Analyst and the Reviewer do that.",
   },
   {
     key: "analyst", name: "NazAI Analyst",
-    system: "You are a careful analyst. Answer the request with the key facts, numbers and trade-offs, and say plainly what you are not sure about.",
+    system: "You are a careful analyst: facts, numbers and trade-offs, and you say plainly what you are not sure about.",
+    job: "Your job: prioritise. Rank the 3 to 5 things that matter most for this person (by impact, cost and time, within their limits), say in one line why each sits where it does, and which one to do first. Do not write out a full how-to: the Writer does that.",
   },
   {
     key: "reviewer", name: "NazAI Reviewer",
-    system: "You are a sceptical reviewer. Answer the request, then point out risks, common mistakes and what is often missed.",
+    system: "You are a sceptical reviewer: you look for what is weak, vague or unsupported.",
+    job: "Your job: challenge. Name the claims a typical answer to this request gets wrong or leaves vague for this person's situation, say why each fails here, and give the specific replacement. Do not repeat the standard advice: the Writer and the Analyst give the answer.",
   },
 ] as const;
+
+/** The actions where the three tools answer the same question, so each gets its own job instead of the same one. */
+export const ROLE_KINDS: ReportKind[] = ["opinions", "research", "compare", "decision"];
+const SAME_JOB = "Your job: do exactly what the request asks, in the format it asks for.";
+const CHALLENGE_JOB = "Your job: challenge the answers you are given, as the request says: what is missing, generic or unsupported for this person, and the specific fix.";
+
+/** What a useful answer is, by action: the line of the task card that says what the person needs from it. */
+const USEFUL: Partial<Record<ReportKind, string>> = {
+  research: "findings specific enough to act on (names, figures, dates or steps), each with how sure it is, then what applies to this person.",
+  opinions: "a clear position with the reasons that hold for this person's situation.",
+  compare: "a direct, complete answer that can be compared point by point with other tools' answers.",
+  decision: "a recommendation with the factors that decide it for this person, and what would change it.",
+  factcheck: "a verdict on each part of the claim, with the reason and the correction.",
+  multistep: "the finished piece of work for this step, ready to use.",
+  delegate: "the finished piece of work, ready to use.",
+};
+const USEFUL_DEFAULT = "an answer the person can act on today.";
+
+/** What a built-in call is about: the step's full instruction, and the person's own request, situation and rules for the task card. */
+export type StarterTask = {
+  /** The step's instruction as every tool gets it (request, context, rules, reply format). */
+  instruction: string;
+  /** The person's own request (without NazAI's instructions around it). */
+  request: string;
+  /** The Task's context: the person's situation (their background and what NazAI knows about them). Null when there is none. */
+  situation: string | null;
+  rules: RuleLine[];
+  omittedRules?: number;
+  /** The Task's action; null for a session on its own. */
+  kind: ReportKind | null;
+  /** The completion gate's checks for this action: the anti-generic pass uses the same ones. Empty: no pass. */
+  checks: QualityId[];
+};
+
+/** The job a built-in tool does on this step. */
+export function jobFor(key: string, t: Pick<StarterTask, "instruction" | "kind">): string {
+  if (isChallenge(t.instruction)) return CHALLENGE_JOB;
+  if (!t.kind || !ROLE_KINDS.includes(t.kind)) return SAME_JOB;
+  return STARTER_TOOLS.find((x) => x.key === key)?.job ?? SAME_JOB;
+}
+
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+
+/** The task card: what a built-in tool reads first. Every part is always there; a missing situation is said plainly. */
+export function taskCard(t: StarterTask, job: string): string {
+  const situation = t.situation && t.situation.trim()
+    ? clip(t.situation.trim(), 1500)
+    : "Not given. Open your answer with one line \"Assumed situation: …\" (stage, who it is for, main limit), then answer for exactly that situation.";
+  const names = t.rules.map((r) => r.name).filter(Boolean);
+  const rules = names.length
+    ? `Your answer is checked automatically and must stay clear of: ${names.join("; ")}${t.omittedRules ? ` (and ${t.omittedRules} more)` : ""}. It must also contain no secrets, card numbers or destructive wording.`
+    : "Your answer is checked automatically: no secrets, card numbers or destructive wording.";
+  return [
+    "TASK CARD (read this first; the full request follows)",
+    `Goal: ${clip(t.request.trim(), 600)}`,
+    `Situation:\n${situation}`,
+    `Rules in force: ${rules}`,
+    `A useful answer here is ${(t.kind && USEFUL[t.kind]) || USEFUL_DEFAULT} Concretely: it names this person's situation, says what to do, who does it, when and with what numbers, and contains nothing that would fit any business.`,
+    job,
+  ].join("\n");
+}
 
 export const isStarterUrl = (url: unknown): boolean => typeof url === "string" && url.startsWith(STARTER_TOOL_URL);
 export const starterKeyOf = (url: string): string => url.slice(STARTER_TOOL_URL.length);
@@ -96,9 +173,38 @@ export const gatewayStarterAi: StarterAi = async (system, user) => {
   } catch { return null; }
 };
 
-/** One starter tool's answer to the step's instruction (which already carries the request, its context and the rules). */
-export async function askStarter(ai: StarterAi, url: string, instruction: string): Promise<string | null> {
-  const tool = STARTER_TOOLS.find((t) => t.key === starterKeyOf(url));
+const SHARPEN_SYSTEM = "You make an answer specific to one person's situation. Keep every correct point and keep within every rule. " +
+  "Do not invent facts, names, prices or results: where a specific number or name is needed and not known, give a plausible one marked " +
+  "\"Assumption:\" or \"(estimate)\". Replace each phrase that would fit any business with what exactly to do. Reply with the improved answer " +
+  "only, as plain text, in the same language and roughly the same length, with no preamble.";
+
+/** What the anti-generic pass found and did; null when the first answer was specific enough (or the pass does not apply). */
+export type Sharpened = { problems: string[]; improved: boolean };
+
+/**
+ * One built-in tool's answer: the task card and the tool's own job on top of the step's instruction. An answer the completion gate
+ * would call generic is rewritten once with the exact problems; the reply returned is what NazAI then checks like any other.
+ */
+export async function askStarter(ai: StarterAi, url: string, t: StarterTask): Promise<{ reply: string; sharpened: Sharpened | null } | null> {
+  const tool = STARTER_TOOLS.find((x) => x.key === starterKeyOf(url));
   if (!tool) return null;
-  return await ai(`${tool.system} Follow every rule you are given. Keep the answer under 400 words.`, instruction.slice(0, 12_000));
+  const job = jobFor(tool.key, t);
+  const card = taskCard(t, job);
+  const raw = await ai(`${tool.system} ${job} Follow every rule you are given. Stay within the length the request asks for, and under 700 words.`,
+    `${card}\n\n${t.instruction}`.slice(0, 14_000));
+  if (raw === null) return null;
+  if (!t.checks.length) return { reply: raw, sharpened: null };
+  const first = parseToolReply(raw);
+  if (first.status !== "done") return { reply: raw, sharpened: null };
+  const q = assessSpecific(first.answer, { request: t.request, context: t.situation, checks: t.checks });
+  if (!q || q.ok) return { reply: raw, sharpened: null };
+  const problems = q.checks.filter((c) => !c.ok).map((c) => c.detail);
+  const better = await ai(SHARPEN_SYSTEM, [
+    card,
+    fenceUntrusted(first.answer, { label: "answer to improve", max: 8000 }).block,
+    `What is wrong with it:\n${problems.map((p) => `- ${p}`).join("\n")}`,
+  ].join("\n\n").slice(0, 14_000));
+  const improved = better && better.trim() ? parseToolReply(better).answer.trim() : "";
+  if (!improved) return { reply: raw, sharpened: { problems, improved: false } };
+  return { reply: JSON.stringify({ status: "done", answer: improved }), sharpened: { problems, improved: true } };
 }

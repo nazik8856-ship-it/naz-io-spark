@@ -155,7 +155,18 @@ export type DecisionView = {
   meaning?: { checked: number; unavailable: boolean; discarded: number; findings: { rule: string; action: string; why: string; quote: string | null }[] } | null;
   /** The reply compared with the Task's project: contradictions, quoted on both sides (flagged, never blocked). */
   project_check?: { ran: boolean; contradictions: { reply_quote: string; project_quote: string; why: string }[]; discarded?: number } | null;
+  /** A built-in tool's first answer was generic: what was wrong, and whether the rewrite came back (the first answer is not kept). */
+  sharpened?: { problems: string[]; improved: boolean } | null;
 };
+
+/** The anti-generic pass of a built-in tool, as one line for the step. */
+export function sharpenedLine(x: DecisionView["sharpened"]): string | null {
+  if (!x || !x.problems?.length) return null;
+  const why = x.problems.join("; ");
+  return x.improved
+    ? `NazAI sharpened this answer before checking it. The first one was generic: ${why}.`
+    : `This answer was generic (${why}). NazAI's rewrite did not come back, so the first answer was checked and used.`;
+}
 export type DiffSegment = { t: string } | { removed: string; rule: string } | { flagged: string; rule: string; effect: "block" | "approval" };
 
 /** "1 removed · 1 flagged": what the rules did to one reply. */
@@ -175,6 +186,8 @@ export function describeDecision(d: DecisionView | null | undefined): string[] {
   else if (d.why) lines.push(`Why: ${d.why.length > 280 ? `${d.why.slice(0, 279)}…` : d.why}`);
   for (const b of d.plan?.basis ?? []) lines.push(`Based on: ${b}`);
   if (d.plan?.reason) lines.push(`Next: ${d.plan.reason}`);
+  const sharp = sharpenedLine(d.sharpened);
+  if (sharp) lines.push(sharp);
   lines.push(...meaningLines(d.meaning));
   if (d.project_check) {
     const c = d.project_check;

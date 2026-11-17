@@ -18,6 +18,7 @@
 
 import { parseStrictObject } from "./model-output.ts";
 import { contentWords, stem, stems } from "./outer-control-words.ts";
+import { COMMON_WORDS, specificDetails, stockPhrases } from "./outer-control-generic.ts";
 import type { ReportKind } from "./outer-control-report-doc.ts";
 export const COMPLETION_VERSION = 1;
 
@@ -261,7 +262,9 @@ export const QUALITY_BY_KIND: Record<ReportKind, QualityId[]> = {
 };
 
 const MIN_WORDS_CONTEXT = 80;
-const MIN_WORDS_CONCRETE = 150;
+const MIN_WORDS_CONCRETE = 80;
+/** Stock phrases ("leverage", "target audience") an answer may use before it reads as one that fits any business. */
+const MAX_STOCK = 2;
 const MAX_PARTS = 8;
 // Words of the context's own structure (the brief's labels and its first line), not of the person's situation.
 const CONTEXT_LABELS = stems("what nazai knows about the person asking information instructions situation assumption answer business industry audience " +
@@ -284,7 +287,7 @@ export function contextTerms(context: string, request: string): string[] {
       const [w] = contentWords(raw);
       if (!w) return;
       const name = i > 0 && /^\p{Lu}/u.test(raw);
-      if (!(name || /\d/.test(w) || w.length >= 6)) return;
+      if (!(name || /\d/.test(w) || (w.length >= 6 && !COMMON_WORDS.has(w)))) return;
       const st = stem(w);
       if (req.has(st) || CONTEXT_LABELS.has(st) || out.has(st)) return;
       out.set(st, w);
@@ -342,10 +345,14 @@ export function assessSpecific(text: string, scope: QualityScope): Quality | nul
     }
   }
   if (scope.checks.includes("concrete") && words >= MIN_WORDS_CONCRETE) {
-    const n = specifics(body);
-    const need = Math.max(3, Math.ceil(words / 100));
-    if (n >= need) add("concrete", true, `${n} concrete details in ${words} words`);
-    else add("concrete", false, `it is ${words} words but has only ${n} concrete detail${n === 1 ? "" : "s"} (numbers, names, steps or examples); give at least ${need}`);
+    // Distinct details only: a repeated number, a capitalised heading or a list marker does not count (outer-control-generic.ts).
+    const n = specificDetails(body).length;
+    const need = Math.max(3, Math.ceil(words / 90));
+    const stock = stockPhrases(body);
+    const stockLimit = Math.max(MAX_STOCK, Math.floor(words / 150));
+    if (n < need) add("concrete", false, `it is ${words} words but has only ${n} distinct concrete detail${n === 1 ? "" : "s"} (numbers, amounts, names, examples); give at least ${need}`);
+    else if (stock.length > stockLimit) add("concrete", false, `it leans on phrases that would fit any business (${stock.slice(0, 4).map((w) => quote(w, 30)).join(", ")}): replace each with what exactly to do`);
+    else add("concrete", true, `${n} concrete details in ${words} words`);
   }
   if (checks.length === 0) return null;
   return { ok: checks.every((c) => c.ok), checks };

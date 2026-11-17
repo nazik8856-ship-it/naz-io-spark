@@ -2116,6 +2116,28 @@ await t("starter AI: a reply in the reply format (or in a code fence) is unpacke
     assert.ok(!String(steps()[0].reply_text).includes('"status"'), "no reply-format text in what is shown");
   }
 });
+// Day 3: the built-in path made specific. A task card first; a generic answer rewritten once before the checks; recorded on the step.
+await t("starter AI: reads a task card first; a generic first answer is rewritten once, and the rewrite is what is checked and kept", async () => {
+  starterSetup(); sess().workflow_id = null;
+  sess().objective = "How do I get my first 10 students?"; sess().context = "Who it is for: yoga teachers in Vienna\nMain limit: 200 EUR a month";
+  const GENERIC_A = "Focus on your niche and leverage existing tools to build relationships with your target audience. It is important to stay ahead of the market and maximize reach through a strong online presence. " +
+    "Use best practices, gather valuable insights and continuously improve. Consider using social channels and engage with your audience regularly so that the business grows and the customers stay with you. " +
+    "Over time this approach will help you understand what works, refine the offer and keep the momentum going as the company moves forward step by step.";
+  const SPECIFIC_A = `For yoga teachers in Vienna with 200 EUR a month:\n1. This week, list 30 studios in Vienna's 7th district from Google Maps.\n2. Email 10 a day for 3 days offering a free 45-minute trial class on a Sunday.\n` +
+    `3. Spend 60 EUR on one Instagram post aimed at Neubau and Mariahilf.\n4. Charge 15 EUR a drop-in, or 120 EUR for 10 classes (estimate).\n5. After 2 weeks, ask the 3 most regular students for one referral each. Use ${SECRET} nowhere.`;
+  const asked: { system: string; user: string }[] = [];
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, starterAi: async (system: string, user: string) => {
+    asked.push({ system, user }); return asked.length === 1 ? JSON.stringify({ status: "done", answer: GENERIC_A }) : SPECIFIC_A;
+  } });
+  assert.equal(r.status, "completed", sess().stop_reason); assert.equal(calls.length, 0);
+  assert.equal(asked.length, 2, "one answer, one rewrite: no more");
+  assert.ok(asked[0].user.startsWith("TASK CARD") && asked[0].user.includes("Goal: How do I get my first 10 students?") && asked[0].user.includes("yoga teachers in Vienna"), asked[0].user.slice(0, 300));
+  assert.match(asked[1].system, /specific to one person's situation/);
+  // The rewrite went through the same checks: the secret in it is removed.
+  assert.ok(sess().final_output.startsWith("For yoga teachers in Vienna") && !sess().final_output.includes(SECRET), sess().final_output);
+  const d = steps()[0].decision; assert.equal(d.sharpened.improved, true); assert.match(d.sharpened.problems.join(" "), /concrete detail/);
+  assert.ok(!JSON.stringify(d).includes("leverage existing tools"), "the unchecked first answer is not kept");
+});
 await t("starter AI: when NazAI's AI does not answer, the step fails like an unreachable tool and nothing is invented", async () => {
   starterSetup();
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, starterAi: async () => null });

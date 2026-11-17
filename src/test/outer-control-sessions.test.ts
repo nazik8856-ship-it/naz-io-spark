@@ -71,6 +71,9 @@ describe("outer-control-sessions", () => {
   it("turns a stored decision into short reasoning lines, and says nothing when there is none", () => {
     expect(describeDecision(null)).toEqual([]);
     expect(describeDecision(undefined)).toEqual([]);
+    // A built-in tool's generic first answer, rewritten before the checks (Day 3): what was wrong, never the first answer itself.
+    expect(describeDecision({ sharpened: { problems: ["it has only 1 distinct concrete detail"], improved: true } })).toEqual(["NazAI sharpened this answer before checking it. The first one was generic: it has only 1 distinct concrete detail."]);
+    expect(describeDecision({ sharpened: { problems: ["x"], improved: false } })[0]).toMatch(/rewrite did not come back, so the first answer was checked and used/);
     expect(describeDecision({})).toEqual([]);
     const lines = describeDecision({
       why: "Needs your approval. Matched rules asked for different outcomes. The strictest wins: require approval (\"Quote\").",
