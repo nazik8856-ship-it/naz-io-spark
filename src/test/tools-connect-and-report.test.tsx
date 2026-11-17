@@ -122,7 +122,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("what NazAI knows about the business goes to the tools unless the person switches it off, and the switch is a plain checkbox that starts on", async () => {
-    state.tools = [good("a", "ChatGPT"), writer];
+    state.tools = [good("a", "ChatGPT"), good("z", "Perplexity"), writer];
     state.route = { kind: "opinions" };
     render_();
     await describe("Should we adopt a control layer?");
@@ -205,7 +205,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("rewrite: the styles NazAI read are chosen; more presets and an own style can be added", async () => {
-    state.tools = [good("a", "Alpha"), writer];
+    state.tools = [good("a", "Alpha"), good("z", "Perplexity"), writer];
     state.route = { kind: "rewrite", text: "Your order has shipped.", labels: ["More formal"] };
     render_();
     await describe("Rewrite this more formally: Your order has shipped.");
@@ -222,7 +222,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("rewrite with no style read: Start waits for one", async () => {
-    state.tools = [good("a", "Alpha"), writer];
+    state.tools = [good("a", "Alpha"), good("z", "Perplexity"), writer];
     state.route = { kind: "rewrite", text: "Your order has shipped." };
     render_();
     await describe("Rewrite: Your order has shipped.");
@@ -233,7 +233,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("an unclear request: NazAI asks instead of guessing, and nothing starts until an action is chosen", async () => {
-    state.tools = [good("a", "Alpha"), writer];
+    state.tools = [good("a", "Alpha"), good("z", "Perplexity"), writer];
     state.route = { kind: "unclear", question: "Do you want this explained simply, or its key points?" };
     render_();
     await describe("Quantum entanglement links two particles so that measuring one tells you about the other.");
@@ -282,7 +282,7 @@ describe("connecting a tool and generating a report", () => {
 
   // Look of the result (docs/outer-control-outputs.md): chosen before the task starts, unless the request already says what it wants.
   it("look: five looks are offered once NazAI has read the request; the original is chosen; keeping it sends nothing extra", async () => {
-    state.tools = [good("a", "ChatGPT"), writer];
+    state.tools = [good("a", "ChatGPT"), good("z", "Perplexity"), writer];
     state.route = { kind: "opinions" };
     render_();
     await describe("Should we adopt a control layer?");
@@ -297,7 +297,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("look: the one chosen before the task starts is sent with it", async () => {
-    state.tools = [good("a", "ChatGPT"), writer];
+    state.tools = [good("a", "ChatGPT"), good("z", "Perplexity"), writer];
     state.route = { kind: "opinions" };
     render_();
     await describe("Should we adopt a control layer?");
@@ -311,7 +311,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("look: a request that already names its file type or place is followed, not asked about, and no look is sent", async () => {
-    state.tools = [good("a", "ChatGPT"), writer];
+    state.tools = [good("a", "ChatGPT"), good("z", "Perplexity"), writer];
     state.route = { kind: "draft" };
     render_();
     await describe("Write a summary of our returns policy as a PDF");
@@ -324,7 +324,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("look: ...unless the person chooses one anyway", async () => {
-    state.tools = [good("a", "ChatGPT"), writer];
+    state.tools = [good("a", "ChatGPT"), good("z", "Perplexity"), writer];
     state.route = { kind: "draft" };
     render_();
     await describe("Draft an email to the team about the returns policy");
@@ -338,7 +338,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("alternatives: the number of options NazAI read can be changed and is sent", async () => {
-    state.tools = [good("a", "Alpha"), writer];
+    state.tools = [good("a", "Alpha"), good("z", "Perplexity"), writer];
     state.route = { kind: "alternatives", text: "Names for a budgeting app", count: 4 };
     render_();
     await describe("Give me 4 names for a budgeting app");
@@ -352,7 +352,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("roles and audiences use their own lists", async () => {
-    state.tools = [good("a", "Alpha"), writer];
+    state.tools = [good("a", "Alpha"), good("z", "Perplexity"), writer];
     state.route = { kind: "roles", labels: ["Lawyer", "Investor"] };
     render_();
     await describe("Is it safe to launch without terms of service?");
@@ -369,7 +369,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("when NazAI can not read the request it asks which action to use", async () => {
-    state.tools = [good("a", "Alpha"), writer];
+    state.tools = [good("a", "Alpha"), good("z", "Perplexity"), writer];
     state.routeFails = true;
     render_();
     await describe("Something about our launch");
@@ -378,7 +378,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("a very short request is not read", async () => {
-    state.tools = [good("a", "Alpha"), writer];
+    state.tools = [good("a", "Alpha"), good("z", "Perplexity"), writer];
     render_();
     fireEvent.click(await screen.findByTestId("start-task-button"));
     fireEvent.change(screen.getByLabelText("Describe the task"), { target: { value: "hi" } });
@@ -388,7 +388,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("a request NazAI already read is not read again (case, spacing and a final full stop do not matter)", async () => {
-    state.tools = [good("a", "Alpha"), writer];
+    state.tools = [good("a", "Alpha"), good("z", "Perplexity"), writer];
     state.route = { kind: "compare" };
     render_();
     await describe("Compare answers on remote work");
@@ -403,7 +403,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("ready-made requests fill the empty box with one press and are read like typed ones", async () => {
-    state.tools = [good("a", "Alpha"), writer];
+    state.tools = [good("a", "Alpha"), good("z", "Perplexity"), writer];
     state.route = { kind: "alternatives", text: "names for a budgeting app", count: 4 };
     render_();
     fireEvent.click(await screen.findByTestId("start-task-button"));
@@ -442,7 +442,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("Your tasks is shown after the connected tools and before the sessions", async () => {
-    state.tools = [good("a", "ChatGPT"), writer];
+    state.tools = [good("a", "ChatGPT"), good("z", "Perplexity"), writer];
     state.workflows = [{ id: "t1", objective: "Comparison: Describe NazAI", status: "completed", started_at: ago(5), stop_reason: null, final_artifact: null, kind: "chain" }];
     const leg = (n: number, tool: string) => ({ id: `l${n}`, workflow_id: "t1", leg_no: n, tool_id: tool, status: "completed", depends_on: n === 2 ? [1] : [], stop_reason: null, pending_kind: null,
       objective: "o", step_count: 1, max_steps: 3, final_output: "x", started_at: ago(5), handoff: null, completion: null, final_artifact: null, finished_at: ago(4) });
@@ -457,7 +457,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("Start a task with a project: Start task opens with the project attached, and the task is started with its id", async () => {
-    state.tools = [good("a", "Alpha"), writer];
+    state.tools = [good("a", "Alpha"), good("z", "Perplexity"), writer];
     state.imported = [{ id: "p1", name: "Brand guide", source_mode: "linked", archived_at: null }];
     state.route = { kind: "opinions" };
     render(<MemoryRouter initialEntries={["/control-system/outer?project=p1"]}><ActiveSessionsCard accountId="u1" /></MemoryRouter>);
@@ -471,7 +471,7 @@ describe("connecting a tool and generating a report", () => {
   });
 
   it("the project can be taken off before starting; then no project is sent", async () => {
-    state.tools = [good("a", "Alpha"), writer];
+    state.tools = [good("a", "Alpha"), good("z", "Perplexity"), writer];
     state.imported = [{ id: "p1", name: "Brand guide", source_mode: "snapshot", archived_at: null }];
     state.route = { kind: "opinions" };
     render(<MemoryRouter initialEntries={["/control-system/outer?project=p1"]}><ActiveSessionsCard accountId="u1" /></MemoryRouter>);

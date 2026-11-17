@@ -1,4 +1,4 @@
-import { askStarter, ensureStarterTools, isStarterUrl, jobFor, STARTER_TASKS, STARTER_TOOLS, starterAllowed, starterTaskKeys, starterTasksUsed, taskCard, type StarterTask } from "./outer-control-starter.ts";
+import { askStarter, ensurePerspectiveTool, ensureStarterTools, isNazaiAiUrl, isStarterUrl, jobFor, PERSPECTIVE_TOOL_URL, STARTER_TASKS, STARTER_TOOLS, starterAllowed, starterTaskKeys, starterTasksUsed, taskCard, type StarterTask } from "./outer-control-starter.ts";
 import { challengeInstruction } from "./outer-control-report.ts";
 
 function assert(c: unknown, m = "assertion failed"): asserts c { if (!c) throw new Error(m); }
@@ -11,6 +11,8 @@ function fakeAdmin(db: { external_tools: Record<string, unknown>[]; outer_contro
     from(table: "external_tools" | "outer_control_sessions") {
       const filters: ((r: Record<string, unknown>) => boolean)[] = [];
       let head = false;
+      let one = false;
+      let patchWith: Record<string, unknown> | null = null;
       let rows: Record<string, unknown>[] | null = null;
       const q: Record<string, unknown> = {
         select: (_c?: string, o?: { head?: boolean }) => { head = !!o?.head; return q; },
@@ -18,10 +20,14 @@ function fakeAdmin(db: { external_tools: Record<string, unknown>[]; outer_contro
         is: (c: string, v: unknown) => { filters.push((r) => (r[c] ?? null) === v); return q; },
         in: (c: string, vs: unknown[]) => { filters.push((r) => vs.includes(r[c])); return q; },
         like: (c: string, p: string) => { const pre = p.replace(/%$/, ""); filters.push((r) => String(r[c] ?? "").startsWith(pre)); return q; },
-        insert: (list: Record<string, unknown>[]) => { rows = list.map((r) => ({ id: `t${nextId++}`, removed_at: null, ...r })); db[table].push(...rows); return q; },
+        insert: (list: Record<string, unknown>[] | Record<string, unknown>) => { rows = (Array.isArray(list) ? list : [list]).map((r) => ({ id: `t${nextId++}`, removed_at: null, ...r })); db[table].push(...rows); return q; },
+        update: (p: Record<string, unknown>) => { patchWith = p; return q; },
+        single: () => { one = true; return q; },
+        maybeSingle: () => { one = true; return q; },
         then: (res: (v: unknown) => unknown) => {
           const data = rows ?? db[table].filter((r) => filters.every((f) => f(r)));
-          return Promise.resolve(head ? { data: null, count: data.length, error: null } : { data, error: null }).then(res);
+          if (patchWith) for (const r of data) Object.assign(r, patchWith);
+          return Promise.resolve(head ? { data: null, count: data.length, error: null } : { data: one ? data[0] ?? null : data, error: null }).then(res);
         },
       };
       return q;
@@ -163,4 +169,30 @@ Deno.test("anti-generic: a specific answer, a question, an action without checks
   const kept = await askStarter(failing, "nazai-internal://starter/writer", task({ kind: "opinions", checks: ["concrete"] }));
   assertEquals(kept!.reply, GENERIC);
   assertEquals(kept!.sharpened?.improved, false);
+});
+
+// The single-tool suggestion: NazAI's second perspective for one Task (never listed, no free-Task limit, same task card).
+Deno.test("second perspective: one internal tool per account, created once, re-enabled, refused at the tool limit", async () => {
+  const db = { external_tools: [] as Record<string, unknown>[], outer_control_sessions: [] as Record<string, unknown>[] };
+  const admin = fakeAdmin(db);
+  const a = await ensurePerspectiveTool(admin, "acct", 20);
+  assert(a.ok);
+  assertEquals(db.external_tools.length, 1);
+  assert(db.external_tools[0].endpoint_url === PERSPECTIVE_TOOL_URL && db.external_tools[0].approved_at && db.external_tools[0].user_id === "acct");
+  assert(isNazaiAiUrl(PERSPECTIVE_TOOL_URL) && !isStarterUrl(PERSPECTIVE_TOOL_URL), "answered by NazAI's AI, but not a free starter tool");
+  db.external_tools[0].enabled = false;
+  const b = await ensurePerspectiveTool(admin, "acct", 20);
+  assert(b.ok && a.ok && b.id === a.id && db.external_tools[0].enabled === true && db.external_tools.length === 1, "the same row, switched back on");
+  const full = { external_tools: Array.from({ length: 20 }, (_, i) => ({ id: `x${i}`, user_id: "u2", endpoint_url: `https://t${i}.example.com`, removed_at: null })), outer_control_sessions: [] };
+  const refused = await ensurePerspectiveTool(fakeAdmin(full), "u2", 20);
+  assert(!refused.ok && refused.code === "too_many_tools", JSON.stringify(refused));
+});
+
+Deno.test("second perspective: an independent second answer, with the task card and the anti-generic pass", async () => {
+  assert(/independent second answer/.test(jobFor("perspective", { instruction: "Q", kind: "opinions" })));
+  assert(/do exactly what the request asks/.test(jobFor("perspective", { instruction: "Q", kind: "explain" })));
+  const seen: { system: string; user: string }[] = [];
+  const r = await askStarter(async (system, user) => { seen.push({ system, user }); return "ok"; }, PERSPECTIVE_TOOL_URL, task({ kind: "decision" }));
+  assertEquals(r?.reply, "ok");
+  assert(/independent second opinion/.test(seen[0].system) && seen[0].user.startsWith("TASK CARD"), seen[0].system);
 });

@@ -78,7 +78,7 @@ export type StarterTask = {
 export function jobFor(key: string, t: Pick<StarterTask, "instruction" | "kind">): string {
   if (isChallenge(t.instruction)) return CHALLENGE_JOB;
   if (!t.kind || !ROLE_KINDS.includes(t.kind)) return SAME_JOB;
-  return STARTER_TOOLS.find((x) => x.key === key)?.job ?? SAME_JOB;
+  return AI_TOOLS.find((x) => x.key === key)?.job ?? SAME_JOB;
 }
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
@@ -103,7 +103,47 @@ export function taskCard(t: StarterTask, job: string): string {
 }
 
 export const isStarterUrl = (url: unknown): boolean => typeof url === "string" && url.startsWith(STARTER_TOOL_URL);
-export const starterKeyOf = (url: string): string => url.slice(STARTER_TOOL_URL.length);
+
+/**
+ * The NazAI second perspective: with exactly one connected tool, a person can have NazAI's own AI give a second controlled answer for
+ * one Task (Start a task, "Generate a NazAI tool for this task"). It is an internal tool the page never lists (an address NazAI never
+ * fetches), used only for a Task that asked for it; the Task is charged as usual, so the starter tools' limit of free Tasks does not
+ * apply. Its answer gets the same task card, anti-generic pass and rules as any reply.
+ */
+export const PERSPECTIVE_TOOL_URL = "nazai-internal://perspective";
+export const PERSPECTIVE_NAME = "NazAI second perspective";
+export const isPerspectiveUrl = (url: unknown): boolean => url === PERSPECTIVE_TOOL_URL;
+/** Answered by NazAI's own AI (a starter tool or the second perspective), never fetched from outside. */
+export const isNazaiAiUrl = (url: unknown): boolean => isStarterUrl(url) || isPerspectiveUrl(url);
+export const starterKeyOf = (url: string): string => (isPerspectiveUrl(url) ? "perspective" : url.slice(STARTER_TOOL_URL.length));
+
+const PERSPECTIVE = {
+  key: "perspective", name: PERSPECTIVE_NAME,
+  system: "You are an independent second opinion: careful, concrete, and you say plainly what you are not sure about.",
+  job: "Your job: an independent second answer. Answer the request yourself for this person, so it can be compared and cross-checked with another tool's answer: take your own position, give the specifics it rests on, and say where a typical answer would be wrong for them.",
+} as const;
+const AI_TOOLS = [...STARTER_TOOLS, PERSPECTIVE];
+
+/** The account's second-perspective tool, created on first use (an existing one is kept). Never listed on the page. */
+export async function ensurePerspectiveTool(admin: AnyAdmin, accountId: string, maxTools: number):
+  Promise<{ ok: true; id: string } | { ok: false; code: string; message: string; status: number }> {
+  const { data: existing } = await admin.from("external_tools").select("id, enabled, suspended_at").eq("user_id", accountId).eq("endpoint_url", PERSPECTIVE_TOOL_URL).is("removed_at", null).maybeSingle();
+  const ex = existing as { id: string; enabled?: boolean; suspended_at?: string | null } | null;
+  if (ex) {
+    if (ex.suspended_at) return { ok: false, code: "tool_unavailable", message: "NazAI's second perspective is paused for this account.", status: 409 };
+    if (ex.enabled === false) await admin.from("external_tools").update({ enabled: true }).eq("id", ex.id).eq("user_id", accountId);
+    return { ok: true, id: ex.id };
+  }
+  const { count } = await admin.from("external_tools").select("id", { count: "exact", head: true }).eq("user_id", accountId).is("removed_at", null);
+  if ((count ?? 0) + 1 > maxTools) return { ok: false, code: "too_many_tools", message: `An account can connect at most ${maxTools} tools; remove one to add NazAI's second perspective.`, status: 409 };
+  const now = new Date().toISOString();
+  const { data: made, error } = await admin.from("external_tools").insert({
+    user_id: accountId, name: PERSPECTIVE_NAME, endpoint_url: PERSPECTIVE_TOOL_URL, request_format: "generic_json",
+    approved_at: now, last_ok_at: now, last_checked_at: now, enabled: true,
+  }).select("id").single();
+  if (error || !made) return { ok: false, code: "internal_error", message: "Could not set up NazAI's second perspective.", status: 500 };
+  return { ok: true, id: (made as { id: string }).id };
+}
 
 export const STARTER_USED_UP =
   `Your ${STARTER_TASKS} free NazAI tasks are used. Connect your own AI (ChatGPT, Claude or another) to keep going.`;
@@ -186,7 +226,7 @@ export type Sharpened = { problems: string[]; improved: boolean };
  * would call generic is rewritten once with the exact problems; the reply returned is what NazAI then checks like any other.
  */
 export async function askStarter(ai: StarterAi, url: string, t: StarterTask): Promise<{ reply: string; sharpened: Sharpened | null } | null> {
-  const tool = STARTER_TOOLS.find((x) => x.key === starterKeyOf(url));
+  const tool = AI_TOOLS.find((x) => x.key === starterKeyOf(url));
   if (!tool) return null;
   const job = jobFor(tool.key, t);
   const card = taskCard(t, job);

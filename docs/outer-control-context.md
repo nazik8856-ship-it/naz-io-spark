@@ -191,3 +191,25 @@ done criteria (optional, one per line, up to 5) and the most rounds (1 to 6) are
 answers to the questions and the background go in as its context. It uses 1 credit. The workflows list in **Advanced** still has its
 own goal form. The front screen is the status (with what waits for the person), *Start a task* and the Tasks; recent decisions,
 statistics, the graph and workflows are in **Advanced**.
+
+## One connected tool: NazAI offers a second perspective
+
+When the account has **exactly one** connected tool (NazAI's starter AI, report writer and agents do not count), that tool is the
+one chosen, and the action is one a second answer makes fuller (opinions, research, compare, decision, fact-check:
+`SECOND_PERSPECTIVE_KINDS`), *Start a task* shows, instead of its Start button:
+
+> You only have 1 connected tool. Want NazAI to also generate a second controlled perspective for a fuller result?
+
+- **Generate a NazAI tool for this task** (primary): `start_report` with `nazai_second: true`. The server adds NazAI's second
+  perspective (`PERSPECTIVE_TOOL_URL`, `ensurePerspectiveTool` in `outer-control-starter.ts`) after the chosen tool. It is an
+  internal tool the page never lists, used only by a Task that asked for it; it answers with NazAI's own AI, with the task card,
+  an "independent second answer" job and the anti-generic pass, and its reply goes through exactly the same rules and checks.
+  One controlled result is written from both answers (so it is no longer single-source). The Task's usual credits apply; the
+  starter tools' free-Task limit does not.
+- **Continue with one tool**: the Task runs with the connected tool only, rules applied, shown as a single-source result. (Compare
+  needs two answers, so for compare only the other two choices are open.)
+- **Connect another tool instead**: opens the connectors. After a successful connection, *Start a task* reopens with the same
+  request, the new tool ticked next to the first, and "<tool> is connected. Continue the same task with both tools: press Start."
+
+Not offered with two or more connected tools, for actions a second answer does not improve, or with "Keep going until it is done".
+Tests: `src/test/task-clarify.test.tsx` (the single-tool tests), `outer-control-starter_test.ts`, the "second perspective" engine test.

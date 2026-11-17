@@ -249,6 +249,12 @@ export const singleSourceLine = (d: ReportDoc): string => {
 };
 
 /** The heading of the section that applies the answers to the person's own situation. */
+/**
+ * The actions a second answer makes fuller (it can be compared and cross-checked). With exactly one connected tool, Start a task
+ * offers a NazAI second perspective for these (outer-control-starter.ts, PERSPECTIVE_TOOL_URL).
+ */
+export const SECOND_PERSPECTIVE_KINDS: readonly ReportKind[] = ["opinions", "research", "compare", "decision", "factcheck"];
+
 export const FOR_YOU_TITLE = "What this means for you";
 export const DO_FIRST_TITLE = "What to do first";
 export const BOTTOM_LINE_TITLE = "Bottom line";

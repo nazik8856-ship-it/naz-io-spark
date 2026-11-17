@@ -2146,6 +2146,19 @@ await t("starter AI: reads a task card first; a generic first answer is rewritte
   const d = steps()[0].decision; assert.equal(d.sharpened.improved, true); assert.match(d.sharpened.problems.join(" "), /concrete detail/);
   assert.ok(!JSON.stringify(d).includes("leverage existing tools"), "the unchecked first answer is not kept");
 });
+// Single-tool suggestion: NazAI's second perspective for one Task. Answered by NazAI's AI like a starter tool, checked by the same
+// rules, and not limited to the free starter Tasks (the Task is paid for).
+await t("second perspective: answers after the free starter Tasks are used up; a secret in its reply is removed; nothing is fetched", async () => {
+  starterSetup("wf-3");
+  Object.assign(H.table("external_tools")[0], { name: "NazAI second perspective", endpoint_url: "nazai-internal://perspective" });
+  const earlier = (id: string, wf: string, at: string) => H.table("outer_control_sessions").push({ ...sess(), id, workflow_id: wf, started_at: at, status: "completed" });
+  earlier("e1", "wf-1", "2026-10-30T09:00:00Z"); earlier("e2", "wf-2", "2026-10-30T09:10:00Z");
+  const asked: string[] = [];
+  const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, starterAi: async (system: string, user: string) => { asked.push(system + "\n" + user); return `Open on Sundays from 8 to 12. Key: ${SECRET}`; } });
+  assert.equal(r.status, "completed", sess().stop_reason); assert.equal(calls.length, 0);
+  assert.equal(asked.length, 1); assert.match(asked[0], /independent second opinion/); assert.match(asked[0], /TASK CARD/);
+  assert.ok(!sess().final_output.includes(SECRET) && sess().final_output.includes("[REDACTED:secrets]"));
+});
 await t("starter AI: when NazAI's AI does not answer, the step fails like an unreachable tool and nothing is invented", async () => {
   starterSetup();
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, starterAi: async () => null });

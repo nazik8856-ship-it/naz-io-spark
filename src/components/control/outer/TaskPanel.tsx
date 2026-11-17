@@ -9,7 +9,7 @@ import { AlertTriangle, BookOpen, Coins, FileEdit, Gauge, Lightbulb, ListChecks,
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DEFAULT_TEMPLATE, detectRequestedOutput, TEMPLATE_IDS, TEMPLATE_INFO } from "@/lib/outer-control-templates";
 import { callDrive } from "@/lib/outer-control-drive";
-import { ACTION_INFO, MAX_STYLES, REPORT_KINDS, ROUTING_TEXT, SINGLE_SOURCE_KINDS, TASK_CREDITS, TASK_LIMITS, type OutputTemplate, type ReportKind } from "@/lib/outer-control-report-doc";
+import { ACTION_INFO, MAX_STYLES, REPORT_KINDS, ROUTING_TEXT, SECOND_PERSPECTIVE_KINDS, SINGLE_SOURCE_KINDS, TASK_CREDITS, TASK_LIMITS, type OutputTemplate, type ReportKind } from "@/lib/outer-control-report-doc";
 import { checkTaskForm, describeRecord, isStarterTool, LABEL_PRESETS, START_LABEL, suggestTools, toolHealth, toolsHint, type ToolHealthInput, type ToolRecord } from "@/lib/outer-control-tools-ui";
 import ToolPlanBox, { useToolPlan } from "./ToolPlanBox";
 
@@ -43,7 +43,11 @@ export type TaskRequest = { kind: ReportKind; text: string; background: string; 
   remember: { label: string; answer: string }[];
   /** "Keep going until…": a goal Task instead of one round of the action. The tools are asked in turn until the done criteria are
    *  met or the most rounds are used (outer-control-drive start_goal). Null for an ordinary Task. */
-  goal?: { criteria: string[]; rounds: number } | null };
+  goal?: { criteria: string[]; rounds: number } | null;
+  /** "Generate a NazAI tool for this task": NazAI's second perspective answers too (only offered with exactly one connected tool). */
+  second?: boolean };
+/** What NazAI offers when only one tool is connected (Start a task), word for word. */
+export const SECOND_OFFER = "You only have 1 connected tool. Want NazAI to also generate a second controlled perspective for a fuller result?";
 /** A question NazAI asks before the Task runs when nothing says it yet (outer-control-clarify.ts): optional, one line. */
 export type ClarifyQuestion = { id: string; question: string; why: string; placeholder: string; label: string };
 export const MAX_ANSWER_CHARS = 160;
@@ -66,7 +70,7 @@ const clipLine = (s: string, n: number) => { const t = s.replace(/\s+/g, " ").tr
 /** The imported project a task works with: its checked text goes to every tool. */
 export type TaskProject = { id: string; name: string; mode: "snapshot" | "linked" };
 
-export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, onFix, fixing, onConnect, project, onClearProject, records }: {
+export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, onFix, fixing, onConnect, onConnectForTask, addTool, onToolAdded, project, onClearProject, records }: {
   open: boolean; onOpenChange: (o: boolean) => void; tools: TaskTool[]; busy: boolean;
   /** Starts the task; resolves true when it was started. */
   onStart: (r: TaskRequest) => Promise<boolean>;
@@ -74,6 +78,10 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   onFix?: (tool: TaskTool) => void;
   fixing?: string | null;
   onConnect?: () => void;
+  /** "Connect another tool instead": the connectors screen, keeping this Task to continue with both tools afterwards. */
+  onConnectForTask?: () => void;
+  /** A tool just connected for this Task: ticked next to the one already chosen, with an offer to continue. */
+  addTool?: string | null; onToolAdded?: () => void;
   project?: TaskProject | null;
   onClearProject?: () => void;
   /** Each tool's track record over the last 30 days (for the suggestion and the line under each tool). */
@@ -87,6 +95,7 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   const [count, setCount] = useState(3);
   const [customLabel, setCustomLabel] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
+  const [joined, setJoined] = useState<string | null>(null);
   // The look of the result, chosen before the Task starts. When the request already says what it wants (a PDF, an email, a post), that
   // is followed and no look is asked for, unless the person chooses one anyway.
   const [template, setTemplate] = useState<OutputTemplate>(DEFAULT_TEMPLATE);
@@ -161,6 +170,21 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   // A new account's first tasks (only NazAI's starter AI is there): its tools are ticked for the person, and the task is free.
   const starterOnly = tools.length > 0 && tools.every((t) => isStarterTool(t.endpoint_url ?? ""));
   useEffect(() => { if (lim && starterOnly) setPicked((p) => (p.length ? p : tools.slice(0, lim.maxTools).map((t) => t.id))); }, [lim, starterOnly, tools]);
+  // A tool connected from "Connect another tool instead" joins the Task the person was writing.
+  useEffect(() => {
+    if (!addTool) return;
+    const t = tools.find((x) => x.id === addTool);
+    if (!t) return;
+    setPicked((p) => (p.includes(addTool) ? p : [...p, addTool]));
+    setJoined(t.name);
+    onToolAdded?.();
+  }, [addTool, tools]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Exactly one connected tool (not NazAI's own starter AI, report writer or agents) and an action a second answer makes fuller:
+  // NazAI offers a second controlled perspective. Never forced: the Task can go on with the one tool.
+  const connected = tools.filter((t) => !(t.endpoint_url ?? "").startsWith("nazai-"));
+  const offerSecond = !!kind && !keepGoing && SECOND_PERSPECTIVE_KINDS.includes(kind) && connected.length === 1 && picked.length === 1 && picked[0] === connected[0].id;
+  // With the second perspective the Task has two tools, so an action that needs two (compare) can run.
+  const problemWithSecond = !offerSecond ? problem : checkTaskForm(kind!, text, [...picked, "nazai-second"], labels, background) ?? plan.block;
   const freeStarter = picked.length > 0 && picked.every((id) => isStarterTool(tools.find((t) => t.id === id)?.endpoint_url ?? ""));
   // Styles, roles and audiences are different lists: a switch to another kind of list starts from what NazAI read for it, if anything.
   const listKind = lim?.labels ?? null;
@@ -183,11 +207,11 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
 
   const requested = useMemo(() => detectRequestedOutput(request), [request]);
   const askLook = !requested.specified || chooseAnyway;
-  const reset = () => { setRequest(""); setRoute(null); setChosenKind(null); setLabels([]); setCount(3); setPicked([]); setTemplate(DEFAULT_TEMPLATE); setChooseAnyway(false); setShareContext(true); setAnswers({}); setRemember(true); setKeepGoing(false); setCriteriaText(""); setRounds(4); };
-  const start = async () => {
-    if (busy || !kind || problem || reading) return;
+  const reset = () => { setRequest(""); setRoute(null); setChosenKind(null); setLabels([]); setCount(3); setPicked([]); setTemplate(DEFAULT_TEMPLATE); setChooseAnyway(false); setShareContext(true); setAnswers({}); setRemember(true); setKeepGoing(false); setCriteriaText(""); setRounds(4); setJoined(null); };
+  const start = async (second = false) => {
+    if (busy || !kind || (second ? problemWithSecond : problem) || reading) return;
     const ok = await onStart({ kind, text, background, styles: lim?.labels ? labels : [], count, toolIds: picked, keepChoice: plan.kept, template: askLook && template !== DEFAULT_TEMPLATE ? template : null, shareContext, remember: remember ? lasting : [],
-      goal: keepGoing && criteria.ok ? { criteria: criteria.criteria, rounds } : null });
+      goal: keepGoing && criteria.ok ? { criteria: criteria.criteria, rounds } : null, second });
     if (ok) { reset(); onOpenChange(false); }
   };
 
@@ -466,6 +490,12 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
             </fieldset>
           )}
 
+          {joined && picked.length >= 2 && (
+            <p className="rounded-xl border border-emerald-400/30 bg-emerald-400/[0.07] px-3 py-2 text-xs text-emerald-100" data-testid="task-joined">
+              {joined} is connected. Continue the same task with both tools: press Start.
+            </p>
+          )}
+
           <div className="space-y-1.5">
             {kind && (
               <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] leading-snug text-zinc-300" data-testid="task-share-context">
@@ -478,10 +508,33 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
                 <Coins className="h-3 w-3 text-amber-300/80" /> {freeStarter ? "Free · one of your 2 free NazAI tasks" : keepGoing ? <>Uses 1 credit · given back if no result comes</> : <>Uses {TASK_CREDITS[kind]} credit{TASK_CREDITS[kind] === 1 ? "" : "s"} · given back if no result comes</>}
               </p>
             )}
-            <button type="button" disabled={busy || !kind || !!problem || reading} onClick={start} data-testid="task-start"
-              className="group relative w-full overflow-hidden rounded-xl border border-cyan-300/50 bg-gradient-to-r from-cyan-500/30 via-cyan-400/20 to-amber-300/25 px-3 py-2.5 text-sm font-semibold text-cyan-50 shadow-[0_0_28px_-8px_rgba(34,211,238,0.8)] transition hover:from-cyan-400/40 hover:to-amber-300/35 disabled:border-white/10 disabled:from-white/[0.04] disabled:via-white/[0.04] disabled:to-white/[0.04] disabled:text-zinc-500 disabled:shadow-none">
-              {busy ? "Starting…" : kind && keepGoing ? "Start · keep going until done" : kind ? START_LABEL[kind] : "Start"}
-            </button>
+            {offerSecond ? (
+              <div className="space-y-2 rounded-xl border border-cyan-300/40 bg-cyan-400/[0.06] px-3 py-3" data-testid="task-second-offer">
+                <p className="text-xs text-cyan-50">{SECOND_OFFER}</p>
+                <p className="text-[11px] text-zinc-400">For this Task only: NazAI's own AI answers too, under the same rules, and you get one controlled result from both. Nothing is added to your tools.</p>
+                <button type="button" disabled={busy || !!problemWithSecond || reading} onClick={() => start(true)} data-testid="task-second-generate"
+                  className="w-full rounded-xl border border-cyan-300/50 bg-gradient-to-r from-cyan-500/30 via-cyan-400/20 to-amber-300/25 px-3 py-2.5 text-sm font-semibold text-cyan-50 transition hover:from-cyan-400/40 disabled:opacity-40">
+                  {busy ? "Starting…" : "Generate a NazAI tool for this task"}
+                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" disabled={busy || !!problem || reading} onClick={() => start(false)} data-testid="task-second-one" title={problem ?? undefined}
+                    className="flex-1 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-2 text-xs text-zinc-200 hover:bg-white/[0.08] disabled:opacity-40">
+                    Continue with one tool
+                  </button>
+                  {onConnectForTask && (
+                    <button type="button" onClick={onConnectForTask} data-testid="task-second-connect" className="px-2 py-2 text-xs text-cyan-300 underline-offset-2 hover:underline">
+                      Connect another tool instead
+                    </button>
+                  )}
+                </div>
+                {problem && !problemWithSecond && <p className="text-[11px] text-zinc-500">{problem} With one tool only, use the NazAI perspective or connect another tool.</p>}
+              </div>
+            ) : (
+            <button type="button" disabled={busy || !kind || !!problem || reading} onClick={() => start()} data-testid="task-start"
+                className="group relative w-full overflow-hidden rounded-xl border border-cyan-300/50 bg-gradient-to-r from-cyan-500/30 via-cyan-400/20 to-amber-300/25 px-3 py-2.5 text-sm font-semibold text-cyan-50 shadow-[0_0_28px_-8px_rgba(34,211,238,0.8)] transition hover:from-cyan-400/40 hover:to-amber-300/35 disabled:border-white/10 disabled:from-white/[0.04] disabled:via-white/[0.04] disabled:to-white/[0.04] disabled:text-zinc-500 disabled:shadow-none">
+                {busy ? "Starting…" : kind && keepGoing ? "Start · keep going until done" : kind ? START_LABEL[kind] : "Start"}
+              </button>
+            )}
           </div>
         </div>
       </DialogContent>

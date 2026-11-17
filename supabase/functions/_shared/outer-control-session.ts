@@ -28,7 +28,7 @@ import { gatewayAi, REPORT_TOOL_URL, writeReport, type ReportResult } from "./ou
 import { networkFailureKind, type NetworkFailureKind } from "./network-failure.ts";
 import { nazaiAddressProblem } from "./outer-control-address.ts";
 import { ownProjectHost } from "./egress.ts";
-import { askStarter, gatewayStarterAi, isStarterUrl, starterAllowed, STARTER_USED_UP, type Sharpened, type StarterAi } from "./outer-control-starter.ts";
+import { askStarter, gatewayStarterAi, isNazaiAiUrl, isStarterUrl, starterAllowed, STARTER_USED_UP, type Sharpened, type StarterAi } from "./outer-control-starter.ts";
 import { splitTaskTitle, type ReportDoc, type ReportKind } from "./outer-control-report-doc.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
 import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.ts";
@@ -663,7 +663,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         await finish(admin, s, "stopped", `${STARTER_USED_UP} Nothing was sent.`, deps);
         return { status: "stopped", steps };
       }
-      if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isStarterUrl(tool.endpoint_url)) {
+      if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isNazaiAiUrl(tool.endpoint_url)) {
         // NazAI's own address was never an outside tool (a tool saved before this rule existed stops here, with what to do instead).
         const own = nazaiAddressProblem(tool.endpoint_url, ownProjectHost());
         if (own) { await finish(admin, s, "failed", own, deps); return { status: "failed", steps }; }
@@ -720,7 +720,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       const outBody = maskOutbound(request.body, [token, ...accountIds(s, tool)]).value;
       // Security evidence: a connected tool outside NazAI is never called without its signed evidence row (ids and the hash of the
       // request only). A NazAI agent's own actions get theirs inside agent-runtime; the report writer and starter tools are NazAI's.
-      if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isStarterUrl(tool.endpoint_url)) {
+      if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isNazaiAiUrl(tool.endpoint_url)) {
         const ev = await recordEvidence(admin, {
           userId: s.user_id, kind: "connector_call", actor: actorOf(s), actorId: s.api_key_id ?? null,
           subject: { tool: tool.id, session: s.id, task: s.workflow_id ?? null, step: stepNo, attempt }, inputSha256: await sha256Of(outBody), verdict: "allowed",
@@ -768,7 +768,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           res = reportResult.ok
             ? new Response(JSON.stringify({ status: "done", answer: reportResult.text }), { status: 200 })
             : new Response(JSON.stringify({ error: reportResult.code }), { status: 200 });
-        } else if (isStarterUrl(tool.endpoint_url)) {
+        } else if (isNazaiAiUrl(tool.endpoint_url)) {
           // A starter tool answers with NazAI's own AI, from its own angle; its reply is checked like any other tool's.
           // It reads a task card first (goal, situation, rules, what useful means) and does its own job; a generic answer is
           // rewritten once before it comes back, so the checks below run on the final text (outer-control-starter.ts).

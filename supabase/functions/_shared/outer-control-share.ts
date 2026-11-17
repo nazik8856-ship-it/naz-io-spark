@@ -14,13 +14,13 @@
 // full view. What reaches a tool from earlier steps is only what a step declares it depends on (outer-control-workflow.ts).
 import { ruleNamesSeen, type MemoryEntry } from "./outer-control-memory.ts";
 import { REPORT_TOOL_URL } from "./outer-control-report.ts";
-import { isStarterUrl } from "./outer-control-starter.ts";
+import { isNazaiAiUrl } from "./outer-control-starter.ts";
 
 export type ShareTool = { agent_id?: string | null; endpoint_url: string; request_format?: string | null };
 
 /** A tool that runs outside NazAI: a customer's endpoint or an MCP server. */
 export function isExternalTool(tool: ShareTool): boolean {
-  return !tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isStarterUrl(tool.endpoint_url);
+  return !tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isNazaiAiUrl(tool.endpoint_url);
 }
 
 /** The memory entries written by this step only. Entries without a step (older rows) are not shared. */
