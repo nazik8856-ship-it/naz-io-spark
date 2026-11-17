@@ -203,7 +203,7 @@ function docxBody(doc: ResultDoc, template: OutputTemplate): string {
   for (const s of orderSections(doc, info.order)) {
     if (s.title) out.push(para(run(s.title), { style: "Heading1", keepNext: true }));
     for (const b of s.blocks) {
-      if (b.k === "p") out.push(para(run(b.text, s.key === "bottom" ? { bold: true } : {}), { shade: s.key === "bottom" ? shade : null, border: s.key === "bottom" && shade ? accent : undefined }));
+      if (b.k === "p") out.push(para(run(b.text, (s.key === "bottom" || s.key === "lead") ? { bold: true } : {}), { shade: (s.key === "bottom" || s.key === "lead") ? shade : null, border: (s.key === "bottom" || s.key === "lead") && shade ? accent : undefined }));
       else if (b.k === "ul" && b.ordered) b.items.forEach((x, i) => out.push(para(run(`${i + 1}.  ${x.replace(/\n/g, " ")}`), { ind: 567, after: 60 })));
       else if (b.k === "ul") for (const x of b.items) out.push(para(run(x.replace(/\n/g, " ")), { num: true, after: 60 }));
       else if (b.k === "quote") out.push(para(run(b.text, { italic: true }), { style: "Quote", after: 40 }), para(run(b.by, { color: "666666", size: 18 }), { ind: 567, after: 160 }));
@@ -359,7 +359,7 @@ export function toPdf(doc: ResultDoc, template: OutputTemplate, when = new Date(
   for (const s of orderSections(doc, info.order)) {
     if (s.title) textBlock(s.title, { face: headFace, size: 12.5, color: heading, before: 8, after: 5, keepNext: 40 });
     for (const b of s.blocks) {
-      if (b.k === "p") textBlock(b.text, { face: s.key === "bottom" ? bold : body, shade: s.key === "bottom" ? shade ?? undefined : undefined, bar: s.key === "bottom" && shade ? accent : undefined });
+      if (b.k === "p") textBlock(b.text, { face: (s.key === "bottom" || s.key === "lead") ? bold : body, shade: (s.key === "bottom" || s.key === "lead") ? shade ?? undefined : undefined, bar: (s.key === "bottom" || s.key === "lead") && shade ? accent : undefined });
       else if (b.k === "ul") b.items.forEach((x, i) => textBlock(x.replace(/\n/g, " "), b.ordered ? { marker: `${i + 1}.`, indent: 8, after: 3 } : { bullet: true, indent: 8, after: 3 }));
       else if (b.k === "quote") { textBlock(b.text, { face: serif ? "times" : "helveticaOblique", indent: 14, bar: accent, after: 1 }); textBlock(b.by, { size: 8, color: grey, indent: 14, after: 8 }); }
       else if (b.k === "item") { textBlock(`${b.head}   by ${b.by}`, { face: bold, size: 11, color: heading, before: 4, after: 2, keepNext: 30 }); textBlock(b.text); }

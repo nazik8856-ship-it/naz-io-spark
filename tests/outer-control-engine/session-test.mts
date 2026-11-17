@@ -1535,6 +1535,8 @@ await t("what this means for you: the writer applies the background; a step rest
   reportSetup(); const topic = "Ways to evaluate the safety of AI tools";
   aiAnswer = JSON.stringify({
     summary: "Two approaches were given [1][2].", points: ["Red-teaming finds failures [1].", "Benchmarks are cheap [2]."], open_questions: [], conclusion: "Use both approaches [1][2].",
+    bottom_line: "Run the cheap benchmarks now and price one red-team day before launch [1][2].",
+    watch_out: ["Benchmarks miss failures that only red-teaming finds [1].", "uncited risk"],
     implications: [
       { step: "Start with the cheap benchmarks before paying for red-teaming [2]", because: "3-person startup" },
       { step: "Book an outside red-team for the launch month [1]", because: "you have a security team of ten" },
@@ -1547,7 +1549,13 @@ await t("what this means for you: the writer applies the background; a step rest
   assert.match(aiPrompts[0].system, /"implications"/, "the writer is asked to apply the background");
   const doc = w.final_artifact.report;
   assert.deepEqual(doc.implications.map((m: any) => m.basis), ["situation", "assumption"], "a fact found in the background is from the situation; one not found is an assumption; no basis is left out");
-  assert.match(w.final_output, /WHAT THIS MEANS FOR YOU\n• Start with the cheap benchmarks before paying for red-teaming \[2\] — From your situation: 3-person startup\n• Book an outside red-team for the launch month \[1\] — Assumption: you have a security team of ten/);
+  // Decision-ready (Day 3): the bottom line first, the steps numbered, what to watch out for; an uncited watch-out is left out.
+  assert.equal(doc.bottom_line, "Run the cheap benchmarks now and price one red-team day before launch [1][2].");
+  assert.deepEqual(doc.watch_out, ["Benchmarks miss failures that only red-teaming finds [1]."]);
+  assert.ok(w.final_output.indexOf("BOTTOM LINE\nRun the cheap benchmarks") < w.final_output.indexOf("SUMMARY"), "the bottom line comes first");
+  assert.match(w.final_output, /WATCH OUT\n• Benchmarks miss failures/);
+  assert.match(aiPrompts[0].system, /"bottom_line"[\s\S]*"watch_out"/);
+  assert.match(w.final_output, /WHAT TO DO FIRST\n1\. Start with the cheap benchmarks before paying for red-teaming \[2\] — From your situation: 3-person startup\n2\. Book an outside red-team for the launch month \[1\] — Assumption: you have a security team of ten/);
   assert.equal(H.composeReportText(doc), w.final_output);
 });
 // Research with a challenger (Day 2): the answers at the same time, then one tool challenges them, then the result.

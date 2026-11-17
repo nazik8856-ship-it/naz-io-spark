@@ -1,7 +1,7 @@
 // Run with: deno test --no-check supabase/functions/_shared/outer-control-for-you_test.ts
 // "What this means for you" (docs/outer-control-context.md): the report writer applies the person's own situation to the sources'
 // points. Every step rests on a fact from that situation, checked against its words, or is shown as an assumption.
-import { buildAnalysisPrompt, buildDecisionPrompt, buildResearchPrompt, forYouAsk, parseImplications, restsOn, type Opinion } from "./outer-control-report.ts";
+import { buildAnalysisPrompt, buildComparePrompt, buildDecisionPrompt, buildResearchPrompt, DECISION_ASK, forYouAsk, parseDecisionReady, parseImplications, restsOn, type Opinion } from "./outer-control-report.ts";
 import { BRIEF_HEADER } from "./outer-control-context-brief.ts";
 import { composeReportText, isReportDoc, reportHtml, type ReportDoc } from "./outer-control-report-doc.ts";
 
@@ -73,4 +73,33 @@ Deno.test("the section is in the text, the page and the validator", () => {
   assert(reportHtml(doc).includes("What this means for you"), "the page has it");
   const { implications: _drop, ...without } = doc;
   assert(!composeReportText(without as ReportDoc).includes("WHAT THIS MEANS FOR YOU"), "absent when there are none");
+});
+
+// ---- Decision-ready final result (Day 3, #154): a bottom line first, steps in the order to do them, what to watch out for.
+
+Deno.test("the writer is asked for a bottom line and watch-outs on opinions, research and compare; the steps in the order to do them", () => {
+  const ops = [{ n: 1, tool: "A", text: "x", shortened: false, sha256: "a".repeat(64), at: "2026-11-17T00:00:00Z" }, { n: 2, tool: "B", text: "y", shortened: false, sha256: "b".repeat(64), at: "2026-11-17T00:00:00Z" }];
+  for (const p of [buildAnalysisPrompt("t", ops), buildResearchPrompt("t", ops), buildComparePrompt("t", ops)]) {
+    if (!p.system.includes(DECISION_ASK)) throw new Error(p.system.slice(-300));
+  }
+  const ask = forYouAsk("Main limit: 1 person, 200 EUR a month");
+  if (!/in the order the person should do them/.test(ask) || !/never a copy of a source's general next steps/.test(ask)) throw new Error(ask);
+});
+
+Deno.test("the challenger is acted on: a generic or wrong point is fixed, an open question only for what no answer settles", () => {
+  const ops = [{ n: 1, tool: "A", text: "x", shortened: false, sha256: "a".repeat(64), at: "2026-11-17T00:00:00Z" }, { n: 2, tool: "A", text: "c", shortened: false, sha256: "c".repeat(64), at: "2026-11-17T00:00:00Z" }];
+  const p = buildResearchPrompt("t", ops, null, 2).system;
+  if (!/Act on it: where it shows a point is generic, make the point specific/.test(p) || !/An open question is only for what no answer can settle/.test(p)) throw new Error(p.slice(0, 600));
+});
+
+Deno.test("the bottom line and watch-outs are checked: cited, not thin, real sources only, at most 3 watch-outs", () => {
+  const raw = JSON.stringify({
+    bottom_line: "Sell to agency owners in Vienna first, with a 49 EUR first month [1][2].",
+    watch_out: ["A 4-week launch leaves no time for a second round of calls [2].", "too short", "Cites a source that is not there [7].", "Prices above 99 EUR lose small agencies [1].", "One more [1] risk to drop", "Fifth risk is over the cap [2]."],
+  });
+  const d = parseDecisionReady(raw, 2);
+  if (d.bottom_line !== "Sell to agency owners in Vienna first, with a 49 EUR first month [1][2].") throw new Error(String(d.bottom_line));
+  if (JSON.stringify(d.watch_out) !== JSON.stringify(["A 4-week launch leaves no time for a second round of calls [2].", "Prices above 99 EUR lose small agencies [1].", "One more [1] risk to drop"])) throw new Error(JSON.stringify(d.watch_out));
+  if (parseDecisionReady(JSON.stringify({ bottom_line: "Do the obvious thing now." }), 2).bottom_line !== undefined) throw new Error("an uncited bottom line is left out");
+  if (Object.keys(parseDecisionReady("not json", 2)).length) throw new Error("nothing from a bad reply");
 });

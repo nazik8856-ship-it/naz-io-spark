@@ -1,7 +1,7 @@
 // Outer Control: a finished multi-tool result, designed: an opinions report, a comparison, a fact-check or a rewrite. The words
 // are the stored result word for word; this only lays them out.
 import { ShieldCheck, Layers, Scale, Sparkles, Quote, CalendarClock, Fingerprint, Table2, ListChecks, PenLine, Wand2, ListOrdered, HelpCircle, AlertTriangle, CheckCircle2, Target } from "lucide-react";
-import { fingerprint, FOR_YOU_TITLE, isSingleSource, kindMethod, kindOf, KIND_BADGE, KIND_NOUN, missingLine, singleSourceLine, VERDICT_LABEL, when, type ReportDoc } from "@/lib/outer-control-report-doc";
+import { BOTTOM_LINE_TITLE, fingerprint, forYouTitle, isSingleSource, WATCH_OUT_TITLE, kindMethod, kindOf, KIND_BADGE, KIND_NOUN, missingLine, singleSourceLine, VERDICT_LABEL, when, type ReportDoc } from "@/lib/outer-control-report-doc";
 
 const Section = ({ title, icon, tone = "cyan", children, testid }: { title: string; icon: React.ReactNode; tone?: "cyan" | "emerald" | "amber"; children: React.ReactNode; testid?: string }) => {
   const color = tone === "emerald" ? "text-emerald-300" : tone === "amber" ? "text-amber-300" : "text-cyan-300";
@@ -104,12 +104,20 @@ export default function ReportView({ doc }: { doc: ReportDoc }) {
           )}
         </header>
 
+        {doc.bottom_line ? (
+          <Section title={BOTTOM_LINE_TITLE} icon={<Target className="h-3.5 w-3.5" />} tone="emerald" testid="report-bottom-line">
+            <p className="text-[15px] font-medium leading-relaxed text-white">{doc.bottom_line}</p>
+          </Section>
+        ) : null}
+
         {doc.implications?.length ? (
-          <Section title={FOR_YOU_TITLE} icon={<Target className="h-3.5 w-3.5" />} tone="emerald" testid="report-for-you">
+          <Section title={forYouTitle(doc)} icon={<Target className="h-3.5 w-3.5" />} tone="emerald" testid="report-for-you">
             <ul className="space-y-2.5 text-sm text-slate-100">
               {doc.implications.map((m, i) => (
                 <li key={i} className="flex gap-2" data-testid="report-implication" data-basis={m.basis}>
-                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden />
+                  {doc.ordered
+                    ? <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-400/20 text-[11px] font-semibold text-emerald-200" aria-hidden>{i + 1}</span>
+                    : <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden />}
                   <div>
                     <div>{m.step}</div>
                     <div className={`mt-0.5 text-[11px] ${m.basis === "situation" ? "text-emerald-200/80" : "text-amber-200/80"}`}>
@@ -118,6 +126,14 @@ export default function ReportView({ doc }: { doc: ReportDoc }) {
                   </div>
                 </li>
               ))}
+            </ul>
+          </Section>
+        ) : null}
+
+        {doc.watch_out?.length ? (
+          <Section title={WATCH_OUT_TITLE} icon={<AlertTriangle className="h-3.5 w-3.5" />} tone="amber" testid="report-watch-out">
+            <ul className="list-disc space-y-1.5 pl-5 text-sm text-amber-100/90">
+              {doc.watch_out.map((x, i) => <li key={i}>{x}</li>)}
             </ul>
           </Section>
         ) : null}
