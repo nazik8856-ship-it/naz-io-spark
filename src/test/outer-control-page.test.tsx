@@ -46,13 +46,13 @@ describe("Outer Control page", () => {
     };
   });
 
-  it("default view has the three sections and nothing else", async () => {
+  it("default view: the status (with what waits for you) and Start a task with the Tasks; everything else is in Advanced", async () => {
     renderPage();
     const status = await screen.findByTestId("status-bar");
     expect(within(status).getByText("Outer Control is active")).toBeTruthy();
     expect(screen.getByTestId("active-sessions-card")).toBeTruthy();
-    expect(screen.getByTestId("recent-decisions")).toBeTruthy();
-    // hidden until asked for
+    // hidden until asked for (Day 3: recent decisions moved to Advanced)
+    expect(screen.queryByTestId("recent-decisions")).toBeNull();
     expect(screen.queryByTestId("advanced-panel")).toBeNull();
     expect(screen.queryByTestId("workflows-card")).toBeNull();
     expect(screen.queryByLabelText("Verdict health network")).toBeNull();
@@ -67,9 +67,10 @@ describe("Outer Control page", () => {
     expect(screen.getByTestId("health-text").textContent).toBe("8 replies checked in the last 7 days; 2 changed, blocked or sent for approval.");
   });
 
-  it("lists only the last 6 decisions, labelled Allow / Modify / Block, with the rest behind View all", async () => {
+  const openDecisions = async () => { fireEvent.click(await screen.findByText("Advanced")); return within(await screen.findByRole("dialog")).findByTestId("recent-decisions"); };
+  it("lists only the last 6 decisions, labelled Allow / Modify / Block, with the rest behind View all (in Advanced)", async () => {
     renderPage();
-    const list = await screen.findByTestId("recent-decisions");
+    const list = await openDecisions();
     expect(within(list).getAllByTestId("decision-row")).toHaveLength(6);
     expect(within(list).getAllByText("Allow").length).toBeGreaterThan(0);
     expect(within(list).getByText("Modify")).toBeTruthy();
@@ -81,7 +82,7 @@ describe("Outer Control page", () => {
 
   it("a decision's reasoning and before/after text open only for the row you click", async () => {
     renderPage();
-    const list = await screen.findByTestId("recent-decisions");
+    const list = await openDecisions();
     fireEvent.click(within(list).getByText("Bot 2"));
     expect(within(list).getByText("Why 2")).toBeTruthy();
     expect(within(list).getByText("before 2")).toBeTruthy();
@@ -96,8 +97,9 @@ describe("Outer Control page", () => {
     expect(within(dialog).getByLabelText("Verdict health network")).toBeTruthy();
     expect(within(dialog).getByText("Changed, blocked or escalated")).toBeTruthy();
     expect(within(dialog).getByTestId("workflows-card")).toBeTruthy();
+    expect(within(dialog).getByTestId("recent-decisions")).toBeTruthy();
     // it is a window, not a block added to the bottom of the page
-    expect(screen.getByTestId("recent-decisions").contains(dialog)).toBe(false);
+    expect(screen.getByTestId("active-sessions-card").contains(dialog)).toBe(false);
     expect(document.querySelector('[data-testid="advanced-panel"]')).toBe(dialog);
   });
 
@@ -157,10 +159,12 @@ describe("Outer Control page", () => {
     state.tables.outer_control_evaluations = [];
     renderPage();
     expect(await screen.findByText(/No tools connected yet/)).toBeTruthy();
-    expect(screen.getByText(/No decisions yet/)).toBeTruthy();
     expect(screen.getByTestId("health-text").textContent).toMatch(/Connect a tool and start a session/);
     expect(screen.getByTestId("trust-score").textContent).toBe("—");
     await waitFor(() => expect(screen.getAllByText("Connect a tool").length).toBeGreaterThan(0));
+    // The decisions list is in Advanced, with its own empty state.
+    fireEvent.click(screen.getByText("Advanced"));
+    expect(within(await screen.findByRole("dialog")).getByText(/No decisions yet/)).toBeTruthy();
   });
 
   describe("loading always ends", () => {

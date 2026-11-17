@@ -482,11 +482,9 @@ export default function OuterControlSystem() {
             onApiDocs={() => navigate("/control-system/api-docs")}
           />}
 
-          {/* 2. Connected tools (the main focus) */}
+          {/* 2. Start a task (also one that keeps going until it is done), what waits for the person, and the Tasks (the main focus).
+              Everything else (recent decisions, statistics, the graph, workflows) is in Advanced. */}
           <ActiveSessionsCard accountId={accountId} />
-
-          {/* 3. Recent decisions */}
-          {!firstValue && <RecentDecisions rows={rows} onOpenApprovals={() => navigate("/control-system/approvals")} />}
 
           {/* Advanced: a closable window, opened from the button in the status bar */}
           <Dialog open={advancedOpen} onOpenChange={setAdvancedOpen}>
@@ -497,9 +495,11 @@ export default function OuterControlSystem() {
               <DialogHeader>
                 <DialogTitle className="text-lg font-semibold text-zinc-100">Advanced</DialogTitle>
                 <DialogDescription className="text-sm text-zinc-400">
-                  Statistics for the last 7 days, the most recent decisions as a graph, and workflows that run several tools toward one goal.
+                  Recent decisions, statistics for the last 7 days, the most recent decisions as a graph, and workflows that run several tools toward one goal.
                 </DialogDescription>
               </DialogHeader>
+
+              <RecentDecisions rows={rows} onOpenApprovals={() => navigate("/control-system/approvals")} />
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div className="hud-glass rounded-2xl px-5 py-4">

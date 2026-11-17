@@ -165,3 +165,54 @@ describe("the research challenger in the plan", () => {
     expect(screen.queryByTestId("task-challenger")).toBeNull();
   });
 });
+
+// Day 3 (#157): a goal Task from Start a task. "Keep going until it is done" turns the Task into one that asks the tools in turn
+// until the done criteria are met; everything else (questions, background, tools) is the same panel.
+describe("Start a task: keep going until it is done", () => {
+  beforeEach(() => {
+    state.tools = [good("a", "ChatGPT"), good("b", "Claude"), good("c", "Gemini"), good("d", "Mistral"), writer]; state.sessions = []; state.workflows = []; state.imported = []; state.records = [];
+    state.route = { kind: "opinions", questions: [QUESTIONS[2]], question_kinds: ["opinions"] }; saved.rows = []; saved.fail = false; forgetReadings(); vi.clearAllMocks();
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      if (body.action === "route_task") return { ok: true, json: async () => ({ ok: true, text: body.request, background: "", labels: [], count: 0, question: "", source: "ai", ...state.route }) };
+      return { ok: true, json: async () => ({ ok: true, task_id: "w1" }) };
+    }));
+  });
+  const lastGoal = () => calls().filter((c) => c.action === "start_goal").at(-1);
+
+  it("starts a goal Task with the request, the criteria, the most rounds, up to 3 tools and the answers as context", async () => {
+    render(<MemoryRouter><ActiveSessionsCard accountId="u1" /></MemoryRouter>);
+    fireEvent.click(await screen.findByTestId("start-task-button"));
+    fireEvent.change(screen.getByLabelText("Describe the task"), { target: { value: "Write a launch checklist for a small online shop" } });
+    await screen.findByTestId("task-plan-line", {}, { timeout: 3000 });
+    expect(screen.queryByLabelText("Done criteria")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Keep going until it is done"));
+    fireEvent.change(screen.getByLabelText("Done criteria"), { target: { value: "Has exactly 5 numbered points\nMentions setting up payments\n\nMentions shipping costs" } });
+    fireEvent.change(screen.getByLabelText("Most rounds"), { target: { value: "3" } });
+    for (const n of ["ChatGPT", "Claude", "Gemini", "Mistral"]) fireEvent.click(screen.getByLabelText(`Ask ${n}`));
+    fireEvent.change(screen.getByLabelText("What is the main limit: money, time or people?"), { target: { value: "launch in 2 weeks" } });
+    expect(screen.getByTestId("task-start").textContent).toBe("Start · keep going until done");
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastGoal()).toEqual({
+      action: "start_goal", goal: "Write a launch checklist for a small online shop",
+      criteria: ["Has exactly 5 numbered points", "Mentions setting up payments", "Mentions shipping costs"],
+      tool_ids: ["a", "b", "c"], max_rounds: 3, context: "Main limit: launch in 2 weeks",
+    }));
+    expect(calls().some((c) => c.action === "start_report")).toBe(false);
+  });
+
+  it("without criteria it still starts (the basic check); too many criteria are refused before anything starts", async () => {
+    render(<MemoryRouter><ActiveSessionsCard accountId="u1" /></MemoryRouter>);
+    fireEvent.click(await screen.findByTestId("start-task-button"));
+    fireEvent.change(screen.getByLabelText("Describe the task"), { target: { value: "Summarise our refund policy" } });
+    await screen.findByTestId("task-plan-line", {}, { timeout: 3000 });
+    fireEvent.click(screen.getByLabelText("Keep going until it is done"));
+    fireEvent.click(screen.getByLabelText("Ask ChatGPT"));
+    fireEvent.change(screen.getByLabelText("Done criteria"), { target: { value: "a\nb\nc\nd\ne\nf" } });
+    expect((screen.getByTestId("task-start") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Done criteria"), { target: { value: "" } });
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastGoal()).toMatchObject({ goal: "Summarise our refund policy", tool_ids: ["a"], max_rounds: 4 }));
+    expect(lastGoal().criteria).toBeUndefined();
+  });
+});

@@ -105,21 +105,23 @@ Tests: `supabase/functions/_shared/outer-control-for-you_test.ts`, `src/test/rep
 
 ## A few details before the run (clarifying questions)
 
-When NazAI reads a request in *Start a task* (`route_task`), it also returns up to three short questions
-(`outer-control-clarify.ts`), but only what nothing already says:
+When NazAI reads a request in *Start a task* (`route_task`), it also returns **one or two** short questions (`MAX_QUESTIONS`,
+`outer-control-clarify.ts`), but only what nothing already says, the most useful first:
 
 | Question | Not asked when |
 |---|---|
-| What stage is the business at? | the brief has a business line, or the request or its background says the stage (idea, launched, 2 years in, first 10 customers, …) |
+| What result do you want from this? | the request says what it is for (asked only when it has at most one meaningful word besides "help", "ideas", "tips": "Help me with marketing") or a background was typed |
 | Who is it for? | an audience is named or qualified ("Audience: …", B2B, students, "customers in Berlin"); a bare "customers" does not count |
 | What is the main limit: money, time or people? | a budget, deadline, amount, time span or team size is given |
+| What stage is the business at? | the brief has a business line, or the request or its background says the stage (idea, launched, 2 years in, first 10 customers, …) |
 
 Only for the actions whose answer depends on the situation (opinions, research, compare, decision, multi-step, delegated); never for
 a rewrite, explanation, key points, fact-check, roles, adaptation, alternatives or draft.
 
 Every answer is optional and the Task never waits for them. Answers are added to the Task's background as "<label>: <answer>" (at
 most 160 characters each), so they reach every tool, go through the account's rules, and are listed as background under "What the
-tools knew". With **Remember these for my next Tasks** (on by default, shown once something is answered) each answer is also saved
+tools knew". With **Remember these for my next Tasks** (on by default, shown once a situation question is answered) each answer
+about the situation is also saved (what the person wants from this Task is not: it belongs to this Task)
 as a general knowledge entry, encrypted, through the same write the Knowledge base page uses; the account's own rules decide who may
 add one. The next Task's brief then carries it, so the question is not asked again. A save that is not allowed does not stop the Task
 and the person is told the answers were used but not kept.
@@ -134,7 +136,9 @@ A research Task asks its tools at the same time, then adds one step before the r
 it says what is missing for this person, what is generic (and the specific version), and what has no basis.
 
 - Its reply goes through the same rules and checks as any answer, and is kept word for word as a source, marked **(challenge)**.
-- NazAI's AI is told that source is not an answer: it uses it for open questions and to qualify points, never as confirmation.
+- NazAI's AI is told that source is not an answer and to act on it: a point it shows is generic is made specific with what the
+  answers give (or said to have nothing specific), a point it shows is wrong for this person is qualified or dropped; an open
+  question is only for what no answer can settle. Its claims are never presented as confirmed.
 - It is not counted as a second answer: one research tool plus its challenge is still a single source, and the result says that
   answer was challenged but not cross-checked.
 - If the challenger does not answer, the result is written from the answers and names it as not answering.
@@ -142,3 +146,48 @@ it says what is missing for this person, what is generic (and the specific versi
   says which tool will challenge. It uses one more call to that tool and no extra credit.
 
 Tests: the "research challenger" engine tests, `src/test/report-challenge.test.tsx`, and the plan line in `src/test/task-clarify.test.tsx`.
+
+## Built-in tools: task card, a job each, anti-generic pass (Day 3)
+
+NazAI's own Writer, Analyst and Reviewer (`outer-control-starter.ts`, the "NazAI does it for me" path) get three things a connected
+tool does not:
+
+- **A task card** on top of every call: the goal (the person's own request), the situation (the Task's context; or "Not given. Open
+  with one line *Assumed situation: …*"), the rules in force (their names, and the built-in checks), and what a useful answer is for
+  this action ("findings specific enough to act on …"; "a recommendation with the factors that decide it …"), ending with "nothing
+  that would fit any business".
+- **A job each** where the three answer the same question (opinions, research, compare, decision): the Writer gives the practical
+  answer (steps, wording, plan, in order), the Analyst ranks the 3 to 5 things that matter most and says which first, the Reviewer
+  names what a typical answer gets wrong or vague for this person and gives the specific replacement. Each is told not to do the
+  others' job, so the three do not repeat each other. Actions with a fixed format (rewrite, roles, explain, draft, …) and a session on
+  its own keep one job: do exactly what the request asks; a challenger step challenges.
+- **An anti-generic pass**: the answer is measured with the completion gate's own checks for the action (*Uses your context*,
+  *Answers every part*, *Gives concrete detail*). When it fails, it is rewritten once, inside the call, with the exact problems and
+  the task card (no invented facts: an unknown number is given as an "Assumption" or "(estimate)"). The rewrite is what comes back,
+  so NazAI's rules check the final text like any other reply. The step records what was wrong (`decision.sharpened`) and its details
+  say "NazAI sharpened this answer before checking it"; the unchecked first answer is not kept. A question from the tool, or a
+  rewrite that does not come back, leaves the first answer as it was.
+
+Tests: `outer-control-starter_test.ts`, `outer-control-generic_test.ts`, the "starter AI" engine tests.
+
+## Decision-ready results (Day 3)
+
+For opinions, research and compare, NazAI's AI also writes:
+
+- **Bottom line** (`bottom_line`): at most two sentences on what to conclude or do, cited. It is shown first: on the result page, in
+  every look (`lead` section, first in every order), in every file and in the text result.
+- **What to do first** (`implications` with `ordered: true`): the person's steps are now concrete actions in the order to do them
+  (what, by when, with which numbers from their situation), never a copy of a source's general next steps; numbered everywhere.
+- **Watch out** (`watch_out`): up to three risks, or what would change the answer, each cited.
+
+A bottom line or watch-out without a valid citation is left out; it never fails the result. A report from before has none of the
+fields and is shown exactly as before. Tests: `outer-control-for-you_test.ts`, `src/test/report-decision-ready.test.tsx`, the
+"what this means for you" engine test.
+
+## Start a task: keep going until it is done (Day 3)
+
+*Start a task* has a **Keep going until it is done** switch. On, the Task is a goal Task (`start_goal`): the request is the goal, the
+done criteria (optional, one per line, up to 5) and the most rounds (1 to 6) are set there, up to 3 tools are asked in turn, and the
+answers to the questions and the background go in as its context. It uses 1 credit. The workflows list in **Advanced** still has its
+own goal form. The front screen is the status (with what waits for the person), *Start a task* and the Tasks; recent decisions,
+statistics, the graph and workflows are in **Advanced**.

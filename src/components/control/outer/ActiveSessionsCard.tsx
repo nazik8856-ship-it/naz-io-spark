@@ -231,7 +231,12 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   /** Start task: one of the multi-tool actions. Each tool is asked (on its own or in a chain), then one controlled result is written. */
   const startTask = async (t: TaskRequest): Promise<boolean> => {
     const label = t.toolIds.map((id) => tools.find((x) => x.id === id)?.name ?? "tool").join(" → ");
-    const r = await act("report", "start_report", {
+    // "Keep going until it is done": a goal Task, the tools asked in turn until the done criteria are met (or the most rounds).
+    const r = t.goal ? await act("report", "start_goal", {
+      goal: t.text, criteria: t.goal.criteria.length ? t.goal.criteria : undefined, tool_ids: t.toolIds, max_rounds: t.goal.rounds,
+      context: t.background || undefined, confirm_override: t.keepChoice || undefined, share_context: t.shareContext ? undefined : false,
+    }, `Started with ${label}. It keeps going until ${t.goal.criteria.length ? "the done criteria are met" : "the answer does what you asked"} or it needs you. Follow it in Your tasks below.`)
+    : await act("report", "start_report", {
       task: t.kind, topic: t.text, background: t.background || undefined, styles: t.styles.length ? t.styles : undefined,
       count: t.kind === "alternatives" ? t.count : undefined, tool_ids: t.toolIds, confirm_override: t.keepChoice || undefined,
       project_id: taskProject?.id, template: t.template ?? undefined, share_context: t.shareContext ? undefined : false,
