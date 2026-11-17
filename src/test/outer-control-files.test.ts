@@ -149,6 +149,34 @@ describe("the result as a model", () => {
   });
 });
 
+describe("a numbered list stays numbered", () => {
+  const GOAL = "Launch checklist\n1. Set up payments: card and PayPal\n2. Calculate shipping costs\n3. Upload products\n\nAlso:\n- Tell your friends";
+  it("in the model, every look, Markdown, Word and PDF; a bullet list stays bullets", () => {
+    const d = textToDoc(GOAL, "Write a launch checklist");
+    const blocks = d.sections.flatMap((s) => s.blocks).filter((b) => b.k === "ul");
+    expect(blocks).toEqual([
+      { k: "ul", items: ["Set up payments: card and PayPal", "Calculate shipping costs", "Upload products"], ordered: true },
+      { k: "ul", items: ["Tell your friends"] },
+    ]);
+    for (const id of TEMPLATE_IDS) {
+      const html = renderTemplate(d, id);
+      if (id !== "data") expect(html).toMatch(/<ol><li>Set up payments: card and PayPal<\/li><li>Calculate shipping costs<\/li>/);
+      expect(html).toContain("Tell your friends");
+    }
+    const md = toMarkdown(d, "nazai");
+    expect(md).toContain("1. Set up payments: card and PayPal\n2. Calculate shipping costs\n3. Upload products");
+    expect(md).toContain("- Tell your friends");
+    const word = str(unzip(toDocx(d, "nazai", new Date(AT))).get("word/document.xml")!);
+    expect(word).toContain("2.  Calculate shipping costs");
+    const pdf = Array.from(toPdf(d, "nazai", new Date(AT))!, (b) => String.fromCharCode(b)).join("");
+    expect(pdf).toContain("(3.)");
+  });
+  it("numbers and bullets mixed in a row become two lists", () => {
+    const d = textToDoc("1. one\n2. two\n- loose", "t");
+    expect(d.sections[0].blocks).toEqual([{ k: "ul", items: ["one", "two"], ordered: true }, { k: "ul", items: ["loose"] }]);
+  });
+});
+
 describe("files", () => {
   const kinds: FileKind[] = ["docx", "pdf", "xlsx", "csv", "md"];
 

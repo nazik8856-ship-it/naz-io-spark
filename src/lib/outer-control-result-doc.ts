@@ -5,7 +5,8 @@ import { composeReportText, fingerprint, FOR_YOU_TITLE, implicationLine, isSingl
 
 export type Blk =
   | { k: "p"; text: string }
-  | { k: "ul"; items: string[] }
+  /** A list; ordered: its items were numbered ("1.", "2)"), so every look and file keeps the numbers. */
+  | { k: "ul"; items: string[]; ordered?: boolean }
   /** Words of a source, word for word, with where they came from. */
   | { k: "quote"; text: string; by: string }
   /** A version, option, step or part: its heading, who gave it, its text. */
@@ -113,7 +114,7 @@ export function reportToDoc(d: ReportDoc): ResultDoc {
     meta: isSingleSource(d) && !d.single_source ? `${REPORT_INTRO(d)} ${singleSourceLine(d)}` : REPORT_INTRO(d), sections, footer: FOOTER };
 }
 
-const LIST_LINE = /^\s*(?:[-*•]|\d{1,2}[.)])\s+(.*\S)\s*$/;
+const LIST_LINE = /^\s*([-*•]|\d{1,2}[.)])\s+(.*\S)\s*$/;
 /** A heading line of a plain result: short, no lower-case letters ("SUMMARY", "WHERE THEY DIFFER"). */
 const HEADING_LINE = /^[\p{Lu}\p{N}\s&/,:'’()–-]{3,60}$/u;
 
@@ -123,15 +124,22 @@ export function textToDoc(text: string, title: string, meta = ""): ResultDoc {
   let cur: Sec = { key: "detail", title: "", blocks: [] };
   const push = () => { if (cur.blocks.length || cur.title) sections.push(cur); };
   let bullets: string[] = [];
+  let numbered = false;
   let lines: string[] = [];
   const flushLines = () => { if (lines.length) cur.blocks.push({ k: "p", text: lines.join("\n") }); lines = []; };
-  const flushBullets = () => { if (bullets.length) cur.blocks.push({ k: "ul", items: bullets }); bullets = []; };
+  const flushBullets = () => { if (bullets.length) cur.blocks.push(numbered ? { k: "ul", items: bullets, ordered: true } : { k: "ul", items: bullets }); bullets = []; };
   for (const raw of text.replace(/\r\n/g, "\n").split("\n")) {
     const line = raw.trimEnd();
     if (!line.trim()) { flushLines(); flushBullets(); continue; }
     if (HEADING_LINE.test(line.trim()) && /\p{L}/u.test(line)) { flushLines(); flushBullets(); push(); cur = { key: "detail", title: titleCase(line.trim()), blocks: [] }; continue; }
     const m = line.match(LIST_LINE);
-    if (m) { flushLines(); bullets.push(m[1]); continue; }
+    if (m) {
+      // A numbered list stays numbered; a switch between numbers and bullets starts a new list.
+      const isNum = /\d/.test(m[1]);
+      flushLines();
+      if (bullets.length && isNum !== numbered) flushBullets();
+      numbered = isNum; bullets.push(m[2]); continue;
+    }
     flushBullets(); lines.push(line);
   }
   flushLines(); flushBullets(); push();

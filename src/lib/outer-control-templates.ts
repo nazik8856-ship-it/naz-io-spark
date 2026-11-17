@@ -63,7 +63,7 @@ const paras = (s: string) => s.trim().split(/\n{2,}/).map((p) => `<p>${esc(p).re
 function block(b: Blk): string {
   switch (b.k) {
     case "p": return paras(b.text);
-    case "ul": return `<ul>${b.items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
+    case "ul": { const tag = b.ordered ? "ol" : "ul"; return `<${tag}>${b.items.map((x) => `<li>${esc(x)}</li>`).join("")}</${tag}>`; }
     case "quote": return `<blockquote class="quote">${paras(b.text)}<cite>${esc(b.by)}</cite></blockquote>`;
     case "item": return `<div class="item"><h4>${esc(b.head)} <small>by ${esc(b.by)}</small></h4>${paras(b.text)}</div>`;
     case "table": {
@@ -78,7 +78,7 @@ const blocks = (s: Sec) => s.blocks.map(block).join("");
 function page(doc: ResultDoc, css: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(doc.badge.replace(/^NAZAI /, "NazAI ").toLowerCase().replace(/^nazai/, "NazAI"))} — ${esc(doc.title.slice(0, 80))}</title>
-<style>*{box-sizing:border-box}body{margin:0}p{margin:0 0 10px}ul{margin:0;padding-left:20px}li{margin:0 0 6px}${css}</style></head><body>${body}</body></html>`;
+<style>*{box-sizing:border-box}body{margin:0}p{margin:0 0 10px}ul,ol{margin:0;padding-left:20px}li{margin:0 0 6px}${css}</style></head><body>${body}</body></html>`;
 }
 
 // ---- executive: white and navy, the answer first in a box ------------------------------------------------------------------------
@@ -117,7 +117,7 @@ section{margin:0 0 30px}
 h2{margin:0 0 12px;text-align:center;font:600 12px/1 system-ui,sans-serif;letter-spacing:.28em;text-transform:uppercase;color:#b4532a}
 h2:before,h2:after{content:"◆";margin:0 10px;font-size:8px;vertical-align:2px}
 .k-summary p:first-of-type{font-size:22px;line-height:1.55;color:#3b2f27}
-ul{list-style:none;padding:0}li{padding-left:22px;position:relative}li:before{content:"—";position:absolute;left:0;color:#b4532a}
+ul{list-style:none;padding:0}ul>li{padding-left:22px;position:relative}ul>li:before{content:"—";position:absolute;left:0;color:#b4532a}ol{padding-left:24px}ol>li::marker{color:#b4532a}
 .k-bottom{border-top:3px double #b4532a;border-bottom:3px double #b4532a;padding:18px 6px;text-align:center}.k-bottom p{font-size:21px;font-style:italic}
 blockquote{margin:22px 0;padding:0 10px 0 46px;position:relative;font-style:italic;color:#4a3b30}blockquote:before{content:"“";position:absolute;left:0;top:-14px;font-size:70px;color:#d9a98f;line-height:1}
 cite{display:block;margin-top:6px;font:12px system-ui,sans-serif;letter-spacing:.04em;color:#8a7767;font-style:normal}

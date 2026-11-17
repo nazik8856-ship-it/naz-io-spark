@@ -9,7 +9,7 @@
 import { cleanText } from "./clean-text.ts";
 import { fenceUntrusted } from "./untrusted-input.ts";
 import { guardOutputText } from "./output-guard.ts";
-import { parseModelJson } from "./model-output.ts";
+import { parseModelJson, parseStrictObject } from "./model-output.ts";
 import { array, object, oneOf, text, url, withDefault } from "./schema.ts";
 
 export type ToolFormat = "openai_chat" | "anthropic_messages" | "generic_json" | "mcp";
@@ -158,10 +158,58 @@ const toolReplyShape = object({
   links: withDefault(array(object({ url: url({ max: 2000 }), label: withDefault(text({ max: 80, clip: true, multiline: false }), "") }), { max: 5, clip: true, dropInvalid: true }), [] as { url: string; label: string }[]),
 });
 
+const humanKey = (k: string) => k.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+const isPlain = (v: unknown): v is string | number | boolean => typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+const flat = (v: string | number | boolean) => String(v).replace(/\s*\n\s*/g, " ").trim();
+
+/** One item of a list that is an object: its first text is the point, the second what it says, the rest in brackets. */
+function itemLine(o: Record<string, unknown>): string {
+  const plain = Object.entries(o).filter(([, v]) => isPlain(v) && flat(v as string));
+  const [head, body, ...rest] = plain.map(([k, v]) => [k, flat(v as string)] as const);
+  let line = head ? head[1] : "";
+  if (body) line += `: ${body[1]}`;
+  if (rest.length) line += ` (${rest.map(([k, v]) => `${humanKey(k)}: ${v}`).join("; ")})`;
+  const nested = Object.entries(o).filter(([, v]) => !isPlain(v) && v !== null).map(([k, v]) => `${humanKey(k)}: ${inline(v)}`);
+  return [line, ...nested].filter(Boolean).join(" ");
+}
+const inline = (v: unknown): string => isPlain(v) ? flat(v) : Array.isArray(v) ? v.map(inline).filter(Boolean).join("; ") : v && typeof v === "object" ? itemLine(v as Record<string, unknown>) : "";
+
+/**
+ * An answer a tool sent as JSON (an object or a list) instead of text, written out the way a plain answer reads: each top-level
+ * field a HEADING line, text as a paragraph, a list as "- " points (an object in a list as "point: what it says (other: …)").
+ * So the result shows "Key findings" and its points, not the tool's raw JSON. Pure.
+ */
+export function structuredToText(v: unknown): string {
+  if (isPlain(v)) return String(v).trim();
+  const list = (a: unknown[]) => a.map((x) => (isPlain(x) ? flat(x) : inline(x))).filter(Boolean).map((x) => `- ${x}`).join("\n");
+  if (Array.isArray(v)) return list(v);
+  if (!v || typeof v !== "object") return "";
+  const parts: string[] = [];
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    const body = isPlain(val) ? String(val).trim() : Array.isArray(val) ? list(val) : val && typeof val === "object"
+      ? Object.entries(val as Record<string, unknown>).map(([kk, vv]) => `${humanKey(kk)}: ${inline(vv)}`).join("\n") : "";
+    if (!body) continue;
+    const head = humanKey(k).toUpperCase().slice(0, 60);
+    parts.push(/\p{L}/u.test(head) ? `${head}\n${body}` : body);
+  }
+  return parts.join("\n\n");
+}
+
+/**
+ * A reply in the contract whose answer is not text but an object or a list: the answer is written out as text (structuredToText), so
+ * it is checked and shown like any other. Any other JSON is left as it was (a tool asked for JSON data keeps its JSON).
+ */
+function readableJson(unfenced: string): string | null {
+  const o = parseStrictObject(unfenced);
+  if (!o || !("status" in o) || o.answer === null || typeof o.answer !== "object") return null;
+  return JSON.stringify({ ...o, answer: structuredToText(o.answer).slice(0, MAX_TOOL_ANSWER_CHARS) });
+}
+
 /** Reads the reply text against the contract; plain text is accepted as a finished single reply. */
 export function parseToolReply(replyText: string): ToolReply {
   const trimmed = cleanText(replyText, { max: MAX_TOOL_ANSWER_CHARS });
-  const unfenced = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  let unfenced = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  if (unfenced.startsWith("{")) unfenced = readableJson(unfenced) ?? unfenced;
   if (unfenced.startsWith("{")) {
     const r = parseModelJson(unfenced, toolReplyShape);
     if (r.ok) {
