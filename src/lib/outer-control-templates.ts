@@ -29,27 +29,27 @@ export const TEMPLATE_INFO: Record<OutputTemplate, TemplateInfo> = {
   nazai: {
     name: "NazAI dark", blurb: "The original look: dark cards, the answer at the end.",
     colors: { bg: "#050b18", text: "#dbe7ff", accent: "#22d3ee", heading: "#0b6e80" },
-    order: ["summary", "foryou", "sources", "detail", "points", "contrast", "bottom", "method"], font: "sans",
+    order: ["lead", "summary", "foryou", "sources", "detail", "points", "contrast", "bottom", "method"], font: "sans",
   },
   executive: {
     name: "Executive brief", blurb: "For decisions: the answer first, the sources in an appendix.",
     colors: { bg: "#ffffff", text: "#1b2733", accent: "#0f766e", heading: "#0b2545" },
-    order: ["bottom", "foryou", "summary", "points", "contrast", "detail", "sources", "method"], font: "sans",
+    order: ["lead", "bottom", "foryou", "summary", "points", "contrast", "detail", "sources", "method"], font: "sans",
   },
   editorial: {
     name: "Editorial", blurb: "For reading: article style, serif type, pull-quotes.",
     colors: { bg: "#faf5ec", text: "#2a2320", accent: "#b4532a", heading: "#7a2e12" },
-    order: ["summary", "foryou", "detail", "points", "contrast", "bottom", "sources", "method"], font: "serif",
+    order: ["lead", "summary", "foryou", "detail", "points", "contrast", "bottom", "sources", "method"], font: "serif",
   },
   brief: {
     name: "One-page brief", blurb: "For sharing: compact, numbered, agreements and differences side by side.",
     colors: { bg: "#ffffff", text: "#111111", accent: "#ea580c", heading: "#111111" },
-    order: ["bottom", "foryou", "summary", "points", "contrast", "detail", "sources", "method"], font: "sans",
+    order: ["lead", "bottom", "foryou", "summary", "points", "contrast", "detail", "sources", "method"], font: "sans",
   },
   data: {
     name: "Data sheet", blurb: "For checking: everything in tables, monospace headings.",
     colors: { bg: "#f1f4f7", text: "#1c2430", accent: "#0f766e", heading: "#0f3d3a" },
-    order: ["summary", "bottom", "foryou", "points", "contrast", "detail", "sources", "method"], font: "mono",
+    order: ["lead", "summary", "bottom", "foryou", "points", "contrast", "detail", "sources", "method"], font: "mono",
   },
 };
 
@@ -63,7 +63,7 @@ const paras = (s: string) => s.trim().split(/\n{2,}/).map((p) => `<p>${esc(p).re
 function block(b: Blk): string {
   switch (b.k) {
     case "p": return paras(b.text);
-    case "ul": return `<ul>${b.items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
+    case "ul": { const tag = b.ordered ? "ol" : "ul"; return `<${tag}>${b.items.map((x) => `<li>${esc(x)}</li>`).join("")}</${tag}>`; }
     case "quote": return `<blockquote class="quote">${paras(b.text)}<cite>${esc(b.by)}</cite></blockquote>`;
     case "item": return `<div class="item"><h4>${esc(b.head)} <small>by ${esc(b.by)}</small></h4>${paras(b.text)}</div>`;
     case "table": {
@@ -78,7 +78,7 @@ const blocks = (s: Sec) => s.blocks.map(block).join("");
 function page(doc: ResultDoc, css: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(doc.badge.replace(/^NAZAI /, "NazAI ").toLowerCase().replace(/^nazai/, "NazAI"))} — ${esc(doc.title.slice(0, 80))}</title>
-<style>*{box-sizing:border-box}body{margin:0}p{margin:0 0 10px}ul{margin:0;padding-left:20px}li{margin:0 0 6px}${css}</style></head><body>${body}</body></html>`;
+<style>*{box-sizing:border-box}body{margin:0}p{margin:0 0 10px}ul,ol{margin:0;padding-left:20px}li{margin:0 0 6px}${css}</style></head><body>${body}</body></html>`;
 }
 
 // ---- executive: white and navy, the answer first in a box ------------------------------------------------------------------------
@@ -102,7 +102,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;v
 footer{padding:16px 40px 30px;color:#94a3b8;font-size:12px}
 @media print{body{background:#fff}.wrap{box-shadow:none}header{background:#fff;color:#0b2545;border-bottom:3px solid #0b2545}.meta{color:#475569}.badge{color:#0f766e}section,.bottom{break-inside:avoid}}`;
 function executive(doc: ResultDoc, secs: Sec[]): string {
-  const body = secs.map((s) => (s.key === "bottom" ? `<aside class="bottom k-bottom"><h2>${esc(s.title)}</h2>${blocks(s)}</aside>` : `<section class="k-${s.key}">${s.title ? `<h2>${s.key === "sources" ? "Appendix · " : ""}${esc(s.title)}</h2>` : ""}${blocks(s)}</section>`)).join("");
+  const body = secs.map((s) => ((s.key === "bottom" || s.key === "lead") ? `<aside class="bottom k-bottom"><h2>${esc(s.title)}</h2>${blocks(s)}</aside>` : `<section class="k-${s.key}">${s.title ? `<h2>${s.key === "sources" ? "Appendix · " : ""}${esc(s.title)}</h2>` : ""}${blocks(s)}</section>`)).join("");
   return page(doc, EXECUTIVE_CSS, `<div class="wrap"><header><div class="badge">${esc(doc.badge)}</div><h1>${esc(doc.title)}</h1><p class="meta">${esc(doc.meta)}</p></header><main>${body}</main><footer>${esc(doc.footer)}</footer></div>`);
 }
 
@@ -117,7 +117,7 @@ section{margin:0 0 30px}
 h2{margin:0 0 12px;text-align:center;font:600 12px/1 system-ui,sans-serif;letter-spacing:.28em;text-transform:uppercase;color:#b4532a}
 h2:before,h2:after{content:"◆";margin:0 10px;font-size:8px;vertical-align:2px}
 .k-summary p:first-of-type{font-size:22px;line-height:1.55;color:#3b2f27}
-ul{list-style:none;padding:0}li{padding-left:22px;position:relative}li:before{content:"—";position:absolute;left:0;color:#b4532a}
+ul{list-style:none;padding:0}ul>li{padding-left:22px;position:relative}ul>li:before{content:"—";position:absolute;left:0;color:#b4532a}ol{padding-left:24px}ol>li::marker{color:#b4532a}
 .k-bottom{border-top:3px double #b4532a;border-bottom:3px double #b4532a;padding:18px 6px;text-align:center}.k-bottom p{font-size:21px;font-style:italic}
 blockquote{margin:22px 0;padding:0 10px 0 46px;position:relative;font-style:italic;color:#4a3b30}blockquote:before{content:"“";position:absolute;left:0;top:-14px;font-size:70px;color:#d9a98f;line-height:1}
 cite{display:block;margin-top:6px;font:12px system-ui,sans-serif;letter-spacing:.04em;color:#8a7767;font-style:normal}
@@ -127,7 +127,7 @@ table{width:100%;border-collapse:collapse;font-size:15px}th,td{text-align:left;v
 footer{text-align:center;font:11px system-ui,sans-serif;letter-spacing:.2em;text-transform:uppercase;color:#a8957f;margin-top:30px}
 @media print{body{background:#fff;padding:0}.wrap{box-shadow:none;padding:0}}`;
 function editorial(doc: ResultDoc, secs: Sec[]): string {
-  const body = secs.map((s) => `<section class="k-${s.key}">${s.title ? `<h2>${esc(s.key === "bottom" && /^conclusion$/i.test(s.title) ? "In conclusion" : s.title)}</h2>` : ""}${blocks(s)}</section>`).join("");
+  const body = secs.map((s) => `<section class="k-${s.key}">${s.title ? `<h2>${esc((s.key === "bottom" || s.key === "lead") && /^conclusion$/i.test(s.title) ? "In conclusion" : s.title)}</h2>` : ""}${blocks(s)}</section>`).join("");
   return page(doc, EDITORIAL_CSS, `<div class="wrap"><div class="badge">${esc(doc.badge)}</div><h1>${esc(doc.title)}</h1><p class="meta">${esc(doc.meta)}</p>${body}<footer>${esc(doc.footer)}</footer></div>`);
 }
 
@@ -154,7 +154,7 @@ function brief(doc: ResultDoc, secs: Sec[]): string {
   for (let i = 0; i < secs.length; i++) {
     const s = secs[i];
     const next = secs[i + 1];
-    if (s.key === "bottom") { out.push(`<div class="decision k-bottom"><h2>${/^conclusion$/i.test(s.title) ? "Decision" : esc(s.title)}</h2>${blocks(s)}</div>`); continue; }
+    if ((s.key === "bottom" || s.key === "lead")) { out.push(`<div class="decision k-bottom"><h2>${/^conclusion$/i.test(s.title) ? "Decision" : esc(s.title)}</h2>${blocks(s)}</div>`); continue; }
     const head = (x: Sec) => (x.title && x.key !== "sources" && x.key !== "method" ? `<h2><span class="num">${++n}</span>${esc(x.title)}</h2>` : x.title ? `<h2>${esc(x.title)}</h2>` : "");
     if (s.key === "points" && next?.key === "contrast") { out.push(`<div class="cols"><section class="k-points">${head(s)}${blocks(s)}</section><section class="k-contrast">${head(next)}${blocks(next)}</section></div>`); i++; continue; }
     out.push(`<section class="k-${s.key}">${head(s)}${blocks(s)}</section>`);

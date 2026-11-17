@@ -11,7 +11,7 @@
 //   POST { action: "task_decide", task_id, decision: "accept" | "more" | "stop" }   (what to do with a goal Task that is blocked)
 //   POST { action: "route_task", request }   (NazAI reads a request: which action, its text, background, labels, and up to 3 clarifying
 //        questions about what is not known yet (stage, audience, main limit); free, starts nothing)
-//   POST { action: "start_report", task?: <one of the 14 actions, default "opinions">, topic, background?, styles?, count?, tool_ids, project_id? }
+//   POST { action: "start_report", task?: <one of the 14 actions, default "opinions">, topic, background?, styles?, count?, tool_ids, project_id?, nazai_second? }
 //        (a multi-tool action: every tool reply is checked, then one controlled result is written; uses TASK_CREDITS[task].
 //         Tool counts, text lengths and labels per action: TASK_LIMITS. styles = the styles / roles / audiences of rewrite / roles / adapt;
 //         count = options for alternatives; background goes to every tool as the Task's context and to NazAI's AI; project_id = an
@@ -49,9 +49,9 @@ import { createAgentTool, ensureReportTool, removeTool, updateToolKey } from "..
 import { resumeTool } from "../_shared/outer-control-containment.ts";
 import { nazaiAddressProblem } from "../_shared/outer-control-address.ts";
 import { ownProjectHost } from "../_shared/egress.ts";
-import { ensureStarterTools, isStarterUrl, STARTER_TASKS, STARTER_USED_UP, starterTasksUsed } from "../_shared/outer-control-starter.ts";
+import { ensurePerspectiveTool, ensureStarterTools, isNazaiAiUrl, isStarterUrl, STARTER_TASKS, STARTER_USED_UP, starterTasksUsed } from "../_shared/outer-control-starter.ts";
 import { buildPlanPrompt, challengeInstruction, cleanCount, cleanStyles, delegateInstruction, gatewayAi, improveInstruction, multistepInstruction, NEEDS_AI, parsePlan, REPORT_TOOL_URL, routeRequest, ROUTING_TEXT, stepInstructionFor, TASK_LIMITS, taskTitle, writerInstructionFor } from "../_shared/outer-control-report.ts";
-import { ACTION_INFO, isOutputTemplate, MAX_BACKGROUND, OUTPUT_TEMPLATES, REPORT_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
+import { ACTION_INFO, isOutputTemplate, MAX_BACKGROUND, OUTPUT_TEMPLATES, REPORT_KINDS, SECOND_PERSPECTIVE_KINDS, TASK_CREDITS, type ReportKind } from "../_shared/outer-control-report-doc.ts";
 import { NO_CREDITS_MESSAGE, consumeGenerationCredit } from "../_shared/credits.ts";
 import { checkFreeLimit } from "../_shared/free-limits.ts";
 import { pickAiGateway } from "../_shared/ai-gateway.ts";
@@ -209,7 +209,7 @@ Deno.serve(async (req) => {
         await admin.from("external_tools").update({ last_checked_at: new Date().toISOString(), last_ok_at: ok ? new Date().toISOString() : tool.last_ok_at, last_error: ok ? null : "The agent no longer exists." }).eq("id", tool.id);
         return json({ ok, error: ok ? null : "The agent no longer exists." });
       }
-      if (String(tool.endpoint_url).startsWith(REPORT_TOOL_URL) || isStarterUrl(tool.endpoint_url)) {
+      if (String(tool.endpoint_url).startsWith(REPORT_TOOL_URL) || isNazaiAiUrl(tool.endpoint_url)) {
         // Internal tool: what can be checked is that NazAI's own AI is configured.
         const ok = pickAiGateway() !== null;
         const error = ok ? null : "The AI that analyses the answers is not configured.";
@@ -327,6 +327,15 @@ Deno.serve(async (req) => {
       if (body.template !== undefined && body.template !== null && !isOutputTemplate(body.template)) return json({ error: "invalid_template", message: `template must be one of: ${OUTPUT_TEMPLATES.join(", ")}.` }, 400);
       const template = isOutputTemplate(body.template) ? body.template : null;
       const ids = Array.isArray(body.tool_ids) ? [...new Set((body.tool_ids as unknown[]).map(String))] : [];
+      // "Generate a NazAI tool for this task": NazAI's second perspective answers too, after the chosen tool(s), checked against the
+      // same rules; one result is written from both. Only for the actions a second answer makes fuller; never forced.
+      if (body.nazai_second === true) {
+        if (!SECOND_PERSPECTIVE_KINDS.includes(kind)) return json({ error: "invalid_second", message: `A second NazAI perspective is offered for ${SECOND_PERSPECTIVE_KINDS.map((k) => ACTION_INFO[k].title).join(", ")}.` }, 400);
+        if (pickAiGateway() === null) return json({ error: "ai_unavailable", message: "NazAI's own AI is not configured, so it can not give a second perspective right now. Continue with one tool." }, 503);
+        const second = await ensurePerspectiveTool(admin, accountId, MAX_TOOLS_PER_ACCOUNT);
+        if (!second.ok) return json({ error: second.code, message: second.message }, second.status);
+        if (!ids.includes(second.id)) ids.push(second.id);
+      }
       if (ids.length < lim.minTools || ids.length > lim.maxTools) return json({ error: "invalid_tools", message: `Choose ${lim.minTools === lim.maxTools ? lim.minTools : `${lim.minTools} to ${lim.maxTools}`} tool${lim.maxTools === 1 ? "" : "s"} for ${ACTION_INFO[kind].title}.` }, 400);
       const { data: chosen } = await admin.from("external_tools").select("id, name, enabled, endpoint_url, suspended_at").eq("user_id", accountId).is("removed_at", null).in("id", ids);
       const rows = (chosen ?? []) as { id: string; name: string; enabled: boolean; endpoint_url: string; suspended_at?: string | null }[];

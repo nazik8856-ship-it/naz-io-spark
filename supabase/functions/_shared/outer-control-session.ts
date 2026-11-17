@@ -28,8 +28,8 @@ import { gatewayAi, REPORT_TOOL_URL, writeReport, type ReportResult } from "./ou
 import { networkFailureKind, type NetworkFailureKind } from "./network-failure.ts";
 import { nazaiAddressProblem } from "./outer-control-address.ts";
 import { ownProjectHost } from "./egress.ts";
-import { askStarter, gatewayStarterAi, isStarterUrl, starterAllowed, STARTER_USED_UP, type StarterAi } from "./outer-control-starter.ts";
-import { splitTaskTitle, type ReportDoc } from "./outer-control-report-doc.ts";
+import { askStarter, gatewayStarterAi, isNazaiAiUrl, isStarterUrl, starterAllowed, STARTER_USED_UP, type Sharpened, type StarterAi } from "./outer-control-starter.ts";
+import { splitTaskTitle, type ReportDoc, type ReportKind } from "./outer-control-report-doc.ts";
 import { decideNextAction, DEFAULT_MAX_FAILURES, SESSION_TIME_LIMIT_MS } from "./outer-control-next-action.ts";
 import { loadMemory, recordMemory, renderMemory } from "./outer-control-memory.ts";
 import { containIfUnsafe } from "./outer-control-containment.ts"; // compromise containment: an unsafe tool is suspended
@@ -41,7 +41,7 @@ import { buildSessionArtifact, describeWhatDone, type StepEvidence } from "./out
 import { diffForReply } from "./outer-control-diff.ts";
 import { judgeMeaning, loadMeaningRules, meaningRecord, mergeMeaning, type JudgeAi } from "./meaning-judge.ts";
 import { checkAgainstProject, projectReferenceOf } from "./project-consistency.ts";
-import { ALL_QUALITY, assessSpecific, buildChecklist, correctionFor, passedCount, problemsOf, QUALITY_BY_KIND, settle, tidyOutput, type Checklist, type ChecklistInput, type QualityScope } from "./outer-control-completion.ts";
+import { ALL_QUALITY, assessSpecific, buildChecklist, correctionFor, passedCount, problemsOf, QUALITY_BY_KIND, settle, tidyOutput, type Checklist, type ChecklistInput, type QualityId, type QualityScope } from "./outer-control-completion.ts";
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
 import { classifyFailure, MAX_INLINE_DELAY_MS, parseRetryAfter, truncationOf, type FailureClass } from "./outer-control-recovery.ts";
 import { buildHandoff, decodeChoice, type HandoffKind } from "./outer-control-handoff.ts";
@@ -360,16 +360,23 @@ type Accept = {
  */
 async function qualityScopeFor(admin: AnyAdmin, s: SessionRow, a: Accept): Promise<QualityScope | null> {
   if (a.fromPerson || a.report) return null;
-  if (!s.workflow_id) return { request: s.objective, context: s.context, checks: ALL_QUALITY };
+  const t = await taskScope(admin, s);
+  return t && t.checks.length ? { request: t.request, context: t.context, checks: t.checks } : null;
+}
+
+/**
+ * The person's own request, their situation, the Task's action and the checks that apply to it: what the completion gate judges a
+ * result against, and what a built-in tool's task card says. Null for a goal Task (it has its own judge) or a Task that is gone.
+ * Only the Task's own context is the person's situation. A step's own context can be the earlier steps' answers (a challenger, a
+ * chain): judging "uses your context" against those would pass a reply for repeating another tool.
+ */
+async function taskScope(admin: AnyAdmin, s: SessionRow): Promise<{ request: string; context: string | null; kind: ReportKind | null; checks: QualityId[] } | null> {
+  if (!s.workflow_id) return { request: s.objective, context: s.context, kind: null, checks: ALL_QUALITY };
   const { data } = await admin.from("outer_control_workflows").select("objective, context, mode").eq("id", s.workflow_id).eq("user_id", s.user_id).maybeSingle();
   const wf = data as { objective?: string | null; context?: string | null; mode?: string | null } | null;
   if (!wf || wf.mode === "goal") return null;
   const split = splitTaskTitle(wf.objective ?? "");
-  const checks = split ? QUALITY_BY_KIND[split.kind] : ALL_QUALITY;
-  if (checks.length === 0) return null;
-  // Only the Task's own context is the person's situation. A step's own context can be the earlier steps' answers (a challenger, a
-  // chain): judging "uses your context" against those would pass a reply for repeating another tool.
-  return { request: split?.text ?? wf.objective ?? s.objective, context: wf.context ?? null, checks };
+  return { request: split?.text ?? wf.objective ?? s.objective, context: wf.context ?? null, kind: split?.kind ?? null, checks: split ? QUALITY_BY_KIND[split.kind] : ALL_QUALITY };
 }
 
 async function gatherCompletionInput(admin: AnyAdmin, s: SessionRow, stepNo: number, a: Accept, deps: SessionDeps): Promise<ChecklistInput> {
@@ -656,7 +663,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         await finish(admin, s, "stopped", `${STARTER_USED_UP} Nothing was sent.`, deps);
         return { status: "stopped", steps };
       }
-      if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isStarterUrl(tool.endpoint_url)) {
+      if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isNazaiAiUrl(tool.endpoint_url)) {
         // NazAI's own address was never an outside tool (a tool saved before this rule existed stops here, with what to do instead).
         const own = nazaiAddressProblem(tool.endpoint_url, ownProjectHost());
         if (own) { await finish(admin, s, "failed", own, deps); return { status: "failed", steps }; }
@@ -713,7 +720,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       const outBody = maskOutbound(request.body, [token, ...accountIds(s, tool)]).value;
       // Security evidence: a connected tool outside NazAI is never called without its signed evidence row (ids and the hash of the
       // request only). A NazAI agent's own actions get theirs inside agent-runtime; the report writer and starter tools are NazAI's.
-      if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isStarterUrl(tool.endpoint_url)) {
+      if (!tool.agent_id && !tool.endpoint_url.startsWith(REPORT_TOOL_URL) && !isNazaiAiUrl(tool.endpoint_url)) {
         const ev = await recordEvidence(admin, {
           userId: s.user_id, kind: "connector_call", actor: actorOf(s), actorId: s.api_key_id ?? null,
           subject: { tool: tool.id, session: s.id, task: s.workflow_id ?? null, step: stepNo, attempt }, inputSha256: await sha256Of(outBody), verdict: "allowed",
@@ -733,6 +740,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
       let incomplete: "empty" | "truncated" | "too_long" | null = null;
       let unusableCode: string | null = null;
       let reportResult: ReportResult | null = null;
+      let sharpened: Sharpened | null = null;
       try {
         let res: Response;
         if (tool.agent_id) {
@@ -760,10 +768,19 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           res = reportResult.ok
             ? new Response(JSON.stringify({ status: "done", answer: reportResult.text }), { status: 200 })
             : new Response(JSON.stringify({ error: reportResult.code }), { status: 200 });
-        } else if (isStarterUrl(tool.endpoint_url)) {
+        } else if (isNazaiAiUrl(tool.endpoint_url)) {
           // A starter tool answers with NazAI's own AI, from its own angle; its reply is checked like any other tool's.
-          const answer = deps.starterAi ? await askStarter(deps.starterAi, tool.endpoint_url, buildInstruction(reqInput)) : null;
-          if (answer === null) throw new Error("unreachable");
+          // It reads a task card first (goal, situation, rules, what useful means) and does its own job; a generic answer is
+          // rewritten once before it comes back, so the checks below run on the final text (outer-control-starter.ts).
+          const scope = await taskScope(admin, s);
+          const asked = deps.starterAi ? await askStarter(deps.starterAi, tool.endpoint_url, {
+            instruction: buildInstruction(reqInput), request: maskForSend(safetyRules, scope?.request ?? s.objective),
+            situation: scope ? (scope.context ? maskForSend(safetyRules, scope.context) : null) : (reqInput.context ?? null),
+            rules: plan.rules, omittedRules: plan.omitted, kind: scope?.kind ?? null, checks: scope?.checks ?? [],
+          }) : null;
+          if (asked === null) throw new Error("unreachable");
+          sharpened = asked.sharpened;
+          const answer = asked.reply;
           // The AI answers in the reply format it was asked for (status / answer / question, sometimes in a code fence): it is
           // unpacked here, so only the plain answer is shown and checked, never the format around it.
           const r = parseToolReply(answer);
@@ -961,6 +978,8 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         decision: {
           ...decisionRecord(brain), ...(diff ? { diff } : {}), ...(meaning ? { meaning } : {}), ...(projectCheck ? { project_check: projectCheck } : {}),
           ...(contained.status !== "clean" || contained.secretsRemoved ? { external: { status: contained.status, reasons: contained.reasons, rules: contained.rules, secrets_removed: contained.secretsRemoved } } : {}),
+          // A built-in tool's first answer was generic and was rewritten before these checks (the unchecked first answer is not kept).
+          ...(sharpened ? { sharpened } : {}),
         },
       });
       steps++;

@@ -87,9 +87,11 @@ a team viewer, a member of two accounts and a visitor).
   server held back the rest while the browser read the table directly.
 - **`can_access(owner, min_role[, permission])` is the one helper for "the owner, or a team member at this role"** (and, for changes,
   the permission category). Every team rule calls it (`20261105030000_policies_use_can_access.sql`: 58 rules rewritten in place; the
-  test asks four people the same questions before and after and the answers match). One rule is left as it was on purpose:
-  `knowledge_base_entries` "Team owners can manage ...", which gives the owner no direct write access (the migration only rewrites a
-  rule when the owner has the same access through another rule, and stops if any other rule still calls `is_account_member()`).
+  test asks four people the same questions before and after and the answers match). The migration left one rule as it was:
+  `knowledge_base_entries` "Team owners can manage ...", read then as "the owner has no direct write access on purpose" (it only
+  rewrote a rule when the owner had the same access through another rule). That was wrong: the account owner is not a row in
+  `account_members`, so nobody could save a knowledge entry. `20261117010000_knowledge_entries_owner_write.sql` moves it onto
+  `can_access(user_id, 'owner', 'policy')` too, and no rule calls `is_account_member()` directly any more.
   `src/test/data-isolation.test.ts` fails a new rule that calls `is_account_member()` itself.
 - The other database functions visitors can call were re-checked: OAuth state, webhook secrets, decision signatures and approvals
   all check the caller; the rest are pure text helpers.

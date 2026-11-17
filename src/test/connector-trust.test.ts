@@ -51,9 +51,9 @@ describe("a connected tool receives only what its own step needs", () => {
     expect(wf).toMatch(/for \(const d of leg\.handoff_mode === "none" \? \[\] : deps\.filter/);
   });
 
-  it("the share module names the only tools that keep the full view: NazAI's own agent, report writer and starter tools", () => {
+  it("the share module names the only tools that keep the full view: NazAI's own agent, report writer, starter tools and second perspective", () => {
     const share = read("_shared/outer-control-share.ts");
-    expect(share).toMatch(/!tool\.agent_id && !tool\.endpoint_url\.startsWith\(REPORT_TOOL_URL\) && !isStarterUrl\(tool\.endpoint_url\)/);
+    expect(share).toMatch(/!tool\.agent_id && !tool\.endpoint_url\.startsWith\(REPORT_TOOL_URL\) && !isNazaiAiUrl\(tool\.endpoint_url\)/);
   });
 
   it("every request format has a field allowlist", () => {

@@ -77,6 +77,12 @@ export type ReportDoc = {
   implications?: Implication[];
   /** research: the source [n] that challenged the other answers (what is missing, generic or unsupported). It is not an answer itself. */
   challenge?: number;
+  /** Decision-ready (Day 3): what the person should conclude or do, in one or two sentences, with [n] references. Shown first. */
+  bottom_line?: string;
+  /** Decision-ready: the main risks, or what would change the answer (at most 3), with [n] references. */
+  watch_out?: string[];
+  /** The implications are in the order to do them (a numbered "What to do first"); older reports have them as a plain list. */
+  ordered?: boolean;
 };
 export type MissingTool = { tool: string; reason: string };
 /** One next step for the person. basis "situation": `why` is a fact from their own context; "assumption": `why` is what had to be assumed. */
@@ -199,6 +205,9 @@ export function isReportDoc(x: unknown): x is ReportDoc {
   if (d.implications !== undefined && !(Array.isArray(d.implications) && d.implications.every((m) => !!m && typeof m === "object"
     && isStr((m as Implication).step) && isStr((m as Implication).why) && ((m as Implication).basis === "situation" || (m as Implication).basis === "assumption")))) return false;
   if (d.decision !== undefined && !(Array.isArray(d.decision) && d.decision.every((o) => !!o && typeof o === "object" && isStr((o as DecisionOption).option) && isStrList((o as DecisionOption).pros) && isStrList((o as DecisionOption).cons)))) return false;
+  if (d.bottom_line !== undefined && !isStr(d.bottom_line)) return false;
+  if (d.watch_out !== undefined && !isStrList(d.watch_out)) return false;
+  if (d.ordered !== undefined && typeof d.ordered !== "boolean") return false;
   return true;
 }
 
@@ -240,7 +249,18 @@ export const singleSourceLine = (d: ReportDoc): string => {
 };
 
 /** The heading of the section that applies the answers to the person's own situation. */
+/**
+ * The actions a second answer makes fuller (it can be compared and cross-checked). With exactly one connected tool, Start a task
+ * offers a NazAI second perspective for these (outer-control-starter.ts, PERSPECTIVE_TOOL_URL).
+ */
+export const SECOND_PERSPECTIVE_KINDS: readonly ReportKind[] = ["opinions", "research", "compare", "decision", "factcheck"];
+
 export const FOR_YOU_TITLE = "What this means for you";
+export const DO_FIRST_TITLE = "What to do first";
+export const BOTTOM_LINE_TITLE = "Bottom line";
+export const WATCH_OUT_TITLE = "Watch out";
+/** The title of the person's own steps: numbered "What to do first" when they are in order, else "What this means for you". */
+export const forYouTitle = (d: Pick<ReportDoc, "ordered">) => (d.ordered ? DO_FIRST_TITLE : FOR_YOU_TITLE);
 
 /** One implication as a line: the step, then what it rests on. */
 export const implicationLine = (m: Implication): string =>
@@ -279,8 +299,12 @@ const WORD_FOR_WORD = "nothing was added by NazAI";
 
 /** How the result was made, and, when it has one, how "what this means for you" was made. */
 export function kindMethod(d: ReportDoc): string {
-  return d.implications?.length ? `${baseMethod(d)} ${FOR_YOU_METHOD}` : baseMethod(d);
+  const parts = [baseMethod(d)];
+  if (d.implications?.length) parts.push(d.ordered ? FOR_YOU_METHOD.replace(`"${FOR_YOU_TITLE}"`, `"${DO_FIRST_TITLE}"`) : FOR_YOU_METHOD);
+  if (d.bottom_line || d.watch_out?.length) parts.push(DECISION_METHOD);
+  return parts.join(" ");
 }
+export const DECISION_METHOD = "The bottom line and what to watch out for were written by NazAI's AI from the same answers, with their references.";
 export const FOR_YOU_METHOD =
   "\"What this means for you\" applies your own situation (the Task's background) to those answers: each step names the fact from your situation it rests on, checked against your words, or is marked as an assumption.";
 
@@ -336,7 +360,12 @@ function sourceLines(d: ReportDoc): string[] {
 }
 const bullets = (items: string[], empty: string) => (items.length ? items.map((x) => `• ${x}`) : [`• ${empty}`]);
 /** The "what this means for you" section as text lines (with a blank line after it); nothing when the report has none. */
-const forYouLines = (d: ReportDoc): string[] => (d.implications?.length ? [FOR_YOU_TITLE.toUpperCase(), ...d.implications.map((m) => `• ${implicationLine(m)}`), ""] : []);
+const forYouLines = (d: ReportDoc): string[] => [
+  ...(d.implications?.length ? [forYouTitle(d).toUpperCase(), ...d.implications.map((m, i) => `${d.ordered ? `${i + 1}.` : "•"} ${implicationLine(m)}`), ""] : []),
+  ...(d.watch_out?.length ? [WATCH_OUT_TITLE.toUpperCase(), ...d.watch_out.map((x) => `• ${x}`), ""] : []),
+];
+/** The bottom line, first: what to conclude or do (decision-ready reports only). */
+const leadLines = (d: ReportDoc): string[] => (d.bottom_line ? [BOTTOM_LINE_TITLE.toUpperCase(), d.bottom_line, ""] : []);
 
 /** The result as clean text: no markup, headings in capitals, bullets as •. This is the Task's controlled result. */
 export function composeReportText(d: ReportDoc): string {
@@ -385,7 +414,7 @@ export function composeReportText(d: ReportDoc): string {
     return out.join("\n");
   }
   if (kind === "research") {
-    out.push(KIND_BADGE.research, topic, "", REPORT_INTRO(d), "", "SUMMARY", d.summary, "", ...forYouLines(d), "KEY POINTS", ...bullets(d.points ?? [], "No key points were given."));
+    out.push(KIND_BADGE.research, topic, "", REPORT_INTRO(d), "", ...leadLines(d), "SUMMARY", d.summary, "", ...forYouLines(d), "KEY POINTS", ...bullets(d.points ?? [], "No key points were given."));
     out.push("", "OPEN QUESTIONS", ...bullets(d.open_questions ?? [], "No open questions were named."), "", "ANSWERS BY SOURCE", ...sourceLines(d));
     out.push("", "CONCLUSION", d.conclusion);
     how();
@@ -400,7 +429,7 @@ export function composeReportText(d: ReportDoc): string {
     out.push("", "CONCLUSION", d.conclusion, "", "HOW THIS FACT-CHECK WAS MADE", kindMethod(d));
     return out.join("\n");
   }
-  out.push("SUMMARY", d.summary, "", ...forYouLines(d));
+  out.push(...leadLines(d), "SUMMARY", d.summary, "", ...forYouLines(d));
   out.push(kind === "compare" ? "ANSWERS BY SOURCE" : "OPINIONS BY SOURCE", ...sourceLines(d));
   if (kind === "compare") {
     out.push("", "SIDE BY SIDE");
@@ -429,9 +458,12 @@ export function reportHtml(d: ReportDoc): string {
   const agreeDiffer = `<section class="agree"><h2>Where they agree</h2>${list(d.agreements, "No shared points were identified.")}</section>
 <section class="differ"><h2>Where they differ</h2>${list(d.differences, "No differences were identified.")}</section>`;
   const conclusion = `<section class="conclusion"><h2>Conclusion</h2>${para(d.conclusion)}</section>`;
-  const forYou = d.implications?.length
-    ? `\n<section class="foryou"><h2>${FOR_YOU_TITLE}</h2><ul>${d.implications.map((m) => `<li>${esc(m.step)} <small>— ${m.basis === "situation" ? "From your situation" : "Assumption"}: ${esc(m.why)}</small></li>`).join("")}</ul></section>`
-    : "";
+  const tag = d.ordered ? "ol" : "ul";
+  const forYou = (d.implications?.length
+    ? `\n<section class="foryou"><h2>${forYouTitle(d)}</h2><${tag}>${d.implications.map((m) => `<li>${esc(m.step)} <small>— ${m.basis === "situation" ? "From your situation" : "Assumption"}: ${esc(m.why)}</small></li>`).join("")}</${tag}></section>`
+    : "") + (d.watch_out?.length ? `\n<section class="differ"><h2>${WATCH_OUT_TITLE}</h2>${list(d.watch_out, "")}</section>` : "");
+  // Decision-ready: the bottom line before everything else.
+  const lead = d.bottom_line ? `<section class="conclusion"><h2>${BOTTOM_LINE_TITLE}</h2>${para(d.bottom_line)}</section>\n` : "";
   let body: string;
   const toolOf = (n: number) => esc(d.opinions.find((o) => o.n === n)?.tool ?? "tool");
   const block = (head: string, n: number, text: string) => `<div class="style"><h3>${head} <small>— by ${toolOf(n)} [${n}]</small></h3><div class="quote">${para(text)}</div></div>`;
@@ -499,7 +531,7 @@ h1{font-size:30px;line-height:1.25;margin:18px 0 10px;color:#fff;font-weight:650
 .meta{color:#8fa6cc;font-size:14px;margin:0 0 28px}
 section{margin:0 0 22px;padding:22px 24px;border:1px solid rgba(125,170,255,.18);border-radius:16px;background:linear-gradient(180deg,rgba(15,30,60,.7),rgba(8,16,34,.7))}
 h2{margin:0 0 12px;font:600 12px/1 ui-monospace,Consolas,monospace;letter-spacing:.16em;color:#67e8f9;text-transform:uppercase}
-p{margin:0 0 10px}ul{margin:0;padding-left:20px}li{margin:0 0 8px}
+p{margin:0 0 10px}ul,ol{margin:0;padding-left:20px}li{margin:0 0 8px}
 .summary{border-left:3px solid #22d3ee}
 .src{display:flex;gap:14px;margin:0 0 14px}
 .n{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#04101f;background:linear-gradient(135deg,#67e8f9,#3b82f6)}
@@ -516,7 +548,7 @@ footer{color:#6f86ad;font-size:12px;text-align:center;margin-top:28px}
 <span class="badge">${KIND_BADGE[kind]}</span>
 <h1>${esc(d.topic.replace(/\s+/g, " ").trim())}</h1>
 <p class="meta">${esc(REPORT_INTRO(d))}</p>
-${body}
+${lead}${body}
 <section><h2>How this ${KIND_NOUN[kind]} was made</h2><p class="method">${esc(kindMethod(d))}</p></section>
 <footer>Generated by NazAI Outer Control</footer>
 </main></body></html>`;

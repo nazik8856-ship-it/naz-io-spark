@@ -1,11 +1,12 @@
 // Outer Control: one neutral shape for a result, used by every look (outer-control-templates.ts) and every file type
 // (outer-control-files.ts). A report is turned into sections once, here; the looks and the files only decide how to draw them, so a
 // Word file, a spreadsheet and a styled page can not disagree about what the result says. Pure, no dependencies.
-import { composeReportText, fingerprint, FOR_YOU_TITLE, implicationLine, isSingleSource, KIND_BADGE, kindMethod, kindOf, REPORT_INTRO, singleSourceLine, VERDICT_LABEL, when, type ReportDoc, type ReportKind } from "@/lib/outer-control-report-doc";
+import { BOTTOM_LINE_TITLE, composeReportText, fingerprint, forYouTitle, implicationLine, WATCH_OUT_TITLE, isSingleSource, KIND_BADGE, kindMethod, kindOf, REPORT_INTRO, singleSourceLine, VERDICT_LABEL, when, type ReportDoc, type ReportKind } from "@/lib/outer-control-report-doc";
 
 export type Blk =
   | { k: "p"; text: string }
-  | { k: "ul"; items: string[] }
+  /** A list; ordered: its items were numbered ("1.", "2)"), so every look and file keeps the numbers. */
+  | { k: "ul"; items: string[]; ordered?: boolean }
   /** Words of a source, word for word, with where they came from. */
   | { k: "quote"; text: string; by: string }
   /** A version, option, step or part: its heading, who gave it, its text. */
@@ -14,6 +15,7 @@ export type Blk =
 
 /**
  * What a section is for, so a look can put them in its own order:
+ *   lead      the bottom line of a decision-ready result: what to conclude or do; first in every look
  *   bottom    the answer: conclusion, verdict, recommendation, final result
  *   summary   the short version, or what was given (the original text)
  *   foryou    what it means for the person asking: next steps tied to their own situation, or marked as assumptions
@@ -23,7 +25,7 @@ export type Blk =
  *   sources   the tools' own answers, word for word
  *   method    how it was made
  */
-export type SecKey = "bottom" | "summary" | "foryou" | "points" | "contrast" | "detail" | "sources" | "method";
+export type SecKey = "lead" | "bottom" | "summary" | "foryou" | "points" | "contrast" | "detail" | "sources" | "method";
 export type Sec = { key: SecKey; title: string; blocks: Blk[] };
 export type ResultDoc = { badge: string; title: string; meta: string; sections: Sec[]; footer: string };
 
@@ -46,6 +48,8 @@ export function reportToDoc(d: ReportDoc): ResultDoc {
   });
   const sections: Sec[] = [];
   const add = (key: SecKey, title: string, blocks: Blk[]) => { sections.push({ key, title, blocks }); };
+  // Decision-ready: the bottom line comes before every other answer section in every look.
+  if (d.bottom_line) add("lead", BOTTOM_LINE_TITLE, para(d.bottom_line));
 
   if (kind === "rewrite" || kind === "roles" || kind === "adapt") {
     add("summary", kind === "rewrite" ? "Original" : kind === "roles" ? "Question" : "Message", para(d.original ?? d.topic));
@@ -106,14 +110,15 @@ export function reportToDoc(d: ReportDoc): ResultDoc {
     }
     add("bottom", "Conclusion", para(d.conclusion));
   }
-  if (d.implications?.length) add("foryou", FOR_YOU_TITLE, [{ k: "ul", items: d.implications.map(implicationLine) }]);
+  if (d.implications?.length) add("foryou", forYouTitle(d), [{ k: "ul", items: d.implications.map(implicationLine), ...(d.ordered ? { ordered: true } : {}) }]);
+  if (d.watch_out?.length) add("contrast", WATCH_OUT_TITLE, [list(d.watch_out, "")]);
   add("method", `How this ${kindOf(d) === "opinions" ? "report" : "result"} was made`, para(kindMethod(d)));
   return { badge: KIND_BADGE[kind], title: d.topic.replace(/\s+/g, " ").trim(),
     // A report made before the flag existed still says so here, in every look and file (its stored text is left as it was).
     meta: isSingleSource(d) && !d.single_source ? `${REPORT_INTRO(d)} ${singleSourceLine(d)}` : REPORT_INTRO(d), sections, footer: FOOTER };
 }
 
-const LIST_LINE = /^\s*(?:[-*•]|\d{1,2}[.)])\s+(.*\S)\s*$/;
+const LIST_LINE = /^\s*([-*•]|\d{1,2}[.)])\s+(.*\S)\s*$/;
 /** A heading line of a plain result: short, no lower-case letters ("SUMMARY", "WHERE THEY DIFFER"). */
 const HEADING_LINE = /^[\p{Lu}\p{N}\s&/,:'’()–-]{3,60}$/u;
 
@@ -123,15 +128,22 @@ export function textToDoc(text: string, title: string, meta = ""): ResultDoc {
   let cur: Sec = { key: "detail", title: "", blocks: [] };
   const push = () => { if (cur.blocks.length || cur.title) sections.push(cur); };
   let bullets: string[] = [];
+  let numbered = false;
   let lines: string[] = [];
   const flushLines = () => { if (lines.length) cur.blocks.push({ k: "p", text: lines.join("\n") }); lines = []; };
-  const flushBullets = () => { if (bullets.length) cur.blocks.push({ k: "ul", items: bullets }); bullets = []; };
+  const flushBullets = () => { if (bullets.length) cur.blocks.push(numbered ? { k: "ul", items: bullets, ordered: true } : { k: "ul", items: bullets }); bullets = []; };
   for (const raw of text.replace(/\r\n/g, "\n").split("\n")) {
     const line = raw.trimEnd();
     if (!line.trim()) { flushLines(); flushBullets(); continue; }
     if (HEADING_LINE.test(line.trim()) && /\p{L}/u.test(line)) { flushLines(); flushBullets(); push(); cur = { key: "detail", title: titleCase(line.trim()), blocks: [] }; continue; }
     const m = line.match(LIST_LINE);
-    if (m) { flushLines(); bullets.push(m[1]); continue; }
+    if (m) {
+      // A numbered list stays numbered; a switch between numbers and bullets starts a new list.
+      const isNum = /\d/.test(m[1]);
+      flushLines();
+      if (bullets.length && isNum !== numbered) flushBullets();
+      numbered = isNum; bullets.push(m[2]); continue;
+    }
     flushBullets(); lines.push(line);
   }
   flushLines(); flushBullets(); push();

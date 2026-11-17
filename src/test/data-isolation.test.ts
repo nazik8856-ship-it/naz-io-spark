@@ -127,6 +127,14 @@ describe("team rules use can_access", () => {
     expect(move).toMatch(/ALTER POLICY/);
     expect(move).toMatch(/c\.relname = 'knowledge_base_entries'/);
   });
+
+  it("the account owner can write their own knowledge entries: the rule the move left is now can_access too (20261117010000)", () => {
+    const fix = all.find(({ f }) => f.startsWith("20261117010000"))!.sql;
+    expect(fix).toMatch(/ALTER POLICY "Team owners can manage owner's knowledge base entries" ON public\.knowledge_base_entries/);
+    expect(fix).toMatch(/USING \(public\.can_access\(user_id, 'owner', 'policy'\)\)/);
+    expect(fix).toMatch(/WITH CHECK \(public\.can_access\(user_id, 'owner', 'policy'\)\)/);
+    expect(fix).toMatch(/RAISE EXCEPTION 'a rule still calls is_account_member\(\) directly'/);
+  });
 });
 
 // A public image address says nothing about whose it is: the folder is the site's id, never the owner's (user & data isolation).

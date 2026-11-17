@@ -1,10 +1,14 @@
 // Outer Control: a short clarifying step before a Task runs (docs/outer-control-context.md). A tool asked "how do I find more
 // customers?" by someone it knows nothing about gives the answer for anybody. When neither the request, its background nor what NazAI
-// already knows (the context brief) says the business's stage, who it is for, or its main limit, NazAI asks those, at most three
-// short questions, before the Task starts. Every answer is optional; the Task never waits for them. Pure, no dependencies.
+// already knows (the context brief) says the business's stage, who it is for, or its main limit, NazAI asks those before the Task
+// starts; a request too vague to aim at anything ("help me with marketing") is asked what result the person wants first. At most
+// MAX_QUESTIONS short questions, the most useful first. Every answer is optional; the Task never waits for them. Pure.
 import type { ReportKind } from "./outer-control-report-doc.ts";
+import { contentWords } from "./outer-control-words.ts";
 
-export type ClarifyId = "stage" | "audience" | "constraint";
+export type ClarifyId = "goal" | "stage" | "audience" | "constraint";
+/** Questions asked at most (Day 3: one or two short questions, only what is needed). */
+export const MAX_QUESTIONS = 2;
 /** label: how the answer is written into the Task's background and, when kept, into the knowledge base ("<label>: <answer>"). */
 export type ClarifyQuestion = { id: ClarifyId; question: string; why: string; placeholder: string; label: string };
 
@@ -13,6 +17,10 @@ export const CLARIFY_KINDS: readonly ReportKind[] = ["opinions", "research", "co
 export const MAX_ANSWER_CHARS = 160;
 
 export const CLARIFY_QUESTIONS: Record<ClarifyId, ClarifyQuestion> = {
+  goal: {
+    id: "goal", label: "What I want from it", question: "What result do you want from this?",
+    why: "Your request can go many ways: this decides what the answer aims at.", placeholder: "e.g. a plan for the next 4 weeks · 10 paying customers · a yes or no",
+  },
   stage: {
     id: "stage", label: "Stage of the business", question: "What stage is the business at?",
     why: "Advice for an idea and for a business with steady sales is different.", placeholder: "e.g. idea only · first 10 customers · 3 years in, steady sales",
@@ -33,9 +41,12 @@ const STAGE = /\b(?:stage of the business|idea(?:\s+stage)?|pre-?launch|launch(?
 const AUDIENCE = /\b(?:who it is for|audience\s*[:\-]|target (?:audience|market|customers?|group)|aimed at|b2b|b2c|smes?|small business(?:es)?|freelancers?|students?|parents?|families|teachers?|doctors?|nurses?|developers?|retirees|pensioners|teenagers?|(?:customers?|clients?|users?|buyers?|readers?|shoppers?|visitors?|subscribers?|patients?)\s+(?:in|from|who|aged|at|across|that|of|between)\b|for (?:small|local|young|older|busy|new|first-time)\s+\w)/i;
 const CONSTRAINT = /(?:[$€£]\s?\d|\d\s?(?:k|eur|euros?|usd|dollars?|gbp|pounds?)\b|\b(?:main limit|budget|deadline|by (?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|within \d+\s+(?:days?|weeks?|months?)|\d+\s+(?:hours?|days?|weeks?|months?)\b|\d+\s+(?:people|persons?|employees|staff|developers?)|team of \d+|solo|on my own|part[- ]time|no money|free tools?|cheap|low[- ]cost)\b)/i;
 
+/** A request with at most two meaningful words ("Help me with marketing", "Ideas for my shop") does not say what it is for. */
+export const isVague = (request: string): boolean => contentWords(request.replace(/\b(?:please|help|ideas?|tips|advice|thoughts)\b/gi, " ")).length <= 1 && !/\d/.test(request);
+
 /**
  * The questions worth asking before this Task runs: only for the actions whose answer depends on the situation, only what neither the
- * request, its background nor what NazAI already knows answers, and at most three. Empty: nothing to ask.
+ * request, its background nor what NazAI already knows answers, and at most MAX_QUESTIONS. Empty: nothing to ask.
  */
 export function clarifyingQuestions(i: { kind: ReportKind | "unclear"; request: string; background?: string | null; brief?: string | null }): ClarifyQuestion[] {
   if (i.kind === "unclear" || !CLARIFY_KINDS.includes(i.kind)) return [];
@@ -49,9 +60,11 @@ export function clarifyingQuestions(i: { kind: ReportKind | "unclear"; request: 
 export function missingQuestions(i: { request: string; background?: string | null; brief?: string | null }): ClarifyQuestion[] {
   const said = [i.request, i.background ?? "", i.brief ?? ""].join("\n");
   const out: ClarifyQuestion[] = [];
-  // The brief's business line ("Business: Lumen Candles. Hand-poured …") already says what the business is and how far along.
-  if (!STAGE.test(said) && !/^Business: /m.test(i.brief ?? "")) out.push(CLARIFY_QUESTIONS.stage);
+  // Most useful first: what the answer is for, who it is for, what limits it, then how far along the business is.
+  if (isVague(i.request) && !(i.background ?? "").trim()) out.push(CLARIFY_QUESTIONS.goal);
   if (!AUDIENCE.test(said)) out.push(CLARIFY_QUESTIONS.audience);
   if (!CONSTRAINT.test(said)) out.push(CLARIFY_QUESTIONS.constraint);
-  return out.slice(0, 3);
+  // The brief's business line ("Business: Lumen Candles. Hand-poured …") already says what the business is and how far along.
+  if (!STAGE.test(said) && !/^Business: /m.test(i.brief ?? "")) out.push(CLARIFY_QUESTIONS.stage);
+  return out.slice(0, MAX_QUESTIONS);
 }

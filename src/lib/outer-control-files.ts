@@ -90,7 +90,7 @@ export function toMarkdown(doc: ResultDoc, template: OutputTemplate): string {
   const out: string[] = [`# ${doc.title}`, "", `*${doc.badge}${doc.meta ? ` · ${doc.meta}` : ""}*`, ""];
   const block = (b: Blk) => {
     if (b.k === "p") out.push(b.text, "");
-    else if (b.k === "ul") out.push(...b.items.map((x) => `- ${x.replace(/\n/g, " ")}`), "");
+    else if (b.k === "ul") out.push(...b.items.map((x, i) => `${b.ordered ? `${i + 1}.` : "-"} ${x.replace(/\n/g, " ")}`), "");
     else if (b.k === "quote") out.push(...b.text.split("\n").map((l) => `> ${l}`), `> — ${b.by}`, "");
     else if (b.k === "item") out.push(`### ${b.head}`, `*by ${b.by}*`, "", b.text, "");
     else {
@@ -203,7 +203,8 @@ function docxBody(doc: ResultDoc, template: OutputTemplate): string {
   for (const s of orderSections(doc, info.order)) {
     if (s.title) out.push(para(run(s.title), { style: "Heading1", keepNext: true }));
     for (const b of s.blocks) {
-      if (b.k === "p") out.push(para(run(b.text, s.key === "bottom" ? { bold: true } : {}), { shade: s.key === "bottom" ? shade : null, border: s.key === "bottom" && shade ? accent : undefined }));
+      if (b.k === "p") out.push(para(run(b.text, (s.key === "bottom" || s.key === "lead") ? { bold: true } : {}), { shade: (s.key === "bottom" || s.key === "lead") ? shade : null, border: (s.key === "bottom" || s.key === "lead") && shade ? accent : undefined }));
+      else if (b.k === "ul" && b.ordered) b.items.forEach((x, i) => out.push(para(run(`${i + 1}.  ${x.replace(/\n/g, " ")}`), { ind: 567, after: 60 })));
       else if (b.k === "ul") for (const x of b.items) out.push(para(run(x.replace(/\n/g, " ")), { num: true, after: 60 }));
       else if (b.k === "quote") out.push(para(run(b.text, { italic: true }), { style: "Quote", after: 40 }), para(run(b.by, { color: "666666", size: 18 }), { ind: 567, after: 160 }));
       else if (b.k === "item") out.push(para(run(b.head, { bold: true }) + run(`   by ${b.by}`, { color: "666666", size: 18 }), { style: "Heading2", keepNext: true }), para(run(b.text)));
@@ -332,8 +333,8 @@ export function toPdf(doc: ResultDoc, template: OutputTemplate, when = new Date(
   const rect = (x: number, yy: number, w: number, h: number, color: string) => emit(`${color} rg ${x.toFixed(2)} ${yy.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`);
 
   /** A paragraph: wrapped, with an optional hanging bullet, left bar, or shaded background. */
-  const textBlock = (s: string, o: { face?: Face; size?: number; color?: string; indent?: number; before?: number; after?: number; bullet?: boolean; bar?: string; shade?: string; keepNext?: number } = {}) => {
-    const face = o.face ?? body, size = o.size ?? 10.5, lh = size * 1.4, indent = o.indent ?? 0, hang = o.bullet ? 12 : 0;
+  const textBlock = (s: string, o: { face?: Face; size?: number; color?: string; indent?: number; before?: number; after?: number; bullet?: boolean; marker?: string; bar?: string; shade?: string; keepNext?: number } = {}) => {
+    const face = o.face ?? body, size = o.size ?? 10.5, lh = size * 1.4, indent = o.indent ?? 0, hang = o.marker ? 16 : o.bullet ? 12 : 0;
     const lines = wrap(face, size, s, contentW - indent - hang - (o.shade ? 12 : 0));
     y -= o.before ?? 0;
     ensure(Math.min(lines.length, 2) * lh + (o.keepNext ?? 0));
@@ -341,7 +342,7 @@ export function toPdf(doc: ResultDoc, template: OutputTemplate, when = new Date(
       if (y - lh < M_BOTTOM) newPage();
       if (o.shade) rect(M_X + indent, y - lh + size * 0.28 - 1, contentW - indent, lh, o.shade);
       if (o.bar) rect(M_X + indent - (o.shade ? 0 : 9), y - lh + size * 0.28 - 1, 2.4, lh, o.bar);
-      if (o.bullet && i === 0) put(body, size, o.color ?? text, M_X + indent, y - size, bytesOf("•"));
+      if ((o.bullet || o.marker) && i === 0) put(body, size, o.color ?? text, M_X + indent, y - size, bytesOf(o.marker ?? "•"));
       if (ln.length) put(face, size, o.color ?? text, M_X + indent + hang + (o.shade ? 8 : 0), y - size, ln);
       y -= lh;
     });
@@ -358,8 +359,8 @@ export function toPdf(doc: ResultDoc, template: OutputTemplate, when = new Date(
   for (const s of orderSections(doc, info.order)) {
     if (s.title) textBlock(s.title, { face: headFace, size: 12.5, color: heading, before: 8, after: 5, keepNext: 40 });
     for (const b of s.blocks) {
-      if (b.k === "p") textBlock(b.text, { face: s.key === "bottom" ? bold : body, shade: s.key === "bottom" ? shade ?? undefined : undefined, bar: s.key === "bottom" && shade ? accent : undefined });
-      else if (b.k === "ul") for (const x of b.items) textBlock(x.replace(/\n/g, " "), { bullet: true, indent: 8, after: 3 });
+      if (b.k === "p") textBlock(b.text, { face: (s.key === "bottom" || s.key === "lead") ? bold : body, shade: (s.key === "bottom" || s.key === "lead") ? shade ?? undefined : undefined, bar: (s.key === "bottom" || s.key === "lead") && shade ? accent : undefined });
+      else if (b.k === "ul") b.items.forEach((x, i) => textBlock(x.replace(/\n/g, " "), b.ordered ? { marker: `${i + 1}.`, indent: 8, after: 3 } : { bullet: true, indent: 8, after: 3 }));
       else if (b.k === "quote") { textBlock(b.text, { face: serif ? "times" : "helveticaOblique", indent: 14, bar: accent, after: 1 }); textBlock(b.by, { size: 8, color: grey, indent: 14, after: 8 }); }
       else if (b.k === "item") { textBlock(`${b.head}   by ${b.by}`, { face: bold, size: 11, color: heading, before: 4, after: 2, keepNext: 30 }); textBlock(b.text); }
       else {

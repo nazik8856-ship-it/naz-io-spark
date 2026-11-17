@@ -59,6 +59,9 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   const [writing, setWriting] = useState<Record<string, string | null>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showConnect, setShowConnect] = useState(false);
+  // "Connect another tool instead" from Start a task: after a connection, the Task the person was writing goes on with both tools.
+  const [resumeTask, setResumeTask] = useState(false);
+  const [addToTask, setAddToTask] = useState<string | null>(null);
   const [showReport, setShowReport] = useState(false);
   // "Start a task with this project" (from a project or the import confirmation) opens Start task with that project attached.
   const [params, setParams] = useSearchParams();
@@ -213,6 +216,7 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
     const id = (r.data as { tool?: { id?: string } } | undefined)?.tool?.id;
     if (id) await runTest(id, p.name);
     else toast.success("Tool connected. Press Test to check it.");
+    if (resumeTask && id) { setResumeTask(false); setShowConnect(false); setAddToTask(id); setShowReport(true); }
     return true;
   };
 
@@ -231,11 +235,17 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
   /** Start task: one of the multi-tool actions. Each tool is asked (on its own or in a chain), then one controlled result is written. */
   const startTask = async (t: TaskRequest): Promise<boolean> => {
     const label = t.toolIds.map((id) => tools.find((x) => x.id === id)?.name ?? "tool").join(" → ");
-    const r = await act("report", "start_report", {
+    // "Keep going until it is done": a goal Task, the tools asked in turn until the done criteria are met (or the most rounds).
+    const r = t.goal ? await act("report", "start_goal", {
+      goal: t.text, criteria: t.goal.criteria.length ? t.goal.criteria : undefined, tool_ids: t.toolIds, max_rounds: t.goal.rounds,
+      context: t.background || undefined, confirm_override: t.keepChoice || undefined, share_context: t.shareContext ? undefined : false,
+    }, `Started with ${label}. It keeps going until ${t.goal.criteria.length ? "the done criteria are met" : "the answer does what you asked"} or it needs you. Follow it in Your tasks below.`)
+    : await act("report", "start_report", {
       task: t.kind, topic: t.text, background: t.background || undefined, styles: t.styles.length ? t.styles : undefined,
       count: t.kind === "alternatives" ? t.count : undefined, tool_ids: t.toolIds, confirm_override: t.keepChoice || undefined,
       project_id: taskProject?.id, template: t.template ?? undefined, share_context: t.shareContext ? undefined : false,
-    }, `${ACTION_INFO[t.kind].title} started: asking ${label}. Follow it in Your tasks below; the result appears there when it is done.`);
+      nazai_second: t.second || undefined,
+    }, `${ACTION_INFO[t.kind].title} started: asking ${label}${t.second ? " and NazAI's second perspective" : ""}. Follow it in Your tasks below; the result appears there when it is done.`);
     if (r.ok) { setTaskStarts((n) => n + 1); setTaskProject(null); }
     // Answers to the clarifying questions, kept for later Tasks as knowledge entries (encrypted, written through the server; the
     // account's own rules decide who may add them). Not kept: this Task still used them.
@@ -465,9 +475,10 @@ export default function ActiveSessionsCard({ accountId }: { accountId: string | 
         </button>
         </div>
       </div>
-      <ConnectToolPanel open={showConnect} onOpenChange={setShowConnect} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} onTest={(t) => runTest(t.id, t.name)} testingId={busy?.startsWith("test-") ? busy.slice(5) : null} agents={agents} onAddAgent={addAgent} addingAgentId={busy?.startsWith("agent-") ? busy.slice(6) : null} />
+      <ConnectToolPanel open={showConnect} onOpenChange={(o) => { setShowConnect(o); if (!o) setResumeTask(false); }} tools={shownTools} busy={busy === "connect"} onConnect={connectTool} onTest={(t) => runTest(t.id, t.name)} testingId={busy?.startsWith("test-") ? busy.slice(5) : null} agents={agents} onAddAgent={addAgent} addingAgentId={busy?.startsWith("agent-") ? busy.slice(6) : null} />
       <FirstTaskChoice open={showChoice} onNazai={chooseNazai} onManual={() => { setShowChoice(false); setShowConnect(true); }} onClose={() => setShowChoice(false)} />
-      <TaskPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startTask} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }} project={taskProject} onClearProject={() => setTaskProject(null)} records={records} />
+      <TaskPanel open={showReport} onOpenChange={setShowReport} tools={shownTools} busy={busy === "report"} onStart={startTask} onFix={(x) => runTest(x.id, x.name)} fixing={busy?.startsWith("test-") ? busy.slice(5) : null} onConnect={() => { setShowReport(false); setShowConnect(true); }}
+        onConnectForTask={() => { setResumeTask(true); setShowReport(false); setShowConnect(true); }} addTool={addToTask} onToolAdded={() => setAddToTask(null)} project={taskProject} onClearProject={() => setTaskProject(null)} records={records} />
 
       <div className="mt-4 space-y-2">
         {shownTools.length === 0 && (

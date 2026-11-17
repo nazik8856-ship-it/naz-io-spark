@@ -52,14 +52,18 @@ Limits, said plainly: these are surface checks. A reply can be well-formed and s
 
 ## Specific to the request (context used, every part answered, concrete)
 
+Tightened on 2026-11-17 (Day 3): a structured but generic answer (headings, capitalised labels, "Certainty: High") used to pass
+"Gives concrete detail" because every capital and every list line counted. Now only distinct details count, stock phrases fail it,
+and it applies from 80 words. The same measure is what the built-in tools' anti-generic pass uses (docs/outer-control-context.md).
+
 The eight criteria prove the process: the tool finished, the rules held, the result was stored. They do not prove the result is
 useful to *this* person. Three more checks do (`assessSpecific` in `outer-control-completion.ts`), deterministic, no model call:
 
 | Check | Passes when | Applies when |
 |---|---|---|
-| Uses your context | the result contains distinctive words of the Task's context (names, numbers, words of 6+ letters; not the brief's labels, not words already in the request): 1 of 3–5 such words, 2 of 6 or more | the Task has such a context and the result is 80+ words |
+| Uses your context | the result contains distinctive words of the Task's context (names, numbers, words of 6+ letters; not the brief's labels, not words already in the request, not everyday words like "already" or "people"): 1 of 3–5 such words, 2 of 6 or more | the Task has such a context and the result is 80+ words |
 | Answers every part of the request | each numbered or bulleted line, each separate question, and each item of an "A, B and C" list is answered (enough of its subject words appear) | the request has 2 to 8 such parts |
-| Gives concrete detail | numbers, names, list items, quotes and links: at least 3, and 1 per 100 words | the result is 150+ words |
+| Gives concrete detail | **distinct** concrete details (`outer-control-generic.ts`: numbers and amounts, names inside a sentence, quotes, links; a heading, a "Label:" opening, a list marker or a repeated detail does not count): at least 3, and 1 per 90 words; and no more than 2 stock phrases that fit any business ("leverage", "target audience", "build relationships", …; 1 more per 150 words) | the result is 80+ words |
 
 Which checks a step gets depends on its action (`QUALITY_BY_KIND`): opinions, research, compare, decision and plain Tasks get all
 three; a fact-check only concrete detail; a step of a multi-step or delegated Task context and concrete detail (it does one part on
