@@ -132,7 +132,9 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   // Questions are shown for any action whose answer depends on the situation, also one picked by hand after NazAI read the request
   // as something else. (A server from before question_kinds only sent them for the action it read.)
   const questions = route && kind && (route.question_kinds ? route.question_kinds.includes(kind) : route.kind === kind) ? (route.questions ?? []) : [];
-  const answered = questions.map((q) => ({ label: q.label, answer: (answers[q.id] ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_ANSWER_CHARS) })).filter((a) => a.answer);
+  const answered = questions.map((q) => ({ id: q.id, label: q.label, answer: (answers[q.id] ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_ANSWER_CHARS) })).filter((a) => a.answer);
+  // What this Task is for belongs to this Task: only the answers about the person's situation are kept for later Tasks.
+  const lasting = answered.filter((a) => a.id !== "goal").map(({ label, answer }) => ({ label, answer }));
   // The answers reach every tool as part of the background, and are listed with it in the result.
   const background = [typedBackground, ...answered.map((a) => `${a.label}: ${a.answer}`)].filter(Boolean).join("\n");
   // Tool names choose the tools only where the text is a request; in a text to check, rewrite, explain or adapt they are content.
@@ -170,7 +172,7 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
   const reset = () => { setRequest(""); setRoute(null); setChosenKind(null); setLabels([]); setCount(3); setPicked([]); setTemplate(DEFAULT_TEMPLATE); setChooseAnyway(false); setShareContext(true); setAnswers({}); setRemember(true); };
   const start = async () => {
     if (busy || !kind || problem || reading) return;
-    const ok = await onStart({ kind, text, background, styles: lim?.labels ? labels : [], count, toolIds: picked, keepChoice: plan.kept, template: askLook && template !== DEFAULT_TEMPLATE ? template : null, shareContext, remember: remember ? answered : [] });
+    const ok = await onStart({ kind, text, background, styles: lim?.labels ? labels : [], count, toolIds: picked, keepChoice: plan.kept, template: askLook && template !== DEFAULT_TEMPLATE ? template : null, shareContext, remember: remember ? lasting : [] });
     if (ok) { reset(); onOpenChange(false); }
   };
 
@@ -415,7 +417,7 @@ export default function TaskPanel({ open, onOpenChange, tools, busy, onStart, on
                       className="mt-1 w-full rounded-lg border border-white/15 bg-black/40 px-2.5 py-1.5 text-xs text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/60" />
                   </label>
                 ))}
-                {answered.length > 0 && (
+                {lasting.length > 0 && (
                   <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-snug text-zinc-400" data-testid="task-clarify-remember">
                     <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="mt-0.5 accent-cyan-400" />
                     <span>Remember these for my next Tasks (saved in my Knowledge base, where I can change or remove them).</span>

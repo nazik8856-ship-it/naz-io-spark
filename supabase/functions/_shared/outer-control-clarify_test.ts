@@ -1,6 +1,6 @@
 // Run with: deno test --no-check supabase/functions/_shared/outer-control-clarify_test.ts
 // The clarifying step (docs/outer-control-context.md): ask only what nothing already says, only where the situation matters, at most 3.
-import { clarifyingQuestions, CLARIFY_KINDS, CLARIFY_QUESTIONS, missingQuestions } from "./outer-control-clarify.ts";
+import { clarifyingQuestions, CLARIFY_KINDS, CLARIFY_QUESTIONS, isVague, MAX_QUESTIONS, missingQuestions } from "./outer-control-clarify.ts";
 
 function assert(c: unknown, m: string) { if (!c) throw new Error(m); }
 
@@ -13,13 +13,23 @@ Deno.test("what is missing is worked out whatever action NazAI read, so a person
 });
 const ids = (i: Parameters<typeof clarifyingQuestions>[0]) => clarifyingQuestions(i).map((q) => q.id).join(",");
 
-Deno.test("a bare request with nothing known gets all three questions", () => {
-  assert(ids({ kind: "research", request: "How do I find more customers?" }) === "stage,audience,constraint", ids({ kind: "research", request: "How do I find more customers?" }));
+Deno.test("a bare request with nothing known gets the two most useful questions: who it is for, the main limit", () => {
+  assert(ids({ kind: "research", request: "How do I find more customers?" }) === "audience,constraint", ids({ kind: "research", request: "How do I find more customers?" }));
+  assert(MAX_QUESTIONS === 2, "one or two short questions, never more");
+});
+
+// Day 3 (#151): a request that does not say what it is for is asked that first.
+Deno.test("a vague request is asked what result the person wants first; a clear one never is", () => {
+  for (const r of ["Help me with marketing", "Ideas for my shop", "Tips please", "Marketing advice"]) assert(isVague(r), r);
+  for (const r of ["How do I find more customers?", "How should a small AI startup get its first 10 paying customers?", "Compare Etsy and Shopify for candles"]) assert(!isVague(r), r);
+  assert(ids({ kind: "opinions", request: "Help me with marketing" }) === "goal,audience", ids({ kind: "opinions", request: "Help me with marketing" }));
+  assert(!ids({ kind: "opinions", request: "Help me with marketing", background: "I want 20 bookings a week for my yoga studio" }).includes("goal"), "the background says it");
 });
 
 Deno.test("what the request already says is not asked", () => {
   assert(ids({ kind: "decision", request: "We launched 2 years ago. Should we sell to small businesses in Austria with a budget of 500 EUR a month?" }) === "", "nothing to ask");
   assert(ids({ kind: "opinions", request: "How should a startup find customers in Berlin?" }) === "constraint", "stage and audience are said");
+  assert(ids({ kind: "opinions", request: "How should we find customers in Berlin with 500 EUR a month?" }) === "stage", "only the stage is left");
 });
 
 Deno.test("what NazAI already knows is not asked: the business line, an audience, a limit in the notes or a saved answer", () => {

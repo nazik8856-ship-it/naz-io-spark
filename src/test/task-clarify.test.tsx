@@ -115,6 +115,19 @@ describe("the clarifying step before a Task runs", () => {
     expect(screen.queryByTestId("task-clarify")).toBeNull();
   });
 
+  it("the goal question (asked when the request is vague) goes to the tools but is never kept for later Tasks", async () => {
+    state.route = { kind: "opinions", questions: [{ id: "goal", label: "What I want from it", question: "What result do you want from this?", why: "So it aims at your result.", placeholder: "e.g. a plan" }, QUESTIONS[1]] };
+    await open("Help me with marketing");
+    fireEvent.change(screen.getByLabelText("What result do you want from this?"), { target: { value: "20 bookings a week" } });
+    expect(screen.queryByTestId("task-clarify-remember")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Who is it for?"), { target: { value: "yoga students in Vienna" } });
+    expect(screen.getByTestId("task-clarify-remember")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("task-start"));
+    await waitFor(() => expect(lastStart()?.background).toBe("What I want from it: 20 bookings a week\nWho it is for: yoga students in Vienna"));
+    await waitFor(() => expect(saved.rows.length).toBe(1));
+    expect(saved.rows[0].entry_text).toBe("Who it is for: yoga students in Vienna");
+  });
+
   it("no questions when NazAI returned none, or when another action is chosen by hand", async () => {
     state.route = { kind: "research", questions: [] };
     await open();
