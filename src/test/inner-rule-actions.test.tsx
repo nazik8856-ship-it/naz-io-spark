@@ -2,7 +2,7 @@
 //   - Edit changes the rule in place, for both kinds, with the same checks as the Add forms.
 //   - Disable / Enable / Delete write the right row; a write the database refused (no row changed, no error) is an error on screen,
 //     never "Rule disabled".
-//   - Dual control: delete asks a second owner.
+//   - Dual control: delete, switch-off and edit ask a second owner; switching a rule back on does not.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 
@@ -137,6 +137,45 @@ describe("rule actions on the Inner page", () => {
     expect(db.writes).toEqual([]);
     expect(db.rpcs.at(-1)).toMatchObject({ fn: "request_policy_change", args: { _change_type: "delete_hard_rule", _row_id: "h1" } });
     expect(lastToast().title).toBe("Deletion requested");
+  });
+});
+
+describe("dual control covers switching off and editing", () => {
+  beforeEach(() => { db.hard = [HARD]; db.safety = [SAFE]; db.dual = false; db.refuse = false; db.writes = []; db.rpcs = []; toast.mockClear(); });
+  it("switch-off and edit become requests (nothing written); switching on stays direct", async () => {
+    db.dual = true; db.writes = []; db.rpcs = [];
+    const h = await hook();
+    await waitFor(() => expect(h.result.current.dualControl).toBe(true));
+    const hard = h.result.current.rules.find((r) => r.id === "h1")!;
+    await act(async () => { await h.result.current.setEnabled(hard, false); });
+    expect(db.writes).toEqual([]);
+    expect(db.rpcs.at(-1)).toMatchObject({ fn: "request_policy_change", args: { _change_type: "disable_hard_rule", _row_id: "h1" } });
+    expect(lastToast().title).toBe("Switch-off requested");
+
+    let saved = false;
+    await act(async () => { saved = await h.result.current.edit(hard, { text: "Never email on Sunday", scope: "send_email", effect: "always_require_approval", approvals: 2 }); });
+    expect(saved).toBe(true); // the dialog closes: the request is made
+    expect(db.writes).toEqual([]);
+    expect(db.rpcs.at(-1)).toMatchObject({ fn: "request_policy_change", args: {
+      _change_type: "edit_hard_rule", _row_id: "h1",
+      _new_value: { rule_text: "Never email on Sunday", action_type_pattern: "send_email", effect: "always_require_approval", required_approvals: 2 },
+    } });
+    expect(lastToast().title).toBe("Edit requested");
+
+    const safe = h.result.current.rules.find((r) => r.id === "s1")!;
+    await act(async () => { await h.result.current.edit(safe, { name: "Cards", pattern: "\\d{16}", action: "block" }); });
+    expect(db.rpcs.at(-1)).toMatchObject({ args: { _change_type: "edit_safety_rule", _new_value: { name: "Cards", pattern: "\\d{16}", severity: "block", redact: false } } });
+
+    await act(async () => { await h.result.current.setEnabled(safe, true); });
+    expect(db.writes.at(-1)).toMatchObject({ table: "safety_rules", op: "update", patch: { enabled: true } });
+  });
+
+  it("the database refuses a direct switch-off or edit under dual control (migration guard)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const sql = readFileSync("supabase/migrations/20261118010000_dual_control_disable_and_edit.sql", "utf8");
+    expect(sql).toMatch(/CREATE TRIGGER guard_hard_rule_weakening_trg BEFORE UPDATE ON public\.hard_rules/);
+    expect(sql).toMatch(/CREATE TRIGGER guard_safety_rule_weakening_trg BEFORE UPDATE ON public\.safety_rules/);
+    for (const t of ["disable_hard_rule", "disable_safety_rule", "edit_hard_rule", "edit_safety_rule"]) expect(sql).toContain(`'${t}'`);
   });
 });
 

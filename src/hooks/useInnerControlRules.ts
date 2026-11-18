@@ -143,10 +143,27 @@ export function useInnerControlRules(project?: InnerProject | null) {
   const rowOf = (r: RuleItem): HardRuleRow | SafetyRuleRow | null =>
     (r.kind === "hard" ? hard.find((x) => x.id === r.id) : safety.find((x) => x.id === r.id)) ?? null;
 
+  /** Asks a second owner to approve a change (dual control). Says why when the request itself could not be made. */
+  const requestChange = async (changeType: string, r: RuleItem, description: string, newValue?: Record<string, unknown>): Promise<boolean> => {
+    const { error } = await anyDb.rpc("request_policy_change", { _change_type: changeType, _row_id: r.id, _description: description, ...(newValue ? { _new_value: newValue } : {}) });
+    if (error) {
+      toast({ title: "Could not request the change", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      return false;
+    }
+    return true;
+  };
+
   /** Disable or re-enable: writes the `enabled` column the gate reads. A change the database refused is said, never shown as done. */
   const setEnabled = async (r: RuleItem, enabled: boolean) => {
     if (!user || !canWrite || busyKey) return;
     setBusyKey(r.key);
+    // Switching a rule off weakens it like deleting it does: with dual control on, a second owner approves it first.
+    if (dualControl && !enabled) {
+      const ok = await requestChange(r.kind === "hard" ? "disable_hard_rule" : "disable_safety_rule", r, `Switch off ${r.kind === "hard" ? "rule" : "safety rule"} "${r.name}"`);
+      setBusyKey(null);
+      if (ok) toast({ title: "Switch-off requested", description: "A second owner needs to approve this from Policy change requests. The rule applies until then." });
+      return;
+    }
     const out = writeOutcome(await anyDb.from(table(r)).update({ enabled }).eq("id", r.id).eq("user_id", accountId).select("id"));
     setBusyKey(null);
     if (out.ok === false) {
@@ -193,6 +210,13 @@ export function useInnerControlRules(project?: InnerProject | null) {
     if (!user || !canWrite || busyKey) return false;
     setBusyKey(r.key);
     const patch = r.kind === "hard" ? hardPatch(e as HardEdit) : safetyPatch(e as SafetyEdit);
+    // With dual control on, an edit is a request: the rule keeps working as it is until a second owner approves the change.
+    if (dualControl) {
+      const ok = await requestChange(r.kind === "hard" ? "edit_hard_rule" : "edit_safety_rule", r, `Edit ${r.kind === "hard" ? "rule" : "safety rule"} "${r.name}"`, patch);
+      setBusyKey(null);
+      if (ok) toast({ title: "Edit requested", description: "A second owner needs to approve this from Policy change requests. The rule stays as it is until then." });
+      return ok;
+    }
     const out = writeOutcome(await anyDb.from(table(r)).update(patch).eq("id", r.id).eq("user_id", accountId).select("id"));
     setBusyKey(null);
     if (out.ok === false) {

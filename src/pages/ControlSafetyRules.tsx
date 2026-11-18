@@ -152,6 +152,20 @@ export default function ControlSafetyRules() {
 
   const toggle = async (r: Rule) => {
     if (!canWrite) return;
+    // Switching a rule off weakens it like deleting it does: with dual control on, a second owner approves it first.
+    if (dualControl && r.enabled) {
+      const { error } = await anyDb.rpc("request_policy_change", {
+        _change_type: "disable_safety_rule",
+        _row_id: r.id,
+        _description: `Switch off safety rule "${r.name}"`,
+      });
+      if (error) {
+        toast({ title: "Could not request the switch-off", description: friendlyErrorMessage(error.message), variant: "destructive" });
+        return;
+      }
+      toast({ title: "Switch-off requested", description: "A second owner needs to approve this from Policy change requests. The rule applies until then." });
+      return;
+    }
     // A change the database refused changes no row and returns no error: it is said, never shown as done.
     const out = writeOutcome(await anyDb.from("safety_rules").update({ enabled: !r.enabled }).eq("id", r.id).select("id"));
     if (out.ok === false) {

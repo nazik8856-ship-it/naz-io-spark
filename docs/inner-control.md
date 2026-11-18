@@ -6,7 +6,7 @@ server paths it relies on.
 ## Rule actions (add, edit, switch off, switch on, delete)
 
 Every action writes the rule's row directly. The account's own row rules (RLS) decide who may write it, and the database triggers
-still apply: two-person approval for promote and delete when dual control is on, and the change log.
+still apply: two-person approval when dual control is on (see below), and the change log.
 
 A write that the row rules refuse returns no error and changes 0 rows. So every write asks for the changed row back
 (`.select("id")`), and `writeOutcome` in `src/lib/inner-rule-edit.ts` turns "0 rows" into a message on screen. A refused change is
@@ -17,8 +17,12 @@ Edit (`RuleEditDialog`) changes only the columns the server reads:
 - **Hard rules:** the text, which actions it applies to, block or hold for approval, and the number of approvals.
 - **Safety rules:** the name, the pattern (checked by `findPatternProblem`), and block, hold or remove.
 
-**Known gap.** Dual control covers promote and delete only. `request_policy_change` has no change type for switching a rule off or
-editing it, so those two actions do not need a second owner.
+**Dual control covers every way to weaken a rule.** With `require_dual_control_for_policy` on, promoting, deleting, switching off
+and editing a rule are requests (`request_policy_change`: `promote_*`, `delete_*`, `disable_*`, `edit_*`). A second, different owner
+approves them, and only then are they applied. The rule keeps working as it is until then. The database enforces this, not only the
+page: `guard_rule_weakening` refuses a direct switch-off, or a change to what a rule matches or does, from a signed-in person
+(migration `20261118010000`). An edit request keeps only the columns an edit may change (`rule_edit_columns`). Switching a rule back
+on strengthens it, so it stays direct.
 
 ## The chat runs a task (`control-system-decide`)
 
