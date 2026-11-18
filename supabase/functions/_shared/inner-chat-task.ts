@@ -40,3 +40,24 @@ export function taskOffer(i: { kind: ReportKind; request: string; tools: { name:
     line: `${ACTION_INFO[i.kind].title} with ${who}, every answer checked against your rules. ${cost}.`,
   };
 }
+
+// A message that plainly asks for a piece of work ("Draft a polite reply…", "Can you research…", "Compare A and B"): the kind of
+// task it is, or null. Used only as a safety net when the chat model answered such a message as off-topic instead of offering the
+// task. Deliberately narrow: a leading request verb, never a message about rules (those become a drafted rule) or about what an
+// agent or AI wants to do (that is an action review), and never "explain" (questions about the Control System use that word too).
+const WORK_VERBS: [RegExp, ReportKind][] = [
+  [/^(draft|write|compose|rewrite|reword|polish|reply to|respond to|answer)\b/, "draft"],
+  [/^(research|look into|find out|investigate)\b/, "research"],
+  [/^compare\b/, "compare"],
+  [/^(summari[sz]e|sum up|give me the key points|list the key points)\b/, "keypoints"],
+  [/^(fact[- ]?check|verify)\b/, "factcheck"],
+];
+const POLITE = /^(please\s+|can you\s+|could you\s+|would you\s+|help me\s+|i need you to\s+|i want you to\s+)+/;
+export function workRequestKind(message: string): ReportKind | null {
+  const m = String(message ?? "").trim().toLowerCase();
+  if (!m || m.length > 1500) return null;
+  if (/\brules?\b|\b(my|our|the) (agent|ai|bot)s? (wants?|is trying|would like|plans?)\b/.test(m)) return null;
+  const s = m.replace(POLITE, "");
+  for (const [re, kind] of WORK_VERBS) if (re.test(s)) return kind;
+  return null;
+}
