@@ -4,6 +4,10 @@
 //   POST { action: "update_key", tool_id, token }   (replaces the stored credential)
 //   POST { action: "remove_tool", tool_id }         (switches it off, hides it, cancels its open sessions)
 //   POST { action: "test_tool", tool_id }
+//   POST { action: "list_models", tool_id } | { action: "list_models", endpoint_url, request_format, auth_header?, auth_scheme?, token? }
+//        (the chat models the provider offers this key, read from <base>/models; the key is used for this one call and not stored)
+// An AI tool's address is stored as the provider's base (https://api.groq.com/openai/v1); the call path is added when it is
+// called (outer-control-tool-url.ts), so a pasted …/chat/completions address is stored without it.
 //   POST { action: "start_session", tool_id, objective, context?, api_key_id?, max_steps? }   (a Task of one step)
 //   POST { action: "start_task", request, context?, steps: [{ tool_id, instruction, fallback_tool_id?, on_failure? }], api_key_id? }
 //   POST { action: "create_agent_tool", agent_id }   (one of the account's own NazAI agents as a step)
@@ -35,12 +39,15 @@
 import "../_shared/redact-console.ts"; // first: secrets never reach the function logs
 import "../_shared/outbound-guard.ts"; // second: no request carries a NazAI credential to a host it does not belong to
 import { readJson } from "../_shared/input.ts";
+import { parseModelObject } from "../_shared/model-output.ts";
 import { createClient } from "../_shared/encrypted-client.ts"; // encrypts Outer Control content (data encryption, front 3)
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { checkKillSwitches } from "../_shared/control-gate.ts";
-import { runConnectionTest } from "../_shared/outer-control-tool-test.ts";
+import { describeHttpFailure, runConnectionTest } from "../_shared/outer-control-tool-test.ts";
+import { chatModelIds, providerMessage, shownUrl, toolBaseUrl, toolModelsUrl } from "../_shared/outer-control-tool-url.ts";
+import { describeNetworkFailure, networkFailureKind } from "../_shared/network-failure.ts";
 import { recordConnectionTest } from "../_shared/outer-control-keepalive.ts";
 import { applyEditedReply, contactRuleStopping } from "../_shared/outer-control-session.ts";
 import { acceptGoal, cancelWorkflow, continueSession, driveSession, extendGoal, progressWorkflow, resumeAndDrive, startFollowUp, startGoal, startTask, startWorkflow } from "../_shared/outer-control-workflow.ts";
@@ -147,8 +154,9 @@ Deno.serve(async (req) => {
     // ---- create_tool -----------------------------------------------------------
     if (action === "create_tool") {
       const name = String(body.name ?? "").trim();
-      const endpoint = String(body.endpoint_url ?? "").trim();
       const format = String(body.request_format ?? "generic_json");
+      // Only the base is stored (https://api.groq.com/openai/v1); /chat/completions or /messages is added when the tool is called.
+      const endpoint = toolBaseUrl(String(body.endpoint_url ?? ""), format);
       if (!name || name.length > 80) return json({ error: "invalid_name", message: "Give the tool a name (80 characters or fewer)." }, 400);
       if (!FORMATS.has(format)) return json({ error: "invalid_format", message: "request_format must be openai_chat, anthropic_messages, generic_json or mcp." }, 400);
       const authName = String(body.auth_header ?? "Authorization").trim() || "Authorization";
@@ -194,6 +202,56 @@ Deno.serve(async (req) => {
     if (action === "resume_tool") {
       const r = await resumeTool(admin, accountId, String(body.tool_id ?? ""));
       return r.ok ? json({ ok: true, message: r.message }) : json({ error: r.code, message: r.message }, r.status);
+    }
+
+    // ---- list_models: the chat models the provider offers this key ---------------------------------------------
+    // For the model list when connecting a tool (before it is saved: the address, format and key typed so far) or for a saved
+    // tool. One GET to <base>/models; the key is sent only to that provider and is not stored.
+    if (action === "list_models") {
+      let endpoint = "", format = "", authName = "Authorization", scheme = "Bearer ", token = "";
+      if (body.tool_id) {
+        const { data: tool } = await admin.from("external_tools").select("endpoint_url, request_format, auth_header, auth_scheme, credentials_secret_id")
+          .eq("id", String(body.tool_id)).eq("user_id", accountId).is("removed_at", null).maybeSingle();
+        if (!tool) return json({ error: "not_found", message: "Tool not found." }, 404);
+        endpoint = String(tool.endpoint_url); format = String(tool.request_format); authName = String(tool.auth_header || "Authorization"); scheme = String(tool.auth_scheme ?? "");
+        if (tool.credentials_secret_id) {
+          const { data: secret } = await admin.rpc("read_integration_secret", { sid: tool.credentials_secret_id });
+          token = String((secret as { token?: string } | null)?.token ?? "");
+        }
+      } else {
+        endpoint = String(body.endpoint_url ?? "").trim();
+        format = String(body.request_format ?? "");
+        authName = String(body.auth_header ?? "Authorization").trim() || "Authorization";
+        scheme = typeof body.auth_scheme === "string" ? body.auth_scheme : "Bearer ";
+        token = typeof body.token === "string" ? body.token.trim() : "";
+        if (!HEADER_NAME.test(authName) || scheme.length > 20 || /[\r\n]/.test(scheme)) return json({ error: "invalid_auth", message: "That authentication header is not valid." }, 400);
+        if (token.length > 2000) return json({ error: "invalid_token", message: "That credential is too long." }, 400);
+      }
+      if (!FORMATS.has(format)) return json({ error: "invalid_format", message: "request_format must be openai_chat, anthropic_messages, generic_json or mcp." }, 400);
+      const modelsUrl = toolModelsUrl(endpoint, format);
+      if (!modelsUrl) return json({ ok: true, models: [], url: null, message: "This kind of tool has no model list." });
+      const own = nazaiAddressProblem(modelsUrl, ownProjectHost());
+      if (own) return json({ error: "address_is_nazai", message: own }, 400);
+      const allowed = await validateOutboundUrl(modelsUrl);
+      if (!allowed.ok) return json({ error: "address_not_allowed", message: `That address can't be used: ${allowed.reason}.` }, 400);
+      const headers: Record<string, string> = { Accept: "application/json" };
+      if (token) headers[authName] = `${scheme}${token}`;
+      if (format === "anthropic_messages") headers["anthropic-version"] = "2023-06-01";
+      try {
+        const res = await fetch(modelsUrl, { method: "GET", headers, redirect: "manual", signal: AbortSignal.timeout(10_000) });
+        const text = (await res.text()).slice(0, 2_000_000);
+        if (!res.ok) {
+          const said = providerMessage(text.slice(0, 4000));
+          return json({ ok: false, status: res.status, url: shownUrl(modelsUrl),
+            error: `${describeHttpFailure(res.status)} Called: GET ${shownUrl(modelsUrl)} → HTTP ${res.status}.${said.message ? ` The provider said: "${said.message}"` : ""}` });
+        }
+        // A provider's model list is outside text: read with the shared bounded reader (big enough for OpenRouter's few hundred models).
+        const payload = parseModelObject(text, { maxChars: 2_000_000, maxBytes: 2_000_000, maxArray: 5_000, maxValues: 500_000 });
+        const models = chatModelIds(payload);
+        return json({ ok: true, models, url: shownUrl(modelsUrl), ...(models.length ? {} : { message: "The provider answered, but listed no chat models." }) });
+      } catch (e) {
+        return json({ ok: false, status: null, url: shownUrl(modelsUrl), error: `${describeNetworkFailure(networkFailureKind(e)).reason} Called: GET ${shownUrl(modelsUrl)}.` });
+      }
     }
 
     // ---- test_tool ---------------------------------------------------------------
@@ -536,7 +594,7 @@ Deno.serve(async (req) => {
       return json({ ok: true, status: "cancelled" });
     }
 
-    return json({ error: "unknown_action", message: "action must be create_tool, create_agent_tool, update_key, remove_tool, test_tool, start_session, start_task, start_goal, task_decide, answer, decide, cancel, start_workflow or cancel_workflow." }, 400);
+    return json({ error: "unknown_action", message: "action must be create_tool, create_agent_tool, update_key, remove_tool, test_tool, list_models, start_session, start_task, start_goal, task_decide, answer, decide, cancel, start_workflow or cancel_workflow." }, 400);
   } catch (e) {
     return json({ error: "internal_error", message: e instanceof Error ? e.message : "Unknown error" }, 500);
   }

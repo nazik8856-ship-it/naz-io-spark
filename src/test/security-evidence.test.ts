@@ -48,7 +48,7 @@ describe("no evidence, no connector call", () => {
     const src = read("_shared/outer-control-session.ts");
     const ev = src.indexOf('kind: "connector_call"');
     expect(ev).toBeGreaterThan(0);
-    expect(ev).toBeLessThan(src.indexOf("res = await deps.fetchImpl(tool.endpoint_url"));
+    expect(ev).toBeLessThan(src.indexOf("res = await deps.fetchImpl(toolRequestUrl(tool.endpoint_url"));
     expect(src.slice(ev, ev + 500)).toMatch(/if \(!ev\.ok\) \{ await finish\(admin, s, "failed", NO_EVIDENCE_MESSAGE, deps\);/);
   });
 });

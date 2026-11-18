@@ -127,7 +127,7 @@ describe("the keep-alive tests only real outside tools", () => {
   it("a tool with NazAI's own address is reported without any request, so the keep-alive never contacts NazAI itself", () => {
     const test = readFileSync(join(ROOT, "supabase/functions/_shared/outer-control-tool-test.ts"), "utf8");
     expect(test.indexOf("nazaiAddressProblem(")).toBeGreaterThan(0);
-    expect(test.indexOf("nazaiAddressProblem(")).toBeLessThan(test.indexOf("deps.fetchImpl(tool.endpoint_url"));
-    expect(test.indexOf("nazaiAddressProblem(")).toBeLessThan(test.indexOf("deps.validateUrl(tool.endpoint_url)"));
+    expect(test.indexOf("nazaiAddressProblem(")).toBeLessThan(test.indexOf("deps.fetchImpl(url"));
+    expect(test.indexOf("nazaiAddressProblem(")).toBeLessThan(test.indexOf("deps.validateUrl(toolRequestUrl(tool.endpoint_url, tool.request_format))"));
   });
 });
