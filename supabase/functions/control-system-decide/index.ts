@@ -1,7 +1,12 @@
 // AI Control System — chat front door for the shared decision engine.
 // Input: { message: string, history?: [{role, content}], agentId? }
+//        { action: "run_task", kind, request }   (the person confirmed a task offer: starts it, returns { mode: "task_started", task_id })
 //
-// TWO MODES:
+// A request to DO work ("write…", "research…", "compare…") is answered with a task offer (mode "task_offer": the action, the
+// built-in tools, what it costs); nothing starts until the person confirms it with run_task. The Task is an ordinary Outer Control
+// Task with NazAI's built-in tools, so the account's rules check every answer (_shared/inner-chat-task.ts).
+//
+// MODES:
 //  1) The message describes a concrete proposed AI action -> extract
 //     { action_type, provider, description, params } with structured output and
 //     hand it to the control-engine function, which owns ALL scoring, the
@@ -19,6 +24,9 @@ import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
 import { requireCaller } from "../_shared/caller.ts";
+import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind } from "../_shared/inner-chat-task.ts";
+import { describeDraft, draftFromArgs, RULE_SCOPES } from "../_shared/inner-chat-rule.ts";
+import { ensureStarterTools, STARTER_TASKS, starterTasksUsed } from "../_shared/outer-control-starter.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -115,7 +123,58 @@ function formatTextReviewReply(result: Awaited<ReturnType<typeof evaluateExterna
   return lines.join("\n");
 }
 
+// "Do this for me": a piece of work to run under the account's rules (Inner Control chat runs tasks).
+const RUN_TASK_TOOL = {
+  type: "function",
+  function: {
+    name: "run_task",
+    description:
+      "Call when the user asks the AI to DO a piece of work for them now: write, draft, research, compare, decide, explain, summarise, " +
+      "fact-check. Do NOT call it to review a proposed action (review_action) or to check text an external AI wrote (review_external_text).",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        kind: {
+          type: "string", enum: [...INNER_TASK_KINDS],
+          description: "opinions: views on a question; research: findings on a topic; decision: choose between options; compare: the same " +
+            "question answered side by side; factcheck: verify a claim; explain: explain simply; keypoints: key points of a text; draft: write something.",
+        },
+        request: { type: "string", description: "The work to do, in the user's own words, complete enough to run on its own." },
+      },
+      required: ["kind", "request"],
+    },
+  },
+};
+
+// "Never mention prices": a rule drafted from plain words, shown to the person, saved only when they press Save (never here).
+const CREATE_RULE_TOOL = {
+  type: "function",
+  function: {
+    name: "draft_rule",
+    description:
+      "Call when the user wants a NEW RULE for their AI ('never …', 'always ask me before …', 'block replies that mention …'). " +
+      "type 'action' stops or holds an action (sending email, posting to Slack…); type 'text' looks for words in a reply. " +
+      "Do NOT call it to review an action or a text, or to run a task.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        type: { type: "string", enum: ["action", "text"] },
+        text: { type: "string", description: "action: the rule in the user's words, e.g. 'Never email customers on Sundays'." },
+        scope: { type: "string", enum: Object.keys(RULE_SCOPES), description: "action: which actions it applies to; '*' for any action." },
+        effect: { type: "string", enum: ["always_block", "always_require_approval"], description: "action: block it, or hold it for approval." },
+        name: { type: "string", description: "text: a short name for the rule, e.g. 'No prices to customers'." },
+        phrases: { type: "array", items: { type: "string" }, description: "text: the words or short phrases to look for (plain words, no patterns), e.g. ['price', 'discount', '€']." },
+        action: { type: "string", enum: ["approval", "block", "redact"], description: "text: hold the reply for approval, block it, or remove the matching words." },
+      },
+      required: ["type"],
+    },
+  },
+};
+
 const toolArguments = object({}, { unknown: "keep" });
+const MAX_TOOLS_PER_ACCOUNT = 20;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -139,7 +198,8 @@ Deno.serve(async (req) => {
     const message = String(body?.message || "").trim();
     const agentId: string | null = body?.agentId ? String(body.agentId) : null;
     const dryRun = body?.dry_run === true;
-    if (!message) return json({ error: "message required" }, 400);
+    const runTask = body?.action === "run_task";
+    if (!message && !runTask) return json({ error: "message required" }, 400);
 
     // Was ALWAYS userId regardless of which account was selected via the
     // account switcher on the Control System page -- a delegated team
@@ -154,6 +214,30 @@ Deno.serve(async (req) => {
     const requestedAccountId = body?.account_id;
     const accountId = await resolveAccountScope(userClient, userId, requestedAccountId);
     if (!accountId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    // ---- The person confirmed a task offer: start it as an Outer Control Task with the built-in tools -------------------------
+    if (runTask) {
+      const kind = body?.kind;
+      const request = String(body?.request ?? "").trim();
+      if (!isInnerTaskKind(kind)) return json({ error: "invalid_kind", message: "That kind of task can not be run from the chat." }, 400);
+      const problem = requestProblem(kind, request);
+      if (problem) return json({ error: "invalid_request", message: problem }, 400);
+      const made = await ensureStarterTools(supabase, accountId, MAX_TOOLS_PER_ACCOUNT);
+      if (!made.ok) return json({ error: made.code, message: made.message }, made.status);
+      const tools = toolsForKind(kind, made.tools);
+      if (!tools.length) return json({ error: "no_tools", message: "NazAI's built-in tools are not available right now." }, 503);
+      // The Task engine does the rest, as the same person: the account's rules, the credit (the free Tasks first), the result.
+      const driveRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/outer-control-drive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: Deno.env.get("SUPABASE_ANON_KEY") || "" },
+        body: JSON.stringify({ action: "start_report", task: kind, topic: request, tool_ids: tools.map((t) => t.id), paid_starter: true, confirm_override: true, account_id: accountId }),
+      });
+      const started = await driveRes.json().catch(() => ({})) as { ok?: boolean; task_id?: string; error?: string; message?: string };
+      if (!driveRes.ok || !started.ok || !started.task_id) {
+        return json({ error: started.error || "task_not_started", message: started.message || "The task could not be started." }, driveRes.ok ? 502 : driveRes.status);
+      }
+      return json({ mode: "task_started", task_id: started.task_id, kind, tools: tools.map((t) => t.name) });
+    }
 
     // Recent decision history — lets the assistant explain past verdicts.
     const { data: recent } = await supabase
@@ -198,7 +282,11 @@ Deno.serve(async (req) => {
               "(reviewing proposed AI actions, reviewing/cleaning text an EXTERNAL AI produced, explaining " +
               "rules/decisions/incidents, and what this account's AI can actually do right now). You are not a " +
               "general-purpose assistant.\n\n" +
-              "THREE MODES, for on-topic messages only:\n" +
+              "MODES, for on-topic messages only:\n" +
+              "R) If the user wants a NEW RULE for their AI ('never …', 'always ask me before …'), call the draft_rule tool; " +
+              "the user sees the draft and saves it. Never claim a rule was saved.\n" +
+              "0) If the user asks you to DO a piece of work now (write, draft, research, compare, decide, explain, summarise, " +
+              "fact-check), call the run_task tool: it runs the work as a task under this account's rules. This is on-topic.\n" +
               "1) If (and only if) the user is describing a concrete proposed AI action to review " +
               "(e.g. 'my agent wants to post to #general', 'should I let this run: email all customers'), " +
               "call the review_action tool with the action extracted faithfully. Do NOT judge it yourself — " +
@@ -234,7 +322,7 @@ Deno.serve(async (req) => {
           ...priorTurns,
           { role: "user", content: message },
         ],
-        tools: [EXTRACT_TOOL, REVIEW_TEXT_TOOL],
+        tools: [EXTRACT_TOOL, REVIEW_TEXT_TOOL, RUN_TASK_TOOL, CREATE_RULE_TOOL],
         tool_choice: "auto",
     }, gw);
 
@@ -247,6 +335,26 @@ Deno.serve(async (req) => {
     const call = msg?.tool_calls?.[0];
     let parsed: Record<string, unknown> = {};
     { const r = parseModelJson(call?.function?.arguments || "{}", toolArguments); if (r.ok) parsed = r.value as Record<string, unknown>; } // bounded and cleaned; unusable arguments read as empty, as before
+
+    // ---- "Never …": a drafted rule the page shows; it is saved only when the person presses Save -----------------------------
+    if (call?.function?.name === "draft_rule") {
+      const d = draftFromArgs(parsed);
+      if (!d.ok) return json({ mode: "chat", reply: d.reason });
+      return json({ mode: "rule_draft", draft: d.draft, line: describeDraft(d.draft) });
+    }
+
+    // ---- "Do this": an offer the person confirms (what runs, with which tools, what it costs). Nothing starts here. ----------
+    if (call?.function?.name === "run_task") {
+      const kind = isInnerTaskKind(parsed.kind) ? parsed.kind : "opinions";
+      const request = String(parsed.request || message).trim().slice(0, 1500);
+      const problem = requestProblem(kind, request);
+      if (problem) return json({ mode: "chat", reply: problem });
+      const made = await ensureStarterTools(supabase, accountId, MAX_TOOLS_PER_ACCOUNT);
+      if (!made.ok) return json({ mode: "chat", reply: `I can't run tasks right now: ${made.message}` });
+      const tools = toolsForKind(kind, made.tools);
+      const used = await starterTasksUsed(supabase, accountId);
+      return json({ mode: "task_offer", offer: taskOffer({ kind, request, tools, freeUsed: used, freeTasks: STARTER_TASKS }) });
+    }
 
     if (call?.function?.name === "review_external_text") {
       const content = String(parsed.content || "").slice(0, 8000);

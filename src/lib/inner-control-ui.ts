@@ -1,5 +1,6 @@
 // Inner Control page: the plain wording and small decisions behind the dashboard.
 // Pure, so the page stays a layout and these rules are tested alone.
+import { globToRe } from "@/lib/coverage-gaps"; // the client copy of the server's rule glob, held to it by a parity test
 
 export type RuleKind = "hard" | "safety";
 export type RuleStatus = "active" | "disabled";
@@ -12,6 +13,9 @@ export type HardRuleRow = {
   enabled: boolean | null;
   shadow_mode: boolean;
   agent_id: string | null;
+  /** Rules tied to one connected AI's key, or to one provider; optional on older reads. */
+  api_key_id?: string | null;
+  provider?: string | null;
   required_approvals: number | null;
   created_at: string;
 };
@@ -76,7 +80,7 @@ export function toRuleItems(
     kind: "hard",
     name: r.rule_text,
     effect: r.effect === "always_block" ? "Always blocks" : `Needs approval (${approverText(r.required_approvals)})`,
-    scope: `${SCOPE_LABELS[r.action_type_pattern] ?? r.action_type_pattern} · ${r.agent_id ? agentName(r.agent_id) : "All agents"}`,
+    scope: `${SCOPE_LABELS[r.action_type_pattern] ?? r.action_type_pattern} · ${r.agent_id ? agentName(r.agent_id) : r.api_key_id ? "One API key" : "All agents"}`,
     // `enabled` is null on rows older than the column: treat as on, as the gate does.
     status: r.enabled === false ? "disabled" : "active",
     shadow: !!r.shadow_mode,
@@ -98,6 +102,28 @@ export function toRuleItems(
   const rank = (r: RuleItem) => (r.status === "active" ? 0 : 1);
   return [...h, ...s].sort((a, b) => rank(a) - rank(b) || b.createdAt.localeCompare(a.createdAt));
 }
+
+// ---- One rule set everywhere (docs/inner-control.md) ------------------------
+
+/** The action every Outer Control answer is checked as (TEXT_REVIEW_ACTION_TYPE in outer-control-text-review.ts). */
+export const TASK_ANSWER_ACTION = "outer_control_text_review";
+
+/**
+ * Whether this rule checks the answers of a Task the chat runs, exactly as the server decides it: switched on, not in shadow mode,
+ * for the whole account (not one agent or one API key), and, for a hard rule, any provider and an action pattern that covers
+ * Outer Control's answer check. "Sending email" rules apply to sending email, not to a Task's answers, so they are not counted.
+ */
+export function checksTaskAnswers(r: { kind: "hard"; row: HardRuleRow } | { kind: "safety"; row: SafetyRuleRow }): boolean {
+  const row = r.row;
+  if (row.shadow_mode || row.agent_id || (row as { api_key_id?: string | null }).api_key_id) return false;
+  if (r.kind === "safety") return r.row.enabled === true;
+  if (r.row.enabled === false || r.row.provider) return false;
+  try { return globToRe(r.row.action_type_pattern || "*").test(TASK_ANSWER_ACTION); } catch { return false; }
+}
+
+/** How many of the account's rules check a chat Task's answers. */
+export const taskAnswerRuleCount = (hard: HardRuleRow[], safety: SafetyRuleRow[]) =>
+  hard.filter((row) => checksTaskAnswers({ kind: "hard", row })).length + safety.filter((row) => checksTaskAnswers({ kind: "safety", row })).length;
 
 export type RuleCounts = { enforcing: number; shadow: number; disabled: number; total: number };
 
@@ -272,6 +298,7 @@ export function chatStepLabels(activeRules: number, dryRun: boolean): { sent: st
 }
 
 export const CHAT_SUGGESTIONS = [
+  "Draft a polite reply to a customer asking for a refund",
   "Which of my rules are active right now?",
   "Why was my last action blocked?",
   "Should I let this run: send email to all customers",
@@ -279,7 +306,8 @@ export const CHAT_SUGGESTIONS = [
 ];
 
 export const CHAT_SPEC =
-  "Ask about your rules and past decisions, or describe a task or action your AI wants to take. " +
+  "Ask NazAI to do a piece of work (it runs as a task under your rules, and you see the cost before it starts), ask about your " +
+  "rules and past decisions, or describe an action your AI wants to take. " +
   "The Control System checks it against your rules, scores intent match, risk and confidence, then returns " +
   "Allow, Modify, Block or Needs approval, and logs it to your decision history. " +
   "While it works you see the live status; if a rule needs a person, the approval card appears in this chat.";

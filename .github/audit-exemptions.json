@@ -1,0 +1,8 @@
+[
+  {
+    "id": "GHSA-fc5q-39xc-vjpf",
+    "package": "picomatch",
+    "reason": "ReDoS from crafted glob patterns. No fixed version exists (<=4.0.7 affected). It reaches the shipped set only as vite's dependency, and vite is listed only as a peer of @lovable.dev/mcp-js for its build plugins; the website bundle and the MCP function never load vite or picomatch, and no glob comes from user input. Remove once picomatch publishes a fix.",
+    "expires": "2026-12-18"
+  }
+]

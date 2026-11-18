@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
+import { writeOutcome } from "@/lib/inner-rule-edit";
 import { toast } from "@/hooks/use-toast";
 
 type Effect = "always_block" | "always_require_approval";
@@ -154,12 +155,13 @@ export default function HardRulesPanel({ defaultOpen = false }: { defaultOpen?: 
       toast({ title: "Promotion requested", description: "A second owner needs to approve this from Policy change requests before it goes live." });
       return;
     }
-    const { error } = await anyDb
+    // A change the database refused changes no row and returns no error: it is said, never shown as done.
+    const out = writeOutcome(await anyDb
       .from("hard_rules")
       .update({ shadow_mode: false, promoted_at: new Date().toISOString() })
-      .eq("id", r.id);
-    if (error) {
-      toast({ title: "Could not promote rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      .eq("id", r.id).select("id"));
+    if (out.ok === false) {
+      toast({ title: "Could not promote rule", description: friendlyErrorMessage(out.message), variant: "destructive" });
       return;
     }
     toast({ title: "Rule is now live", description: "It will decide matching actions from now on." });
@@ -169,10 +171,10 @@ export default function HardRulesPanel({ defaultOpen = false }: { defaultOpen?: 
   const toggleDualControl = async (checked: boolean) => {
     if (!canWrite) return;
     setDualControl(checked);
-    const { error } = await anyDb.from("profiles").update({ require_dual_control_for_policy: checked }).eq("id", accountId);
-    if (error) {
+    const out = writeOutcome(await anyDb.from("profiles").update({ require_dual_control_for_policy: checked }).eq("id", accountId).select("id"));
+    if (out.ok === false) {
       setDualControl(!checked);
-      toast({ title: "Couldn't save that", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      toast({ title: "Couldn't save that", description: friendlyErrorMessage(out.message), variant: "destructive" });
       return;
     }
     toast({
@@ -196,11 +198,12 @@ export default function HardRulesPanel({ defaultOpen = false }: { defaultOpen?: 
       toast({ title: "Deletion requested", description: "A second owner needs to approve this from Policy change requests before it's removed." });
       return;
     }
-    const { error } = await anyDb.from("hard_rules").delete().eq("id", r.id);
-    if (error) {
-      toast({ title: "Could not remove rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
+    const out = writeOutcome(await anyDb.from("hard_rules").delete().eq("id", r.id).select("id"));
+    if (out.ok === false) {
+      toast({ title: "Could not remove rule", description: friendlyErrorMessage(out.message), variant: "destructive" });
       return;
     }
+    toast({ title: "Rule removed" });
     void load();
   };
 

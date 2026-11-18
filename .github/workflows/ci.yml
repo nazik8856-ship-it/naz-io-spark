@@ -42,9 +42,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Packages that ship to people (the website bundle and the MCP function). A new high or critical advisory fails this job.
+      # Packages that ship to people (the website bundle and the MCP function). A new high or critical advisory fails this job,
+      # unless .github/audit-exemptions.json names that one advisory with a reason and an expiry date (scripts/audit-check.mjs).
       - name: npm audit
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/audit-check.mjs
 
   functions:
     name: Edge functions (Deno tests)

@@ -176,8 +176,16 @@ export function starterTaskKeys(rows: { id: string; workflow_id: string | null; 
   return keys;
 }
 
-/** Whether this session's Task is one of the account's first STARTER_TASKS Tasks with starter tools. */
+/**
+ * Whether the starter AI may answer this session: its Task is one of the account's first STARTER_TASKS Tasks with starter tools, or
+ * the Task was paid for (credit_charged: the Inner Control chat runs the starter AI for the Task's usual credits once the free Tasks
+ * are used).
+ */
 export async function starterAllowed(admin: AnyAdmin, s: { id: string; user_id: string; workflow_id: string | null }): Promise<boolean> {
+  if (s.workflow_id) {
+    const { data: wf } = await admin.from("outer_control_workflows").select("credit_charged").eq("id", s.workflow_id).eq("user_id", s.user_id).maybeSingle();
+    if ((wf as { credit_charged?: boolean } | null)?.credit_charged === true) return true;
+  }
   const { data: tools } = await admin.from("external_tools").select("id").eq("user_id", s.user_id).like("endpoint_url", `${STARTER_TOOL_URL}%`);
   const ids = ((tools ?? []) as { id: string }[]).map((t) => t.id);
   if (!ids.length) return false;

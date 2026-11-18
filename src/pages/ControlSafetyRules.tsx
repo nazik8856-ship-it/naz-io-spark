@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
+import { writeOutcome } from "@/lib/inner-rule-edit";
 import { toast } from "@/hooks/use-toast";
 import { findSafetyRuleRedundancies } from "@/lib/safety-rule-redundancy";
 import { findPatternProblem } from "@/lib/safety-pattern";
@@ -151,7 +152,27 @@ export default function ControlSafetyRules() {
 
   const toggle = async (r: Rule) => {
     if (!canWrite) return;
-    await anyDb.from("safety_rules").update({ enabled: !r.enabled }).eq("id", r.id);
+    // Switching a rule off weakens it like deleting it does: with dual control on, a second owner approves it first.
+    if (dualControl && r.enabled) {
+      const { error } = await anyDb.rpc("request_policy_change", {
+        _change_type: "disable_safety_rule",
+        _row_id: r.id,
+        _description: `Switch off safety rule "${r.name}"`,
+      });
+      if (error) {
+        toast({ title: "Could not request the switch-off", description: friendlyErrorMessage(error.message), variant: "destructive" });
+        return;
+      }
+      toast({ title: "Switch-off requested", description: "A second owner needs to approve this from Policy change requests. The rule applies until then." });
+      return;
+    }
+    // A change the database refused changes no row and returns no error: it is said, never shown as done.
+    const out = writeOutcome(await anyDb.from("safety_rules").update({ enabled: !r.enabled }).eq("id", r.id).select("id"));
+    if (out.ok === false) {
+      toast({ title: r.enabled ? "Could not disable rule" : "Could not enable rule", description: friendlyErrorMessage(out.message), variant: "destructive" });
+      return;
+    }
+    toast({ title: r.enabled ? "Rule disabled" : "Rule enabled" });
     load();
   };
   const promote = async (r: Rule) => {
@@ -169,12 +190,12 @@ export default function ControlSafetyRules() {
       toast({ title: "Promotion requested", description: "A second owner needs to approve this from Policy change requests before it goes live." });
       return;
     }
-    const { error } = await anyDb
+    const out = writeOutcome(await anyDb
       .from("safety_rules")
       .update({ shadow_mode: false, promoted_at: new Date().toISOString() })
-      .eq("id", r.id);
-    if (error) {
-      toast({ title: "Could not promote rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      .eq("id", r.id).select("id"));
+    if (out.ok === false) {
+      toast({ title: "Could not promote rule", description: friendlyErrorMessage(out.message), variant: "destructive" });
       return;
     }
     toast({ title: "Rule is now live", description: "It will scan matching actions from now on." });
@@ -195,11 +216,12 @@ export default function ControlSafetyRules() {
       toast({ title: "Deletion requested", description: "A second owner needs to approve this from Policy change requests before it's removed." });
       return;
     }
-    const { error } = await anyDb.from("safety_rules").delete().eq("id", r.id);
-    if (error) {
-      toast({ title: "Could not remove rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
+    const out = writeOutcome(await anyDb.from("safety_rules").delete().eq("id", r.id).select("id"));
+    if (out.ok === false) {
+      toast({ title: "Could not remove rule", description: friendlyErrorMessage(out.message), variant: "destructive" });
       return;
     }
+    toast({ title: "Rule removed" });
     load();
   };
 

@@ -6,6 +6,10 @@ import { useActiveAccount } from "@/hooks/useActiveAccount";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
+import RuleEditDialog from "@/components/control/RuleEditDialog";
+import InnerTaskCard from "@/components/control/InnerTaskCard";
+import RuleDraftCard, { type ChatRuleDraft } from "@/components/control/RuleDraftCard";
+import type { InnerTaskOffer } from "@/lib/inner-chat-task";
 import ExecutionLog from "@/components/execution/ExecutionLog";
 import { useExecutionLog } from "@/hooks/useExecutionLog";
 import { useInnerControlRules } from "@/hooks/useInnerControlRules";
@@ -79,6 +83,8 @@ export default function ControlSystem() {
   const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(null);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [ruleEditorOpen, setRuleEditorOpen] = useState(false);
+  // Edit: the rule being changed in place (both kinds), or null.
+  const [editing, setEditing] = useState<RuleItem | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   useEffect(() => {
@@ -143,7 +149,7 @@ export default function ControlSystem() {
         body: { message: sent, history, dry_run: dryRun, account_id: accountId || undefined },
       });
       if (error) throw error;
-      const d = data as ControlDecision & { error?: string; message?: string; mode?: string; reply?: string };
+      const d = data as ControlDecision & { error?: string; message?: string; mode?: string; reply?: string; offer?: InnerTaskOffer; draft?: ChatRuleDraft; line?: string };
       if (d?.error) throw new Error(d.message || d.error);
       chatLog.done("work");
 
@@ -151,7 +157,13 @@ export default function ControlSystem() {
         const next = [...t];
         next[next.length - 1] = d?.mode === "chat"
           ? { role: "assistant", content: d.reply || "" }
-          : { role: "assistant", content: d.reason, node: <DecisionCard d={d} /> };
+          // "Do this": a task the person runs (or not) from the card, under their rules.
+          // "Never …": a drafted rule the person saves (or not) from the card.
+          : d?.mode === "rule_draft" && d.draft
+            ? { role: "assistant", content: d.line || "", node: <RuleDraftCard draft={d.draft} line={d.line || ""} accountId={accountId} canWrite={innerRules.canWrite} onSaved={() => { void innerRules.refetch(); dashboard.refetch(); }} /> }
+          : d?.mode === "task_offer" && d.offer
+            ? { role: "assistant", content: d.offer.line, node: <InnerTaskCard offer={d.offer} accountId={accountId} rulesActive={innerRules.taskRules} /> }
+            : { role: "assistant", content: d.reason, node: <DecisionCard d={d} /> };
         return next;
       });
 
@@ -183,10 +195,7 @@ export default function ControlSystem() {
     document.querySelector(`[data-testid="rule-row-${key}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
     window.setTimeout(() => setHighlightKey((k) => (k === key ? null : k)), 3000);
   };
-  const editRule = (r: RuleItem) => {
-    if (r.kind === "safety") navigate("/control-system/safety-rules");
-    else setRuleEditorOpen(true);
-  };
+  const editRule = (r: RuleItem) => setEditing(r);
   const closeRuleEditor = (open: boolean) => {
     setRuleEditorOpen(open);
     if (!open) { void innerRules.refetch(); dashboard.refetch(); }
@@ -447,6 +456,8 @@ export default function ControlSystem() {
       </div>
 
       {/* Add / edit rules: the existing hard-rule editor, in a closable window. */}
+      <RuleEditDialog rule={editing} row={editing ? innerRules.rowOf(editing) : null} busy={!!innerRules.busyKey}
+        onClose={() => setEditing(null)} onSave={async (r, e) => { const ok = await innerRules.edit(r, e); if (ok) dashboard.refetch(); return ok; }} />
       <Dialog open={ruleEditorOpen} onOpenChange={closeRuleEditor}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-white/10 bg-[#050813] p-0 text-white" data-testid="rule-editor">
           <DialogHeader className="px-6 pt-6">

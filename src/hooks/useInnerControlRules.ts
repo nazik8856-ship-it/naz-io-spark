@@ -8,6 +8,7 @@ import { toast } from "@/hooks/use-toast";
 import {
   buildOuterTaskTags,
   countRules,
+  taskAnswerRuleCount,
   taskActivity,
   toActivity,
   toRuleItems,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/inner-control-ui";
 import { rulesFor, type InnerProject } from "@/lib/inner-projects";
 import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
+import { hardPatch, safetyPatch, writeOutcome, type HardEdit, type SafetyEdit } from "@/lib/inner-rule-edit";
 // Stale generated types: control-system tables aren't in types.ts yet.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any;
@@ -95,7 +97,7 @@ export function useInnerControlRules(project?: InnerProject | null) {
     })();
     const [h, s, a, d, p] = await Promise.all([
       anyDb.from("hard_rules")
-        .select("id, rule_text, action_type_pattern, effect, enabled, shadow_mode, agent_id, required_approvals, created_at")
+        .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id, required_approvals, created_at")
         .eq("user_id", accountId).order("created_at", { ascending: false }),
       anyDb.from("safety_rules")
         .select("id, name, pattern, severity, redact, enabled, shadow_mode, agent_id, api_key_id, created_at")
@@ -127,6 +129,8 @@ export function useInnerControlRules(project?: InnerProject | null) {
   );
   const rules: RuleItem[] = useMemo(() => toRuleItems(hard, safety, agentName), [hard, safety, agentName]);
   const counts = useMemo(() => countRules(rules), [rules]);
+  /** The rules that check the answers of a Task the chat runs (the same choice the server makes). */
+  const taskRules = useMemo(() => taskAnswerRuleCount(hard, safety), [hard, safety]);
   const activity = useMemo(() => {
     const items = toActivity(decisions, (id) => hard.find((r) => r.id === id)?.rule_text ?? null, (runId) => taskTags.get(runId) ?? null);
     const covered = new Set(items.map((i) => i.task?.id).filter((x): x is string => !!x));
@@ -135,14 +139,35 @@ export function useInnerControlRules(project?: InnerProject | null) {
 
   const table = (r: RuleItem) => (r.kind === "hard" ? "hard_rules" : "safety_rules");
 
-  /** Disable or re-enable: writes the `enabled` column the gate reads. */
+  /** The stored row behind a list item, for the Edit dialog. */
+  const rowOf = (r: RuleItem): HardRuleRow | SafetyRuleRow | null =>
+    (r.kind === "hard" ? hard.find((x) => x.id === r.id) : safety.find((x) => x.id === r.id)) ?? null;
+
+  /** Asks a second owner to approve a change (dual control). Says why when the request itself could not be made. */
+  const requestChange = async (changeType: string, r: RuleItem, description: string, newValue?: Record<string, unknown>): Promise<boolean> => {
+    const { error } = await anyDb.rpc("request_policy_change", { _change_type: changeType, _row_id: r.id, _description: description, ...(newValue ? { _new_value: newValue } : {}) });
+    if (error) {
+      toast({ title: "Could not request the change", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      return false;
+    }
+    return true;
+  };
+
+  /** Disable or re-enable: writes the `enabled` column the gate reads. A change the database refused is said, never shown as done. */
   const setEnabled = async (r: RuleItem, enabled: boolean) => {
     if (!user || !canWrite || busyKey) return;
     setBusyKey(r.key);
-    const { error } = await anyDb.from(table(r)).update({ enabled }).eq("id", r.id);
+    // Switching a rule off weakens it like deleting it does: with dual control on, a second owner approves it first.
+    if (dualControl && !enabled) {
+      const ok = await requestChange(r.kind === "hard" ? "disable_hard_rule" : "disable_safety_rule", r, `Switch off ${r.kind === "hard" ? "rule" : "safety rule"} "${r.name}"`);
+      setBusyKey(null);
+      if (ok) toast({ title: "Switch-off requested", description: "A second owner needs to approve this from Policy change requests. The rule applies until then." });
+      return;
+    }
+    const out = writeOutcome(await anyDb.from(table(r)).update({ enabled }).eq("id", r.id).eq("user_id", accountId).select("id"));
     setBusyKey(null);
-    if (error) {
-      toast({ title: enabled ? "Could not enable rule" : "Could not disable rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
+    if (out.ok === false) {
+      toast({ title: enabled ? "Could not enable rule" : "Could not disable rule", description: friendlyErrorMessage(out.message), variant: "destructive" });
       return;
     }
     toast({ title: enabled ? "Rule enabled" : "Rule disabled", description: enabled ? undefined : "It no longer applies. You can enable it again any time." });
@@ -167,15 +192,41 @@ export function useInnerControlRules(project?: InnerProject | null) {
       toast({ title: "Deletion requested", description: "A second owner needs to approve this from Policy change requests before it's removed." });
       return;
     }
-    const { error } = await anyDb.from(table(r)).delete().eq("id", r.id);
+    const out = writeOutcome(await anyDb.from(table(r)).delete().eq("id", r.id).eq("user_id", accountId).select("id"));
     setBusyKey(null);
-    if (error) {
-      toast({ title: "Could not delete rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
+    if (out.ok === false) {
+      toast({ title: "Could not delete rule", description: friendlyErrorMessage(out.message), variant: "destructive" });
       return;
     }
     toast({ title: "Rule deleted" });
     void load();
   };
 
-  return { loading, rules, counts, activity, canWrite, dualControl, busyKey, setEnabled, remove, refetch: load };
+  /**
+   * Edit: changes what the rule says and does, in place (the same columns the Add forms write). Its on/off and shadow state are
+   * kept. Resolves true when the database changed the rule.
+   */
+  const edit = async (r: RuleItem, e: HardEdit | SafetyEdit): Promise<boolean> => {
+    if (!user || !canWrite || busyKey) return false;
+    setBusyKey(r.key);
+    const patch = r.kind === "hard" ? hardPatch(e as HardEdit) : safetyPatch(e as SafetyEdit);
+    // With dual control on, an edit is a request: the rule keeps working as it is until a second owner approves the change.
+    if (dualControl) {
+      const ok = await requestChange(r.kind === "hard" ? "edit_hard_rule" : "edit_safety_rule", r, `Edit ${r.kind === "hard" ? "rule" : "safety rule"} "${r.name}"`, patch);
+      setBusyKey(null);
+      if (ok) toast({ title: "Edit requested", description: "A second owner needs to approve this from Policy change requests. The rule stays as it is until then." });
+      return ok;
+    }
+    const out = writeOutcome(await anyDb.from(table(r)).update(patch).eq("id", r.id).eq("user_id", accountId).select("id"));
+    setBusyKey(null);
+    if (out.ok === false) {
+      toast({ title: "Could not save the rule", description: friendlyErrorMessage(out.message), variant: "destructive" });
+      return false;
+    }
+    toast({ title: "Rule updated", description: r.shadow ? "It is still in shadow mode: watched and logged only." : "The change applies from the next action." });
+    void load();
+    return true;
+  };
+
+  return { loading, rules, counts, taskRules, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, rowOf, refetch: load };
 }
