@@ -19,6 +19,7 @@ import {
 } from "@/lib/inner-control-ui";
 import { rulesFor, type InnerProject } from "@/lib/inner-projects";
 import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
+import { hardPatch, safetyPatch, writeOutcome, type HardEdit, type SafetyEdit } from "@/lib/inner-rule-edit";
 // Stale generated types: control-system tables aren't in types.ts yet.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any;
@@ -135,14 +136,18 @@ export function useInnerControlRules(project?: InnerProject | null) {
 
   const table = (r: RuleItem) => (r.kind === "hard" ? "hard_rules" : "safety_rules");
 
-  /** Disable or re-enable: writes the `enabled` column the gate reads. */
+  /** The stored row behind a list item, for the Edit dialog. */
+  const rowOf = (r: RuleItem): HardRuleRow | SafetyRuleRow | null =>
+    (r.kind === "hard" ? hard.find((x) => x.id === r.id) : safety.find((x) => x.id === r.id)) ?? null;
+
+  /** Disable or re-enable: writes the `enabled` column the gate reads. A change the database refused is said, never shown as done. */
   const setEnabled = async (r: RuleItem, enabled: boolean) => {
     if (!user || !canWrite || busyKey) return;
     setBusyKey(r.key);
-    const { error } = await anyDb.from(table(r)).update({ enabled }).eq("id", r.id);
+    const out = writeOutcome(await anyDb.from(table(r)).update({ enabled }).eq("id", r.id).eq("user_id", accountId).select("id"));
     setBusyKey(null);
-    if (error) {
-      toast({ title: enabled ? "Could not enable rule" : "Could not disable rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
+    if (out.ok === false) {
+      toast({ title: enabled ? "Could not enable rule" : "Could not disable rule", description: friendlyErrorMessage(out.message), variant: "destructive" });
       return;
     }
     toast({ title: enabled ? "Rule enabled" : "Rule disabled", description: enabled ? undefined : "It no longer applies. You can enable it again any time." });
@@ -167,15 +172,34 @@ export function useInnerControlRules(project?: InnerProject | null) {
       toast({ title: "Deletion requested", description: "A second owner needs to approve this from Policy change requests before it's removed." });
       return;
     }
-    const { error } = await anyDb.from(table(r)).delete().eq("id", r.id);
+    const out = writeOutcome(await anyDb.from(table(r)).delete().eq("id", r.id).eq("user_id", accountId).select("id"));
     setBusyKey(null);
-    if (error) {
-      toast({ title: "Could not delete rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
+    if (out.ok === false) {
+      toast({ title: "Could not delete rule", description: friendlyErrorMessage(out.message), variant: "destructive" });
       return;
     }
     toast({ title: "Rule deleted" });
     void load();
   };
 
-  return { loading, rules, counts, activity, canWrite, dualControl, busyKey, setEnabled, remove, refetch: load };
+  /**
+   * Edit: changes what the rule says and does, in place (the same columns the Add forms write). Its on/off and shadow state are
+   * kept. Resolves true when the database changed the rule.
+   */
+  const edit = async (r: RuleItem, e: HardEdit | SafetyEdit): Promise<boolean> => {
+    if (!user || !canWrite || busyKey) return false;
+    setBusyKey(r.key);
+    const patch = r.kind === "hard" ? hardPatch(e as HardEdit) : safetyPatch(e as SafetyEdit);
+    const out = writeOutcome(await anyDb.from(table(r)).update(patch).eq("id", r.id).eq("user_id", accountId).select("id"));
+    setBusyKey(null);
+    if (out.ok === false) {
+      toast({ title: "Could not save the rule", description: friendlyErrorMessage(out.message), variant: "destructive" });
+      return false;
+    }
+    toast({ title: "Rule updated", description: r.shadow ? "It is still in shadow mode: watched and logged only." : "The change applies from the next action." });
+    void load();
+    return true;
+  };
+
+  return { loading, rules, counts, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, rowOf, refetch: load };
 }

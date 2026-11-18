@@ -6,6 +6,7 @@ import { useActiveAccount } from "@/hooks/useActiveAccount";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
+import RuleEditDialog from "@/components/control/RuleEditDialog";
 import ExecutionLog from "@/components/execution/ExecutionLog";
 import { useExecutionLog } from "@/hooks/useExecutionLog";
 import { useInnerControlRules } from "@/hooks/useInnerControlRules";
@@ -79,6 +80,8 @@ export default function ControlSystem() {
   const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(null);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [ruleEditorOpen, setRuleEditorOpen] = useState(false);
+  // Edit: the rule being changed in place (both kinds), or null.
+  const [editing, setEditing] = useState<RuleItem | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   useEffect(() => {
@@ -183,10 +186,7 @@ export default function ControlSystem() {
     document.querySelector(`[data-testid="rule-row-${key}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
     window.setTimeout(() => setHighlightKey((k) => (k === key ? null : k)), 3000);
   };
-  const editRule = (r: RuleItem) => {
-    if (r.kind === "safety") navigate("/control-system/safety-rules");
-    else setRuleEditorOpen(true);
-  };
+  const editRule = (r: RuleItem) => setEditing(r);
   const closeRuleEditor = (open: boolean) => {
     setRuleEditorOpen(open);
     if (!open) { void innerRules.refetch(); dashboard.refetch(); }
@@ -447,6 +447,8 @@ export default function ControlSystem() {
       </div>
 
       {/* Add / edit rules: the existing hard-rule editor, in a closable window. */}
+      <RuleEditDialog rule={editing} row={editing ? innerRules.rowOf(editing) : null} busy={!!innerRules.busyKey}
+        onClose={() => setEditing(null)} onSave={async (r, e) => { const ok = await innerRules.edit(r, e); if (ok) dashboard.refetch(); return ok; }} />
       <Dialog open={ruleEditorOpen} onOpenChange={closeRuleEditor}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-white/10 bg-[#050813] p-0 text-white" data-testid="rule-editor">
           <DialogHeader className="px-6 pt-6">
