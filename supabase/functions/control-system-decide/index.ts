@@ -25,6 +25,7 @@ import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
 import { requireCaller } from "../_shared/caller.ts";
 import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind } from "../_shared/inner-chat-task.ts";
+import { describeDraft, draftFromArgs, RULE_SCOPES } from "../_shared/inner-chat-rule.ts";
 import { ensureStarterTools, STARTER_TASKS, starterTasksUsed } from "../_shared/outer-control-starter.ts";
 
 const corsHeaders = {
@@ -146,6 +147,32 @@ const RUN_TASK_TOOL = {
   },
 };
 
+// "Never mention prices": a rule drafted from plain words, shown to the person, saved only when they press Save (never here).
+const CREATE_RULE_TOOL = {
+  type: "function",
+  function: {
+    name: "draft_rule",
+    description:
+      "Call when the user wants a NEW RULE for their AI ('never …', 'always ask me before …', 'block replies that mention …'). " +
+      "type 'action' stops or holds an action (sending email, posting to Slack…); type 'text' looks for words in a reply. " +
+      "Do NOT call it to review an action or a text, or to run a task.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        type: { type: "string", enum: ["action", "text"] },
+        text: { type: "string", description: "action: the rule in the user's words, e.g. 'Never email customers on Sundays'." },
+        scope: { type: "string", enum: Object.keys(RULE_SCOPES), description: "action: which actions it applies to; '*' for any action." },
+        effect: { type: "string", enum: ["always_block", "always_require_approval"], description: "action: block it, or hold it for approval." },
+        name: { type: "string", description: "text: a short name for the rule, e.g. 'No prices to customers'." },
+        phrases: { type: "array", items: { type: "string" }, description: "text: the words or short phrases to look for (plain words, no patterns), e.g. ['price', 'discount', '€']." },
+        action: { type: "string", enum: ["approval", "block", "redact"], description: "text: hold the reply for approval, block it, or remove the matching words." },
+      },
+      required: ["type"],
+    },
+  },
+};
+
 const toolArguments = object({}, { unknown: "keep" });
 const MAX_TOOLS_PER_ACCOUNT = 20;
 
@@ -256,6 +283,8 @@ Deno.serve(async (req) => {
               "rules/decisions/incidents, and what this account's AI can actually do right now). You are not a " +
               "general-purpose assistant.\n\n" +
               "MODES, for on-topic messages only:\n" +
+              "R) If the user wants a NEW RULE for their AI ('never …', 'always ask me before …'), call the draft_rule tool; " +
+              "the user sees the draft and saves it. Never claim a rule was saved.\n" +
               "0) If the user asks you to DO a piece of work now (write, draft, research, compare, decide, explain, summarise, " +
               "fact-check), call the run_task tool: it runs the work as a task under this account's rules. This is on-topic.\n" +
               "1) If (and only if) the user is describing a concrete proposed AI action to review " +
@@ -293,7 +322,7 @@ Deno.serve(async (req) => {
           ...priorTurns,
           { role: "user", content: message },
         ],
-        tools: [EXTRACT_TOOL, REVIEW_TEXT_TOOL, RUN_TASK_TOOL],
+        tools: [EXTRACT_TOOL, REVIEW_TEXT_TOOL, RUN_TASK_TOOL, CREATE_RULE_TOOL],
         tool_choice: "auto",
     }, gw);
 
@@ -306,6 +335,13 @@ Deno.serve(async (req) => {
     const call = msg?.tool_calls?.[0];
     let parsed: Record<string, unknown> = {};
     { const r = parseModelJson(call?.function?.arguments || "{}", toolArguments); if (r.ok) parsed = r.value as Record<string, unknown>; } // bounded and cleaned; unusable arguments read as empty, as before
+
+    // ---- "Never …": a drafted rule the page shows; it is saved only when the person presses Save -----------------------------
+    if (call?.function?.name === "draft_rule") {
+      const d = draftFromArgs(parsed);
+      if (!d.ok) return json({ mode: "chat", reply: d.reason });
+      return json({ mode: "rule_draft", draft: d.draft, line: describeDraft(d.draft) });
+    }
 
     // ---- "Do this": an offer the person confirms (what runs, with which tools, what it costs). Nothing starts here. ----------
     if (call?.function?.name === "run_task") {

@@ -8,6 +8,7 @@ import DecisionCard, { type ControlDecision } from "@/components/control/Decisio
 import HardRulesPanel from "@/components/control/HardRulesPanel";
 import RuleEditDialog from "@/components/control/RuleEditDialog";
 import InnerTaskCard from "@/components/control/InnerTaskCard";
+import RuleDraftCard, { type ChatRuleDraft } from "@/components/control/RuleDraftCard";
 import type { InnerTaskOffer } from "@/lib/inner-chat-task";
 import ExecutionLog from "@/components/execution/ExecutionLog";
 import { useExecutionLog } from "@/hooks/useExecutionLog";
@@ -148,7 +149,7 @@ export default function ControlSystem() {
         body: { message: sent, history, dry_run: dryRun, account_id: accountId || undefined },
       });
       if (error) throw error;
-      const d = data as ControlDecision & { error?: string; message?: string; mode?: string; reply?: string; offer?: InnerTaskOffer };
+      const d = data as ControlDecision & { error?: string; message?: string; mode?: string; reply?: string; offer?: InnerTaskOffer; draft?: ChatRuleDraft; line?: string };
       if (d?.error) throw new Error(d.message || d.error);
       chatLog.done("work");
 
@@ -157,6 +158,9 @@ export default function ControlSystem() {
         next[next.length - 1] = d?.mode === "chat"
           ? { role: "assistant", content: d.reply || "" }
           // "Do this": a task the person runs (or not) from the card, under their rules.
+          // "Never …": a drafted rule the person saves (or not) from the card.
+          : d?.mode === "rule_draft" && d.draft
+            ? { role: "assistant", content: d.line || "", node: <RuleDraftCard draft={d.draft} line={d.line || ""} accountId={accountId} canWrite={innerRules.canWrite} onSaved={() => { void innerRules.refetch(); dashboard.refetch(); }} /> }
           : d?.mode === "task_offer" && d.offer
             ? { role: "assistant", content: d.offer.line, node: <InnerTaskCard offer={d.offer} accountId={accountId} rulesActive={innerRules.counts.enforcing} /> }
             : { role: "assistant", content: d.reason, node: <DecisionCard d={d} /> };
