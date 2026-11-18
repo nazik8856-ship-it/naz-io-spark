@@ -8,6 +8,7 @@ import { toast } from "@/hooks/use-toast";
 import {
   buildOuterTaskTags,
   countRules,
+  taskAnswerRuleCount,
   taskActivity,
   toActivity,
   toRuleItems,
@@ -96,7 +97,7 @@ export function useInnerControlRules(project?: InnerProject | null) {
     })();
     const [h, s, a, d, p] = await Promise.all([
       anyDb.from("hard_rules")
-        .select("id, rule_text, action_type_pattern, effect, enabled, shadow_mode, agent_id, required_approvals, created_at")
+        .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id, required_approvals, created_at")
         .eq("user_id", accountId).order("created_at", { ascending: false }),
       anyDb.from("safety_rules")
         .select("id, name, pattern, severity, redact, enabled, shadow_mode, agent_id, api_key_id, created_at")
@@ -128,6 +129,8 @@ export function useInnerControlRules(project?: InnerProject | null) {
   );
   const rules: RuleItem[] = useMemo(() => toRuleItems(hard, safety, agentName), [hard, safety, agentName]);
   const counts = useMemo(() => countRules(rules), [rules]);
+  /** The rules that check the answers of a Task the chat runs (the same choice the server makes). */
+  const taskRules = useMemo(() => taskAnswerRuleCount(hard, safety), [hard, safety]);
   const activity = useMemo(() => {
     const items = toActivity(decisions, (id) => hard.find((r) => r.id === id)?.rule_text ?? null, (runId) => taskTags.get(runId) ?? null);
     const covered = new Set(items.map((i) => i.task?.id).filter((x): x is string => !!x));
@@ -201,5 +204,5 @@ export function useInnerControlRules(project?: InnerProject | null) {
     return true;
   };
 
-  return { loading, rules, counts, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, rowOf, refetch: load };
+  return { loading, rules, counts, taskRules, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, rowOf, refetch: load };
 }

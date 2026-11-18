@@ -162,7 +162,7 @@ export default function ControlSystem() {
           : d?.mode === "rule_draft" && d.draft
             ? { role: "assistant", content: d.line || "", node: <RuleDraftCard draft={d.draft} line={d.line || ""} accountId={accountId} canWrite={innerRules.canWrite} onSaved={() => { void innerRules.refetch(); dashboard.refetch(); }} /> }
           : d?.mode === "task_offer" && d.offer
-            ? { role: "assistant", content: d.offer.line, node: <InnerTaskCard offer={d.offer} accountId={accountId} rulesActive={innerRules.counts.enforcing} /> }
+            ? { role: "assistant", content: d.offer.line, node: <InnerTaskCard offer={d.offer} accountId={accountId} rulesActive={innerRules.taskRules} /> }
             : { role: "assistant", content: d.reason, node: <DecisionCard d={d} /> };
         return next;
       });
