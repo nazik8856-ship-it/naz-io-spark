@@ -39,7 +39,7 @@ The fields are found by reading the code (names used on the parsed body), so tre
 | `control-incidents` | user | readJson | 256 KB | `assignee_id`, `note`, `related_incident_id`, `root_cause_category` | `status` | `authorization` |
 | `control-monthly-report-email` | system | no body | — | — | — | `authorization` |
 | `control-self-audit` | user | no body | — | — | — | `authorization` |
-| `control-system-decide` | user | readJson | 256 KB | `account_id`, `action_type`, `agentId`, `content`, `description`, `dry_run`, `history`, `params`, `provider`, `source_model` | — | `authorization` |
+| `control-system-decide` | user | readJson | 256 KB | `account_id`, `action`, `action_type`, `agentId`, `content`, `description`, `dry_run`, `history`, `kind`, `params`, `provider`, `request`, `source_model` | — | `authorization` |
 | `control-test-suite` | user | readJson | 256 KB | `categories`, `concurrency`, `dry_run`, `ids` | — | `authorization`, `x-internal-user-id` |
 | `control-weekly-trend-email` | system | no body | — | — | — | `authorization` |
 | `cron-correlated-failures` | system | no body | — | — | — | `authorization` |
@@ -77,7 +77,7 @@ The fields are found by reading the code (names used on the parsed body), so tre
 | `notion-oauth-start` | user | readJson | 256 KB | `origin` | — | — |
 | `outcome-quality-sweep` | system | no body | — | — | — | `authorization` |
 | `outer-control` | api_key | readJson | 256 KB | `actionType`, `agent_id`, `content`, `content_kind`, `description`, `error`, `external_id`, `params`, `planId`, `provider`, `source_model` | — | `authorization`, `cf-connecting-ip`, `x-forwarded-for` |
-| `outer-control-drive` | user | readJson | 256 KB | `account_id`, `action`, `agent_id`, `answer`, `api_key_id`, `archived`, `auth_header`, `auth_scheme`, `background`, `confirm_override`, `context`, `count`, `decision`, `endpoint_url`, `fallback_tool_id`, `goal`, `id`, `instruction`, `kind`, `max_steps`, `model`, `name`, `nazai_second`, `note`, `objective`, `on_failure`, `option`, `project_id`, `request`, `request_format`, `session_id`, `share_context`, `steps`, `styles`, `task`, `task_id`, `template`, `text`, `token`, `tool_id`, `tool_ids`, `topic`, `workflow_id` | — | `authorization` |
+| `outer-control-drive` | user | readJson | 256 KB | `account_id`, `action`, `agent_id`, `answer`, `api_key_id`, `archived`, `auth_header`, `auth_scheme`, `background`, `confirm_override`, `context`, `count`, `decision`, `endpoint_url`, `fallback_tool_id`, `goal`, `id`, `instruction`, `kind`, `max_steps`, `model`, `name`, `nazai_second`, `note`, `objective`, `on_failure`, `option`, `paid_starter`, `project_id`, `request`, `request_format`, `session_id`, `share_context`, `steps`, `styles`, `task`, `task_id`, `template`, `text`, `token`, `tool_id`, `tool_ids`, `topic`, `workflow_id` | — | `authorization` |
 | `outer-control-read` | user | readJson | 256 KB | `table` | — | `authorization` |
 | `outer-control-session-sweep` | system | no body | — | — | — | `authorization` |
 | `outer-control-stub-tool` | public | readJson | 256 KB | — | `format` | `authorization` |

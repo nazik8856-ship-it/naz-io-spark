@@ -8,7 +8,7 @@ function assertEquals<T>(a: T, b: T, m?: string) { if (JSON.stringify(a) !== JSO
 function fakeAdmin(db: { external_tools: Record<string, unknown>[]; outer_control_sessions: Record<string, unknown>[] }) {
   let nextId = 1;
   return {
-    from(table: "external_tools" | "outer_control_sessions") {
+    from(table: "external_tools" | "outer_control_sessions" | "outer_control_workflows") {
       const filters: ((r: Record<string, unknown>) => boolean)[] = [];
       let head = false;
       let one = false;
@@ -25,7 +25,7 @@ function fakeAdmin(db: { external_tools: Record<string, unknown>[]; outer_contro
         single: () => { one = true; return q; },
         maybeSingle: () => { one = true; return q; },
         then: (res: (v: unknown) => unknown) => {
-          const data = rows ?? db[table].filter((r) => filters.every((f) => f(r)));
+          const data = rows ?? ((db as Record<string, Record<string, unknown>[]>)[table] ?? []).filter((r) => filters.every((f) => f(r)));
           if (patchWith) for (const r of data) Object.assign(r, patchWith);
           return Promise.resolve(head ? { data: null, count: data.length, error: null } : { data: one ? data[0] ?? null : data, error: null }).then(res);
         },
@@ -195,4 +195,22 @@ Deno.test("second perspective: an independent second answer, with the task card 
   const r = await askStarter(async (system, user) => { seen.push({ system, user }); return "ok"; }, PERSPECTIVE_TOOL_URL, task({ kind: "decision" }));
   assertEquals(r?.reply, "ok");
   assert(/independent second opinion/.test(seen[0].system) && seen[0].user.startsWith("TASK CARD"), seen[0].system);
+});
+
+// The Inner Control chat: after the free Tasks, the starter AI may answer a Task that was paid for (and only such a Task).
+Deno.test("starter AI after the free Tasks: allowed for a paid Task, refused for an unpaid one", async () => {
+  const db = {
+    external_tools: [{ id: "w", user_id: "acct", endpoint_url: "nazai-internal://starter/writer", removed_at: null }],
+    outer_control_sessions: [
+      { id: "a", user_id: "acct", tool_id: "w", workflow_id: "w1", started_at: "2026-11-01T00:00:00Z" },
+      { id: "b", user_id: "acct", tool_id: "w", workflow_id: "w2", started_at: "2026-11-02T00:00:00Z" },
+      { id: "c", user_id: "acct", tool_id: "w", workflow_id: "w3", started_at: "2026-11-03T00:00:00Z" },
+      { id: "d", user_id: "acct", tool_id: "w", workflow_id: "w4", started_at: "2026-11-04T00:00:00Z" },
+    ],
+    outer_control_workflows: [{ id: "w3", user_id: "acct", credit_charged: true }, { id: "w4", user_id: "acct", credit_charged: false }, { id: "w5", user_id: "other", credit_charged: true }],
+  };
+  const admin = fakeAdmin(db as never);
+  assert(await starterAllowed(admin, { id: "c", user_id: "acct", workflow_id: "w3" }), "paid third Task");
+  assert(!(await starterAllowed(admin, { id: "d", user_id: "acct", workflow_id: "w4" })), "unpaid fourth Task");
+  assert(!(await starterAllowed(admin, { id: "e", user_id: "acct", workflow_id: "w5" })), "another account's paid Task does not count");
 });

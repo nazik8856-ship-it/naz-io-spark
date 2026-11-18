@@ -11,7 +11,7 @@
 //   POST { action: "task_decide", task_id, decision: "accept" | "more" | "stop" }   (what to do with a goal Task that is blocked)
 //   POST { action: "route_task", request }   (NazAI reads a request: which action, its text, background, labels, and up to 3 clarifying
 //        questions about what is not known yet (stage, audience, main limit); free, starts nothing)
-//   POST { action: "start_report", task?: <one of the 14 actions, default "opinions">, topic, background?, styles?, count?, tool_ids, project_id?, nazai_second? }
+//   POST { action: "start_report", task?: <one of the 14 actions, default "opinions">, topic, background?, styles?, count?, tool_ids, project_id?, nazai_second?, paid_starter? }
 //        (a multi-tool action: every tool reply is checked, then one controlled result is written; uses TASK_CREDITS[task].
 //         Tool counts, text lengths and labels per action: TASK_LIMITS. styles = the styles / roles / audiences of rewrite / roles / adapt;
 //         count = options for alternatives; background goes to every tool as the Task's context and to NazAI's AI; project_id = an
@@ -365,10 +365,14 @@ Deno.serve(async (req) => {
       }
       // NazAI's starter AI answers a new account's first Tasks; a Task asked only of it is free.
       const starterChosen = rows.filter((r) => isStarterUrl(r.endpoint_url)).length;
-      if (starterChosen && await starterTasksUsed(admin, accountId) >= STARTER_TASKS) return json({ error: "starter_used_up", message: STARTER_USED_UP }, 409);
+      // Its first STARTER_TASKS Tasks are free. After that the starter AI is refused, unless the caller asked to pay for the Task
+      // (paid_starter: the Inner Control chat, "first 2 free, then 1 credit each"): then it is charged like any other Task.
+      const starterLeft = starterChosen ? await starterTasksUsed(admin, accountId) < STARTER_TASKS : false;
+      if (starterChosen && !starterLeft && body.paid_starter !== true) return json({ error: "starter_used_up", message: STARTER_USED_UP }, 409);
+      const starterFree = starterLeft && starterChosen === rows.length;
       const writer = await ensureReportTool(admin, accountId);
       if (!writer.ok) return json({ error: "internal_error", message: writer.message }, 500);
-      const cost = starterChosen === rows.length ? 0 : TASK_CREDITS[kind];
+      const cost = starterFree ? 0 : TASK_CREDITS[kind];
       for (let c = 0; c < cost; c++) {
         const credit = await consumeGenerationCredit(accountId);
         if (!credit.ok) {
