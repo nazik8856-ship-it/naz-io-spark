@@ -14,6 +14,7 @@ import { carriesFlaggedInput, containExternal, type Contained } from "./external
 import type { RedactionChange } from "./outer-control-scoring.ts";
 import { NO_EVIDENCE_MESSAGE, noteOutboundBlock, recordEvidence, rulesDigest, sha256Of, sha256Text, type EvidenceActor } from "./security-evidence.ts";
 import { extractExternalText } from "./outer-control-intake.ts";
+import { toolRequestUrl } from "./outer-control-tool-url.ts";
 import { evaluateExternalText, textSafeToStore, TEXT_REVIEW_ACTION_TYPE } from "./outer-control-text-review.ts";
 import { loadSafetyRules, scanWithRules, type SafetyMatch, type SafetyRule } from "./safety-scanner.ts";
 import { loadProjectRules } from "./projects.ts";
@@ -667,7 +668,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
         // NazAI's own address was never an outside tool (a tool saved before this rule existed stops here, with what to do instead).
         const own = nazaiAddressProblem(tool.endpoint_url, ownProjectHost());
         if (own) { await finish(admin, s, "failed", own, deps); return { status: "failed", steps }; }
-        const urlCheck = await deps.validateUrl(tool.endpoint_url);
+        const urlCheck = await deps.validateUrl(toolRequestUrl(tool.endpoint_url, tool.request_format));
         if (!urlCheck.ok) { await finish(admin, s, "failed", `The tool's address is not allowed: ${urlCheck.reason}.`, deps); return { status: "failed", steps }; }
         // A loop that keeps asking would spend the person's own provider key: one tool is asked at most this many times a day.
         const today = await requestsToday(admin, tool.id);
@@ -796,7 +797,8 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           else { mcpDetail = r.error; res = new Response("{}", { status: 200 }); }
         } else {
           // A redirect is never followed: the address was checked, and where it points is not.
-          res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(outBody), redirect: "manual", signal: AbortSignal.timeout(deps.toolTimeoutMs) });
+          // The stored address is the provider's base; the message goes to its chat path (outer-control-tool-url.ts).
+          res = await deps.fetchImpl(toolRequestUrl(tool.endpoint_url, tool.request_format), { method: "POST", headers, body: JSON.stringify(outBody), redirect: "manual", signal: AbortSignal.timeout(deps.toolTimeoutMs) });
         }
         httpStatus = res.status;
         retryAfterMs = parseRetryAfter(res.headers?.get?.("retry-after"), deps.now());

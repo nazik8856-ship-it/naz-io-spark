@@ -8,6 +8,8 @@ import { IntegrationLogo } from "@/components/IntegrationLogos";
 import { useProductivityIntegrations, type ProductivityRow } from "@/hooks/useProductivityIntegrations";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { OWN_SERVER_HOST } from "@/lib/server-host";
+import ModelPicker from "./ModelPicker";
+import { sameToolAddress, toolRequestUrl } from "@/lib/outer-control-tool-url";
 import { checkConnector, FEATURED_TOOLS, featuredPayload, keyPageUrl, searchConnectors, toolHealth, type Featured, type ToolHealthInput } from "@/lib/outer-control-tools-ui";
 
 const inputCls = "w-full rounded-xl border border-cyan-400/20 bg-[#071226]/80 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-slate-500 outline-none transition focus:border-cyan-300/70 focus:shadow-[0_0_0_3px_rgba(34,211,238,0.15)]";
@@ -51,7 +53,8 @@ export default function ConnectToolPanel({ open, onOpenChange, tools = [], busy 
   const reset = () => { setView({ kind: "home" }); setQuery(""); setKey(""); setModel(""); setCustom({ name: "", url: "", format: "generic_json", model: "", token: "" }); };
   const close = (o: boolean) => { if (!o) reset(); onOpenChange(o); };
   const checked = checkConnector({ name: custom.name, url: custom.url, format: custom.format, token: custom.token, model: custom.model }, OWN_SERVER_HOST);
-  const connectedFor = (f: Featured) => tools.find((t) => t.endpoint_url === f.endpoint_url);
+  // A tool saved with the full address before (…/chat/completions) is the same tool as the base address now in the catalogue.
+  const connectedFor = (f: Featured) => tools.find((t) => sameToolAddress(t.endpoint_url, f.endpoint_url, f.request_format));
   const found = useMemo(() => searchConnectors(FEATURED_TOOLS, query), [query]);
   const foundConnected = useMemo(() => searchConnectors(tools.map((t) => ({ ...t, blurb: t.endpoint_url })), query), [tools, query]);
   const searching = query.trim().length > 0;
@@ -215,7 +218,8 @@ export default function ConnectToolPanel({ open, onOpenChange, tools = [], busy 
                 <Tile icon={view.tool.icon} label={view.tool.mark} />
                 <div>
                   <div className="text-base font-medium text-white">{view.tool.name}</div>
-                  <p className="break-all font-mono text-[11px] text-slate-500">{view.tool.endpoint_url}</p>
+                  <p className="break-all font-mono text-[11px] text-slate-500" data-testid="featured-address">{view.tool.endpoint_url}</p>
+                  <p className="break-all font-mono text-[10px] text-slate-600" data-testid="featured-calls">Requests go to {toolRequestUrl(view.tool.endpoint_url, view.tool.request_format)}</p>
                 </div>
               </div>
               <div className="rounded-2xl border border-cyan-300/25 bg-cyan-400/[0.06] p-4" data-testid="get-key">
@@ -233,9 +237,8 @@ export default function ConnectToolPanel({ open, onOpenChange, tools = [], busy 
                 </ol>
               </div>
               <input className={inputCls} type="password" autoComplete="off" autoFocus aria-label={view.tool.keyLabel} placeholder={`Paste your ${view.tool.keyLabel} here`} value={key} onChange={(e) => setKey(e.target.value)} />
-              <input className={inputCls} aria-label="Model" placeholder="Model" value={model} onChange={(e) => setModel(e.target.value)} />
-              <p className="text-xs text-slate-500">The model name is a starting value. Providers rename models; if the test fails with a model error, change it here.</p>
-              <button disabled={busy || !key.trim()} onClick={async () => { if (await onConnect?.(featuredPayload(view.tool, key, model))) close(false); }}
+              <ModelPicker source={view.tool} apiKey={key} value={model} onChange={setModel} />
+              <button disabled={busy || !key.trim() || !model.trim()} onClick={async () => { if (await onConnect?.(featuredPayload(view.tool, key, model))) close(false); }}
                 className="w-full rounded-xl border border-cyan-300/60 bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-[#03101c] shadow-[0_0_24px_rgba(34,211,238,0.35)] transition hover:bg-cyan-300 disabled:opacity-40 disabled:shadow-none">
                 {busy ? "Connecting and testing…" : "Connect and test"}
               </button>
@@ -259,6 +262,9 @@ export default function ConnectToolPanel({ open, onOpenChange, tools = [], busy 
               </div>
               {(custom.name || custom.url) && checked.errors.map((m) => <p key={m} className="flex items-center gap-1.5 text-xs text-rose-300"><AlertTriangle className="h-3 w-3" />{m}</p>)}
               {checked.notes.map((m) => <p key={m} className="text-xs text-amber-200/90" data-testid="connector-note">{m}</p>)}
+              {checked.errors.length === 0 && (custom.format === "openai_chat" || custom.format === "anthropic_messages") && (
+                <p className="break-all text-xs text-slate-500" data-testid="custom-calls">Put the provider's base address (for example https://api.groq.com/openai/v1). Requests go to <span className="font-mono text-slate-400">{toolRequestUrl(custom.url, custom.format)}</span>.</p>
+              )}
               <button disabled={busy || checked.errors.length > 0}
                 onClick={async () => { if (await onConnect?.({ name: custom.name.trim(), endpoint_url: custom.url.trim(), request_format: custom.format, model: custom.model.trim() || undefined, token: custom.token.trim() || undefined })) close(false); }}
                 className="w-full rounded-xl border border-cyan-300/60 bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-[#03101c] shadow-[0_0_24px_rgba(34,211,238,0.35)] transition hover:bg-cyan-300 disabled:opacity-40 disabled:shadow-none">

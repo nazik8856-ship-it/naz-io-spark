@@ -7,6 +7,9 @@ vi.mock("@/integrations/supabase/client", () => {
   return { supabase: { from: (t: string) => q(t), functions: { invoke: vi.fn(async () => ({ data: {}, error: null })) } } };
 });
 vi.mock("@/components/agents/IntegrationConnectModal", () => ({ default: ({ integration, onClose }: { integration: { name: string }; onClose: () => void }) => <div data-testid="oauth-modal">{integration.name}<button onClick={onClose}>close-modal</button></div> }));
+// The model list for a key (outer-control-drive list_models): set per test.
+const drive = vi.hoisted(() => ({ calls: [] as { action: string; payload: Record<string, unknown> }[], reply: { ok: false, data: null, message: "no list in this test" } as { ok: boolean; data: unknown; message: string } }));
+vi.mock("@/lib/outer-control-drive", () => ({ callDrive: async (action: string, payload: Record<string, unknown>) => { drive.calls.push({ action, payload }); return drive.reply; } }));
 import ConnectToolPanel from "@/components/control/outer/ConnectToolPanel";
 
 const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
@@ -36,8 +39,49 @@ describe("ConnectToolPanel", () => {
     fireEvent.change(screen.getByLabelText("Anthropic API key"), { target: { value: "sk-ant-123" } });
     fireEvent.click(connect);
     await waitFor(() => expect(onConnect).toHaveBeenCalledTimes(1));
-    expect(onConnect).toHaveBeenCalledWith({ name: "Claude (Anthropic)", endpoint_url: "https://api.anthropic.com/v1/messages", request_format: "anthropic_messages", model: "claude-sonnet-5-5", auth_header: "x-api-key", auth_scheme: "", token: "sk-ant-123" });
+    expect(onConnect).toHaveBeenCalledWith({ name: "Claude (Anthropic)", endpoint_url: "https://api.anthropic.com/v1", request_format: "anthropic_messages", model: "claude-sonnet-5-5", auth_header: "x-api-key", auth_scheme: "", token: "sk-ant-123" });
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it("Groq: the base address is shown with where requests go; a safe model is chosen; the key's own list replaces the suggestions", async () => {
+    drive.calls = [];
+    drive.reply = { ok: true, data: { ok: true, models: ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "moonshotai/kimi-k3"] }, message: "" };
+    const { onConnect } = setup();
+    fireEvent.click(screen.getAllByTestId("featured-tool").find((b) => /Groq/.test(b.textContent ?? ""))!);
+    expect(screen.getByTestId("featured-address").textContent).toBe("https://api.groq.com/openai/v1");
+    expect(screen.getByTestId("featured-calls").textContent).toBe("Requests go to https://api.groq.com/openai/v1/chat/completions");
+    const select = screen.getByTestId("model-select") as HTMLSelectElement;
+    expect(select.value).toBe("openai/gpt-oss-20b"); // the free-tier friendly default
+    expect([...select.options].map((o) => o.value)).toEqual(["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b", "__other__"]);
+    fireEvent.change(screen.getByLabelText("Groq API key"), { target: { value: "gsk_live_key_123" } });
+    await waitFor(() => expect(screen.getByTestId("model-status").textContent).toMatch(/3 models available for this key/));
+    expect(drive.calls.at(-1)).toEqual({ action: "list_models", payload: { endpoint_url: "https://api.groq.com/openai/v1", request_format: "openai_chat", auth_header: "Authorization", auth_scheme: "Bearer ", token: "gsk_live_key_123" } });
+    // gpt-oss-20b is not open to this key: the first suggestion it can use is selected; suggestions first, then the rest.
+    await waitFor(() => expect((screen.getByTestId("model-select") as HTMLSelectElement).value).toBe("openai/gpt-oss-120b"));
+    expect([...(screen.getByTestId("model-select") as HTMLSelectElement).options].map((o) => o.value)).toEqual(["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "moonshotai/kimi-k3", "__other__"]);
+    fireEvent.click(screen.getByText("Connect and test"));
+    await waitFor(() => expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ endpoint_url: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b", token: "gsk_live_key_123" })));
+  });
+
+  it("when the list can not be read the reason is shown and the suggestions stay; Other takes any model name", async () => {
+    drive.reply = { ok: false, data: null, message: "The tool rejected the key (HTTP 401). Called: GET https://api.groq.com/openai/v1/models → HTTP 401." };
+    setup();
+    fireEvent.click(screen.getAllByTestId("featured-tool").find((b) => /Groq/.test(b.textContent ?? ""))!);
+    fireEvent.change(screen.getByLabelText("Groq API key"), { target: { value: "gsk_wrong_key" } });
+    await waitFor(() => expect(screen.getByTestId("model-status").textContent).toMatch(/Could not read the model list: The tool rejected the key \(HTTP 401\)\. Called: GET https:\/\/api\.groq\.com\/openai\/v1\/models/));
+    expect((screen.getByTestId("model-select") as HTMLSelectElement).value).toBe("openai/gpt-oss-20b");
+    fireEvent.change(screen.getByTestId("model-select"), { target: { value: "__other__" } });
+    fireEvent.change(screen.getByTestId("model-other"), { target: { value: "my-fine-tune" } });
+    expect((screen.getByTestId("model-other") as HTMLInputElement).value).toBe("my-fine-tune");
+  });
+
+  it("a custom OpenAI-style connector says where requests go", () => {
+    setup();
+    fireEvent.click(screen.getByTestId("custom-connector"));
+    fireEvent.change(screen.getByLabelText("Tool name"), { target: { value: "My Groq" } });
+    fireEvent.change(screen.getByLabelText("Request format"), { target: { value: "openai_chat" } });
+    fireEvent.change(screen.getByLabelText("Tool address"), { target: { value: "https://api.groq.com/openai/v1/chat/completions" } });
+    expect(screen.getByTestId("custom-calls").textContent).toMatch(/Requests go to https:\/\/api\.groq\.com\/openai\/v1\/chat\/completions\./);
   });
 
   it("the custom connector needs a name and an https address, warns about MCP addresses, and sends name + address", async () => {

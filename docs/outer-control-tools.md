@@ -20,6 +20,26 @@ An outside tool is a service somewhere else with an HTTPS address and (usually) 
 
 Existing tools with such an address are not deleted; they show Failed with the message, and the owner removes them. The keep-alive already left agents and `nazai-internal://` tools out (it only tests tools with no `agent_id` and not `nazai-internal://`).
 
+## AI tools: base address, call path, model (2026-11-18)
+
+- **Only the base address is stored**, e.g. `https://api.groq.com/openai/v1`. Outer Control adds the call path when it calls:
+  `/chat/completions` for OpenAI-style tools, `/messages` for Anthropic-style ones (`_shared/outer-control-tool-url.ts`, browser copy
+  `src/lib/outer-control-tool-url.ts`, kept identical by `src/test/connector-models.test.ts`). A pasted full address is trimmed on save
+  (`create_tool`); an address saved in full before still works (the path is never added twice) and was trimmed by migration
+  `20261118020000`. A query string (Azure's `?api-version=`) is kept. Plain JSON and MCP tools use the address exactly as given.
+- **The Test** posts to base + path. A failure says what it means, then `Called: POST <exact address> → HTTP <status>.` and the
+  provider's own message (short, secrets and query strings masked). A 404 that is about the model (`model_not_found`, "does not exist
+  or you do not have access") is told apart from a wrong address: *The model "x" is not available for this key … Choose another model
+  from the list.*
+- **The model is chosen from a list.** Until a key is pasted: NazAI's suggestions (`models` in `FEATURED_TOOLS`, the default first).
+  Once a key is pasted: `list_models` (outer-control-drive) reads `<base>/models` with that key — the key goes to that provider only
+  and is not stored — and the dropdown shows the chat models it lists (speech, image, embedding and guard models left out),
+  suggestions first. If the current choice is not in the key's list, the first suggestion it can use is selected. "Other" takes any
+  name. If the list can not be read, the reason is shown (with the address and status) and the suggestions stay.
+- **Defaults** (checked 2026-11-18): Groq `openai/gpt-oss-20b` (suggestions `openai/gpt-oss-120b`, `qwen/qwen3.8-27b`); Gemini
+  `gemini-3.5-flash`; xAI `grok-4.3`; Cohere `command-a-03-2025`; Fireworks `accounts/fireworks/models/gpt-oss-120b`. Retired and no
+  longer offered: `llama-3.3-70b-versatile`, `gemini-2.0-flash`, `grok-3`, `command-r-plus`, Fireworks Llama 3.3 70B.
+
 ## Failure reasons
 
 | What happened | What the person reads |
@@ -32,7 +52,7 @@ Existing tools with such an address are not deleted; they show Failed with the m
 | HTTP 400/422 | request format and model name |
 | HTTP 401/403 | the key was rejected |
 | HTTP 402 | no credit / unpaid plan at the provider |
-| HTTP 404/410 | nothing answers at that address |
+| HTTP 404/410 | nothing answers at that address — or, when the provider says the model does not exist or is not open to the key, "the model is not available for this key" |
 | HTTP 413/415 | too large / format not accepted |
 | anything else unreadable | "The tool could not be reached." |
 

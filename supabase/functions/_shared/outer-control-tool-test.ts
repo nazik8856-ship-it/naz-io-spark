@@ -8,6 +8,7 @@ import { parseStrictObject } from "./model-output.ts";
 import { describeNetworkFailure, networkFailureKind } from "./network-failure.ts";
 import { nazaiAddressProblem } from "./outer-control-address.ts";
 import { ownProjectHost } from "./egress.ts";
+import { isModelProblem, providerMessage, shownUrl, toolRequestUrl } from "./outer-control-tool-url.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -42,6 +43,20 @@ export function describeHttpFailure(status: number): string {
   return `The tool answered HTTP ${status}.`;
 }
 
+/**
+ * A failed test, said plainly: what it means, the exact address that was called and its status, and the provider's own words.
+ * An unknown or closed model is told apart from a wrong address: OpenAI-style APIs answer both with HTTP 404.
+ */
+export function describeToolFailure(o: { status: number; url: string; model: string | null; bodyText: string }): string {
+  const said = providerMessage(o.bodyText);
+  const called = `Called: POST ${shownUrl(o.url)} → HTTP ${o.status}.`;
+  const quote = said.message ? ` The provider said: "${said.message}"` : "";
+  if (isModelProblem(o.status, said)) {
+    return `The model ${o.model ? `"${o.model}" ` : ""}is not available for this key (it may be retired or not open to your plan). Choose another model from the list and test again. ${called}${quote}`;
+  }
+  return `${describeHttpFailure(o.status)} ${called}${quote}`;
+}
+
 /** Whether a 2xx answer is a real reply: readable text that is not empty. */
 export function readTestReply(payload: unknown): { ok: true; text: string } | { ok: false; error: string } {
   const generic = readGenericPayload(payload);
@@ -60,7 +75,7 @@ export async function runConnectionTest(admin: AnyAdmin, tool: TestableTool, dep
   // NazAI's own address is not an outside tool: say so and what to do instead, before any request.
   const own = nazaiAddressProblem(tool.endpoint_url, ownProjectHost());
   if (own) return { ok: false, error: own, ms: null, sample: null };
-  const check = await deps.validateUrl(tool.endpoint_url);
+  const check = await deps.validateUrl(toolRequestUrl(tool.endpoint_url, tool.request_format));
   if (!check.ok) return { ok: false, error: `The address is not allowed: ${check.reason}.`, ms: null, sample: null };
   let token = "";
   if (tool.credentials_secret_id) {
@@ -78,17 +93,19 @@ export async function runConnectionTest(admin: AnyAdmin, tool: TestableTool, dep
   const headers: Record<string, string> = { "Content-Type": "application/json", ...ping.headers };
   if (token) headers[tool.auth_header] = `${tool.auth_scheme}${token}`;
   if (tool.request_format === "anthropic_messages") headers["anthropic-version"] = "2023-06-01";
+  // The stored address is the provider's base (https://api.groq.com/openai/v1); the call goes to its chat path.
+  const url = toolRequestUrl(tool.endpoint_url, tool.request_format);
   const started = deps.now();
   try {
-    const res = await deps.fetchImpl(tool.endpoint_url, { method: "POST", headers, body: JSON.stringify(ping.body), redirect: "manual", signal: AbortSignal.timeout(deps.timeoutMs) });
+    const res = await deps.fetchImpl(url, { method: "POST", headers, body: JSON.stringify(ping.body), redirect: "manual", signal: AbortSignal.timeout(deps.timeoutMs) });
     const text = await res.text();
     const ms = Math.max(0, deps.now() - started);
-    if (!res.ok) return { ok: false, error: describeHttpFailure(res.status), ms, sample: null };
+    if (!res.ok) return { ok: false, error: describeToolFailure({ status: res.status, url, model: tool.model, bodyText: text.slice(0, 4000) }), ms, sample: null };
     let payload: unknown = text;
     try { payload = JSON.parse(text); } catch { /* plain text */ }
     const reply = readTestReply(payload);
     return reply.ok ? { ok: true, error: null, ms, sample: reply.text.slice(0, 80) } : { ok: false, error: reply.error, ms, sample: null };
   } catch (e) {
-    return { ok: false, error: describeNetworkFailure(networkFailureKind(e)).reason, ms: null, sample: null };
+    return { ok: false, error: `${describeNetworkFailure(networkFailureKind(e)).reason} Called: POST ${shownUrl(url)}.`, ms: null, sample: null };
   }
 }
