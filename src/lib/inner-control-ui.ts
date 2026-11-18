@@ -272,6 +272,7 @@ export function chatStepLabels(activeRules: number, dryRun: boolean): { sent: st
 }
 
 export const CHAT_SUGGESTIONS = [
+  "Draft a polite reply to a customer asking for a refund",
   "Which of my rules are active right now?",
   "Why was my last action blocked?",
   "Should I let this run: send email to all customers",
@@ -279,7 +280,8 @@ export const CHAT_SUGGESTIONS = [
 ];
 
 export const CHAT_SPEC =
-  "Ask about your rules and past decisions, or describe a task or action your AI wants to take. " +
+  "Ask NazAI to do a piece of work (it runs as a task under your rules, and you see the cost before it starts), ask about your " +
+  "rules and past decisions, or describe an action your AI wants to take. " +
   "The Control System checks it against your rules, scores intent match, risk and confidence, then returns " +
   "Allow, Modify, Block or Needs approval, and logs it to your decision history. " +
   "While it works you see the live status; if a rule needs a person, the approval card appears in this chat.";

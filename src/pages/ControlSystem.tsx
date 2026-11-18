@@ -7,6 +7,8 @@ import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
 import RuleEditDialog from "@/components/control/RuleEditDialog";
+import InnerTaskCard from "@/components/control/InnerTaskCard";
+import type { InnerTaskOffer } from "@/lib/inner-chat-task";
 import ExecutionLog from "@/components/execution/ExecutionLog";
 import { useExecutionLog } from "@/hooks/useExecutionLog";
 import { useInnerControlRules } from "@/hooks/useInnerControlRules";
@@ -146,7 +148,7 @@ export default function ControlSystem() {
         body: { message: sent, history, dry_run: dryRun, account_id: accountId || undefined },
       });
       if (error) throw error;
-      const d = data as ControlDecision & { error?: string; message?: string; mode?: string; reply?: string };
+      const d = data as ControlDecision & { error?: string; message?: string; mode?: string; reply?: string; offer?: InnerTaskOffer };
       if (d?.error) throw new Error(d.message || d.error);
       chatLog.done("work");
 
@@ -154,7 +156,10 @@ export default function ControlSystem() {
         const next = [...t];
         next[next.length - 1] = d?.mode === "chat"
           ? { role: "assistant", content: d.reply || "" }
-          : { role: "assistant", content: d.reason, node: <DecisionCard d={d} /> };
+          // "Do this": a task the person runs (or not) from the card, under their rules.
+          : d?.mode === "task_offer" && d.offer
+            ? { role: "assistant", content: d.offer.line, node: <InnerTaskCard offer={d.offer} accountId={accountId} rulesActive={innerRules.counts.enforcing} /> }
+            : { role: "assistant", content: d.reason, node: <DecisionCard d={d} /> };
         return next;
       });
 
