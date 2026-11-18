@@ -1,6 +1,6 @@
 // Run with: deno test --no-check supabase/functions/_shared/inner-chat-task_test.ts
 // Inner Control chat runs tasks (Day 1, #159): which actions, which built-in tools, and what it costs before anything starts.
-import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind } from "./inner-chat-task.ts";
+import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind, workRequestKind } from "./inner-chat-task.ts";
 
 function assert(c: unknown, m: string) { if (!c) throw new Error(m); }
 const STARTER = [{ id: "w", name: "NazAI Writer" }, { id: "a", name: "NazAI Analyst" }, { id: "r", name: "NazAI Reviewer" }];
@@ -30,4 +30,21 @@ Deno.test("the offer says what runs, with which tools, and what it costs: free f
   assert(free.line === "Get multiple opinions with NazAI Writer, NazAI Analyst and NazAI Reviewer, every answer checked against your rules. Free (1 of 2 free NazAI tasks left).", free.line);
   const paid = taskOffer({ kind: "explain", request: "What is churn?", tools: STARTER.slice(0, 1), freeUsed: 2, freeTasks: 2 });
   assert(paid.credits === 1 && paid.free_left === 0 && /Uses 1 credit, given back if no result comes\.$/.test(paid.line), paid.line);
+});
+
+Deno.test("a plain request for work is recognised (the chat's safety net); rules, agent actions and questions are not", () => {
+  const cases: [string, string | null][] = [
+    ["Draft a polite reply to a customer asking for a refund", "draft"],
+    ["Can you write a short welcome email for new clients?", "draft"],
+    ["please research the best CRM for a 5-person team", "research"],
+    ["Compare Stripe and Paddle for a small SaaS", "compare"],
+    ["Summarize this: our Q3 sales rose 12%...", "keypoints"],
+    ["Fact-check: the Eiffel Tower is 330 m tall", "factcheck"],
+    ["Write a rule that blocks emails on Sunday", null],          // a rule: draft_rule
+    ["My agent wants to post to #general", null],                  // an action review
+    ["Explain my rule \"Bulk product price changes\"", null],      // a question about the Control System
+    ["What did my AI do yesterday?", null],
+    ["", null],
+  ];
+  for (const [m, want] of cases) assert(workRequestKind(m) === want, `${m} -> ${workRequestKind(m)}, want ${want}`);
 });

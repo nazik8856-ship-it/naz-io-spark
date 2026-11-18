@@ -24,7 +24,7 @@ import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
 import { requireCaller } from "../_shared/caller.ts";
-import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind } from "../_shared/inner-chat-task.ts";
+import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind, workRequestKind } from "../_shared/inner-chat-task.ts";
 import { describeDraft, draftFromArgs, RULE_SCOPES } from "../_shared/inner-chat-rule.ts";
 import { ensureStarterTools, STARTER_TASKS, starterTasksUsed } from "../_shared/outer-control-starter.ts";
 
@@ -271,22 +271,26 @@ Deno.serve(async (req) => {
         .map((m) => ({ role: m.role as "user" | "assistant", content: String(m.content).slice(0, 4000) }))
       : [];
 
-    const res = await callAiGateway({
+    // The chat call; `toolChoice` forces one tool when the safety net below asks again.
+    const ask = (toolChoice: unknown) => callAiGateway({
         model: gw.model,
         temperature: 0.3,
         messages: [
           {
             role: "system",
             content:
-              "You are the AI Control System — a focused assistant for ONE topic: this account's AI governance " +
-              "(reviewing proposed AI actions, reviewing/cleaning text an EXTERNAL AI produced, explaining " +
-              "rules/decisions/incidents, and what this account's AI can actually do right now). You are not a " +
-              "general-purpose assistant.\n\n" +
+              "You are the AI Control System — a focused assistant for this account's AI governance: reviewing proposed AI " +
+              "actions, reviewing/cleaning text an EXTERNAL AI produced, explaining rules/decisions/incidents, what this " +
+              "account's AI can actually do right now, drafting new rules, and RUNNING WORK for this account under its rules " +
+              "(writing, drafting, research, comparisons, decisions, summaries, fact-checks). You are not a general chat " +
+              "assistant: you never write the work yourself in the chat -- you offer it as a task with the run_task tool.\n\n" +
               "MODES, for on-topic messages only:\n" +
               "R) If the user wants a NEW RULE for their AI ('never …', 'always ask me before …'), call the draft_rule tool; " +
               "the user sees the draft and saves it. Never claim a rule was saved.\n" +
-              "0) If the user asks you to DO a piece of work now (write, draft, research, compare, decide, explain, summarise, " +
-              "fact-check), call the run_task tool: it runs the work as a task under this account's rules. This is on-topic.\n" +
+              "0) If the user asks you to DO a piece of work now (write, draft, reply to someone, research, compare, decide, " +
+              "summarise, fact-check, explain a topic), call the run_task tool: it runs the work as a task under this account's " +
+              "rules. This is ALWAYS on-topic, e.g. 'Draft a polite reply to a customer asking for a refund' -> run_task " +
+              "(kind draft); 'Research the best CRM for a 5-person team' -> run_task (kind research).\n" +
               "1) If (and only if) the user is describing a concrete proposed AI action to review " +
               "(e.g. 'my agent wants to post to #general', 'should I let this run: email all customers'), " +
               "call the review_action tool with the action extracted faithfully. Do NOT judge it yourself — " +
@@ -298,16 +302,17 @@ Deno.serve(async (req) => {
               "exactly what this system is for, not a request to redirect.\n" +
               "3) Otherwise, reply normally in plain text — answer questions about how the Control System works, " +
               "explain past decisions, or ask ONE clarifying question when intent is ambiguous. " +
-              "Do NOT call either tool in this mode. If asked what you can actually do or verify right now, answer ONLY from " +
+              "Do NOT call any tool in this mode. If asked what you can actually do or verify right now, answer ONLY from " +
               "the CAPABILITY REGISTRY below — never guess or round up, and always say plainly which things need an account " +
               "connected first.\n\n" +
-              "OFF-TOPIC MESSAGES: if the message has nothing to do with this account's AI governance -- general " +
-              "knowledge questions, trivia, coding help unrelated to this product, creative writing, personal " +
-              "advice, or anything else outside reviewing AI actions, reviewing external AI text, and explaining " +
-              "this Control System -- do NOT answer it, even partially, and do NOT call either tool. Instead reply " +
+              "A request to write, draft, research, compare, decide, summarise or fact-check something is NEVER off-topic: " +
+              "it is mode 0 (run_task).\n" +
+              "OFF-TOPIC MESSAGES: if the message is none of the modes above -- general knowledge questions or trivia to " +
+              "answer in the chat, coding help unrelated to this product, personal advice, small talk -- do NOT answer it, " +
+              "even partially, and do NOT call any tool. Instead reply " +
               "with ONE short, friendly sentence redirecting back to what you actually do here, e.g.: \"That's " +
-              "outside what I can help with here -- I'm focused on your AI's actions and rules. Want me to review " +
-              "something your AI wants to do, check a response from an external AI, or explain a past decision?\" " +
+              "outside what I can help with here -- I'm focused on your AI's actions and rules. Want me to run a task " +
+              "for you, review something your AI wants to do, or check a response from an external AI?\" " +
               "Vary the wording naturally, but always steer back to this topic in a single sentence rather than " +
               "engaging with the off-topic request.\n\n" +
               "Always write in plain everyday language.\n\n" +
@@ -323,14 +328,24 @@ Deno.serve(async (req) => {
           { role: "user", content: message },
         ],
         tools: [EXTRACT_TOOL, REVIEW_TEXT_TOOL, RUN_TASK_TOOL, CREATE_RULE_TOOL],
-        tool_choice: "auto",
+        tool_choice: toolChoice,
     }, gw);
+    const res = await ask("auto");
 
     if (res.status === 429) return json({ error: "rate_limited", message: "Too many requests right now — try again in a moment." }, 429);
     if (res.status === 402) return json({ error: "payment_required", message: "AI credits are exhausted. Add credits to continue." }, 402);
     if (!res.ok) return json({ error: "gateway_error", message: (await res.text()).slice(0, 400) }, 502);
 
-    const data = await res.json();
+    let data = await res.json();
+    // Safety net: a message that plainly asks for work ("Draft a polite reply…") answered with no tool at all is asked once more,
+    // with the task offer required. The person still sees an offer and decides; nothing runs without them.
+    if (!data?.choices?.[0]?.message?.tool_calls?.length && workRequestKind(message)) {
+      const again = await ask({ type: "function", function: { name: "run_task" } });
+      if (again.ok) {
+        const d2 = await again.json().catch(() => null);
+        if (d2?.choices?.[0]?.message?.tool_calls?.length) data = d2;
+      }
+    }
     const msg = data?.choices?.[0]?.message;
     const call = msg?.tool_calls?.[0];
     let parsed: Record<string, unknown> = {};
@@ -345,7 +360,7 @@ Deno.serve(async (req) => {
 
     // ---- "Do this": an offer the person confirms (what runs, with which tools, what it costs). Nothing starts here. ----------
     if (call?.function?.name === "run_task") {
-      const kind = isInnerTaskKind(parsed.kind) ? parsed.kind : "opinions";
+      const kind = isInnerTaskKind(parsed.kind) ? parsed.kind : workRequestKind(message) ?? "opinions";
       const request = String(parsed.request || message).trim().slice(0, 1500);
       const problem = requestProblem(kind, request);
       if (problem) return json({ mode: "chat", reply: problem });
