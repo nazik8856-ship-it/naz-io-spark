@@ -15,6 +15,8 @@ import ExecutionLog from "@/components/execution/ExecutionLog";
 import { useExecutionLog } from "@/hooks/useExecutionLog";
 import { useInnerControlRules } from "@/hooks/useInnerControlRules";
 import YourRulesCard from "@/components/control/dashboard/YourRulesCard";
+import RuleTrial from "@/components/control/RuleTrial";
+import { trialSpecOfDraft, trialSpecOfRow } from "@/lib/rule-trial";
 import RecentActivityCard from "@/components/control/dashboard/RecentActivityCard";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import PromptExtras, { type Attachment } from "@/components/generator/PromptExtras";
@@ -86,6 +88,7 @@ export default function ControlSystem() {
   const [ruleEditorOpen, setRuleEditorOpen] = useState(false);
   // Edit: the rule being changed in place (both kinds), or null.
   const [editing, setEditing] = useState<RuleItem | null>(null);
+  const [trying, setTrying] = useState<RuleItem | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   useEffect(() => {
@@ -341,6 +344,7 @@ export default function ControlSystem() {
               onAdd={() => setRuleEditorOpen(true)}
               onTemplates={() => navigate("/control-system/templates")}
               onEdit={editRule}
+              onTry={setTrying}
               onToggle={(r) => void innerRules.setEnabled(r, r.status === "disabled")}
               onDelete={(r) => void innerRules.remove(r)}
               onAsk={(r) => askInChat(`Explain my rule "${r.name}": what does it stop, and has it triggered recently?`)}
@@ -468,7 +472,17 @@ export default function ControlSystem() {
         onClose={() => setEditing(null)} onSave={async (r, e) => { const ok = await innerRules.edit(r, e); if (ok) dashboard.refetch(); return ok; }} />
       <AddRuleDialog open={ruleEditorOpen} onOpenChange={closeRuleEditor} accountId={accountId} canWrite={innerRules.canWrite}
         onSaved={() => { void innerRules.refetch(); dashboard.refetch(); }}
-        fallback={<div className="-mx-6" data-testid="rule-editor"><HardRulesPanel defaultOpen /></div>} />
+        fallback={<div className="-mx-6" data-testid="rule-editor"><HardRulesPanel defaultOpen /></div>}
+        extra={(kind, rule, problem) => <RuleTrial spec={problem ? null : trialSpecOfDraft(kind, rule)} accountId={accountId} />} />
+      <Dialog open={!!trying} onOpenChange={(o) => { if (!o) setTrying(null); }}>
+        <DialogContent className="max-w-lg border-white/10 bg-zinc-950 text-zinc-100">
+          <DialogHeader>
+            <DialogTitle>Try “{trying?.name}”</DialogTitle>
+            <DialogDescription>Nothing is changed: the rule stays as it is.</DialogDescription>
+          </DialogHeader>
+          <RuleTrial spec={trying ? trialSpecOfRow(innerRules.rowOf(trying) as Record<string, unknown> | null) : null} accountId={accountId} />
+        </DialogContent>
+      </Dialog>
 
       {/* Floating button to open the chat drawer on phone. */}
       <button

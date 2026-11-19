@@ -10,7 +10,7 @@
 // every change is written to the project's history (project_events). The browser never reads the text from the table: it asks
 // the server (action "read"), and team members below owner can only read.
 import { BUILTIN_SAFETY_RULES, loadSafetyRules, scanWithRules, type SafetyRule } from "./safety-scanner.ts";
-import { isRedactableMatch } from "./outer-control-scoring.ts";
+import { isRedactableMatch, isUnsafeRedactionPattern } from "./outer-control-scoring.ts";
 import { textSafeToStore } from "./outer-control-text-review.ts";
 import { scanForInjection } from "./injection-scanner.ts";
 import { FLAGGED_INPUT_NOTE } from "./external-content.ts";
@@ -330,6 +330,8 @@ export type ReplayReply = { text: string; tool: string; at: string };
 export type ReplayHit = { tool: string; at: string; before: string; match: string; after: string };
 export const REPLAY_WORDS_LIMIT = 100;
 export const REPLAY_MEANING_LIMIT = 8;
+/** The longest pattern "Try it first" takes (a safety rule's pattern from the Add form or the rules list). */
+export const MAX_TRY_PATTERN = 2000;
 
 /** Which of these replies a word rule would have caught, each with the words around the match. */
 export function replayWordRule(pattern: string, replies: ReplayReply[]): { checked: number; matched: number; hits: ReplayHit[] } {
@@ -623,6 +625,20 @@ export async function handleProjectsAction(admin: AnyAdmin, accountId: string, u
       name: cleanName(body.name, got.title || "Notion page"), source_mode: "linked", source_kind: "notion", source_ref: pageId, source_label: "Notion",
       content_type: "markdown", content: clip(got.markdown, MAX_PROJECT_CHARS + 1), files: [],
     });
+  }
+
+  // ---- try an account rule before it is switched on (Inner Control "Try it first"): no project, nothing saved
+  if (action === "try_rule") {
+    // A text rule's pattern (built from plain words in the browser, or the owner's own) replayed against the account's most
+    // recent tool replies, as stored (already cleaned). The same replay as test_rule, without a project.
+    const pattern = String(body.pattern ?? "").trim();
+    if (!pattern || pattern.length > MAX_TRY_PATTERN) return bad(400, "invalid_pattern", "Give the text pattern to try (up to 2000 characters).");
+    try { new RegExp(pattern, "i"); } catch { return bad(400, "invalid_pattern", "That pattern is not a valid regular expression."); }
+    // The same refusal the reply scanner applies before running an owner's pattern: one that matches empty text, or a nested
+    // repeat that can run for seconds on a short reply, is never run here either.
+    if (isUnsafeRedactionPattern(pattern)) return bad(400, "invalid_pattern", "That pattern matches empty text or can run too long, so it can not be tried.");
+    const r = replayWordRule(pattern, await recentReplies(admin, accountId, REPLAY_WORDS_LIMIT));
+    return ok({ kind: "words", ...r });
   }
 
   // ---- actions on one project

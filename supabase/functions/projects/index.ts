@@ -17,6 +17,7 @@
 //   POST { action: "add_rule", project_id, name, words, rule_action: "remove" | "block" | "approval" }
 //   POST { action: "remove_rule", project_id, rule_id, kind? }
 //   POST { action: "test_rule", project_id, kind?, words | description, rule_action }  (tried on recent replies; nothing saved)
+//   POST { action: "try_rule", pattern }   (an account text rule, tried on the account's recent replies; no project, nothing saved)
 //
 // Project text is encrypted with PROJECTS_KEY (32 random bytes, base64), which only the edge functions have. Without it nothing
 // new is stored. Everything but "read" needs the owner of the account (or an owner-role team member with the integrations

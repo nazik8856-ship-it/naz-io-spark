@@ -101,7 +101,7 @@ const DANGEROUS_NESTED_QUANTIFIER = /\((?:[^()]*[+*][^()]*)\)[+*]/;
  * global regex, so this check can never leave `lastIndex` in a surprising
  * place for the `.replace()` call that follows.
  */
-function isUnsafeRedactionPattern(pattern: string): boolean {
+export function isUnsafeRedactionPattern(pattern: string): boolean {
   if (DANGEROUS_NESTED_QUANTIFIER.test(pattern)) return true;
   try {
     if (new RegExp(pattern).test("")) return true; // zero-width match -- would splice into every character boundary

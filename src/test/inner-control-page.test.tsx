@@ -197,6 +197,29 @@ describe("Inner Control page", () => {
     fireEvent.keyDown(screen.getByTestId("add-rule-dialog"), { key: "Escape" });
     await waitFor(() => expect(screen.queryByTestId("add-rule-dialog")).toBeNull());
   });
+
+  it("Try it on a rule in the list shows what it would have done to what already ran, and changes nothing", async () => {
+    renderPage();
+    await screen.findByTestId("rule-row-hard:h1");
+    fireEvent.click(screen.getByRole("button", { name: "Try rule: Never email more than 1 person" }));
+    const trial = await screen.findByTestId("rule-trial");
+    fireEvent.click(within(trial).getByTestId("rule-trial-run"));
+    expect((await within(trial).findByTestId("rule-trial-line")).textContent).toBe("Of your last 1 action, 1 would have been blocked (send_email ×1).");
+    expect(state.updates).toEqual([]);
+  });
+
+  it("the Add window offers Try it first once the rule is complete", async () => {
+    renderPage();
+    await screen.findByTestId("rule-row-hard:h1");
+    fireEvent.click(screen.getByRole("button", { name: /Add rule/ }));
+    const dialog = await screen.findByTestId("add-rule-dialog");
+    fireEvent.click(within(dialog).getByTestId("add-kind-action"));
+    expect((within(dialog).getByTestId("rule-trial-run") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText("Rule"), { target: { value: "Hold every email" } });
+    fireEvent.change(within(dialog).getByLabelText("Applies to"), { target: { value: "send_email" } });
+    fireEvent.click(within(dialog).getByTestId("rule-trial-run"));
+    expect((await within(dialog).findByTestId("rule-trial-line")).textContent).toBe("Of your last 1 action, 1 would have been held for approval (send_email ×1).");
+  });
 });
 
 describe("Inner Control chat extras", () => {
