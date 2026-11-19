@@ -353,10 +353,11 @@ export default function ControlSystem() {
               onShowRule={showRule}
               onAsk={askInChat}
               onViewAll={() => navigate("/control-system/decision-history")}
-              emptyTitle={shown?.kind === "website" ? "A website takes no actions of its own" : "No decisions for this agent yet"}
+              emptyTitle={shown?.kind === "website" ? "A website takes no actions of its own" : "Nothing has run under your rules yet"}
               emptyText={shown?.kind === "website"
                 ? "Its text is checked against your rules once, when it is generated. What that check found is shown above."
-                : "When this agent tries to do something, the Control System checks it against your rules and the result shows up here."}
+                : "When your AI does something, it is checked against your rules and the result shows up here. Run a first task in the chat to see them at work."}
+              emptyAction={shown?.kind === "website" ? null : { label: "Run a first task in the chat", onClick: () => askInChat(CHAT_SUGGESTIONS[0]) }}
             />
 
             {/* 4. Numbers behind the status, closed by default */}

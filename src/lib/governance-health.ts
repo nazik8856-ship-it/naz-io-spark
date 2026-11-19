@@ -45,5 +45,6 @@ export function computeGovernanceHealth(input: GovernanceHealthInput): Governanc
 
   if (redReasons.length) return { level: "red", reasons: redReasons };
   if (amberReasons.length) return { level: "amber", reasons: amberReasons };
-  return { level: "green", reasons: ["Trust score healthy, rules applied, spend within cap."] };
+  // Green says only what was measured: a trust score that does not exist yet is not called healthy.
+  return { level: "green", reasons: [input.trustScore === null ? "Rules applied, spend within cap. Trust is not scored yet: nothing has run under the rules." : "Trust score healthy, rules applied, spend within cap."] };
 }

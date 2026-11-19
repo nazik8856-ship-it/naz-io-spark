@@ -18,6 +18,7 @@ export default function RecentActivityCard({
   onShowRule,
   onAsk,
   onViewAll,
+  emptyAction = null,
   emptyTitle = "No decisions yet",
   emptyText = "When your AI tries to do something, the Control System checks it against your rules and the result shows up here. Try the chat: describe an action and see what it decides.",
 }: {
@@ -28,6 +29,8 @@ export default function RecentActivityCard({
   onViewAll: () => void;
   emptyTitle?: string;
   emptyText?: string;
+  /** With nothing to show yet, the one thing to do to see the rules at work (an honest empty state). */
+  emptyAction?: { label: string; onClick: () => void } | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   // A row is one line; tapping it opens the reason, the rule that decided it and the chat link.
@@ -48,6 +51,12 @@ export default function RecentActivityCard({
         <div className="mt-3 rounded-2xl border border-dashed border-white/15 bg-white/[0.02] p-4 text-center" data-testid="activity-empty">
           <p className="text-sm font-medium text-zinc-200">{emptyTitle}</p>
           <p className="mx-auto mt-1 max-w-sm text-xs text-zinc-500">{emptyText}</p>
+          {emptyAction && (
+            <button onClick={emptyAction.onClick} data-testid="activity-empty-action"
+              className="mt-3 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-200 hover:bg-cyan-500/20">
+              {emptyAction.label}
+            </button>
+          )}
         </div>
       ) : (
         <ul className="mt-3 divide-y divide-white/5 rounded-2xl border border-white/10 bg-white/[0.03] px-4">

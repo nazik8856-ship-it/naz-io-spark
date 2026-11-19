@@ -90,6 +90,18 @@ describe("Inner Control page", () => {
     expect(screen.getByTestId("status-line").dataset.state).toBe("no_rules");
   });
 
+  it("with nothing run yet, the activity card says so and offers a first task in the chat (nothing is sent)", async () => {
+    state.tables = { ...state.tables, agent_decisions: [] };
+    renderPage();
+    const empty = await screen.findByTestId("activity-empty");
+    expect(empty.textContent).toMatch(/Nothing has run under your rules yet/);
+    fireEvent.click(within(empty).getByTestId("activity-empty-action"));
+    const box = screen.getAllByLabelText("Message AI Control System")[0] as HTMLTextAreaElement;
+    await waitFor(() => expect(box.value).toBe("Draft a polite reply to a customer asking for a refund"));
+    expect(state.invoke).not.toHaveBeenCalled();
+    expect(screen.getByTestId("status-detail").textContent).toBe("Rules are set but nothing has run under them yet.");
+  });
+
   it("rules that are all in shadow mode or switched off are never called active, and the steps agree with the list", async () => {
     state.tables = { ...state.tables, hard_rules: [{ ...hardRule, shadow_mode: true }, { ...hardRule, id: "h2", enabled: false }] };
     renderPage();
