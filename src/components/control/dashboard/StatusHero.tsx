@@ -1,7 +1,9 @@
 // Inner Control page, top card: is this project governed, and what is the one thing to do next?
-// A ring shows rule coverage, one line says how many rules are active, one button is the next step.
+// A ring shows rule coverage. Two lines say what is really enforcing and what it last did (statusSummary in
+// src/lib/inner-control-ui.ts); nothing is shown as done or counted before it was measured. One button is the next step.
 // Approvals and incidents appear only when something is waiting.
 import type { ReactNode } from "react";
+import type { StatusSummary } from "@/lib/inner-control-ui";
 import { ChevronRight, Sparkles } from "lucide-react";
 
 export type SetupCheck = { label: string; done: boolean; onClick: () => void };
@@ -40,13 +42,15 @@ export function CoverageRing({ pct }: { pct: number | null }) {
 }
 
 export default function StatusHero({
-  coveragePct, status, checks, cta, approvals = 0, incidents = 0, onApprovals, onIncidents, health,
+  coveragePct, status, checks, cta, approvals = 0, incidents = 0, onApprovals, onIncidents, health, onReviewRules,
 }: {
   coveragePct: number | null;
-  /** "3 rules active – Coverage 45%"; null while the rules load or when there are none. */
-  status: string | null;
-  /** The setup steps; the first one not done is the next step. */
-  checks: SetupCheck[];
+  /** What is really enforcing and what it last did. */
+  status: StatusSummary;
+  /** The setup steps; the first one not done is the next step. null while they are not known yet (nothing is shown as not done). */
+  checks: SetupCheck[] | null;
+  /** With rules but none enforcing: where to switch one on. */
+  onReviewRules?: () => void;
   /** With no rule at all, the one thing to do next. */
   cta?: { label: string; onClick: () => void } | null;
   approvals?: number;
@@ -56,9 +60,11 @@ export default function StatusHero({
   /** The account's traffic light. */
   health?: ReactNode;
 }) {
-  const done = checks.filter((c) => c.done).length;
-  const next = checks.find((c) => !c.done);
-  const action = cta ?? (next ? { label: "Complete setup", onClick: next.onClick } : null);
+  const done = checks ? checks.filter((c) => c.done).length : 0;
+  const next = checks?.find((c) => !c.done) ?? null;
+  const action = cta
+    ?? (status.state === "none_enforcing" && onReviewRules ? { label: "Review your rules", onClick: onReviewRules } : null)
+    ?? (next ? { label: "Complete setup", onClick: next.onClick } : null);
   return (
     <section
       className="rounded-2xl border border-cyan-400/25 bg-gradient-to-br from-cyan-400/[0.09] via-white/[0.02] to-transparent p-4 shadow-[0_0_28px_rgba(34,211,238,0.08)] sm:p-5"
@@ -71,12 +77,14 @@ export default function StatusHero({
       <div className="mt-3 flex items-center gap-4">
         <CoverageRing pct={coveragePct} />
         <div className="min-w-0 flex-1">
-          {cta ? (
-            <p className="text-sm leading-snug text-cyan-100">No rules are active yet, so nothing limits what your AI may do.</p>
-          ) : status ? (
-            <p className="text-base font-medium leading-snug text-zinc-50" data-testid="status-line">{status}</p>
+          {status.state === "loading" ? (
+            <p className="text-sm text-zinc-500" data-testid="status-loading">{status.headline}</p>
           ) : (
-            <p className="text-sm text-zinc-500">Checking your rules…</p>
+            <>
+              <p className={status.state === "active" || status.state === "idle" ? "text-base font-medium leading-snug text-zinc-50" : "text-sm font-medium leading-snug text-cyan-100"}
+                data-testid="status-line" data-state={status.state}>{status.headline}</p>
+              {status.detail && <p className="mt-1 text-xs leading-snug text-zinc-400" data-testid="status-detail">{status.detail}</p>}
+            </>
           )}
           {action && (
             <button
@@ -87,7 +95,7 @@ export default function StatusHero({
               {cta && <Sparkles className="h-4 w-4" />} {action.label}
             </button>
           )}
-          {!cta && next && (
+          {!cta && checks && next && (
             <p className="mt-1.5 text-[11px] text-zinc-500" data-testid="setup-next">{done} of {checks.length} steps done · next: {next.label}</p>
           )}
         </div>

@@ -8,6 +8,8 @@ import { toast } from "@/hooks/use-toast";
 import {
   buildOuterTaskTags,
   countRules,
+  enforcementPulse,
+  type EnforcementPulse,
   taskAnswerRuleCount,
   taskActivity,
   toActivity,
@@ -81,6 +83,7 @@ export function useInnerControlRules(project?: InnerProject | null) {
   const [taskRuns, setTaskRuns] = useState<{ id: string; started_at: string }[]>([]);
   const [dualControl, setDualControl] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [pulse, setPulse] = useState<EnforcementPulse | null>(null);
 
   const scopeKey = project === undefined ? "account" : project === null ? "none" : project.key;
 
@@ -95,7 +98,26 @@ export function useInnerControlRules(project?: InnerProject | null) {
       if (project?.kind === "agent") q = q.eq("agent_id", project.id);
       return q.order("created_at", { ascending: false }).limit(ACTIVITY_LIMIT);
     })();
-    const [h, s, a, d, p] = await Promise.all([
+    // What ran under the rules (the status card): today's checks from the viewer's midnight, and the newest answer check.
+    // A website makes no checks of its own; an agent shows only its own.
+    const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+    const since = midnight.toISOString();
+    const skipPulse = project?.kind === "website";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const agentOnly = (q: any) => (project?.kind === "agent" ? q.eq("agent_id", project.id) : q);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pulseQueries: Promise<any>[] = skipPulse ? [0, 1, 2, 3].map(() => Promise.resolve({ data: [] })) : [
+      agentOnly(anyDb.from("agent_decisions").select("decision, action_type, created_at").eq("user_id", accountId).eq("is_test", false).gte("created_at", since)).limit(2000),
+      // Answer checks only: an action check (content_kind action) already has its decision row above.
+      agentOnly(anyDb.from("outer_control_evaluations").select("verdict, created_at").eq("user_id", accountId).eq("content_kind", "text").gte("created_at", since)).limit(2000),
+      agentOnly(anyDb.from("outer_control_evaluations").select("created_at").eq("user_id", accountId).eq("content_kind", "text")).order("created_at", { ascending: false }).limit(1),
+      // The newest decision that is a check (it starts with a verdict word), not an agent step such as Call tool.
+      agentOnly(anyDb.from("agent_decisions").select("created_at").eq("user_id", accountId).eq("is_test", false)
+        // One word per VERDICT_WORDS entry (held to it by inner-control-ui.test.ts); a fixed text, no input in it.
+        .or("decision.ilike.ALLOW%,decision.ilike.BLOCK%,decision.ilike.MODIFY%,decision.ilike.DEFERRED%,decision.ilike.ESCALATE%,decision.ilike.APPROVAL_REQUIRED%,decision.ilike.REQUIRE_APPROVAL%"))
+        .order("created_at", { ascending: false }).limit(1),
+    ];
+    const [h, s, a, d, p, dt, et, el, dl] = await Promise.all([
       anyDb.from("hard_rules")
         .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id, required_approvals, created_at")
         .eq("user_id", accountId).order("created_at", { ascending: false }),
@@ -105,12 +127,20 @@ export function useInnerControlRules(project?: InnerProject | null) {
       anyDb.from("agents").select("id, name").eq("user_id", accountId),
       decisionsQuery,
       anyDb.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
+      ...pulseQueries,
     ]);
     setHard(rulesFor(project, (h.data ?? []) as HardRuleRow[]));
     setSafety(rulesFor(project, (s.data ?? []) as SafetyRuleRow[]));
     setAgents((a.data ?? []) as { id: string; name: string }[]);
     const decisionRows = (d.data ?? []) as DecisionRow[];
     setDecisions(decisionRows);
+    // A query that failed is not "nothing ran": the pulse stays unknown and the card says it is still checking.
+    const pulseFailed = [dt, et, el, dl].some((r) => (r as { error?: unknown }).error);
+    setPulse(skipPulse || pulseFailed ? null : enforcementPulse(
+      (dt.data ?? []) as { decision: string; action_type: string | null; created_at: string }[],
+      (et.data ?? []) as { verdict: string | null; created_at: string }[],
+      [((dl.data ?? []) as { created_at: string }[])[0]?.created_at, ((el.data ?? []) as { created_at: string }[])[0]?.created_at],
+    ));
     const linked = await loadOuterTasks(accountId, decisionRows, project);
     setTaskTags(linked.tags);
     setTaskRuns(linked.runs);
@@ -228,5 +258,5 @@ export function useInnerControlRules(project?: InnerProject | null) {
     return true;
   };
 
-  return { loading, rules, counts, taskRules, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, rowOf, refetch: load };
+  return { loading, rules, counts, taskRules, pulse, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, rowOf, refetch: load };
 }

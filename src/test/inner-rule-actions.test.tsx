@@ -21,7 +21,7 @@ vi.mock("@/integrations/supabase/client", () => {
     const filters: [string, unknown][] = [];
     let op = "select"; let patch: unknown;
     const q: Record<string, unknown> = {};
-    for (const m of ["order", "limit", "not", "in", "is", "gte"]) q[m] = () => q;
+    for (const m of ["order", "limit", "not", "in", "is", "gte", "or"]) q[m] = () => q;
     q.select = () => q;
     q.eq = (c: string, v: unknown) => { filters.push([c, v]); return q; };
     q.update = (p: unknown) => { op = "update"; patch = p; return q; };

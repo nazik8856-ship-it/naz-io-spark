@@ -109,7 +109,7 @@ export function useControlDashboardData(accountId: string | undefined, project?:
     ] = await Promise.all([
       supabase.functions.invoke("capability-status", { body: { account_id: accountId } }),
       anyDb.from("hard_rules").select("action_type_pattern, provider, enabled, shadow_mode, agent_id").eq("user_id", accountId),
-      anyDb.from("safety_rules").select("id, agent_id, api_key_id").eq("user_id", accountId),
+      anyDb.from("safety_rules").select("id, agent_id, api_key_id, enabled, shadow_mode").eq("user_id", accountId),
       mine(anyDb.from("agent_decisions").select("source, decision, escalated, created_at").eq("user_id", accountId).gte("created_at", since)),
       scoped ? Promise.resolve(none) : anyDb.from("clean_allow_counts").select("count").eq("user_id", accountId).gte("window_start", since),
       // api_key_id must also be excluded -- a per-key cap/spend row has
@@ -139,7 +139,10 @@ export function useControlDashboardData(accountId: string | undefined, project?:
       .filter((c) => c.status === "real")
       .map((c) => ({ kind: c.kind, provider: c.provider })) as CapabilityForCoverage[];
     const hardRules = rulesFor(project, (hardRulesRes.data ?? []) as (HardRuleForCoverage & { agent_id?: string | null })[]) as HardRuleForCoverage[];
-    const safetyCount = rulesFor(project, (safetyRulesCountRes.data ?? []) as { agent_id?: string | null; api_key_id?: string | null }[]).length;
+    const safetyRows = rulesFor(project, (safetyRulesCountRes.data ?? []) as { agent_id?: string | null; api_key_id?: string | null; enabled?: boolean; shadow_mode?: boolean }[]);
+    const safetyCount = safetyRows.length;
+    // Only a rule that is switched on and not in shadow mode governs anything (honest empty states, Inner Day 2).
+    const enforcingRules = hardRules.filter((r) => r.enabled !== false && !r.shadow_mode).length + safetyRows.filter((r) => r.enabled !== false && !r.shadow_mode).length;
     const gaps = findCoverageGaps(capabilities, hardRules);
     setCoverageTotal(capabilities.length);
     setCoverageGapCount(gaps.length);
@@ -207,13 +210,15 @@ export function useControlDashboardData(accountId: string | undefined, project?:
       ruleTriggeredDecisions: ruleTriggered90,
       repairInterventions: (selfRepairRes.count ?? 0) + (modifyRes.count ?? 0),
     });
-    // A website's trust score is the one stored with it when it was generated; an agent's and the account's are computed.
-    const shownScore = isWebsite ? (project?.website?.trustScore ?? 100) : trustScore.score;
-    setAccountTrustScore(isWebsite ? null : trustScore);
+    // A website's trust score is the one stored with it when it was generated; an agent's and the account's are computed. With no
+    // decision and no calibration there is nothing to score: it is not shown, rather than a perfect 100 nobody earned.
+    const measured = decisions90.length > 0 || avgCalibrationGap !== null || (selfRepairRes.count ?? 0) > 0;
+    const shownScore = isWebsite ? (project?.website?.trustScore ?? null) : measured ? trustScore.score : null;
+    setAccountTrustScore(isWebsite || !measured ? null : trustScore);
     setTrustScoreValue(shownScore);
     setAccountHealth(computeGovernanceHealth({
       trustScore: shownScore,
-      rulesApplied: hardRules.length + safetyCount,
+      rulesApplied: enforcingRules,
       spendPct: cap > 0 ? (spendByDay.get(today) ?? 0) / cap : null,
     }));
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildOuterTaskTags, chatStepLabels, countRules, needsTemplate, statusLine, taskActivity, toActivity, toRuleItems,
+  buildOuterTaskTags, chatStepLabels, countRules, enforcementPulse, needsTemplate, statusSummary, taskActivity, toActivity, toRuleItems,
   type DecisionRow, type HardRuleRow, type SafetyRuleRow,
 } from "@/lib/inner-control-ui";
 
@@ -41,15 +41,57 @@ describe("rule list", () => {
   });
 });
 
-describe("counts and status line", () => {
+describe("counts and the truthful status (Inner Day 2)", () => {
+  const NOW = Date.parse("2026-11-19T12:00:00Z");
   it("does not count shadow or disabled rules as enforcing", () => {
     const c = countRules(toRuleItems([hard(), hard({ id: "h2", shadow_mode: true }), hard({ id: "h3", enabled: false })], [safety()], nm));
     expect(c).toEqual({ enforcing: 2, shadow: 1, disabled: 1, total: 4 });
-    expect(statusLine(c, 60)).toBe("2 rules active (+1 in shadow mode) – Coverage 60%");
+    expect(statusSummary(c, { lastAt: "2026-11-19T11:55:00Z", checks: 14, changed: 2 }, { now: NOW })).toEqual({
+      state: "active", headline: "2 rules active · 1 in shadow mode", detail: "Last checked 5 min ago · today 2 of 14 checks changed, held or blocked something",
+    });
   });
-  it("is singular for one rule and honest when there is no coverage figure", () => {
+  it("rules but none enforcing: says which state they are in, never 'active'", () => {
+    const c = countRules(toRuleItems([hard({ shadow_mode: true }), hard({ id: "h2", shadow_mode: true }), hard({ id: "h3", shadow_mode: true }), hard({ id: "h4", shadow_mode: true }), hard({ id: "h5", enabled: false }), hard({ id: "h6", enabled: false })], [safety({ enabled: false })], nm));
+    expect(statusSummary(c, null)).toEqual({
+      state: "none_enforcing", headline: "None of your 7 rules is enforcing yet",
+      detail: "4 are in shadow mode (watched only) and 3 are switched off. Switch one on to make it apply.",
+    });
+    expect(statusSummary(countRules(toRuleItems([hard({ enabled: false })], [], nm)), null).headline).toBe("Your rule is not enforcing yet");
+  });
+  it("rules set and nothing has run; nothing today yet; still checking; a website; loading; no rules", () => {
     const c = countRules(toRuleItems([hard()], [], nm));
-    expect(statusLine(c, null)).toBe("1 rule active – Coverage — (no connected capabilities yet)");
+    expect(statusSummary(c, { lastAt: null, checks: 0, changed: 0 }).detail).toBe("Rules are set but nothing has run under them yet.");
+    expect(statusSummary(c, { lastAt: "2026-11-18T09:00:00Z", checks: 0, changed: 0 }, { now: NOW }).detail).toBe("Last checked 27 h ago · nothing checked today yet");
+    expect(statusSummary(c, null).detail).toBe("Checking what ran under them…");
+    expect(statusSummary(c, null, { website: true }).detail).toMatch(/checked once, when it is generated/);
+    expect(statusSummary(null, null)).toEqual({ state: "loading", headline: "Checking your rules…", detail: null });
+    expect(statusSummary(countRules([]), null).state).toBe("no_rules");
+    expect(statusSummary(c, { lastAt: "2026-11-19T11:59:40Z", checks: 1, changed: 0 }, { now: NOW }).detail).toBe("Last checked just now · today 0 of 1 check changed, held or blocked something");
+  });
+  it("today's checks: an agent's actions plus every answer check, each answer counted once, agent steps left out", () => {
+    const p = enforcementPulse(
+      [
+        { decision: "ALLOW send_email (Gmail)", action_type: "send_email", created_at: "2026-11-19T08:00:00Z" },
+        { decision: "BLOCK send_payment (unknown)", action_type: "send_payment", created_at: "2026-11-19T09:00:00Z" },
+        { decision: "DEFERRED create_doc (Google)", action_type: "create_doc", created_at: "2026-11-19T09:30:00Z" },
+        { decision: 'Call tool "web_search"', action_type: null, created_at: "2026-11-19T10:00:00Z" },
+        { decision: "MODIFY text_review (tool:Bot2)", action_type: "outer_control_text_review", created_at: "2026-11-19T10:30:00Z" },
+      ],
+      [{ verdict: "allow", created_at: "2026-11-19T10:00:00Z" }, { verdict: "modify", created_at: "2026-11-19T10:30:00Z" }],
+      ["2026-11-19T10:30:00Z", "2026-11-19T11:00:00Z", null],
+    );
+    expect(p).toEqual({ lastAt: "2026-11-19T11:00:00Z", checks: 5, changed: 3 });
+    expect(enforcementPulse([], [], [null, undefined])).toEqual({ lastAt: null, checks: 0, changed: 0 });
+  });
+  it("the newest-check filter in the hook names every verdict word, and nothing else", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { VERDICT_WORDS } = await import("@/lib/inner-control-ui");
+    const src = readFileSync(`${__dirname}/../hooks/useInnerControlRules.ts`, "utf8");
+    const words = [...(src.match(/\.or\("((?:decision\.ilike\.[A-Z_]+%,?)+)"\)/)?.[1] ?? "").matchAll(/ilike\.([A-Z_]+)%/g)].map((m) => m[1]);
+    expect(words.sort()).toEqual([...VERDICT_WORDS].sort());
+  });
+  it("a hold written by the agent runtime (REQUIRE_APPROVAL) is a check that changed something", () => {
+    expect(enforcementPulse([{ decision: "REQUIRE_APPROVAL send_email (Gmail)", action_type: "send_email", created_at: "2026-11-19T08:00:00Z" }], [], [])).toEqual({ lastAt: null, checks: 1, changed: 1 });
   });
   it("asks for a template only when there are no rules at all", () => {
     expect(needsTemplate(countRules([]))).toBe(true);

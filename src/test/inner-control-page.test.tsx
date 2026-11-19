@@ -10,12 +10,15 @@ const state = vi.hoisted(() => ({
   invoke: vi.fn(),
   updates: [] as { table: string; patch: unknown }[],
   approvals: [] as unknown[],
+  filters: [] as string[],
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
   const result = (table: string) => {
     const q: Record<string, unknown> = {};
     for (const m of ["select", "eq", "is", "not", "in", "order", "limit", "gte"]) q[m] = () => q;
+    // The newest check: only decision rows that start with a verdict word (the hook asks for those with or()).
+    q.or = (f: string) => { state.filters.push(f); q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: ((state.tables[table] ?? []) as { decision?: string }[]).filter((r) => /^(ALLOW|BLOCK|MODIFY|DEFERRED|ESCALATE|APPROVAL_REQUIRED|REQUIRE_APPROVAL)\b/i.test(r.decision ?? "")), error: null }).then(res); return q; };
     q.update = (patch: unknown) => { state.updates.push({ table, patch }); return q; };
     q.maybeSingle = () => Promise.resolve({ data: null, error: null });
     q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: state.tables[table] ?? [], error: null }).then(res);
@@ -68,7 +71,10 @@ describe("Inner Control page", () => {
     for (let i = 0; i < order.length - 1; i++) {
       expect(order[i].compareDocumentPosition(order[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
-    expect(status.querySelector("[data-testid=status-line]")?.textContent).toBe("1 rule active – Coverage 50%");
+    expect(status.querySelector("[data-testid=status-line]")?.textContent).toBe("1 rule active");
+    // What ran under the rules today (the blocked decision above), and the steps from the same rules the list shows.
+    await waitFor(() => expect(status.querySelector("[data-testid=status-detail]")?.textContent).toBe("Last checked just now · today 1 of 1 check changed, held or blocked something"));
+    expect(status.querySelector("[data-testid=setup-next]")?.textContent).toBe("3 of 4 steps done · next: A safety rule enforcing");
     // The numbers behind the status come after the three sections and stay closed until asked for.
     const details = screen.getByTestId("details-toggle");
     expect(order[2].compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -84,7 +90,29 @@ describe("Inner Control page", () => {
     expect(await screen.findByRole("button", { name: /Start from a Policy Template/ })).toBeTruthy();
     expect(screen.getByTestId("rules-empty")).toBeTruthy();
     expect(screen.getByTestId("activity-empty")).toBeTruthy();
-    expect(screen.queryByTestId("status-line")).toBeNull();
+    expect(screen.getByTestId("status-line").dataset.state).toBe("no_rules");
+  });
+
+  it("with nothing run yet, the activity card says so and offers a first task in the chat (nothing is sent)", async () => {
+    state.tables = { ...state.tables, agent_decisions: [] };
+    renderPage();
+    const empty = await screen.findByTestId("activity-empty");
+    expect(empty.textContent).toMatch(/Nothing has run under your rules yet/);
+    fireEvent.click(within(empty).getByTestId("activity-empty-action"));
+    const box = screen.getAllByLabelText("Message AI Control System")[0] as HTMLTextAreaElement;
+    await waitFor(() => expect(box.value).toBe("Draft a polite reply to a customer asking for a refund"));
+    expect(state.invoke).not.toHaveBeenCalled();
+    expect(screen.getByTestId("status-detail").textContent).toBe("Rules are set but nothing has run under them yet.");
+  });
+
+  it("rules that are all in shadow mode or switched off are never called active, and the steps agree with the list", async () => {
+    state.tables = { ...state.tables, hard_rules: [{ ...hardRule, shadow_mode: true }, { ...hardRule, id: "h2", enabled: false }] };
+    renderPage();
+    const line = await screen.findByTestId("status-line");
+    await waitFor(() => expect(line.textContent).toBe("None of your 2 rules is enforcing yet"));
+    expect(screen.getByTestId("status-detail").textContent).toBe("1 is in shadow mode (watched only) and 1 is switched off. Switch one on to make it apply.");
+    expect(screen.getByRole("button", { name: "Review your rules" })).toBeTruthy();
+    expect(screen.getByTestId("setup-next").textContent).toBe("2 of 4 steps done · next: A hard rule enforcing");
   });
 
   it("Disable writes enabled=false on the rule's own table", async () => {
@@ -158,14 +186,46 @@ describe("Inner Control page", () => {
     expect(screen.queryByText("Checking 1 active rule and scoring risk")).toBeNull();
   });
 
-  it("Add rule opens the rule editor in a closable window", async () => {
+  it("Add rule opens one window that asks what the rule should do; the full hard-rule editor stays one click away", async () => {
     renderPage();
     await screen.findByTestId("rule-row-hard:h1");
-    expect(screen.queryByTestId("rule-editor")).toBeNull();
+    expect(screen.queryByTestId("add-rule-dialog")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Add rule/ }));
+    const dialog = await screen.findByTestId("add-rule-dialog");
+    expect(within(dialog).getByText("What should this rule do?")).toBeTruthy();
+    expect(within(dialog).getByTestId("add-kind-action")).toBeTruthy();
+    expect(within(dialog).getByTestId("add-kind-text")).toBeTruthy();
+    fireEvent.click(within(dialog).getByTestId("add-rule-fallback"));
     expect(await screen.findByTestId("rule-editor")).toBeTruthy();
-    fireEvent.keyDown(screen.getByTestId("rule-editor"), { key: "Escape" });
-    await waitFor(() => expect(screen.queryByTestId("rule-editor")).toBeNull());
+    fireEvent.keyDown(screen.getByTestId("add-rule-dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("add-rule-dialog")).toBeNull());
+  });
+
+  it("Try it on a rule in the list shows what it would have done to what already ran, and changes nothing", async () => {
+    renderPage();
+    await screen.findByTestId("rule-row-hard:h1");
+    fireEvent.click(screen.getByRole("button", { name: "Try rule: Never email more than 1 person" }));
+    const trial = await screen.findByTestId("rule-trial");
+    fireEvent.click(within(trial).getByTestId("rule-trial-run"));
+    expect((await within(trial).findByTestId("rule-trial-line")).textContent).toBe("Of your last 1 action, 1 would have been blocked (send_email ×1).");
+    expect(state.updates).toEqual([]);
+  });
+
+  it("the Add window offers Try it first once the rule is complete", async () => {
+    renderPage();
+    await screen.findByTestId("rule-row-hard:h1");
+    fireEvent.click(screen.getByRole("button", { name: /Add rule/ }));
+    const dialog = await screen.findByTestId("add-rule-dialog");
+    fireEvent.click(within(dialog).getByTestId("add-kind-action"));
+    expect((within(dialog).getByTestId("rule-trial-run") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText("Rule"), { target: { value: "Hold every email" } });
+    fireEvent.change(within(dialog).getByLabelText("Applies to"), { target: { value: "send_email" } });
+    fireEvent.click(within(dialog).getByTestId("rule-trial-run"));
+    expect((await within(dialog).findByTestId("rule-trial-line")).textContent).toBe("Of your last 1 action, 1 would have been held for approval (send_email ×1).");
+    // The live rule already blocks send_email: the window says so, names it, and still lets the rule be saved.
+    expect(within(dialog).getByTestId("rule-warning-contradicts").textContent).toBe(
+      "Disagrees with a rule. Your rule “Never email more than 1 person” blocks send_email; this one would hold them for approval. When both match, the older rule is used, so it decides.");
+    expect((within(dialog).getByTestId("add-rule-save") as HTMLButtonElement).disabled).toBe(false);
   });
 });
 
@@ -244,7 +304,7 @@ describe("Inner Control always shows one existing project", () => {
     fireEvent.click(within(check).getByRole("button"));
     expect(check.textContent).toMatch(/price was not in your brief/);
     expect((await screen.findByTestId("activity-empty")).textContent).toMatch(/takes no actions of its own/);
-    expect(screen.getByTestId("setup-status").textContent).toMatch(/3 of 4 steps done · next: Safety rules/);
+    expect(screen.getByTestId("setup-status").textContent).toMatch(/3 of 4 steps done · next: A safety rule enforcing/);
     await screen.findByTestId("rule-row-hard:h1");
   });
 

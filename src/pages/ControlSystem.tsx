@@ -6,6 +6,7 @@ import { useActiveAccount } from "@/hooks/useActiveAccount";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
+import AddRuleDialog from "@/components/control/AddRuleDialog";
 import RuleEditDialog from "@/components/control/RuleEditDialog";
 import InnerTaskCard from "@/components/control/InnerTaskCard";
 import RuleDraftCard, { type ChatRuleDraft } from "@/components/control/RuleDraftCard";
@@ -14,10 +15,16 @@ import ExecutionLog from "@/components/execution/ExecutionLog";
 import { useExecutionLog } from "@/hooks/useExecutionLog";
 import { useInnerControlRules } from "@/hooks/useInnerControlRules";
 import YourRulesCard from "@/components/control/dashboard/YourRulesCard";
+import RuleTrial from "@/components/control/RuleTrial";
+import RuleWarnings from "@/components/control/RuleWarnings";
+import { hardConflicts, textConflicts } from "@/lib/new-rule-warnings";
+import type { HardEdit, SafetyEdit } from "@/lib/inner-rule-edit";
+import type { HardRuleRow, SafetyRuleRow } from "@/lib/inner-control-ui";
+import { trialSpecOfDraft, trialSpecOfRow } from "@/lib/rule-trial";
 import RecentActivityCard from "@/components/control/dashboard/RecentActivityCard";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import PromptExtras, { type Attachment } from "@/components/generator/PromptExtras";
-import { buildControlMessage, CHAT_SPEC, CHAT_SUGGESTIONS, chatStepLabels, needsTemplate, statusLine, type RuleItem } from "@/lib/inner-control-ui";
+import { buildControlMessage, CHAT_SPEC, CHAT_SUGGESTIONS, chatStepLabels, needsTemplate, statusSummary, type RuleItem } from "@/lib/inner-control-ui";
 import { useSpendSafetyStatus } from "@/hooks/useSpendSafetyStatus";
 import { useControlDashboardData } from "@/hooks/useControlDashboardData";
 import { usePendingApprovalsFeed } from "@/hooks/usePendingApprovalsFeed";
@@ -85,6 +92,7 @@ export default function ControlSystem() {
   const [ruleEditorOpen, setRuleEditorOpen] = useState(false);
   // Edit: the rule being changed in place (both kinds), or null.
   const [editing, setEditing] = useState<RuleItem | null>(null);
+  const [trying, setTrying] = useState<RuleItem | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   useEffect(() => {
@@ -205,9 +213,21 @@ export default function ControlSystem() {
   // and the Approvals button above carries their count.
   const chatTurns: Turn[] = turns;
 
-  const setupChecks = [
-    { label: "Hard rules", done: dashboard.setup.hardRules, onClick: () => navigate("/control-system/safety-rules") },
-    { label: "Safety rules", done: dashboard.setup.safetyRules, onClick: () => navigate("/control-system/safety-rules") },
+  // Truthful status (Inner Day 2): the rule steps come from the same rules the list shows (one switched on and enforcing), the
+  // other steps only once the dashboard has loaded them; until then no step is shown as not done.
+  // The rules already there, for the Add window's duplicate and conflict warnings.
+  const warningsFor = (kind: "action" | "text", rule: HardEdit | SafetyEdit, phrases: string[]) => {
+    const rows = innerRules.rules.filter((r) => r.kind === (kind === "action" ? "hard" : "safety")).map((r) => innerRules.rowOf(r)).filter(Boolean);
+    return kind === "action"
+      ? ((rule as HardEdit).scope.trim() ? hardConflicts(rule as HardEdit, rows as HardRuleRow[]) : [])
+      : ((rule as SafetyEdit).pattern ? textConflicts(rule as SafetyEdit, phrases, rows as SafetyRuleRow[]) : []);
+  };
+  const scrollToRules = () => document.querySelector('[data-testid="your-rules"]')?.scrollIntoView({ block: "start", behavior: "smooth" });
+  const enforcingOf = (kind: "hard" | "safety") => innerRules.rules.some((r) => r.kind === kind && r.status === "active" && !r.shadow);
+  const statusNow = statusSummary(innerRules.loading ? null : innerRules.counts, innerRules.pulse, { website: shown?.kind === "website" });
+  const setupChecks = innerRules.loading || dashboard.loading ? null : [
+    { label: "A hard rule enforcing", done: enforcingOf("hard"), onClick: scrollToRules },
+    { label: "A safety rule enforcing", done: enforcingOf("safety"), onClick: scrollToRules },
     { label: "Daily spend limit", done: dashboard.setup.spendCapCustom, onClick: () => navigate("/control-system/spend-safety") },
     shown?.kind === "website"
       ? { label: "Website generated", done: dashboard.setup.agentDeployed, onClick: () => navigate(`/generated/website/${shown.id}`) }
@@ -280,8 +300,9 @@ export default function ControlSystem() {
             {/* 1. Status: is this project governed, and what is next */}
             <StatusHero
               coveragePct={dashboard.coveragePct}
-              status={!innerRules.loading && !needsTemplate(innerRules.counts) ? statusLine(innerRules.counts, dashboard.coveragePct) : null}
+              status={statusNow}
               checks={setupChecks}
+              onReviewRules={scrollToRules}
               cta={!innerRules.loading && needsTemplate(innerRules.counts)
                 ? { label: "Start from a Policy Template", onClick: () => navigate("/control-system/templates") }
                 : null}
@@ -334,6 +355,7 @@ export default function ControlSystem() {
               onAdd={() => setRuleEditorOpen(true)}
               onTemplates={() => navigate("/control-system/templates")}
               onEdit={editRule}
+              onTry={setTrying}
               onToggle={(r) => void innerRules.setEnabled(r, r.status === "disabled")}
               onDelete={(r) => void innerRules.remove(r)}
               onAsk={(r) => askInChat(`Explain my rule "${r.name}": what does it stop, and has it triggered recently?`)}
@@ -346,10 +368,11 @@ export default function ControlSystem() {
               onShowRule={showRule}
               onAsk={askInChat}
               onViewAll={() => navigate("/control-system/decision-history")}
-              emptyTitle={shown?.kind === "website" ? "A website takes no actions of its own" : "No decisions for this agent yet"}
+              emptyTitle={shown?.kind === "website" ? "A website takes no actions of its own" : "Nothing has run under your rules yet"}
               emptyText={shown?.kind === "website"
                 ? "Its text is checked against your rules once, when it is generated. What that check found is shown above."
-                : "When this agent tries to do something, the Control System checks it against your rules and the result shows up here."}
+                : "When your AI does something, it is checked against your rules and the result shows up here. Run a first task in the chat to see them at work."}
+              emptyAction={shown?.kind === "website" ? null : { label: "Run a first task in the chat", onClick: () => askInChat(CHAT_SUGGESTIONS[0]) }}
             />
 
             {/* 4. Numbers behind the status, closed by default */}
@@ -455,30 +478,25 @@ export default function ControlSystem() {
         </div>
       </div>
 
-      {/* Add / edit rules: the existing hard-rule editor, in a closable window. */}
+      {/* Edit a rule in place, and the one Add rule window (what should the rule do? then its fields). */}
       <RuleEditDialog rule={editing} row={editing ? innerRules.rowOf(editing) : null} busy={!!innerRules.busyKey}
         onClose={() => setEditing(null)} onSave={async (r, e) => { const ok = await innerRules.edit(r, e); if (ok) dashboard.refetch(); return ok; }} />
-      <Dialog open={ruleEditorOpen} onOpenChange={closeRuleEditor}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-white/10 bg-[#050813] p-0 text-white" data-testid="rule-editor">
-          <DialogHeader className="px-6 pt-6">
-            <DialogTitle>Add or edit a rule</DialogTitle>
-            <DialogDescription>
-              Write a hard rule in plain English below. Existing hard rules are listed under the form, where you can switch one to live or remove it.
-              To change a pattern-based safety rule, use the safety rules page.
-            </DialogDescription>
+      <AddRuleDialog open={ruleEditorOpen} onOpenChange={closeRuleEditor} accountId={accountId} canWrite={innerRules.canWrite}
+        onSaved={() => { void innerRules.refetch(); dashboard.refetch(); }}
+        fallback={<div className="-mx-6" data-testid="rule-editor"><HardRulesPanel defaultOpen /></div>}
+        extra={(kind, rule, problem, phrases) => (
+          <>
+            <RuleWarnings warnings={warningsFor(kind, rule, phrases)} />
+            <RuleTrial spec={problem ? null : trialSpecOfDraft(kind, rule)} accountId={accountId} />
+          </>
+        )} />
+      <Dialog open={!!trying} onOpenChange={(o) => { if (!o) setTrying(null); }}>
+        <DialogContent className="max-w-lg border-white/10 bg-zinc-950 text-zinc-100">
+          <DialogHeader>
+            <DialogTitle>Try “{trying?.name}”</DialogTitle>
+            <DialogDescription>Nothing is changed: the rule stays as it is.</DialogDescription>
           </DialogHeader>
-          <div className="-mx-0">
-            <HardRulesPanel defaultOpen />
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-6 py-4">
-            <p className="text-xs text-zinc-500">Need to catch specific words or patterns (card numbers, names, links)?</p>
-            <button
-              onClick={() => { closeRuleEditor(false); navigate("/control-system/safety-rules"); }}
-              className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-zinc-200 hover:bg-white/5"
-            >
-              Add a safety rule
-            </button>
-          </div>
+          <RuleTrial spec={trying ? trialSpecOfRow(innerRules.rowOf(trying) as Record<string, unknown> | null) : null} accountId={accountId} />
         </DialogContent>
       </Dialog>
 

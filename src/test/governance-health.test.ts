@@ -53,4 +53,9 @@ describe("computeGovernanceHealth", () => {
     const result = computeGovernanceHealth({ trustScore: 50, rulesApplied: 1, spendPct: 0 });
     expect(result.level).toBe("amber");
   });
+
+  it("green never calls a trust score healthy that was not measured yet (honest empty state)", () => {
+    const result = computeGovernanceHealth({ trustScore: null, rulesApplied: 2, spendPct: 0 });
+    expect(result).toEqual({ level: "green", reasons: ["Rules applied, spend within cap. Trust is not scored yet: nothing has run under the rules."] });
+  });
 });

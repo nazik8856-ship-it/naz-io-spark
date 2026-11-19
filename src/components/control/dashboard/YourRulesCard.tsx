@@ -27,11 +27,13 @@ type Props = {
   onToggle: (r: RuleItem) => void;
   onDelete: (r: RuleItem) => void;
   onAsk: (r: RuleItem) => void;
+  /** Try it first: what the rule would have done to what already happened. */
+  onTry?: (r: RuleItem) => void;
 };
 
 export default function YourRulesCard({
   rules, counts, loading, canWrite, dualControl, busyKey, highlightKey,
-  onAdd, onTemplates, onEdit, onToggle, onDelete, onAsk,
+  onAdd, onTemplates, onEdit, onToggle, onDelete, onAsk, onTry,
 }: Props) {
   const [confirming, setConfirming] = useState<RuleItem | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -128,6 +130,12 @@ export default function YourRulesCard({
                   <button onClick={() => onAsk(r)} aria-label={`Ask the chat about: ${r.name}`} title="Ask the chat about this rule" className={link}>Ask</button>
                   {canWrite && (
                     <>
+                      {onTry && (
+                        <>
+                          <span aria-hidden className="text-zinc-700">·</span>
+                          <button onClick={() => onTry(r)} aria-label={`Try rule: ${r.name}`} title="See what it would have done to what already happened" className={link}>Try it</button>
+                        </>
+                      )}
                       <span aria-hidden className="text-zinc-700">·</span>
                       <button onClick={() => onEdit(r)} aria-label={`Edit rule: ${r.name}`} className={link}>Edit</button>
                       <span aria-hidden className="text-zinc-700">·</span>
