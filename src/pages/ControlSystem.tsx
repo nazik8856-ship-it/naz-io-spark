@@ -6,6 +6,7 @@ import { useActiveAccount } from "@/hooks/useActiveAccount";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
+import AddRuleDialog from "@/components/control/AddRuleDialog";
 import RuleEditDialog from "@/components/control/RuleEditDialog";
 import InnerTaskCard from "@/components/control/InnerTaskCard";
 import RuleDraftCard, { type ChatRuleDraft } from "@/components/control/RuleDraftCard";
@@ -461,32 +462,12 @@ export default function ControlSystem() {
         </div>
       </div>
 
-      {/* Add / edit rules: the existing hard-rule editor, in a closable window. */}
+      {/* Edit a rule in place, and the one Add rule window (what should the rule do? then its fields). */}
       <RuleEditDialog rule={editing} row={editing ? innerRules.rowOf(editing) : null} busy={!!innerRules.busyKey}
         onClose={() => setEditing(null)} onSave={async (r, e) => { const ok = await innerRules.edit(r, e); if (ok) dashboard.refetch(); return ok; }} />
-      <Dialog open={ruleEditorOpen} onOpenChange={closeRuleEditor}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-white/10 bg-[#050813] p-0 text-white" data-testid="rule-editor">
-          <DialogHeader className="px-6 pt-6">
-            <DialogTitle>Add or edit a rule</DialogTitle>
-            <DialogDescription>
-              Write a hard rule in plain English below. Existing hard rules are listed under the form, where you can switch one to live or remove it.
-              To change a pattern-based safety rule, use the safety rules page.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="-mx-0">
-            <HardRulesPanel defaultOpen />
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-6 py-4">
-            <p className="text-xs text-zinc-500">Need to catch specific words or patterns (card numbers, names, links)?</p>
-            <button
-              onClick={() => { closeRuleEditor(false); navigate("/control-system/safety-rules"); }}
-              className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-zinc-200 hover:bg-white/5"
-            >
-              Add a safety rule
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <AddRuleDialog open={ruleEditorOpen} onOpenChange={closeRuleEditor} accountId={accountId} canWrite={innerRules.canWrite}
+        onSaved={() => { void innerRules.refetch(); dashboard.refetch(); }}
+        fallback={<div className="-mx-6" data-testid="rule-editor"><HardRulesPanel defaultOpen /></div>} />
 
       {/* Floating button to open the chat drawer on phone. */}
       <button

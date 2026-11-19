@@ -171,14 +171,19 @@ describe("Inner Control page", () => {
     expect(screen.queryByText("Checking 1 active rule and scoring risk")).toBeNull();
   });
 
-  it("Add rule opens the rule editor in a closable window", async () => {
+  it("Add rule opens one window that asks what the rule should do; the full hard-rule editor stays one click away", async () => {
     renderPage();
     await screen.findByTestId("rule-row-hard:h1");
-    expect(screen.queryByTestId("rule-editor")).toBeNull();
+    expect(screen.queryByTestId("add-rule-dialog")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Add rule/ }));
+    const dialog = await screen.findByTestId("add-rule-dialog");
+    expect(within(dialog).getByText("What should this rule do?")).toBeTruthy();
+    expect(within(dialog).getByTestId("add-kind-action")).toBeTruthy();
+    expect(within(dialog).getByTestId("add-kind-text")).toBeTruthy();
+    fireEvent.click(within(dialog).getByTestId("add-rule-fallback"));
     expect(await screen.findByTestId("rule-editor")).toBeTruthy();
-    fireEvent.keyDown(screen.getByTestId("rule-editor"), { key: "Escape" });
-    await waitFor(() => expect(screen.queryByTestId("rule-editor")).toBeNull());
+    fireEvent.keyDown(screen.getByTestId("add-rule-dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("add-rule-dialog")).toBeNull());
   });
 });
 
