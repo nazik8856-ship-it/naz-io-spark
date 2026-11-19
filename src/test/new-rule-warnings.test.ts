@@ -72,3 +72,13 @@ describe("text rules", () => {
     expect(textConflicts({ name: "x", pattern: "refunds?", action: "block" }, [], rules)).toEqual([]);
   });
 });
+
+describe("review fixes", () => {
+  it("two approval rules for the same actions with different approval counts disagree, and the older one decides", () => {
+    const one = hard("h9", "Hold emails", "send_email", "always_require_approval", { required_approvals: null });
+    const w = hardConflicts({ text: "Hold emails for 5", scope: "send_email", effect: "always_require_approval", approvals: 5 }, [one]);
+    expect(w).toEqual([{ kind: "contradicts", id: "h9", name: "Hold emails",
+      line: "Your rule “Hold emails” holds send_email for 1 approval; this one asks for 5. When both match, the older rule is used, so it decides." }]);
+    expect(hardConflicts({ text: "x", scope: "send_email", effect: "always_require_approval", approvals: 1 }, [one])[0].kind).toBe("duplicate");
+  });
+});

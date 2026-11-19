@@ -80,3 +80,10 @@ describe("the Try it first panel", () => {
     expect((screen.getByTestId("rule-trial-run") as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+describe("review fixes", () => {
+  it("a hold written by the agent runtime (REQUIRE_APPROVAL) is a check; an agent step is not", () => {
+    const t = replayActionRule("send_email", [D("REQUIRE_APPROVAL send_email (Gmail)", "send_email"), D('Call tool "web_search"', "send_email")]);
+    expect(t).toMatchObject({ checked: 1, matched: 1, wasAllowed: 0 });
+  });
+});

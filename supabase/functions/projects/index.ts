@@ -177,10 +177,11 @@ Deno.serve(async (req) => {
     if (!inputRead.ok) return inputRead.response;
     const body = inputRead.value as Record<string, unknown>;
     const action = String(body.action ?? "");
-    // Reading is for every team member; everything else needs an owner.
+    // Reading is for every team member; everything else needs an owner. Trying a rule (Inner Control) is rule work, so it needs the
+    // owner's rule permission, the one the rules screen checks, not the projects one.
     const accountId = READ_ACTIONS.has(action)
       ? await readScope(userClient, authed.caller.userId, body.account_id)
-      : await resolveAccountScope(userClient, authed.caller.userId, body.account_id, "integrations");
+      : await resolveAccountScope(userClient, authed.caller.userId, body.account_id, action === "try_rule" ? "policy" : "integrations");
     if (!accountId) return json({ error: "forbidden", message: READ_ACTIONS.has(action) ? "You are not a member of that account." : "View only: only an owner of this account can change its projects." }, 403);
     const rate = await checkRateLimit(admin, accountId, "projects", RATE_LIMIT_PER_MINUTE, 60);
     if (!rate.allowed) return json({ error: "rate_limited", message: "Too many requests. Try again shortly." }, 429);

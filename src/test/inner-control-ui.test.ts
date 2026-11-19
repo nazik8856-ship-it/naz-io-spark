@@ -83,6 +83,16 @@ describe("counts and the truthful status (Inner Day 2)", () => {
     expect(p).toEqual({ lastAt: "2026-11-19T11:00:00Z", checks: 5, changed: 3 });
     expect(enforcementPulse([], [], [null, undefined])).toEqual({ lastAt: null, checks: 0, changed: 0 });
   });
+  it("the newest-check filter in the hook names every verdict word, and nothing else", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { VERDICT_WORDS } = await import("@/lib/inner-control-ui");
+    const src = readFileSync(`${__dirname}/../hooks/useInnerControlRules.ts`, "utf8");
+    const words = [...(src.match(/\.or\("((?:decision\.ilike\.[A-Z_]+%,?)+)"\)/)?.[1] ?? "").matchAll(/ilike\.([A-Z_]+)%/g)].map((m) => m[1]);
+    expect(words.sort()).toEqual([...VERDICT_WORDS].sort());
+  });
+  it("a hold written by the agent runtime (REQUIRE_APPROVAL) is a check that changed something", () => {
+    expect(enforcementPulse([{ decision: "REQUIRE_APPROVAL send_email (Gmail)", action_type: "send_email", created_at: "2026-11-19T08:00:00Z" }], [], [])).toEqual({ lastAt: null, checks: 1, changed: 1 });
+  });
   it("asks for a template only when there are no rules at all", () => {
     expect(needsTemplate(countRules([]))).toBe(true);
     expect(needsTemplate(countRules(toRuleItems([hard({ enabled: false })], [], nm)))).toBe(false);

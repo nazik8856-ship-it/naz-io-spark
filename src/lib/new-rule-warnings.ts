@@ -45,7 +45,12 @@ export function hardConflicts(draft: HardEdit, existing: HardRuleRow[]): RuleWar
     const state = stateOf(r);
     const live = r.enabled !== false && !r.shadow_mode;
     const firstWins = !live ? "" : scopedOf(r) ? " For the AI it is set for, that rule is used." : " When both match, the older rule is used, so it decides.";
-    if (same && r.effect === draft.effect) {
+    // The gate holds for the winning rule's own number of approvals (none stored means 1).
+    const theirApprovals = r.required_approvals ?? 1;
+    const fewer = r.effect === "always_require_approval" && draft.effect === "always_require_approval" && theirApprovals !== draft.approvals;
+    if (same && r.effect === draft.effect && fewer) {
+      out.push({ kind: "contradicts", id: r.id, name: r.rule_text, line: `Your rule ${name}${state} holds ${what(theirs)} for ${theirApprovals} ${theirApprovals === 1 ? "approval" : "approvals"}; this one asks for ${draft.approvals}.${firstWins}` });
+    } else if (same && r.effect === draft.effect) {
       out.push({ kind: "duplicate", id: r.id, name: r.rule_text, line: `Same as your rule ${name}${state}: it already ${does(r.effect, what(theirs))}.` });
     } else if (r.effect !== draft.effect && (same || wider)) {
       out.push({ kind: "contradicts", id: r.id, name: r.rule_text, line: `Your rule ${name}${state} ${does(r.effect, what(theirs))}; this one ${would(draft.effect, same ? "them" : what(mine))}.${firstWins}` });

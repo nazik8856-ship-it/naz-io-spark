@@ -9,8 +9,7 @@ export type ActionTrial = { checked: number; matched: number; wasAllowed: number
 export type TextHit = { tool: string; at: string; before: string; match: string; after: string };
 export type TextTrial = { checked: number; matched: number; hits: TextHit[] };
 
-const VERDICTS = new Set(["ALLOW", "BLOCK", "MODIFY", "DEFERRED", "ESCALATE", "APPROVAL_REQUIRED"]);
-const verdictOf = (d: string) => { const w = String(d ?? "").trim().split(/\s+/)[0]?.toUpperCase() ?? ""; return VERDICTS.has(w) ? w : null; };
+import { verdictOf } from "@/lib/inner-control-ui"; // the status card's parser: a check, not an agent step
 
 /** Which of these recorded actions an action rule would have matched (any provider, as a rule made here has none). */
 export function replayActionRule(pattern: string, decisions: { decision: string; action_type: string | null }[]): ActionTrial {

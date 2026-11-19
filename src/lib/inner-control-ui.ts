@@ -140,8 +140,9 @@ export function countRules(items: RuleItem[]): RuleCounts {
 export type EnforcementPulse = { lastAt: string | null; checks: number; changed: number };
 
 /** A decision row's verdict word ("BLOCK send_email (Gmail)" → "BLOCK"); null for rows that are not a check (agent steps). */
-const VERDICT_WORDS = new Set(["ALLOW", "BLOCK", "MODIFY", "DEFERRED", "ESCALATE", "APPROVAL_REQUIRED"]);
-const verdictOf = (decision: string) => { const w = String(decision ?? "").trim().split(/\s+/)[0]?.toUpperCase() ?? ""; return VERDICT_WORDS.has(w) ? w : null; };
+// Both spellings of a hold are written: APPROVAL_REQUIRED by the gate, REQUIRE_APPROVAL by the agent runtime.
+export const VERDICT_WORDS = new Set(["ALLOW", "BLOCK", "MODIFY", "DEFERRED", "ESCALATE", "APPROVAL_REQUIRED", "REQUIRE_APPROVAL"]);
+export const verdictOf = (decision: string) => { const w = String(decision ?? "").trim().split(/\s+/)[0]?.toUpperCase() ?? ""; return VERDICT_WORDS.has(w) ? w : null; };
 
 /**
  * Today's checks under the rules: an agent's actions (agent_decisions) and every answer check (outer_control_evaluations, where an

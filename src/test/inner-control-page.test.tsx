@@ -10,12 +10,15 @@ const state = vi.hoisted(() => ({
   invoke: vi.fn(),
   updates: [] as { table: string; patch: unknown }[],
   approvals: [] as unknown[],
+  filters: [] as string[],
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
   const result = (table: string) => {
     const q: Record<string, unknown> = {};
     for (const m of ["select", "eq", "is", "not", "in", "order", "limit", "gte"]) q[m] = () => q;
+    // The newest check: only decision rows that start with a verdict word (the hook asks for those with or()).
+    q.or = (f: string) => { state.filters.push(f); q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: ((state.tables[table] ?? []) as { decision?: string }[]).filter((r) => /^(ALLOW|BLOCK|MODIFY|DEFERRED|ESCALATE|APPROVAL_REQUIRED|REQUIRE_APPROVAL)\b/i.test(r.decision ?? "")), error: null }).then(res); return q; };
     q.update = (patch: unknown) => { state.updates.push({ table, patch }); return q; };
     q.maybeSingle = () => Promise.resolve({ data: null, error: null });
     q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: state.tables[table] ?? [], error: null }).then(res);

@@ -106,12 +106,18 @@ export function useInnerControlRules(project?: InnerProject | null) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const agentOnly = (q: any) => (project?.kind === "agent" ? q.eq("agent_id", project.id) : q);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pulseQueries: Promise<any>[] = skipPulse ? [Promise.resolve({ data: [] }), Promise.resolve({ data: [] }), Promise.resolve({ data: [] })] : [
+    const pulseQueries: Promise<any>[] = skipPulse ? [0, 1, 2, 3].map(() => Promise.resolve({ data: [] })) : [
       agentOnly(anyDb.from("agent_decisions").select("decision, action_type, created_at").eq("user_id", accountId).eq("is_test", false).gte("created_at", since)).limit(2000),
-      agentOnly(anyDb.from("outer_control_evaluations").select("verdict, created_at").eq("user_id", accountId).gte("created_at", since)).limit(2000),
-      agentOnly(anyDb.from("outer_control_evaluations").select("created_at").eq("user_id", accountId)).order("created_at", { ascending: false }).limit(1),
+      // Answer checks only: an action check (content_kind action) already has its decision row above.
+      agentOnly(anyDb.from("outer_control_evaluations").select("verdict, created_at").eq("user_id", accountId).eq("content_kind", "text").gte("created_at", since)).limit(2000),
+      agentOnly(anyDb.from("outer_control_evaluations").select("created_at").eq("user_id", accountId).eq("content_kind", "text")).order("created_at", { ascending: false }).limit(1),
+      // The newest decision that is a check (it starts with a verdict word), not an agent step such as Call tool.
+      agentOnly(anyDb.from("agent_decisions").select("created_at").eq("user_id", accountId).eq("is_test", false)
+        // One word per VERDICT_WORDS entry (held to it by inner-control-ui.test.ts); a fixed text, no input in it.
+        .or("decision.ilike.ALLOW%,decision.ilike.BLOCK%,decision.ilike.MODIFY%,decision.ilike.DEFERRED%,decision.ilike.ESCALATE%,decision.ilike.APPROVAL_REQUIRED%,decision.ilike.REQUIRE_APPROVAL%"))
+        .order("created_at", { ascending: false }).limit(1),
     ];
-    const [h, s, a, d, p, dt, et, el] = await Promise.all([
+    const [h, s, a, d, p, dt, et, el, dl] = await Promise.all([
       anyDb.from("hard_rules")
         .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id, required_approvals, created_at")
         .eq("user_id", accountId).order("created_at", { ascending: false }),
@@ -129,11 +135,11 @@ export function useInnerControlRules(project?: InnerProject | null) {
     const decisionRows = (d.data ?? []) as DecisionRow[];
     setDecisions(decisionRows);
     // A query that failed is not "nothing ran": the pulse stays unknown and the card says it is still checking.
-    const pulseFailed = [dt, et, el].some((r) => (r as { error?: unknown }).error);
+    const pulseFailed = [dt, et, el, dl].some((r) => (r as { error?: unknown }).error);
     setPulse(skipPulse || pulseFailed ? null : enforcementPulse(
       (dt.data ?? []) as { decision: string; action_type: string | null; created_at: string }[],
       (et.data ?? []) as { verdict: string | null; created_at: string }[],
-      [decisionRows[0]?.created_at, ((el.data ?? []) as { created_at: string }[])[0]?.created_at],
+      [((dl.data ?? []) as { created_at: string }[])[0]?.created_at, ((el.data ?? []) as { created_at: string }[])[0]?.created_at],
     ));
     const linked = await loadOuterTasks(accountId, decisionRows, project);
     setTaskTags(linked.tags);
