@@ -68,7 +68,10 @@ describe("Inner Control page", () => {
     for (let i = 0; i < order.length - 1; i++) {
       expect(order[i].compareDocumentPosition(order[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
-    expect(status.querySelector("[data-testid=status-line]")?.textContent).toBe("1 rule active – Coverage 50%");
+    expect(status.querySelector("[data-testid=status-line]")?.textContent).toBe("1 rule active");
+    // What ran under the rules today (the blocked decision above), and the steps from the same rules the list shows.
+    await waitFor(() => expect(status.querySelector("[data-testid=status-detail]")?.textContent).toBe("Last checked just now · today 1 of 1 check changed, held or blocked something"));
+    expect(status.querySelector("[data-testid=setup-next]")?.textContent).toBe("3 of 4 steps done · next: A safety rule enforcing");
     // The numbers behind the status come after the three sections and stay closed until asked for.
     const details = screen.getByTestId("details-toggle");
     expect(order[2].compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -84,7 +87,17 @@ describe("Inner Control page", () => {
     expect(await screen.findByRole("button", { name: /Start from a Policy Template/ })).toBeTruthy();
     expect(screen.getByTestId("rules-empty")).toBeTruthy();
     expect(screen.getByTestId("activity-empty")).toBeTruthy();
-    expect(screen.queryByTestId("status-line")).toBeNull();
+    expect(screen.getByTestId("status-line").dataset.state).toBe("no_rules");
+  });
+
+  it("rules that are all in shadow mode or switched off are never called active, and the steps agree with the list", async () => {
+    state.tables = { ...state.tables, hard_rules: [{ ...hardRule, shadow_mode: true }, { ...hardRule, id: "h2", enabled: false }] };
+    renderPage();
+    const line = await screen.findByTestId("status-line");
+    await waitFor(() => expect(line.textContent).toBe("None of your 2 rules is enforcing yet"));
+    expect(screen.getByTestId("status-detail").textContent).toBe("1 is in shadow mode (watched only) and 1 is switched off. Switch one on to make it apply.");
+    expect(screen.getByRole("button", { name: "Review your rules" })).toBeTruthy();
+    expect(screen.getByTestId("setup-next").textContent).toBe("2 of 4 steps done · next: A hard rule enforcing");
   });
 
   it("Disable writes enabled=false on the rule's own table", async () => {
@@ -244,7 +257,7 @@ describe("Inner Control always shows one existing project", () => {
     fireEvent.click(within(check).getByRole("button"));
     expect(check.textContent).toMatch(/price was not in your brief/);
     expect((await screen.findByTestId("activity-empty")).textContent).toMatch(/takes no actions of its own/);
-    expect(screen.getByTestId("setup-status").textContent).toMatch(/3 of 4 steps done · next: Safety rules/);
+    expect(screen.getByTestId("setup-status").textContent).toMatch(/3 of 4 steps done · next: A safety rule enforcing/);
     await screen.findByTestId("rule-row-hard:h1");
   });
 

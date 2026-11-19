@@ -134,12 +134,75 @@ export function countRules(items: RuleItem[]): RuleCounts {
   return { enforcing, shadow, disabled, total: items.length };
 }
 
-/** "3 rules active – Coverage 60%". Shadow rules are named, not counted as active: they enforce nothing. */
-export function statusLine(c: RuleCounts, coveragePct: number | null): string {
-  const rules = `${c.enforcing} ${c.enforcing === 1 ? "rule" : "rules"} active`;
-  const shadow = c.shadow > 0 ? ` (+${c.shadow} in shadow mode)` : "";
-  const cov = coveragePct === null ? "Coverage — (no connected capabilities yet)" : `Coverage ${coveragePct}%`;
-  return `${rules}${shadow} – ${cov}`;
+// ---- The status card: what is really enforcing, and what it last did (Inner Day 2) ---------------------------------------
+
+/** What happened under the rules: when they last checked something, and today's checks and how many changed, held or blocked. */
+export type EnforcementPulse = { lastAt: string | null; checks: number; changed: number };
+
+/** A decision row's verdict word ("BLOCK send_email (Gmail)" → "BLOCK"); null for rows that are not a check (agent steps). */
+const VERDICT_WORDS = new Set(["ALLOW", "BLOCK", "MODIFY", "DEFERRED", "ESCALATE", "APPROVAL_REQUIRED"]);
+const verdictOf = (decision: string) => { const w = String(decision ?? "").trim().split(/\s+/)[0]?.toUpperCase() ?? ""; return VERDICT_WORDS.has(w) ? w : null; };
+
+/**
+ * Today's checks under the rules: an agent's actions (agent_decisions) and every answer check (outer_control_evaluations, where an
+ * allowed answer is recorded too). An answer check is counted once: its decision row is left out (action_type outer_control_text_review).
+ * `latest` holds the newest time from each source, whatever the day.
+ */
+export function enforcementPulse(
+  decisionsToday: { decision: string; action_type: string | null; created_at: string }[],
+  evaluationsToday: { verdict: string | null; created_at: string }[],
+  latest: (string | null | undefined)[],
+): EnforcementPulse {
+  const actions = decisionsToday.filter((d) => d.action_type !== "outer_control_text_review" && verdictOf(d.decision));
+  const changedActions = actions.filter((d) => verdictOf(d.decision) !== "ALLOW").length;
+  const changedAnswers = evaluationsToday.filter((e) => e.verdict && e.verdict !== "allow").length;
+  const times = latest.filter((t): t is string => !!t && !Number.isNaN(Date.parse(t)));
+  const lastAt = times.length ? times.reduce((a, b) => (Date.parse(a) >= Date.parse(b) ? a : b)) : null;
+  return { lastAt, checks: actions.length + evaluationsToday.length, changed: changedActions + changedAnswers };
+}
+
+export type StatusSummary = {
+  state: "loading" | "no_rules" | "none_enforcing" | "idle" | "active";
+  headline: string;
+  detail: string | null;
+};
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function sinceText(iso: string, now: number): string {
+  const m = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000));
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+
+/**
+ * The status card's two lines, from the same rules the list shows and from what really ran under them. Never a number that
+ * was not measured: while something is loading it says so; with no rule it says nothing limits the AI; with rules but none
+ * enforcing it says which state they are in.
+ */
+export function statusSummary(c: RuleCounts | null, pulse: EnforcementPulse | null, opts: { website?: boolean; now?: number } = {}): StatusSummary {
+  const now = opts.now ?? Date.now();
+  if (!c) return { state: "loading", headline: "Checking your rules…", detail: null };
+  if (c.total === 0) return { state: "no_rules", headline: "No rules yet, so nothing limits what your AI may do.", detail: null };
+  if (c.enforcing === 0) {
+    const parts = [c.shadow ? `${c.shadow} ${c.shadow === 1 ? "is" : "are"} in shadow mode (watched only)` : "", c.disabled ? `${c.disabled} ${c.disabled === 1 ? "is" : "are"} switched off` : ""].filter(Boolean);
+    return {
+      state: "none_enforcing",
+      headline: c.total === 1 ? "Your rule is not enforcing yet" : `None of your ${c.total} rules is enforcing yet`,
+      detail: `${parts.join(" and ")}. Switch one on to make it apply.`,
+    };
+  }
+  const headline = `${plural(c.enforcing, "rule")} active${c.shadow ? ` · ${c.shadow} in shadow mode` : ""}`;
+  if (opts.website) return { state: "idle", headline, detail: "A website is checked once, when it is generated. That check is shown below." };
+  if (!pulse) return { state: "active", headline, detail: "Checking what ran under them…" };
+  if (!pulse.lastAt) return { state: "idle", headline, detail: "Rules are set but nothing has run under them yet." };
+  const today = pulse.checks === 0
+    ? "nothing checked today yet"
+    : `today ${pulse.changed} of ${plural(pulse.checks, "check")} changed, held or blocked something`;
+  return { state: "active", headline, detail: `Last checked ${sinceText(pulse.lastAt, now)} · ${today}` };
 }
 
 /** Hard/safety rules both missing is the "start from a template" state. */

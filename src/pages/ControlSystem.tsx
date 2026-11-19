@@ -17,7 +17,7 @@ import YourRulesCard from "@/components/control/dashboard/YourRulesCard";
 import RecentActivityCard from "@/components/control/dashboard/RecentActivityCard";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import PromptExtras, { type Attachment } from "@/components/generator/PromptExtras";
-import { buildControlMessage, CHAT_SPEC, CHAT_SUGGESTIONS, chatStepLabels, needsTemplate, statusLine, type RuleItem } from "@/lib/inner-control-ui";
+import { buildControlMessage, CHAT_SPEC, CHAT_SUGGESTIONS, chatStepLabels, needsTemplate, statusSummary, type RuleItem } from "@/lib/inner-control-ui";
 import { useSpendSafetyStatus } from "@/hooks/useSpendSafetyStatus";
 import { useControlDashboardData } from "@/hooks/useControlDashboardData";
 import { usePendingApprovalsFeed } from "@/hooks/usePendingApprovalsFeed";
@@ -205,9 +205,14 @@ export default function ControlSystem() {
   // and the Approvals button above carries their count.
   const chatTurns: Turn[] = turns;
 
-  const setupChecks = [
-    { label: "Hard rules", done: dashboard.setup.hardRules, onClick: () => navigate("/control-system/safety-rules") },
-    { label: "Safety rules", done: dashboard.setup.safetyRules, onClick: () => navigate("/control-system/safety-rules") },
+  // Truthful status (Inner Day 2): the rule steps come from the same rules the list shows (one switched on and enforcing), the
+  // other steps only once the dashboard has loaded them; until then no step is shown as not done.
+  const scrollToRules = () => document.querySelector('[data-testid="your-rules"]')?.scrollIntoView({ block: "start", behavior: "smooth" });
+  const enforcingOf = (kind: "hard" | "safety") => innerRules.rules.some((r) => r.kind === kind && r.status === "active" && !r.shadow);
+  const statusNow = statusSummary(innerRules.loading ? null : innerRules.counts, innerRules.pulse, { website: shown?.kind === "website" });
+  const setupChecks = innerRules.loading || dashboard.loading ? null : [
+    { label: "A hard rule enforcing", done: enforcingOf("hard"), onClick: scrollToRules },
+    { label: "A safety rule enforcing", done: enforcingOf("safety"), onClick: scrollToRules },
     { label: "Daily spend limit", done: dashboard.setup.spendCapCustom, onClick: () => navigate("/control-system/spend-safety") },
     shown?.kind === "website"
       ? { label: "Website generated", done: dashboard.setup.agentDeployed, onClick: () => navigate(`/generated/website/${shown.id}`) }
@@ -280,8 +285,9 @@ export default function ControlSystem() {
             {/* 1. Status: is this project governed, and what is next */}
             <StatusHero
               coveragePct={dashboard.coveragePct}
-              status={!innerRules.loading && !needsTemplate(innerRules.counts) ? statusLine(innerRules.counts, dashboard.coveragePct) : null}
+              status={statusNow}
               checks={setupChecks}
+              onReviewRules={scrollToRules}
               cta={!innerRules.loading && needsTemplate(innerRules.counts)
                 ? { label: "Start from a Policy Template", onClick: () => navigate("/control-system/templates") }
                 : null}
