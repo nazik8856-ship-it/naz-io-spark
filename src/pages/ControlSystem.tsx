@@ -16,6 +16,10 @@ import { useExecutionLog } from "@/hooks/useExecutionLog";
 import { useInnerControlRules } from "@/hooks/useInnerControlRules";
 import YourRulesCard from "@/components/control/dashboard/YourRulesCard";
 import RuleTrial from "@/components/control/RuleTrial";
+import RuleWarnings from "@/components/control/RuleWarnings";
+import { hardConflicts, textConflicts } from "@/lib/new-rule-warnings";
+import type { HardEdit, SafetyEdit } from "@/lib/inner-rule-edit";
+import type { HardRuleRow, SafetyRuleRow } from "@/lib/inner-control-ui";
 import { trialSpecOfDraft, trialSpecOfRow } from "@/lib/rule-trial";
 import RecentActivityCard from "@/components/control/dashboard/RecentActivityCard";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -211,6 +215,13 @@ export default function ControlSystem() {
 
   // Truthful status (Inner Day 2): the rule steps come from the same rules the list shows (one switched on and enforcing), the
   // other steps only once the dashboard has loaded them; until then no step is shown as not done.
+  // The rules already there, for the Add window's duplicate and conflict warnings.
+  const warningsFor = (kind: "action" | "text", rule: HardEdit | SafetyEdit, phrases: string[]) => {
+    const rows = innerRules.rules.filter((r) => r.kind === (kind === "action" ? "hard" : "safety")).map((r) => innerRules.rowOf(r)).filter(Boolean);
+    return kind === "action"
+      ? ((rule as HardEdit).scope.trim() ? hardConflicts(rule as HardEdit, rows as HardRuleRow[]) : [])
+      : ((rule as SafetyEdit).pattern ? textConflicts(rule as SafetyEdit, phrases, rows as SafetyRuleRow[]) : []);
+  };
   const scrollToRules = () => document.querySelector('[data-testid="your-rules"]')?.scrollIntoView({ block: "start", behavior: "smooth" });
   const enforcingOf = (kind: "hard" | "safety") => innerRules.rules.some((r) => r.kind === kind && r.status === "active" && !r.shadow);
   const statusNow = statusSummary(innerRules.loading ? null : innerRules.counts, innerRules.pulse, { website: shown?.kind === "website" });
@@ -473,7 +484,12 @@ export default function ControlSystem() {
       <AddRuleDialog open={ruleEditorOpen} onOpenChange={closeRuleEditor} accountId={accountId} canWrite={innerRules.canWrite}
         onSaved={() => { void innerRules.refetch(); dashboard.refetch(); }}
         fallback={<div className="-mx-6" data-testid="rule-editor"><HardRulesPanel defaultOpen /></div>}
-        extra={(kind, rule, problem) => <RuleTrial spec={problem ? null : trialSpecOfDraft(kind, rule)} accountId={accountId} />} />
+        extra={(kind, rule, problem, phrases) => (
+          <>
+            <RuleWarnings warnings={warningsFor(kind, rule, phrases)} />
+            <RuleTrial spec={problem ? null : trialSpecOfDraft(kind, rule)} accountId={accountId} />
+          </>
+        )} />
       <Dialog open={!!trying} onOpenChange={(o) => { if (!o) setTrying(null); }}>
         <DialogContent className="max-w-lg border-white/10 bg-zinc-950 text-zinc-100">
           <DialogHeader>

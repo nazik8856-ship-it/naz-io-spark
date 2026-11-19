@@ -219,6 +219,10 @@ describe("Inner Control page", () => {
     fireEvent.change(within(dialog).getByLabelText("Applies to"), { target: { value: "send_email" } });
     fireEvent.click(within(dialog).getByTestId("rule-trial-run"));
     expect((await within(dialog).findByTestId("rule-trial-line")).textContent).toBe("Of your last 1 action, 1 would have been held for approval (send_email ×1).");
+    // The live rule already blocks send_email: the window says so, names it, and still lets the rule be saved.
+    expect(within(dialog).getByTestId("rule-warning-contradicts").textContent).toBe(
+      "Disagrees with a rule. Your rule “Never email more than 1 person” blocks send_email; this one would hold them for approval. When both match, the older rule is used, so it decides.");
+    expect((within(dialog).getByTestId("add-rule-save") as HTMLButtonElement).disabled).toBe(false);
   });
 });
 

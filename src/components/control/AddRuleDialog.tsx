@@ -50,8 +50,8 @@ export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite,
   onSaved: () => void;
   /** The full hard-rule editor, shown when asked for (the old Add form). */
   fallback?: ReactNode;
-  /** Shown above Save for the rule as typed so far (Try it first, conflict warnings). */
-  extra?: (kind: RuleKindChoice, rule: HardEdit | SafetyEdit, problem: string | null) => ReactNode;
+  /** Shown above Save for the rule as typed so far (Try it first, conflict warnings); phrases are the words typed for a text rule. */
+  extra?: (kind: RuleKindChoice, rule: HardEdit | SafetyEdit, problem: string | null, phrases: string[]) => ReactNode;
 }) {
   const [kind, setKind] = useState<RuleKindChoice | null>(null);
   const [hard, setHard] = useState<HardEdit>(NEW_HARD);
@@ -191,7 +191,7 @@ export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite,
               <span>Start in shadow mode: watch and log only, so you can see what it would catch before it blocks anything.</span>
             </label>
 
-            {extra?.(kind, rule, problem)}
+            {extra?.(kind, rule, problem, kind === "text" && !text.advanced ? phrasesFrom(text.words) : [])}
 
             {tried && problem && <p className="text-sm text-rose-300" role="alert" data-testid="add-rule-problem">{problem}</p>}
             {saveError && <p className="text-sm text-rose-300" role="alert" data-testid="add-rule-error">{saveError}</p>}
