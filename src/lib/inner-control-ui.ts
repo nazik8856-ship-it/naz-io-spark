@@ -199,7 +199,7 @@ export type StatusSummary = {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-function sinceText(iso: string, now: number): string {
+export function sinceText(iso: string, now: number): string {
   const m = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000));
   if (m < 1) return "just now";
   if (m < 60) return `${m} min ago`;

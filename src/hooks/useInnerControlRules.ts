@@ -25,6 +25,7 @@ import {
 } from "@/lib/inner-control-ui";
 import { rulesFor, type InnerProject } from "@/lib/inner-projects";
 import { SUGGEST_WINDOW_DAYS, type SuggestionDecision } from "@/lib/rule-suggestions";
+import { RULE_ACTIVITY_DAYS, ruleActivityLine, ruleActivityOf, ruleHitsOf, type RuleHit } from "@/lib/rule-activity";
 import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 import { hardPatch, meaningPatch, safetyPatch, writeOutcome, type HardEdit, type MeaningEdit, type SafetyEdit } from "@/lib/inner-rule-edit";
 
@@ -92,6 +93,7 @@ export function useInnerControlRules(project?: InnerProject | null) {
   const [meaning, setMeaning] = useState<MeaningRuleRow[]>([]);
   const [meaningUsage, setMeaningUsage] = useState<MeaningUsage | null>(null);
   const [weekDecisions, setWeekDecisions] = useState<SuggestionDecision[]>([]);
+  const [ruleHits, setRuleHits] = useState<RuleHit[] | null>(null);
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [decisions, setDecisions] = useState<DecisionRow[]>([]);
   const [taskTags, setTaskTags] = useState<Map<string, OuterTaskTag>>(new Map());
@@ -121,8 +123,9 @@ export function useInnerControlRules(project?: InnerProject | null) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const agentOnly = (q: any) => (project?.kind === "agent" ? q.eq("agent_id", project.id) : q);
     const weekAgo = new Date(Date.now() - SUGGEST_WINDOW_DAYS * 86_400_000).toISOString();
+    const lookBack = new Date(Date.now() - RULE_ACTIVITY_DAYS * 86_400_000).toISOString();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pulseQueries: Promise<any>[] = skipPulse ? [0, 1, 2, 3, 4, 5].map(() => Promise.resolve({ data: [] })) : [
+    const pulseQueries: Promise<any>[] = skipPulse ? [0, 1, 2, 3, 4, 5, 6, 7, 8].map(() => Promise.resolve({ data: [] })) : [
       agentOnly(anyDb.from("agent_decisions").select("decision, action_type, created_at").eq("user_id", accountId).eq("is_test", false).gte("created_at", since)).limit(2000),
       // Answer checks only: an action check (content_kind action) already has its decision row above.
       agentOnly(anyDb.from("outer_control_evaluations").select("verdict, created_at").eq("user_id", accountId).eq("content_kind", "text").gte("created_at", since)).limit(2000),
@@ -138,8 +141,17 @@ export function useInnerControlRules(project?: InnerProject | null) {
       // This week's decisions, for suggested rules: what was stopped with no rule of the account behind it.
       agentOnly(anyDb.from("agent_decisions").select("decision, action_type, hard_rule_id, created_at")
         .eq("user_id", accountId).eq("is_test", false).gte("created_at", weekAgo)).order("created_at", { ascending: false }).limit(3000),
+      // What each rule did (Inner Day 3), over the last 90 days: the decisions a hard rule decided, what a hard rule in shadow mode
+      // would have done, and the reply checks a safety rule or a rule in plain words matched.
+      agentOnly(anyDb.from("agent_decisions").select("hard_rule_id, created_at").eq("user_id", accountId).eq("is_test", false)
+        .not("hard_rule_id", "is", null).gte("created_at", lookBack)).order("created_at", { ascending: false }).limit(5000),
+      anyDb.from("hard_rule_shadow_hits").select("rule_id, created_at").eq("user_id", accountId).gte("created_at", lookBack)
+        .order("created_at", { ascending: false }).limit(5000),
+      // The matches are stored encrypted: read through the server (as this user, same row rules), never straight from the table.
+      agentOnly(ocRead("outer_control_evaluations").select("matches, shadow_matches, created_at").eq("user_id", accountId)
+        .gte("created_at", lookBack)).order("created_at", { ascending: false }).limit(1000),
     ];
-    const [h, s, a, d, p, mr, dt, et, el, dl, mu, wk] = await Promise.all([
+    const [h, s, a, d, p, mr, dt, et, el, dl, mu, wk, rd, rs, re] = await Promise.all([
       anyDb.from("hard_rules")
         .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id, required_approvals, created_at")
         .eq("user_id", accountId).order("created_at", { ascending: false }),
@@ -158,6 +170,12 @@ export function useInnerControlRules(project?: InnerProject | null) {
     setSafety(rulesFor(project, (s.data ?? []) as SafetyRuleRow[]));
     setMeaning((mr.data ?? []) as MeaningRuleRow[]);
     setWeekDecisions((wk as { error?: unknown }).error ? [] : (wk.data ?? []) as SuggestionDecision[]);
+    // Unknown (no line under the rules) when any of the three could not be read: never "never matched" by mistake.
+    setRuleHits(skipPulse || [rd, rs, re].some((r) => (r as { error?: unknown }).error) ? null : ruleHitsOf({
+      decisions: (rd.data ?? []) as { hard_rule_id: string | null; created_at: string }[],
+      shadowHits: (rs.data ?? []) as { rule_id: string | null; created_at: string }[],
+      evaluations: (re.data ?? []) as { matches: unknown; shadow_matches: unknown; created_at: string }[],
+    }));
     // Unknown (not zero) when the query failed, so the screen never claims nothing was spent.
     setMeaningUsage(skipPulse || (mu as { error?: unknown }).error ? null : meaningUsageOf((mu.data ?? []) as Parameters<typeof meaningUsageOf>[0]));
     setAgents((a.data ?? []) as { id: string; name: string }[]);
@@ -188,6 +206,13 @@ export function useInnerControlRules(project?: InnerProject | null) {
   );
   const rules: RuleItem[] = useMemo(() => toRuleItems(hard, safety, agentName, meaning), [hard, safety, agentName, meaning]);
   const counts = useMemo(() => countRules(rules), [rules]);
+  /** What each rule did: the line under it in the list, or null when that could not be read. */
+  const activityOf = useMemo(() => {
+    if (!ruleHits) return () => null;
+    const now = Date.now();
+    const map = ruleActivityOf(ruleHits, now);
+    return (r: RuleItem): string | null => ruleActivityLine(r, map.get(r.key), now);
+  }, [ruleHits]);
   /** The rules that check the answers of a Task the chat runs (the same choice the server makes). */
   const taskRules = useMemo(() => taskAnswerRuleCount(hard, safety, meaning), [hard, safety, meaning]);
   const activity = useMemo(() => {
@@ -313,5 +338,5 @@ export function useInnerControlRules(project?: InnerProject | null) {
     return true;
   };
 
-  return { loading, rules, counts, taskRules, pulse, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, promote, rowOf, meaning, meaningUsage, weekDecisions, hard, refetch: load };
+  return { loading, rules, counts, taskRules, pulse, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, promote, rowOf, meaning, meaningUsage, weekDecisions, hard, activityOf, refetch: load };
 }

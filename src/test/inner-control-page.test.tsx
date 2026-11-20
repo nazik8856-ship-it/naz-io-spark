@@ -211,6 +211,12 @@ describe("Inner Control page", () => {
     expect(state.updates).toEqual([]);
   });
 
+  it("each rule says what it did: the blocked send_email decision is this rule's match", async () => {
+    renderPage();
+    const line = await screen.findByTestId("rule-activity-hard:h1");
+    expect(line.textContent).toMatch(/^Matched once in the last 7 days · last (just now|\d+ min ago)$/);
+  });
+
   it("an action stopped 3 times this week with no rule behind it is suggested; Make it a rule opens the drafted rule", async () => {
     const held = { ...decision, id: "d9", decision: "ESCALATE stripe_refund (Stripe)", action_type: "stripe_refund", hard_rule_id: null, source: "judgement" };
     state.tables = { ...state.tables, agent_decisions: [held, { ...held, id: "d10" }, { ...held, id: "d11" }] };

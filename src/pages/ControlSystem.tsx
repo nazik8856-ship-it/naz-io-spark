@@ -376,6 +376,7 @@ export default function ControlSystem() {
               onTemplates={() => navigate("/control-system/templates")}
               onEdit={editRule}
               note={meaningUsageLine(innerRules.meaning, innerRules.meaningUsage)}
+              activityOf={innerRules.activityOf}
               onTry={setTrying}
               onPromote={(r) => { void innerRules.promote(r).then((ok) => { if (ok) dashboard.refetch(); }); }}
               onToggle={(r) => void innerRules.setEnabled(r, r.status === "disabled")}

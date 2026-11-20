@@ -33,11 +33,13 @@ type Props = {
   onPromote?: (r: RuleItem) => void;
   /** One line on what rules in plain words cost and whether their cap was reached (meaningUsageLine). */
   note?: string | null;
+  /** What a rule did: when it last matched and how often this week, or that it never did (null: not known). */
+  activityOf?: (r: RuleItem) => string | null;
 };
 
 export default function YourRulesCard({
   rules, counts, loading, canWrite, dualControl, busyKey, highlightKey,
-  onAdd, onTemplates, onEdit, onToggle, onDelete, onAsk, onTry, onPromote, note,
+  onAdd, onTemplates, onEdit, onToggle, onDelete, onAsk, onTry, onPromote, note, activityOf,
 }: Props) {
   const [confirming, setConfirming] = useState<RuleItem | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -132,6 +134,9 @@ export default function YourRulesCard({
                   </span>
                   <span className="min-w-0 break-words text-xs text-zinc-500">{r.effect} · {r.scope}</span>
                 </div>
+                {activityOf?.(r) && (
+                  <p className="mt-1 text-[11px] text-zinc-400" data-testid={`rule-activity-${r.key}`}>{activityOf(r)}</p>
+                )}
                 <div className="mt-2 flex flex-wrap items-center justify-end gap-x-0.5">
                   <button onClick={() => onAsk(r)} aria-label={`Ask the chat about: ${r.name}`} title="Ask the chat about this rule" className={link}>Ask</button>
                   {canWrite && (

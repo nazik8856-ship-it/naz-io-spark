@@ -13,7 +13,14 @@ const toast = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-toast", () => ({ toast }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
 vi.mock("@/hooks/useActiveAccount", () => ({ useActiveAccount: () => ({ accountId: "u1", role: "owner", permissions: null }) }));
-vi.mock("@/lib/outer-control-read", () => ({ ocRead: () => ({ select: () => ({ in: async () => ({ data: [], error: null }) }) }) }));
+vi.mock("@/lib/outer-control-read", () => ({
+  ocRead: () => {
+    const b: Record<string, unknown> = {};
+    for (const m of ["select", "eq", "in", "is", "not", "gte", "order", "limit"]) b[m] = () => b;
+    b.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(res);
+    return b;
+  },
+}));
 vi.mock("@/integrations/supabase/client", () => {
   const from = (table: string) => {
     const filters: [string, unknown][] = [];
