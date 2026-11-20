@@ -8,13 +8,16 @@ import { storableText } from "./outer-control-text-review.ts";
 import { BUILTIN_SAFETY_RULES, type SafetyMatch } from "./safety-scanner.ts";
 import type { Foundation } from "./outer-control-brain.ts";
 import { parseModelObject } from "./model-output.ts";
+import { callAiGateway, pickAiGateway } from "./ai-gateway.ts";
+import { estimateCostUsd, recordAiSpend, type Usage } from "./spend-guard.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
 type Verdict = Foundation["verdict"];
 
 export type MeaningAction = "remove" | "block" | "approval";
-export type MeaningRule = { id: string; name: string; description: string; action: MeaningAction };
+/** shadow: watched and logged only; a finding never changes the decision. */
+export type MeaningRule = { id: string; name: string; description: string; action: MeaningAction; shadow?: boolean };
 export type MeaningFinding = { rule: MeaningRule; quote: string; pattern: string; why: string };
 export type JudgeResult = { unavailable: boolean; findings: MeaningFinding[]; discarded: number };
 export type JudgeAi = (prompt: { system: string; user: string }) => Promise<string | null>;
@@ -24,16 +27,37 @@ const MAX_REPLY_FOR_JUDGE = 12_000;
 const OPEN = "<<<REPLY>>>";
 const CLOSE = "<<<END_REPLY>>>";
 
-/** The rules for a session: the account's (no project) and those of the Task's project. */
-export async function loadMeaningRules(admin: AnyAdmin, accountId: string, projectId: string | null): Promise<MeaningRule[]> {
+type MeaningRow = { id: string; name: string; description: string; action: MeaningAction; project_id: string | null; shadow_mode?: boolean | null; created_at?: string | null };
+
+/**
+ * The rules one reply is checked against: the account's (no project) and those of the Task's project, if any. At most
+ * MAX_MEANING_RULES go to the judge, in a fixed order: the account's first, then the project's, oldest first in each. `skipped`
+ * says how many switched-on rules were left out by that cap, so the screen can say so.
+ */
+export async function loadMeaningRuleSet(admin: AnyAdmin, accountId: string, projectId: string | null): Promise<{ rules: MeaningRule[]; skipped: number }> {
   try {
-    const { data } = await admin.from("meaning_rules").select("id, name, description, action, project_id, enabled").eq("user_id", accountId).eq("enabled", true);
-    return ((data ?? []) as (MeaningRule & { project_id: string | null })[])
-      .filter((r) => r.project_id === null || r.project_id === projectId)
-      .slice(0, MAX_MEANING_RULES)
-      .map((r) => ({ id: r.id, name: r.name, description: r.description, action: r.action }));
-  } catch { return []; }
+    const { data, error } = await admin.from("meaning_rules").select("id, name, description, action, project_id, shadow_mode, created_at").eq("user_id", accountId).eq("enabled", true);
+    if (error) return { rules: [], skipped: 0 };
+    const all = orderMeaningRows((data ?? []) as MeaningRow[], projectId);
+    return { rules: all.slice(0, MAX_MEANING_RULES).map(toMeaningRule), skipped: Math.max(0, all.length - MAX_MEANING_RULES) };
+  } catch { return { rules: [], skipped: 0 }; }
 }
+
+/** The rules for a session (see loadMeaningRuleSet). */
+export async function loadMeaningRules(admin: AnyAdmin, accountId: string, projectId: string | null): Promise<MeaningRule[]> {
+  return (await loadMeaningRuleSet(admin, accountId, projectId)).rules;
+}
+
+/** The rows that apply to this reply, in the order the cap keeps them: the account's, then the project's, oldest first. */
+export function orderMeaningRows<T extends MeaningRow>(rows: T[], projectId: string | null): T[] {
+  const at = (r: MeaningRow) => Date.parse(r.created_at ?? "") || 0;
+  const byAge = (a: MeaningRow, b: MeaningRow) => at(a) - at(b) || a.id.localeCompare(b.id);
+  return [
+    ...rows.filter((r) => r.project_id === null).sort(byAge),
+    ...(projectId ? rows.filter((r) => r.project_id === projectId).sort(byAge) : []),
+  ];
+}
+const toMeaningRule = (r: MeaningRow): MeaningRule => ({ id: r.id, name: r.name, description: r.description, action: r.action, shadow: !!r.shadow_mode });
 
 export function buildJudgePrompt(rules: MeaningRule[], reply: string): { system: string; user: string } {
   const system = [
@@ -125,8 +149,65 @@ export function meaningRecord(rules: MeaningRule[], judge: JudgeResult) {
   return {
     checked: rules.length, unavailable: judge.unavailable, discarded: judge.discarded,
     findings: judge.findings.map((x) => ({
-      rule: x.rule.name, action: x.rule.action, why: x.why,
+      rule_id: x.rule.id, rule: x.rule.name, action: x.rule.action, why: x.why, ...(x.rule.shadow ? { shadow: true } : {}),
       quote: x.rule.action === "remove" ? null : storableText(BUILTIN_SAFETY_RULES, x.quote).slice(0, 200),
     })),
+  };
+}
+
+/** What the judge cost for one reply: its calls (one per reply), tokens and an estimate in US dollars. */
+export type JudgeCost = { calls: number; prompt_tokens: number; completion_tokens: number; cost_usd: number };
+export type MeaningRecord = ReturnType<typeof meaningRecord> & { skipped?: number; cost?: JudgeCost };
+
+/**
+ * NazAI's own AI gateway as the judge, metered: every call is added to the account's AI spend for the day (and to the agent's or
+ * API key's, when the reply came through one), so the daily spend cap covers rules in plain words too, and the cost of the call is
+ * kept with the reply's record.
+ */
+export function meteredGatewayJudge(admin: AnyAdmin, who: { userId: string; agentId?: string | null; apiKeyId?: string | null }): { ai: JudgeAi; cost: JudgeCost } {
+  const cost: JudgeCost = { calls: 0, prompt_tokens: 0, completion_tokens: 0, cost_usd: 0 };
+  const ai: JudgeAi = async (p) => {
+    const cfg = pickAiGateway();
+    if (!cfg) return null;
+    try {
+      const res = await callAiGateway({
+        model: cfg.deepModel, temperature: 0, response_format: { type: "json_object" },
+        messages: [{ role: "system", content: p.system }, { role: "user", content: p.user }],
+      }, cfg, AbortSignal.timeout(45_000));
+      if (!res.ok) return null;
+      const j = await res.json() as { choices?: { message?: { content?: string } }[]; usage?: Usage };
+      cost.calls++;
+      cost.prompt_tokens += Number(j.usage?.prompt_tokens ?? 0) || 0;
+      cost.completion_tokens += Number(j.usage?.completion_tokens ?? 0) || 0;
+      cost.cost_usd = Number((cost.cost_usd + estimateCostUsd(cfg.deepModel, j.usage)).toFixed(6));
+      await recordAiSpend(admin, who.userId, cfg.deepModel, j.usage, "meaning-rules", who.agentId ?? null, who.apiKeyId ?? null);
+      return j.choices?.[0]?.message?.content ?? null;
+    } catch { return null; }
+  };
+  return { ai, cost };
+}
+
+/** A shadow rule's finding, as a shadow match: logged with the reply's other shadow matches, never part of the verdict. */
+const shadowMatchOf = (x: MeaningFinding): SafetyMatch => ({
+  rule_id: `meaning:${x.rule.id}`, name: x.rule.name, category: "meaning", severity: x.rule.action === "approval" ? "require_approval" : "block",
+  pattern: x.pattern, matched_on: "content", sample: x.rule.action === "remove" ? "" : x.quote.slice(0, 60), rationale: x.why, redact: x.rule.action === "remove",
+});
+
+/**
+ * One reply checked against the rules in plain words, in one judge call, on top of a decision already made by the deterministic
+ * rules. Live rules can only make that decision stricter; shadow rules only add shadow matches. A reply already blocked is not
+ * sent to the judge. When the judge can not run, a person decides, but only if a live rule was left unchecked.
+ */
+export async function applyMeaning(
+  ai: JudgeAi | null | undefined, rules: MeaningRule[], content: string, f: Foundation,
+): Promise<{ foundation: Foundation; shadow: SafetyMatch[]; record: MeaningRecord | null }> {
+  if (!rules.length || f.verdict === "block") return { foundation: f, shadow: [], record: null };
+  const judged = await judgeMeaning(ai, rules, content);
+  const liveRules = rules.filter((r) => !r.shadow);
+  const live: JudgeResult = { ...judged, unavailable: judged.unavailable && liveRules.length > 0, findings: judged.findings.filter((x) => !x.rule.shadow) };
+  return {
+    foundation: mergeMeaning(f, live, content),
+    shadow: judged.findings.filter((x) => x.rule.shadow).map(shadowMatchOf),
+    record: meaningRecord(rules, judged),
   };
 }

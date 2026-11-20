@@ -17,14 +17,16 @@ import { useInnerControlRules } from "@/hooks/useInnerControlRules";
 import YourRulesCard from "@/components/control/dashboard/YourRulesCard";
 import RuleTrial from "@/components/control/RuleTrial";
 import RuleWarnings from "@/components/control/RuleWarnings";
-import { hardConflicts, textConflicts } from "@/lib/new-rule-warnings";
-import type { HardEdit, SafetyEdit } from "@/lib/inner-rule-edit";
+import RuleSuggestions from "@/components/control/RuleSuggestions";
+import { suggestRules, type RuleSuggestion } from "@/lib/rule-suggestions";
+import { hardConflicts, meaningConflicts, textConflicts } from "@/lib/new-rule-warnings";
+import type { HardEdit, MeaningEdit, SafetyEdit } from "@/lib/inner-rule-edit";
 import type { HardRuleRow, SafetyRuleRow } from "@/lib/inner-control-ui";
 import { trialSpecOfDraft, trialSpecOfRow } from "@/lib/rule-trial";
 import RecentActivityCard from "@/components/control/dashboard/RecentActivityCard";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import PromptExtras, { type Attachment } from "@/components/generator/PromptExtras";
-import { buildControlMessage, CHAT_SPEC, CHAT_SUGGESTIONS, chatStepLabels, needsTemplate, statusSummary, type RuleItem } from "@/lib/inner-control-ui";
+import { buildControlMessage, CHAT_SPEC, CHAT_SUGGESTIONS, chatStepLabels, MAX_MEANING_RULES, meaningUsageLine, needsTemplate, statusSummary, type RuleItem } from "@/lib/inner-control-ui";
 import { useSpendSafetyStatus } from "@/hooks/useSpendSafetyStatus";
 import { useControlDashboardData } from "@/hooks/useControlDashboardData";
 import { usePendingApprovalsFeed } from "@/hooks/usePendingApprovalsFeed";
@@ -206,8 +208,24 @@ export default function ControlSystem() {
   const editRule = (r: RuleItem) => setEditing(r);
   const closeRuleEditor = (open: boolean) => {
     setRuleEditorOpen(open);
-    if (!open) { void innerRules.refetch(); dashboard.refetch(); }
+    if (!open) { setRuleDraft(null); void innerRules.refetch(); dashboard.refetch(); }
   };
+
+  // Suggested rules (Inner Day 3): what was stopped several times this week with no rule behind it. "Not now" hides one for this
+  // visit only (it may come back later in the week); "Make it a rule" opens the Add window with it drafted.
+  const dismissKey = `nazai_rule_suggestions_dismissed:${accountId ?? ""}`;
+  const [dismissed, setDismissed] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(sessionStorage.getItem(dismissKey) ?? "[]") as string[]); } catch { return new Set(); }
+  });
+  const [ruleDraft, setRuleDraft] = useState<RuleSuggestion["draft"] | null>(null);
+  const suggestions = innerRules.loading || shown?.kind === "website" ? []
+    : suggestRules(innerRules.weekDecisions, innerRules.hard, { now: Date.now(), dismissed });
+  const dismissSuggestion = (s: RuleSuggestion) => {
+    const next = new Set(dismissed).add(s.action);
+    setDismissed(next);
+    try { sessionStorage.setItem(`nazai_rule_suggestions_dismissed:${accountId ?? ""}`, JSON.stringify([...next])); } catch { /* remembered for this page only */ }
+  };
+  const makeRuleFrom = (s: RuleSuggestion) => { setRuleDraft(s.draft); setRuleEditorOpen(true); };
 
   // The chat panel shows the conversation only. Pending approvals are decided on the Approvals page,
   // and the Approvals button above carries their count.
@@ -216,7 +234,8 @@ export default function ControlSystem() {
   // Truthful status (Inner Day 2): the rule steps come from the same rules the list shows (one switched on and enforcing), the
   // other steps only once the dashboard has loaded them; until then no step is shown as not done.
   // The rules already there, for the Add window's duplicate and conflict warnings.
-  const warningsFor = (kind: "action" | "text", rule: HardEdit | SafetyEdit, phrases: string[]) => {
+  const warningsFor = (kind: "action" | "text" | "meaning", rule: HardEdit | SafetyEdit | MeaningEdit, phrases: string[]) => {
+    if (kind === "meaning") return meaningConflicts(rule as MeaningEdit, innerRules.meaning);
     const rows = innerRules.rules.filter((r) => r.kind === (kind === "action" ? "hard" : "safety")).map((r) => innerRules.rowOf(r)).filter(Boolean);
     return kind === "action"
       ? ((rule as HardEdit).scope.trim() ? hardConflicts(rule as HardEdit, rows as HardRuleRow[]) : [])
@@ -343,7 +362,8 @@ export default function ControlSystem() {
               </div>
             )}
 
-            {/* 2. Your rules: the centre of the page */}
+            {/* 2. Your rules: the centre of the page, with rules suggested from what happened */}
+            <RuleSuggestions suggestions={suggestions} canWrite={innerRules.canWrite} onMake={makeRuleFrom} onDismiss={dismissSuggestion} />
             <YourRulesCard
               rules={innerRules.rules}
               counts={innerRules.counts}
@@ -355,7 +375,10 @@ export default function ControlSystem() {
               onAdd={() => setRuleEditorOpen(true)}
               onTemplates={() => navigate("/control-system/templates")}
               onEdit={editRule}
+              note={meaningUsageLine(innerRules.meaning, innerRules.meaningUsage)}
+              activityOf={innerRules.activityOf}
               onTry={setTrying}
+              onPromote={(r) => { void innerRules.promote(r).then((ok) => { if (ok) dashboard.refetch(); }); }}
               onToggle={(r) => void innerRules.setEnabled(r, r.status === "disabled")}
               onDelete={(r) => void innerRules.remove(r)}
               onAsk={(r) => askInChat(`Explain my rule "${r.name}": what does it stop, and has it triggered recently?`)}
@@ -482,6 +505,8 @@ export default function ControlSystem() {
       <RuleEditDialog rule={editing} row={editing ? innerRules.rowOf(editing) : null} busy={!!innerRules.busyKey}
         onClose={() => setEditing(null)} onSave={async (r, e) => { const ok = await innerRules.edit(r, e); if (ok) dashboard.refetch(); return ok; }} />
       <AddRuleDialog open={ruleEditorOpen} onOpenChange={closeRuleEditor} accountId={accountId} canWrite={innerRules.canWrite}
+        meaningFull={innerRules.meaning.length >= MAX_MEANING_RULES}
+        initial={ruleDraft ? { kind: "action", hard: ruleDraft } : null}
         onSaved={() => { void innerRules.refetch(); dashboard.refetch(); }}
         fallback={<div className="-mx-6" data-testid="rule-editor"><HardRulesPanel defaultOpen /></div>}
         extra={(kind, rule, problem, phrases) => (

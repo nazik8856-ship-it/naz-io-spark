@@ -73,3 +73,36 @@ action rule, any provider with an action pattern that covers `outer_control_text
 applies to sending email, so it is not counted.
 
 `src/test/one-rule-set.test.ts` holds the page's count to the server's choice and guards the server filters above.
+
+## Rules in plain words for the whole account (Day 3)
+
+A rule in plain words ("Never promise a delivery date") is a `meaning_rules` row with no `project_id`. The Inner page adds,
+edits, switches off, deletes and makes it live directly (row rules: the owner, or a team owner with the `policy` permission, and
+only account-wide rows). It has the same protections as hard and safety rules (migration `20261120010000_account_meaning_rules`):
+- shadow mode (`shadow_mode`, `promoted_at`): a shadow rule's finding is only a shadow match;
+- at most 10 per account (`cap_account_meaning_rules`);
+- dual control: switching off, editing, deleting and going live are `disable/edit/delete/promote_meaning_rule` requests;
+- every change logged (`config_changes`).
+
+**Where they apply.** The AI judge (`_shared/meaning-judge.ts`) runs inside the one shared reply review,
+`evaluateExternalText({ meaning })`. Every path that checks a real reply passes `meaning`: the Outer Control API, the relay, an
+agent's `http_post`, the chat's "check this text", a Task's replies and a person's edited reply. The dashboard's fixed key
+self-test does not. A live rule can only make the decision stricter, and it needs a quote of the words that break it. A reply
+already blocked is not judged. When the judge can not run and a live rule was left unchecked, a person decides.
+
+**Cost.** One judge call reads a reply against all of its rules, and at most 10 are read (the account's first, then the
+project's, oldest first). `meaning: { ai: "gateway" }` meters every call into the account's daily AI spend and its cap
+(`meteredGatewayJudge`). Each reply check records `meaning_rules_checked`, `meaning_rules_skipped` and `meaning_cost_usd`, which
+feed the line under the rules list.
+
+## What happened, under the rules (Day 3)
+
+- **Suggested rules** (`src/lib/rule-suggestions.ts`): an action blocked, changed or held 3 or more times in 7 days with no rule
+  of the account behind it (`hard_rule_id` null) and no rule covering it is offered as a drafted rule. Nothing is saved until Save.
+- **What each rule did** (`src/lib/rule-activity.ts`): over 90 days, from `agent_decisions.hard_rule_id`,
+  `hard_rule_shadow_hits` and the reply checks' `matches` / `shadow_matches`, which are read through the server because they are
+  encrypted.
+- **Control pages pruned by usage**: the 11 pages nobody opened and no job needs are out of the All pages menu
+  (`HIDDEN_FROM_MENU`). Every one keeps its route.
+
+**Deploy order.** Apply the migration before the server functions: they write the new evaluation columns and read `shadow_mode`.

@@ -384,6 +384,7 @@ Deno.serve(async (req) => {
         sourceModel: String(parsed.source_model || "unknown").slice(0, 80),
         content,
         origin: "external-api",
+        meaning: { ai: "gateway" }, // the account's rules in plain words, in the same review (metered)
       });
       return json({ mode: "chat", reply: formatTextReviewReply(result) });
     }

@@ -3575,6 +3575,7 @@ Rules:
                   const review = await evaluateExternalText(supabase, {
                     userId, agentId, apiKeyId: null, isTest: false,
                     sourceModel: `http_post:${host}`, content: respText, origin: "agent-runtime",
+                    meaning: { ai: "gateway" }, // the account's rules in plain words, in the same review (metered)
                   });
                   outerVerdict = review.verdict;
                   outerSummary = review.summary;

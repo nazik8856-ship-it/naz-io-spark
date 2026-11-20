@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { FlaskConical, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
-import { actionTrialLine, replayActionRule, textTrialLine, type ActionTrial, type TextTrial, type TrialSpec } from "@/lib/rule-trial";
+import { actionTrialLine, meaningTrialLine, replayActionRule, textTrialLine, type ActionTrial, type MeaningTrial, type TextTrial, type TrialSpec } from "@/lib/rule-trial";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any;
@@ -32,6 +32,16 @@ export default function RuleTrial({ spec, accountId, disabled }: { spec: TrialSp
         if (error) throw new Error(error.message);
         const t: ActionTrial = replayActionRule(spec.pattern, (data ?? []) as { decision: string; action_type: string | null }[]);
         setResult({ line: actionTrialLine(t, spec.effect) + (spec.narrower ? " (Counted across all your AIs: this rule applies to fewer.)" : "") });
+      } else if (spec.kind === "meaning") {
+        // The AI judge reads each of the last replies (one short call each), on the server, where the replies can be read.
+        const { data, error } = await supabase.functions.invoke("projects", {
+          body: { action: "try_rule", kind: "meaning", name: spec.name, description: spec.description, rule_action: spec.action, account_id: accountId },
+        });
+        if (error) throw error;
+        const d = data as { ok?: boolean; message?: string } & Partial<MeaningTrial>;
+        if (!d?.ok) throw new Error(d?.message || "The rule could not be tried.");
+        const t: MeaningTrial = { checked: d.checked ?? 0, matched: d.matched ?? 0, hits: d.hits ?? [], unavailable: d.unavailable ?? 0 };
+        setResult({ line: meaningTrialLine(t, spec.action), hits: t.hits });
       } else {
         const { data, error } = await supabase.functions.invoke("projects", { body: { action: "try_rule", pattern: spec.pattern, account_id: accountId } });
         if (error) throw error;

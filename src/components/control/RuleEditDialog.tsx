@@ -3,10 +3,10 @@
 // shadow state are not touched here (Disable / Enable and the shadow controls do that).
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { HardRuleRow, RuleItem, SafetyRuleRow } from "@/lib/inner-control-ui";
+import type { HardRuleRow, MeaningRuleRow, RuleItem, SafetyRuleRow } from "@/lib/inner-control-ui";
 import {
-  hardEditOf, hardEditProblem, SAFETY_ACTION_LABEL, safetyEditOf, safetyEditProblem, SCOPE_CHOICES,
-  type HardEdit, type SafetyAction, type SafetyEdit,
+  hardEditOf, hardEditProblem, MEANING_ACTION_LABEL, meaningEditOf, meaningEditProblem, SAFETY_ACTION_LABEL, safetyEditOf,
+  safetyEditProblem, SCOPE_CHOICES, type HardEdit, type MeaningAction, type MeaningEdit, type SafetyAction, type SafetyEdit,
 } from "@/lib/inner-rule-edit";
 
 const field = "mt-1 w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-400/60";
@@ -14,30 +14,33 @@ const label = "block text-xs text-zinc-400";
 
 export default function RuleEditDialog({ rule, row, busy, onClose, onSave }: {
   rule: RuleItem | null;
-  row: HardRuleRow | SafetyRuleRow | null;
+  row: HardRuleRow | SafetyRuleRow | MeaningRuleRow | null;
   busy: boolean;
   onClose: () => void;
   /** Saves the edit; resolves true when it was saved (the dialog then closes). */
-  onSave: (r: RuleItem, e: HardEdit | SafetyEdit) => Promise<boolean>;
+  onSave: (r: RuleItem, e: HardEdit | SafetyEdit | MeaningEdit) => Promise<boolean>;
 }) {
   const [hard, setHard] = useState<HardEdit | null>(null);
   const [safety, setSafety] = useState<SafetyEdit | null>(null);
+  const [meaning, setMeaning] = useState<MeaningEdit | null>(null);
   const [tried, setTried] = useState(false);
 
   useEffect(() => {
     setTried(false);
-    if (!rule || !row) { setHard(null); setSafety(null); return; }
-    if (rule.kind === "hard") { setHard(hardEditOf(row as HardRuleRow)); setSafety(null); }
-    else { setSafety(safetyEditOf(row as SafetyRuleRow)); setHard(null); }
+    setHard(null); setSafety(null); setMeaning(null);
+    if (!rule || !row) return;
+    if (rule.kind === "hard") setHard(hardEditOf(row as HardRuleRow));
+    else if (rule.kind === "safety") setSafety(safetyEditOf(row as SafetyRuleRow));
+    else setMeaning(meaningEditOf(row as MeaningRuleRow));
   }, [rule, row]);
 
-  const problem = hard ? hardEditProblem(hard) : safety ? safetyEditProblem(safety) : null;
+  const problem = hard ? hardEditProblem(hard) : safety ? safetyEditProblem(safety) : meaning ? meaningEditProblem(meaning) : null;
   const scopeKnown = hard ? SCOPE_CHOICES.some((c) => c.value === hard.scope) : true;
 
   const save = async () => {
     setTried(true);
     if (!rule || problem || busy) return;
-    const e = hard ?? safety;
+    const e = hard ?? safety ?? meaning;
     if (e && (await onSave(rule, e))) onClose();
   };
 
@@ -47,7 +50,9 @@ export default function RuleEditDialog({ rule, row, busy, onClose, onSave }: {
         <DialogHeader>
           <DialogTitle>Edit rule</DialogTitle>
           <DialogDescription className="text-zinc-400">
-            {rule?.kind === "hard" ? "What the rule stops or holds, and for which actions." : "The text it looks for in replies, and what happens on a match."}
+            {rule?.kind === "hard" ? "What the rule stops or holds, and for which actions."
+              : rule?.kind === "meaning" ? "What a reply must never do, in plain words, and what happens when one does."
+              : "The text it looks for in replies, and what happens on a match."}
             {rule?.shadow ? " It stays in shadow mode: watched and logged only." : rule?.status === "disabled" ? " It stays disabled until you enable it." : ""}
           </DialogDescription>
         </DialogHeader>
@@ -97,6 +102,22 @@ export default function RuleEditDialog({ rule, row, busy, onClose, onSave }: {
             <label className={label}>On a match
               <select value={safety.action} onChange={(e) => setSafety({ ...safety, action: e.target.value as SafetyAction })} className={field} aria-label="On a match">
                 {(Object.keys(SAFETY_ACTION_LABEL) as SafetyAction[]).map((a) => <option key={a} value={a}>{SAFETY_ACTION_LABEL[a]}</option>)}
+              </select>
+            </label>
+          </div>
+        )}
+
+        {meaning && (
+          <div className="space-y-3">
+            <label className={label}>The rule, in plain words
+              <textarea rows={3} value={meaning.description} onChange={(e) => setMeaning({ ...meaning, description: e.target.value })} className={field} aria-label="The rule, in plain words" />
+            </label>
+            <label className={label}>Name
+              <input value={meaning.name} onChange={(e) => setMeaning({ ...meaning, name: e.target.value })} className={field} aria-label="Name" />
+            </label>
+            <label className={label}>When a reply breaks it
+              <select value={meaning.action} onChange={(e) => setMeaning({ ...meaning, action: e.target.value as MeaningAction })} className={field} aria-label="When a reply breaks it">
+                {(Object.keys(MEANING_ACTION_LABEL) as MeaningAction[]).map((a) => <option key={a} value={a}>{MEANING_ACTION_LABEL[a]}</option>)}
               </select>
             </label>
           </div>

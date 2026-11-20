@@ -95,3 +95,26 @@ export function textConflicts(draft: SafetyEdit, phrases: string[], existing: Sa
   }
   return sorted(out);
 }
+
+// ---- Rules in plain words: the same words are the same rule (the judge reads them the same way)
+
+const MEANING_DOES: Record<string, string> = { block: "blocks the reply", approval: "holds the reply for approval", remove: "removes the words that break it" };
+const sameWords = (a: string) => a.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+/** What a rule in plain words being added has in common with those already there: the same words, the same or another outcome. */
+export function meaningConflicts(
+  draft: { description: string; action: string },
+  existing: { id: string; name: string; description: string; action: string; enabled: boolean; shadow_mode: boolean }[],
+): RuleWarning[] {
+  const mine = sameWords(draft.description);
+  if (!mine) return [];
+  const out: RuleWarning[] = [];
+  for (const r of existing) {
+    if (sameWords(r.description) !== mine) continue;
+    const state = stateOf(r);
+    out.push(r.action === draft.action
+      ? { kind: "duplicate", id: r.id, name: r.name, line: `Same as your rule ${quote(r.name)}${state}: it already says this and ${MEANING_DOES[r.action] ?? "acts"}.` }
+      : { kind: "contradicts", id: r.id, name: r.name, line: `Your rule ${quote(r.name)}${state} says the same but ${MEANING_DOES[r.action] ?? "acts differently"}; this one ${MEANING_DOES[draft.action] ?? "acts differently"}.` });
+  }
+  return sorted(out);
+}

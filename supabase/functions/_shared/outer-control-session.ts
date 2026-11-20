@@ -40,7 +40,7 @@ import { loadCorrections, recordCorrection } from "./outer-control-corrections.t
 import { checkGoal } from "./outer-control-judgement.ts";
 import { buildSessionArtifact, describeWhatDone, type StepEvidence } from "./outer-control-artifact.ts";
 import { diffForReply } from "./outer-control-diff.ts";
-import { judgeMeaning, loadMeaningRules, meaningRecord, mergeMeaning, type JudgeAi } from "./meaning-judge.ts";
+import type { JudgeAi } from "./meaning-judge.ts";
 import { checkAgainstProject, projectReferenceOf } from "./project-consistency.ts";
 import { ALL_QUALITY, assessSpecific, buildChecklist, correctionFor, passedCount, problemsOf, QUALITY_BY_KIND, settle, tidyOutput, type Checklist, type ChecklistInput, type QualityId, type QualityScope } from "./outer-control-completion.ts";
 import { planRequest, preflightRequest } from "./outer-control-planner.ts";
@@ -924,18 +924,14 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           userId: s.user_id, agentId: null, apiKeyId: s.api_key_id, isTest: false,
           sourceModel: `tool:${tool.name}`.slice(0, 80), content, origin: "external-api",
           externalId: `${s.id}:${stepNo}:${attempt}`, contentHash, extraRules: await projectRulesOf(admin, s),
+          // Rules in plain words (the account's and the project's) are checked in the same review, so the recorded verdict has them.
+          meaning: { ai: deps.judgeAi === gatewayAi ? "gateway" : deps.judgeAi, projectId: await projectIdOf(admin, s) },
         });
       if (contained.secretsRemoved > 0) await deps.onSecretInReply?.(admin, s, tool.name, contained.secretsRemoved);
-      let foundation = { verdict: result.verdict, output: result.output, matches: result.matches ?? [], changes: result.changes ?? [], summary: result.summary, shadowMatches: result.shadowMatches?.length ?? 0 };
-      // Meaning rules: the AI judge reads the reply after the deterministic rules, must quote its evidence, and can only make
-      // the decision stricter. A reply those rules already block is not sent to it.
-      const meaningRules = await loadMeaningRules(admin, s.user_id, await projectIdOf(admin, s));
-      let meaning: ReturnType<typeof meaningRecord> | null = null;
-      if (meaningRules.length && result.verdict !== "block") {
-        const judged = await judgeMeaning(deps.judgeAi, meaningRules, content);
-        foundation = mergeMeaning(foundation, judged, content);
-        meaning = meaningRecord(meaningRules, judged);
-      }
+      // The review above already holds the rules in plain words (the AI judge, which must quote its evidence and can only make
+      // the decision stricter); their record is kept with the step.
+      const foundation = { verdict: result.verdict, output: result.output, matches: result.matches ?? [], changes: result.changes ?? [], summary: result.summary, shadowMatches: result.shadowMatches?.length ?? 0 };
+      const meaning = "meaning" in result ? result.meaning ?? null : null; // a held reply was never reviewed
       const matches = foundation.matches;
       const corrections = await loadCorrections(admin, s);
       const brain = think({
@@ -1099,7 +1095,7 @@ export async function applyEditedReply(admin: AnyAdmin, sessionId: string, text:
   const result = await evaluateExternalText(admin, {
     userId: s.user_id, agentId: null, apiKeyId: s.api_key_id, isTest: false, sourceModel: "person:edit",
     content: clean, origin: "external-api", externalId: `${s.id}:${stepNo}:${attempt}`, contentHash: await sha256Hex(clean),
-    extraRules: await projectRulesOf(admin, s),
+    extraRules: await projectRulesOf(admin, s), meaning: { ai: deps.judgeAi === gatewayAi ? "gateway" : deps.judgeAi, projectId: await projectIdOf(admin, s) },
   });
   const matches = result.matches ?? [];
   // The person's text is held to everything this task already decided (rules pinned earlier included).

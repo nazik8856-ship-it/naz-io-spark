@@ -2,7 +2,7 @@
 // Hard rules and safety rules sit together; each row says what it is, whether it is on,
 // and has Edit / Disable / Delete. Adding a rule is the prominent action.
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Gavel, Plus, ScanSearch } from "lucide-react";
+import { ChevronDown, ChevronUp, Gavel, MessageSquareText, Plus, ScanSearch } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -29,11 +29,17 @@ type Props = {
   onAsk: (r: RuleItem) => void;
   /** Try it first: what the rule would have done to what already happened. */
   onTry?: (r: RuleItem) => void;
+  /** Go live: a rule in shadow mode starts changing outcomes (or a second owner is asked, with dual control). */
+  onPromote?: (r: RuleItem) => void;
+  /** One line on what rules in plain words cost and whether their cap was reached (meaningUsageLine). */
+  note?: string | null;
+  /** What a rule did: when it last matched and how often this week, or that it never did (null: not known). */
+  activityOf?: (r: RuleItem) => string | null;
 };
 
 export default function YourRulesCard({
   rules, counts, loading, canWrite, dualControl, busyKey, highlightKey,
-  onAdd, onTemplates, onEdit, onToggle, onDelete, onAsk, onTry,
+  onAdd, onTemplates, onEdit, onToggle, onDelete, onAsk, onTry, onPromote, note, activityOf,
 }: Props) {
   const [confirming, setConfirming] = useState<RuleItem | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -62,6 +68,8 @@ export default function YourRulesCard({
           </button>
         )}
       </div>
+
+      {note && <p className="mt-2 text-[11px] leading-relaxed text-zinc-400" data-testid="meaning-usage">{note}</p>}
 
       {!canWrite && (
         <p className="mt-3 text-[11px] text-amber-300/80">
@@ -121,15 +129,26 @@ export default function YourRulesCard({
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="inline-flex items-center gap-1 rounded-md bg-white/[0.07] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-300">
-                    {r.kind === "hard" ? <Gavel className="h-3 w-3" /> : <ScanSearch className="h-3 w-3" />}
+                    {r.kind === "hard" ? <Gavel className="h-3 w-3" /> : r.kind === "meaning" ? <MessageSquareText className="h-3 w-3" /> : <ScanSearch className="h-3 w-3" />}
                     {KIND_LABEL[r.kind]}
                   </span>
                   <span className="min-w-0 break-words text-xs text-zinc-500">{r.effect} · {r.scope}</span>
                 </div>
+                {activityOf?.(r) && (
+                  <p className="mt-1 text-[11px] text-zinc-400" data-testid={`rule-activity-${r.key}`}>{activityOf(r)}</p>
+                )}
                 <div className="mt-2 flex flex-wrap items-center justify-end gap-x-0.5">
                   <button onClick={() => onAsk(r)} aria-label={`Ask the chat about: ${r.name}`} title="Ask the chat about this rule" className={link}>Ask</button>
                   {canWrite && (
                     <>
+                      {onPromote && r.shadow && !off && (
+                        <>
+                          <span aria-hidden className="text-zinc-700">·</span>
+                          <button onClick={() => onPromote(r)} disabled={busy} aria-label={`Make rule live: ${r.name}`}
+                            title={dualControl ? "A second owner approves it before it goes live" : "It starts changing outcomes from the next reply or action"}
+                            className={`${link} !text-emerald-300 hover:!text-emerald-200`}>Go live</button>
+                        </>
+                      )}
                       {onTry && (
                         <>
                           <span aria-hidden className="text-zinc-700">·</span>

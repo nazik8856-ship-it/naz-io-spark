@@ -40,6 +40,9 @@ export function redactDeep(value: unknown, depth = 0, seen: WeakSet<object> = ne
   try {
     if (typeof value === "string") return redactSecrets(value);
     if (value === null || typeof value !== "object") return value;
+    // A date holds no secret. Copied key by key it became {} (no own keys), and PostHog dropped every event whose timestamp
+    // was {}: analytics recorded nothing from 26 Oct 2026, when every event started going through this scrub.
+    if (value instanceof Date) return value;
     if (seen.has(value as object)) return "[circular]";
     if (depth > 8) return "[deep]";
     seen.add(value as object);

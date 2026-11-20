@@ -76,3 +76,29 @@ export function safetyEditProblem(e: SafetyEdit): string | null {
 }
 
 export const safetyPatch = (e: SafetyEdit) => ({ name: e.name.trim(), pattern: e.pattern.trim(), ...SAFETY_ACTION_FIELDS[e.action] });
+
+// ---- Rules in plain words: an AI judge reads each reply against them and must quote the words that break one
+
+export type MeaningAction = "block" | "approval" | "remove";
+export type MeaningEdit = { name: string; description: string; action: MeaningAction };
+export const MEANING_ACTION_LABEL: Record<MeaningAction, string> = {
+  block: "Block the reply", approval: "Hold it for approval", remove: "Remove the words that break it",
+};
+export const MAX_MEANING_NAME = 120;
+export const MAX_MEANING_DESCRIPTION = 500;
+export const meaningEditOf = (r: { name: string; description: string; action: MeaningAction }): MeaningEdit =>
+  ({ name: r.name, description: r.description, action: r.action });
+
+/** The same limits the database keeps (meaning_rules: name 1-120, description 3-500). */
+export function meaningEditProblem(e: MeaningEdit): string | null {
+  const d = e.description.trim();
+  if (d.length < 3) return "Say in plain words what a reply must never do.";
+  if (d.length > MAX_MEANING_DESCRIPTION) return `Keep the rule under ${MAX_MEANING_DESCRIPTION} characters.`;
+  const n = e.name.trim();
+  if (!n) return "Give the rule a name.";
+  if (n.length > MAX_MEANING_NAME) return `Keep the name under ${MAX_MEANING_NAME} characters.`;
+  if (!(e.action in MEANING_ACTION_LABEL)) return "Choose what happens when a reply breaks it.";
+  return null;
+}
+
+export const meaningPatch = (e: MeaningEdit) => ({ name: e.name.trim(), description: e.description.trim().replace(/\s+/g, " "), action: e.action });

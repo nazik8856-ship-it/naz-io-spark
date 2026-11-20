@@ -88,6 +88,7 @@ describe("cleaning up", () => {
     sessionStorage.setItem("nazai_directive", "Build my shop");
     sessionStorage.setItem("nazai_active_account_id", "a1");
     sessionStorage.setItem("nazai_inner_project:a1", "p1");
+    sessionStorage.setItem("nazai_rule_suggestions_dismissed:a1", '["send_email"]');
     sessionStorage.setItem("nazai-intro-played", "1");
     sessionStorage.setItem("someone-elses-key", "x");
     clearAccountBrowserStorage();

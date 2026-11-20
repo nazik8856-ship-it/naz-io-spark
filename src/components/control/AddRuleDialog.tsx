@@ -7,14 +7,14 @@
 // written with the same table write as before, and a write that changed nothing is said. The full hard-rule editor stays one click
 // away as a fallback.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowLeft, Gavel, Loader2, ScanSearch } from "lucide-react";
+import { ArrowLeft, Gavel, Loader2, MessageSquareText, ScanSearch } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import {
-  hardEditProblem, hardPatch, NOTHING_CHANGED, SAFETY_ACTION_LABEL, safetyEditProblem, safetyPatch, SCOPE_CHOICES,
-  type HardEdit, type SafetyAction, type SafetyEdit,
+  hardEditProblem, hardPatch, MEANING_ACTION_LABEL, meaningEditProblem, meaningPatch, NOTHING_CHANGED, SAFETY_ACTION_LABEL,
+  safetyEditProblem, safetyPatch, SCOPE_CHOICES, type HardEdit, type MeaningAction, type MeaningEdit, type SafetyAction, type SafetyEdit,
 } from "@/lib/inner-rule-edit";
 import { phrasesFrom, phrasesPattern } from "@/lib/rule-phrases";
 
@@ -24,11 +24,21 @@ const anyDb = supabase as any;
 const field = "mt-1 w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-400/60";
 const label = "block text-xs text-zinc-400";
 
-export type RuleKindChoice = "action" | "text";
+export type RuleKindChoice = "action" | "text" | "meaning";
+export type AnyRuleEdit = HardEdit | SafetyEdit | MeaningEdit;
 export type TextDraft = { name: string; words: string; advanced: boolean; pattern: string; action: SafetyAction };
 
 const NEW_HARD: HardEdit = { text: "", scope: "*", effect: "always_require_approval", approvals: 1 };
 const NEW_TEXT: TextDraft = { name: "", words: "", advanced: false, pattern: "", action: "block" };
+const NEW_MEANING: MeaningEdit = { name: "", description: "", action: "block" };
+
+/** A rule in plain words as saved: a name made from its first words when none was given. */
+export function meaningRuleOf(m: MeaningEdit): MeaningEdit {
+  const d = m.description.trim().replace(/\s+/g, " ");
+  const words = d.split(" ").slice(0, 7).join(" ");
+  const made = words.length < d.length ? `${words}…` : words;
+  return { ...m, description: d, name: m.name.trim() || made.slice(0, 120) };
+}
 
 /** The safety rule a text draft becomes: the pattern built from the words (or the one typed), and a name when none was given. */
 export function textRuleOf(t: TextDraft): SafetyEdit {
@@ -39,23 +49,30 @@ export function textRuleOf(t: TextDraft): SafetyEdit {
 }
 
 /** The row the Add window writes: the same columns Edit writes, plus who owns it and whether it starts in shadow mode. */
-export function newRuleRow(kind: RuleKindChoice, e: HardEdit | SafetyEdit, accountId: string, shadow: boolean): { table: "hard_rules" | "safety_rules"; row: Record<string, unknown> } {
+export function newRuleRow(kind: RuleKindChoice, e: AnyRuleEdit, accountId: string, shadow: boolean): { table: "hard_rules" | "safety_rules" | "meaning_rules"; row: Record<string, unknown> } {
+  // A rule in plain words for the whole account: no project.
+  if (kind === "meaning") return { table: "meaning_rules", row: { user_id: accountId, project_id: null, ...meaningPatch(e as MeaningEdit), enabled: true, shadow_mode: shadow } };
   if (kind === "action") return { table: "hard_rules", row: { user_id: accountId, ...hardPatch(e as HardEdit), shadow_mode: shadow, agent_id: null } };
   return { table: "safety_rules", row: { user_id: accountId, ...safetyPatch(e as SafetyEdit), category: "custom", shadow_mode: shadow, agent_id: null, api_key_id: null } };
 }
 
-export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite, onSaved, fallback, extra }: {
+export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite, onSaved, fallback, extra, meaningFull, initial }: {
   open: boolean; onOpenChange: (o: boolean) => void; accountId: string | null | undefined; canWrite: boolean;
   /** Called once the rule was saved. */
   onSaved: () => void;
   /** The full hard-rule editor, shown when asked for (the old Add form). */
   fallback?: ReactNode;
   /** Shown above Save for the rule as typed so far (Try it first, conflict warnings); phrases are the words typed for a text rule. */
-  extra?: (kind: RuleKindChoice, rule: HardEdit | SafetyEdit, problem: string | null, phrases: string[]) => ReactNode;
+  extra?: (kind: RuleKindChoice, rule: AnyRuleEdit, problem: string | null, phrases: string[]) => ReactNode;
+  /** The account already has the most rules in plain words it can have (10): that choice says so instead of opening. */
+  meaningFull?: boolean;
+  /** A drafted action rule to start from (a suggested rule): the form opens filled in; nothing is saved until Save. */
+  initial?: { kind: "action"; hard: HardEdit } | null;
 }) {
   const [kind, setKind] = useState<RuleKindChoice | null>(null);
   const [hard, setHard] = useState<HardEdit>(NEW_HARD);
   const [text, setText] = useState<TextDraft>(NEW_TEXT);
+  const [meaningDraft, setMeaningDraft] = useState<MeaningEdit>(NEW_MEANING);
   const [shadow, setShadow] = useState(true);
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -64,12 +81,14 @@ export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite,
 
   useEffect(() => {
     if (!open) return;
-    setKind(null); setHard(NEW_HARD); setText(NEW_TEXT); setShadow(true); setTried(false); setBusy(false); setSaveError(null); setShowFallback(false);
+    setKind(initial?.kind ?? null); setHard(initial?.hard ?? NEW_HARD); setText(NEW_TEXT); setMeaningDraft(NEW_MEANING); setShadow(true); setTried(false); setBusy(false); setSaveError(null); setShowFallback(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const safety = useMemo(() => textRuleOf(text), [text]);
-  const rule: HardEdit | SafetyEdit = kind === "action" ? hard : safety;
-  const problem = kind === "action" ? hardEditProblem(hard) : kind === "text"
+  const meaning = useMemo(() => meaningRuleOf(meaningDraft), [meaningDraft]);
+  const rule: AnyRuleEdit = kind === "action" ? hard : kind === "meaning" ? meaning : safety;
+  const problem = kind === "action" ? hardEditProblem(hard) : kind === "meaning" ? meaningEditProblem(meaning) : kind === "text"
     ? (!text.advanced && phrasesFrom(text.words).length === 0 ? "Type the words or phrases the rule should look for." : safetyEditProblem(safety))
     : null;
   const scopeKnown = SCOPE_CHOICES.some((c) => c.value === hard.scope);
@@ -93,7 +112,9 @@ export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite,
         <DialogHeader>
           <DialogTitle>Add a rule</DialogTitle>
           <DialogDescription className="text-zinc-400">
-            {showFallback ? "The full hard-rule editor." : !kind ? "What should this rule do?" : kind === "action" ? "Stop or hold an action your AI wants to take." : "Find words in what your AI writes, and block, hold or remove them."}
+            {showFallback ? "The full hard-rule editor." : !kind ? "What should this rule do?" : kind === "action" ? "Stop or hold an action your AI wants to take."
+              : kind === "meaning" ? "Say in plain words what a reply must never do. An AI judge reads each reply and must quote the words that break it."
+              : "Find words in what your AI writes, and block, hold or remove them."}
           </DialogDescription>
         </DialogHeader>
 
@@ -117,6 +138,16 @@ export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite,
               <ScanSearch className="h-5 w-5 text-cyan-300" />
               <span className="mt-2 block text-sm font-semibold text-zinc-50">Find words in replies</span>
               <span className="mt-1 block text-xs text-zinc-400">For example: never mention prices or discounts to customers.</span>
+            </button>
+            <button type="button" onClick={() => setKind("meaning")} disabled={!canWrite || !!meaningFull} data-testid="add-kind-meaning"
+              className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-cyan-300/50 hover:bg-cyan-400/[0.06] disabled:opacity-40 sm:col-span-2">
+              <MessageSquareText className="h-5 w-5 text-cyan-300" />
+              <span className="mt-2 block text-sm font-semibold text-zinc-50">Say it in plain words</span>
+              <span className="mt-1 block text-xs text-zinc-400">
+                {meaningFull
+                  ? "You have 10 rules in plain words, the most an account can have. Delete or edit one to add another."
+                  : "For when no list of words can catch it. For example: never promise a delivery date. An AI judge reads each reply."}
+              </span>
             </button>
             {fallback && (
               <button type="button" onClick={() => setShowFallback(true)} className="text-left text-[11px] text-zinc-500 underline-offset-2 hover:text-cyan-200 hover:underline sm:col-span-2" data-testid="add-rule-fallback">
@@ -183,6 +214,24 @@ export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite,
                     {(Object.keys(SAFETY_ACTION_LABEL) as SafetyAction[]).map((a) => <option key={a} value={a}>{SAFETY_ACTION_LABEL[a]}</option>)}
                   </select>
                 </label>
+              </>
+            )}
+
+            {kind === "meaning" && (
+              <>
+                <label className={label}>The rule, in plain words
+                  <textarea rows={3} value={meaningDraft.description} onChange={(e) => setMeaningDraft({ ...meaningDraft, description: e.target.value })} className={field}
+                    aria-label="The rule, in plain words" placeholder="Never promise a delivery date or a delivery time" />
+                </label>
+                <label className={label}>Name (optional)
+                  <input value={meaningDraft.name} onChange={(e) => setMeaningDraft({ ...meaningDraft, name: e.target.value })} className={field} aria-label="Name" placeholder={meaning.name || "No delivery promises"} />
+                </label>
+                <label className={label}>When a reply breaks it
+                  <select value={meaningDraft.action} onChange={(e) => setMeaningDraft({ ...meaningDraft, action: e.target.value as MeaningAction })} className={field} aria-label="When a reply breaks it">
+                    {(Object.keys(MEANING_ACTION_LABEL) as MeaningAction[]).map((a) => <option key={a} value={a}>{MEANING_ACTION_LABEL[a]}</option>)}
+                  </select>
+                </label>
+                <p className="text-[11px] text-zinc-500">It applies to every reply NazAI checks for this account. Each check is one short AI call; a reply other rules already block is not sent.</p>
               </>
             )}
 
