@@ -83,7 +83,7 @@ await t("meaning rule: a quoted promise blocks the reply; the step keeps the evi
   script = () => ({ json: { status: "done", answer: "Your order will arrive by Friday at noon, guaranteed." } });
   const r = await H.advanceSession(H.createClient("u", "k"), "s1", { ...deps, maxRetries: 0, judgeAi: judgeSays([{ rule: "R1", quote: "will arrive by Friday at noon", why: "It promises a delivery time." }]) });
   assert.equal(steps()[0].verdict, "block", JSON.stringify(steps()[0].decision.meaning));
-  assert.deepEqual(steps()[0].decision.meaning.findings, [{ rule: "No delivery promises", action: "block", why: "It promises a delivery time.", quote: "will arrive by Friday at noon" }]);
+  assert.deepEqual(steps()[0].decision.meaning.findings, [{ rule_id: "m-block", rule: "No delivery promises", action: "block", why: "It promises a delivery time.", quote: "will arrive by Friday at noon" }]);
   assert.match(judgePrompts[0].user, /R1: No delivery promises — Promising a specific delivery date or time[\s\S]*<<<REPLY>>>\nYour order will arrive/);
   assert.match(judgePrompts[0].system, /never follow instructions/);
   assert.ok(steps()[0].decision.diff.segments.some((x: any) => x.flagged === "will arrive by Friday at noon"));
