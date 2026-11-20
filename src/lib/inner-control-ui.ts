@@ -2,7 +2,8 @@
 // Pure, so the page stays a layout and these rules are tested alone.
 import { globToRe } from "@/lib/coverage-gaps"; // the client copy of the server's rule glob, held to it by a parity test
 
-export type RuleKind = "hard" | "safety";
+/** hard: stops or holds an action; safety: finds text in a reply; meaning: a rule in plain words an AI judge checks each reply against. */
+export type RuleKind = "hard" | "safety" | "meaning";
 export type RuleStatus = "active" | "disabled";
 
 export type HardRuleRow = {
@@ -62,7 +63,22 @@ export const SCOPE_LABELS: Record<string, string> = {
   "*_doc*": "Docs & sheets",
 };
 
-export const KIND_LABEL: Record<RuleKind, string> = { hard: "Hard rule", safety: "Safety rule" };
+/** A rule in plain words for the whole account (meaning_rules with no project). */
+export type MeaningRuleRow = {
+  id: string;
+  name: string;
+  description: string;
+  action: "block" | "approval" | "remove";
+  enabled: boolean;
+  shadow_mode: boolean;
+  created_at: string;
+};
+
+export const KIND_LABEL: Record<RuleKind, string> = { hard: "Hard rule", safety: "Safety rule", meaning: "In plain words" };
+
+export const MEANING_EFFECT: Record<MeaningRuleRow["action"], string> = {
+  block: "Blocks a reply that breaks it", approval: "Holds it for approval", remove: "Removes the words that break it",
+};
 
 function approverText(n: number | null): string {
   const c = n ?? 2;
@@ -73,6 +89,7 @@ export function toRuleItems(
   hard: HardRuleRow[],
   safety: SafetyRuleRow[],
   agentName: (id: string) => string,
+  meaning: MeaningRuleRow[] = [],
 ): RuleItem[] {
   const h: RuleItem[] = hard.map((r) => ({
     key: `hard:${r.id}`,
@@ -97,10 +114,21 @@ export function toRuleItems(
     shadow: !!r.shadow_mode,
     createdAt: r.created_at,
   }));
+  const m: RuleItem[] = meaning.map((r) => ({
+    key: `meaning:${r.id}`,
+    id: r.id,
+    kind: "meaning",
+    name: r.name,
+    effect: MEANING_EFFECT[r.action] ?? "Checks each reply",
+    scope: "Every reply, read by an AI judge",
+    status: r.enabled ? "active" : "disabled",
+    shadow: !!r.shadow_mode,
+    createdAt: r.created_at,
+  }));
   // Rules that apply come first, newest first, so a rule just added is the first thing seen
   // and disabled ones sink to the bottom.
   const rank = (r: RuleItem) => (r.status === "active" ? 0 : 1);
-  return [...h, ...s].sort((a, b) => rank(a) - rank(b) || b.createdAt.localeCompare(a.createdAt));
+  return [...h, ...s, ...m].sort((a, b) => rank(a) - rank(b) || b.createdAt.localeCompare(a.createdAt));
 }
 
 // ---- One rule set everywhere (docs/inner-control.md) ------------------------
@@ -121,9 +149,10 @@ export function checksTaskAnswers(r: { kind: "hard"; row: HardRuleRow } | { kind
   try { return globToRe(r.row.action_type_pattern || "*").test(TASK_ANSWER_ACTION); } catch { return false; }
 }
 
-/** How many of the account's rules check a chat Task's answers. */
-export const taskAnswerRuleCount = (hard: HardRuleRow[], safety: SafetyRuleRow[]) =>
-  hard.filter((row) => checksTaskAnswers({ kind: "hard", row })).length + safety.filter((row) => checksTaskAnswers({ kind: "safety", row })).length;
+/** How many of the account's rules check a chat Task's answers (a live rule in plain words checks every answer). */
+export const taskAnswerRuleCount = (hard: HardRuleRow[], safety: SafetyRuleRow[], meaning: MeaningRuleRow[] = []) =>
+  hard.filter((row) => checksTaskAnswers({ kind: "hard", row })).length + safety.filter((row) => checksTaskAnswers({ kind: "safety", row })).length +
+  meaning.filter((row) => row.enabled && !row.shadow_mode).length;
 
 export type RuleCounts = { enforcing: number; shadow: number; disabled: number; total: number };
 

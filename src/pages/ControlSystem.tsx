@@ -17,8 +17,8 @@ import { useInnerControlRules } from "@/hooks/useInnerControlRules";
 import YourRulesCard from "@/components/control/dashboard/YourRulesCard";
 import RuleTrial from "@/components/control/RuleTrial";
 import RuleWarnings from "@/components/control/RuleWarnings";
-import { hardConflicts, textConflicts } from "@/lib/new-rule-warnings";
-import type { HardEdit, SafetyEdit } from "@/lib/inner-rule-edit";
+import { hardConflicts, meaningConflicts, textConflicts } from "@/lib/new-rule-warnings";
+import type { HardEdit, MeaningEdit, SafetyEdit } from "@/lib/inner-rule-edit";
 import type { HardRuleRow, SafetyRuleRow } from "@/lib/inner-control-ui";
 import { trialSpecOfDraft, trialSpecOfRow } from "@/lib/rule-trial";
 import RecentActivityCard from "@/components/control/dashboard/RecentActivityCard";
@@ -216,7 +216,8 @@ export default function ControlSystem() {
   // Truthful status (Inner Day 2): the rule steps come from the same rules the list shows (one switched on and enforcing), the
   // other steps only once the dashboard has loaded them; until then no step is shown as not done.
   // The rules already there, for the Add window's duplicate and conflict warnings.
-  const warningsFor = (kind: "action" | "text", rule: HardEdit | SafetyEdit, phrases: string[]) => {
+  const warningsFor = (kind: "action" | "text" | "meaning", rule: HardEdit | SafetyEdit | MeaningEdit, phrases: string[]) => {
+    if (kind === "meaning") return meaningConflicts(rule as MeaningEdit, innerRules.meaning);
     const rows = innerRules.rules.filter((r) => r.kind === (kind === "action" ? "hard" : "safety")).map((r) => innerRules.rowOf(r)).filter(Boolean);
     return kind === "action"
       ? ((rule as HardEdit).scope.trim() ? hardConflicts(rule as HardEdit, rows as HardRuleRow[]) : [])
@@ -356,6 +357,7 @@ export default function ControlSystem() {
               onTemplates={() => navigate("/control-system/templates")}
               onEdit={editRule}
               onTry={setTrying}
+              onPromote={(r) => { void innerRules.promote(r).then((ok) => { if (ok) dashboard.refetch(); }); }}
               onToggle={(r) => void innerRules.setEnabled(r, r.status === "disabled")}
               onDelete={(r) => void innerRules.remove(r)}
               onAsk={(r) => askInChat(`Explain my rule "${r.name}": what does it stop, and has it triggered recently?`)}

@@ -8,6 +8,8 @@ import { globToRe } from "@/lib/coverage-gaps"; // the client copy of the server
 export type ActionTrial = { checked: number; matched: number; wasAllowed: number; byAction: { action: string; count: number }[] };
 export type TextHit = { tool: string; at: string; before: string; match: string; after: string };
 export type TextTrial = { checked: number; matched: number; hits: TextHit[] };
+/** A rule in plain words, tried by the AI judge: replies it could not read are counted apart. */
+export type MeaningTrial = TextTrial & { unavailable: number };
 
 import { verdictOf } from "@/lib/inner-control-ui"; // the status card's parser: a check, not an agent step
 
@@ -45,13 +47,29 @@ export function textTrialLine(t: TextTrial, action: "block" | "approval" | "reda
   return `${t.matched} of your last ${n(t.checked, "reply", "replies")} would have ${did}.`;
 }
 
-/** What is tried: an action rule's pattern and effect, or a text rule's pattern and what it does on a match. */
+/** What is tried: an action rule's pattern and effect, a text rule's pattern and what it does on a match, or a rule in plain words. */
 export type TrialSpec =
   | { kind: "action"; pattern: string; effect: "always_block" | "always_require_approval"; narrower?: boolean }
-  | { kind: "text"; pattern: string; action: "block" | "approval" | "redact" };
+  | { kind: "text"; pattern: string; action: "block" | "approval" | "redact" }
+  | { kind: "meaning"; name: string; description: string; action: "block" | "approval" | "remove" };
+
+/** One line on what a rule in plain words would have done. */
+export function meaningTrialLine(t: MeaningTrial, action: "block" | "approval" | "remove"): string {
+  const unread = t.unavailable ? ` ${t.unavailable} could not be read by the AI judge.` : "";
+  if (t.checked === 0 && !t.unavailable) return "There are no replies yet to try it on. It will apply from the first reply.";
+  if (t.checked === 0) return `The AI judge could not read any of your recent replies, so it was not tried. Try again in a minute.`;
+  if (t.matched === 0) return `None of your last ${n(t.checked, "reply", "replies")} would have broken it.${unread}`;
+  const did = action === "remove" ? "had the words that break it removed" : action === "block" ? "been blocked" : "been held for approval";
+  return `${t.matched} of your last ${n(t.checked, "reply", "replies")} would have ${did}.${unread}`;
+}
 
 /** The trial for a rule being added, or null while it is not complete enough to try. */
-export function trialSpecOfDraft(kind: "action" | "text", rule: { scope?: string; effect?: string; pattern?: string; action?: string }): TrialSpec | null {
+export function trialSpecOfDraft(kind: "action" | "text" | "meaning", rule: { scope?: string; effect?: string; pattern?: string; action?: string; name?: string; description?: string }): TrialSpec | null {
+  if (kind === "meaning") {
+    const description = String(rule.description ?? "").trim();
+    if (description.length < 3 || (rule.action !== "block" && rule.action !== "approval" && rule.action !== "remove")) return null;
+    return { kind: "meaning", name: String(rule.name ?? "").trim() || "This rule", description, action: rule.action };
+  }
   if (kind === "action") {
     const scope = String(rule.scope ?? "").trim();
     if (!scope || (rule.effect !== "always_block" && rule.effect !== "always_require_approval")) return null;
@@ -69,6 +87,7 @@ export function trialSpecOfRow(row: Record<string, unknown> | null): TrialSpec |
     const s = trialSpecOfDraft("action", { scope: row.action_type_pattern || "*", effect: row.effect as string });
     return s && s.kind === "action" ? { ...s, narrower: !!(row.agent_id || row.api_key_id || row.provider) } : s;
   }
+  if (typeof row.description === "string") return trialSpecOfDraft("meaning", { name: row.name as string, description: row.description, action: row.action as string });
   if (typeof row.pattern === "string") {
     const action = row.redact ? "redact" : row.severity === "block" ? "block" : "approval";
     return trialSpecOfDraft("text", { pattern: row.pattern, action });

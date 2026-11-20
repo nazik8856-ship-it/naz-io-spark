@@ -333,6 +333,24 @@ export const REPLAY_MEANING_LIMIT = 8;
 /** The longest pattern "Try it first" takes (a safety rule's pattern from the Add form or the rules list). */
 export const MAX_TRY_PATTERN = 2000;
 
+/** Which of these replies a rule in plain words would have caught, by the AI judge (one call per reply), with the quoted words. */
+export async function replayMeaningRule(
+  judge: JudgeAi, rule: { id: string; name: string; description: string; action: "remove" | "block" | "approval" }, replies: ReplayReply[],
+): Promise<{ checked: number; matched: number; hits: ReplayHit[]; unavailable: number }> {
+  const hits: ReplayHit[] = [];
+  let matched = 0, unavailable = 0;
+  for (const r of replies) {
+    const j = await judgeMeaning(judge, [rule], r.text);
+    if (j.unavailable) { unavailable++; continue; }
+    const f = j.findings[0];
+    if (!f) continue;
+    matched++;
+    const m = new RegExp(f.pattern, "i").exec(r.text);
+    if (m && hits.length < 5) hits.push({ tool: r.tool, at: r.at, before: r.text.slice(Math.max(0, m.index - 60), m.index), match: m[0].slice(0, 120), after: r.text.slice(m.index + m[0].length, m.index + m[0].length + 60) });
+  }
+  return { checked: replies.length - unavailable, matched, hits, unavailable };
+}
+
 /** Which of these replies a word rule would have caught, each with the words around the match. */
 export function replayWordRule(pattern: string, replies: ReplayReply[]): { checked: number; matched: number; hits: ReplayHit[] } {
   let re: RegExp;
@@ -628,6 +646,19 @@ export async function handleProjectsAction(admin: AnyAdmin, accountId: string, u
   }
 
   // ---- try an account rule before it is switched on (Inner Control "Try it first"): no project, nothing saved
+  if (action === "try_rule" && body.kind === "meaning") {
+    // A rule in plain words for the whole account (inner Day 3), tried by the AI judge on the account's most recent replies, one
+    // judge call each, as test_rule does for a project's. Nothing is saved.
+    const description = clip(String(body.description ?? "").replace(/\s+/g, " ").trim(), 500);
+    if (description.length < 3) return bad(400, "invalid_description", "Say in plain words what a reply must never do.");
+    const act = String(body.rule_action ?? "block") as RuleAction;
+    if (!["remove", "block", "approval"].includes(act)) return bad(400, "invalid_action", "rule_action must be remove, block or approval.");
+    if (!deps.judge) return bad(503, "ai_unavailable", "The AI judge is not available right now, so this rule can not be tried. Nothing was saved.");
+    const rule = { id: "trial", name: clip(String(body.name ?? "This rule").trim() || "This rule", 120), description, action: act as "remove" | "block" | "approval" };
+    const r = await replayMeaningRule(deps.judge, rule, await recentReplies(admin, accountId, REPLAY_MEANING_LIMIT));
+    return ok({ kind: "meaning", rule_action: act, ...r });
+  }
+
   if (action === "try_rule") {
     // A text rule's pattern (built from plain words in the browser, or the owner's own) replayed against the account's most
     // recent tool replies, as stored (already cleaned). The same replay as test_rule, without a project.
@@ -748,20 +779,9 @@ export async function handleProjectsAction(admin: AnyAdmin, accountId: string, u
       const description = clip(String(body.description ?? "").replace(/\s+/g, " ").trim(), 500);
       if (description.length < 3) return bad(400, "invalid_description", "Say in plain words what the rule should catch.");
       if (!deps.judge) return bad(503, "ai_unavailable", "The AI judge is not available right now, so a meaning rule can not be tried. Nothing was saved.");
-      const replies = await recentReplies(admin, accountId, REPLAY_MEANING_LIMIT);
       const rule = { id: "trial", name: clip(String(body.name ?? "This rule").trim() || "This rule", 120), description, action: act as "remove" | "block" | "approval" };
-      const hits: ReplayHit[] = [];
-      let matched = 0, unavailable = 0;
-      for (const r of replies) {
-        const j = await judgeMeaning(deps.judge, [rule], r.text);
-        if (j.unavailable) { unavailable++; continue; }
-        const f = j.findings[0];
-        if (!f) continue;
-        matched++;
-        const m = new RegExp(f.pattern, "i").exec(r.text);
-        if (m && hits.length < 5) hits.push({ tool: r.tool, at: r.at, before: r.text.slice(Math.max(0, m.index - 60), m.index), match: m[0].slice(0, 120), after: r.text.slice(m.index + m[0].length, m.index + m[0].length + 60) });
-      }
-      return ok({ kind: "meaning", rule_action: act, checked: replies.length - unavailable, matched, hits, unavailable });
+      const r = await replayMeaningRule(deps.judge, rule, await recentReplies(admin, accountId, REPLAY_MEANING_LIMIT));
+      return ok({ kind: "meaning", rule_action: act, ...r });
     }
     const pattern = wordsToPattern(String(body.words ?? ""));
     if (!pattern) return bad(400, "invalid_words", "Say which words or phrases the rule looks for.");

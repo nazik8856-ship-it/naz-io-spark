@@ -27,6 +27,7 @@ import { requireCaller } from "../_shared/caller.ts";
 import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind, workRequestKind } from "../_shared/inner-chat-task.ts";
 import { describeDraft, draftFromArgs, RULE_SCOPES } from "../_shared/inner-chat-rule.ts";
 import { ensureStarterTools, STARTER_TASKS, starterTasksUsed } from "../_shared/outer-control-starter.ts";
+import { gatewayAi } from "../_shared/outer-control-report.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -384,6 +385,7 @@ Deno.serve(async (req) => {
         sourceModel: String(parsed.source_model || "unknown").slice(0, 80),
         content,
         origin: "external-api",
+        meaning: { ai: gatewayAi }, // the account's rules in plain words, in the same review
       });
       return json({ mode: "chat", reply: formatTextReviewReply(result) });
     }

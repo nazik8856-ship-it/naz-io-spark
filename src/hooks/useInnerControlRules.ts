@@ -16,13 +16,22 @@ import {
   toRuleItems,
   type DecisionRow,
   type HardRuleRow,
+  type MeaningRuleRow,
   type OuterTaskTag,
   type RuleItem,
   type SafetyRuleRow,
 } from "@/lib/inner-control-ui";
 import { rulesFor, type InnerProject } from "@/lib/inner-projects";
 import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
-import { hardPatch, safetyPatch, writeOutcome, type HardEdit, type SafetyEdit } from "@/lib/inner-rule-edit";
+import { hardPatch, meaningPatch, safetyPatch, writeOutcome, type HardEdit, type MeaningEdit, type SafetyEdit } from "@/lib/inner-rule-edit";
+
+/** What each kind of rule is called in a change request, and the table it lives in. */
+const KIND_INFO = {
+  hard: { table: "hard_rules", word: "rule", type: "hard_rule" },
+  safety: { table: "safety_rules", word: "safety rule", type: "safety_rule" },
+  meaning: { table: "meaning_rules", word: "rule in plain words", type: "meaning_rule" },
+} as const;
+export type RuleEditOf = HardEdit | SafetyEdit | MeaningEdit;
 // Stale generated types: control-system tables aren't in types.ts yet.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const anyDb = supabase as any;
@@ -77,6 +86,7 @@ export function useInnerControlRules(project?: InnerProject | null) {
   const [loading, setLoading] = useState(true);
   const [hard, setHard] = useState<HardRuleRow[]>([]);
   const [safety, setSafety] = useState<SafetyRuleRow[]>([]);
+  const [meaning, setMeaning] = useState<MeaningRuleRow[]>([]);
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [decisions, setDecisions] = useState<DecisionRow[]>([]);
   const [taskTags, setTaskTags] = useState<Map<string, OuterTaskTag>>(new Map());
@@ -117,7 +127,7 @@ export function useInnerControlRules(project?: InnerProject | null) {
         .or("decision.ilike.ALLOW%,decision.ilike.BLOCK%,decision.ilike.MODIFY%,decision.ilike.DEFERRED%,decision.ilike.ESCALATE%,decision.ilike.APPROVAL_REQUIRED%,decision.ilike.REQUIRE_APPROVAL%"))
         .order("created_at", { ascending: false }).limit(1),
     ];
-    const [h, s, a, d, p, dt, et, el, dl] = await Promise.all([
+    const [h, s, a, d, p, mr, dt, et, el, dl] = await Promise.all([
       anyDb.from("hard_rules")
         .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id, required_approvals, created_at")
         .eq("user_id", accountId).order("created_at", { ascending: false }),
@@ -127,10 +137,14 @@ export function useInnerControlRules(project?: InnerProject | null) {
       anyDb.from("agents").select("id, name").eq("user_id", accountId),
       decisionsQuery,
       anyDb.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
+      // Rules in plain words for the whole account (a project's own are on its page).
+      anyDb.from("meaning_rules").select("id, name, description, action, enabled, shadow_mode, created_at")
+        .eq("user_id", accountId).is("project_id", null).order("created_at", { ascending: false }),
       ...pulseQueries,
     ]);
     setHard(rulesFor(project, (h.data ?? []) as HardRuleRow[]));
     setSafety(rulesFor(project, (s.data ?? []) as SafetyRuleRow[]));
+    setMeaning((mr.data ?? []) as MeaningRuleRow[]);
     setAgents((a.data ?? []) as { id: string; name: string }[]);
     const decisionRows = (d.data ?? []) as DecisionRow[];
     setDecisions(decisionRows);
@@ -157,21 +171,23 @@ export function useInnerControlRules(project?: InnerProject | null) {
     (id: string) => agents.find((x) => x.id === id)?.name ?? "Unknown agent",
     [agents],
   );
-  const rules: RuleItem[] = useMemo(() => toRuleItems(hard, safety, agentName), [hard, safety, agentName]);
+  const rules: RuleItem[] = useMemo(() => toRuleItems(hard, safety, agentName, meaning), [hard, safety, agentName, meaning]);
   const counts = useMemo(() => countRules(rules), [rules]);
   /** The rules that check the answers of a Task the chat runs (the same choice the server makes). */
-  const taskRules = useMemo(() => taskAnswerRuleCount(hard, safety), [hard, safety]);
+  const taskRules = useMemo(() => taskAnswerRuleCount(hard, safety, meaning), [hard, safety, meaning]);
   const activity = useMemo(() => {
     const items = toActivity(decisions, (id) => hard.find((r) => r.id === id)?.rule_text ?? null, (runId) => taskTags.get(runId) ?? null);
     const covered = new Set(items.map((i) => i.task?.id).filter((x): x is string => !!x));
     return [...items, ...taskActivity({ runs: taskRuns, tags: taskTags, covered })].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
   }, [decisions, hard, taskTags, taskRuns]);
 
-  const table = (r: RuleItem) => (r.kind === "hard" ? "hard_rules" : "safety_rules");
+  const table = (r: RuleItem) => KIND_INFO[r.kind].table;
+  const word = (r: RuleItem) => KIND_INFO[r.kind].word;
+  const changeType = (verb: "disable" | "delete" | "edit" | "promote", r: RuleItem) => `${verb}_${KIND_INFO[r.kind].type}`;
 
   /** The stored row behind a list item, for the Edit dialog. */
-  const rowOf = (r: RuleItem): HardRuleRow | SafetyRuleRow | null =>
-    (r.kind === "hard" ? hard.find((x) => x.id === r.id) : safety.find((x) => x.id === r.id)) ?? null;
+  const rowOf = (r: RuleItem): HardRuleRow | SafetyRuleRow | MeaningRuleRow | null =>
+    (r.kind === "hard" ? hard.find((x) => x.id === r.id) : r.kind === "safety" ? safety.find((x) => x.id === r.id) : meaning.find((x) => x.id === r.id)) ?? null;
 
   /** Asks a second owner to approve a change (dual control). Says why when the request itself could not be made. */
   const requestChange = async (changeType: string, r: RuleItem, description: string, newValue?: Record<string, unknown>): Promise<boolean> => {
@@ -189,7 +205,7 @@ export function useInnerControlRules(project?: InnerProject | null) {
     setBusyKey(r.key);
     // Switching a rule off weakens it like deleting it does: with dual control on, a second owner approves it first.
     if (dualControl && !enabled) {
-      const ok = await requestChange(r.kind === "hard" ? "disable_hard_rule" : "disable_safety_rule", r, `Switch off ${r.kind === "hard" ? "rule" : "safety rule"} "${r.name}"`);
+      const ok = await requestChange(changeType("disable", r), r, `Switch off ${word(r)} "${r.name}"`);
       setBusyKey(null);
       if (ok) toast({ title: "Switch-off requested", description: "A second owner needs to approve this from Policy change requests. The rule applies until then." });
       return;
@@ -210,9 +226,9 @@ export function useInnerControlRules(project?: InnerProject | null) {
     setBusyKey(r.key);
     if (dualControl) {
       const { error } = await anyDb.rpc("request_policy_change", {
-        _change_type: r.kind === "hard" ? "delete_hard_rule" : "delete_safety_rule",
+        _change_type: changeType("delete", r),
         _row_id: r.id,
-        _description: `Delete ${r.kind === "hard" ? "rule" : "safety rule"} "${r.name}"`,
+        _description: `Delete ${word(r)} "${r.name}"`,
       });
       setBusyKey(null);
       if (error) {
@@ -236,13 +252,13 @@ export function useInnerControlRules(project?: InnerProject | null) {
    * Edit: changes what the rule says and does, in place (the same columns the Add forms write). Its on/off and shadow state are
    * kept. Resolves true when the database changed the rule.
    */
-  const edit = async (r: RuleItem, e: HardEdit | SafetyEdit): Promise<boolean> => {
+  const edit = async (r: RuleItem, e: RuleEditOf): Promise<boolean> => {
     if (!user || !canWrite || busyKey) return false;
     setBusyKey(r.key);
-    const patch = r.kind === "hard" ? hardPatch(e as HardEdit) : safetyPatch(e as SafetyEdit);
+    const patch = r.kind === "hard" ? hardPatch(e as HardEdit) : r.kind === "safety" ? safetyPatch(e as SafetyEdit) : meaningPatch(e as MeaningEdit);
     // With dual control on, an edit is a request: the rule keeps working as it is until a second owner approves the change.
     if (dualControl) {
-      const ok = await requestChange(r.kind === "hard" ? "edit_hard_rule" : "edit_safety_rule", r, `Edit ${r.kind === "hard" ? "rule" : "safety rule"} "${r.name}"`, patch);
+      const ok = await requestChange(changeType("edit", r), r, `Edit ${word(r)} "${r.name}"`, patch);
       setBusyKey(null);
       if (ok) toast({ title: "Edit requested", description: "A second owner needs to approve this from Policy change requests. The rule stays as it is until then." });
       return ok;
@@ -258,5 +274,29 @@ export function useInnerControlRules(project?: InnerProject | null) {
     return true;
   };
 
-  return { loading, rules, counts, taskRules, pulse, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, rowOf, refetch: load };
+  /**
+   * Go live: a rule in shadow mode starts changing outcomes. With dual control on, a second owner approves it first (the database
+   * refuses the direct change). Resolves true when it went live or the request was made.
+   */
+  const promote = async (r: RuleItem): Promise<boolean> => {
+    if (!user || !canWrite || busyKey || !r.shadow) return false;
+    setBusyKey(r.key);
+    if (dualControl) {
+      const ok = await requestChange(changeType("promote", r), r, `Make ${word(r)} "${r.name}" live`);
+      setBusyKey(null);
+      if (ok) toast({ title: "Going live requested", description: "A second owner needs to approve this from Policy change requests. It stays in shadow mode until then." });
+      return ok;
+    }
+    const out = writeOutcome(await anyDb.from(table(r)).update({ shadow_mode: false, promoted_at: new Date().toISOString() }).eq("id", r.id).eq("user_id", accountId).select("id"));
+    setBusyKey(null);
+    if (out.ok === false) {
+      toast({ title: "Could not make the rule live", description: friendlyErrorMessage(out.message), variant: "destructive" });
+      return false;
+    }
+    toast({ title: "Rule is live", description: "It now changes outcomes, from the next reply or action." });
+    void load();
+    return true;
+  };
+
+  return { loading, rules, counts, taskRules, pulse, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, promote, rowOf, meaning, refetch: load };
 }

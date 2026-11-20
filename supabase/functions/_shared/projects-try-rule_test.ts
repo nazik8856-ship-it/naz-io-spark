@@ -43,3 +43,17 @@ Deno.test("try_rule: an empty, too long or broken pattern is refused with the re
     assert(r.status === 400 && r.body.error === "invalid_pattern", `${pattern.slice(0, 10)}: ${JSON.stringify(r.body)}`);
   }
 });
+
+Deno.test("try_rule in plain words: the judge reads each recent reply and must quote it; nothing written; no judge is said", async () => {
+  const { admin, writes } = fakeAdmin();
+  const judge = async (p: { user: string }) => p.user.includes("discount") ? JSON.stringify({ violations: [{ rule: "R1", quote: "discount for students", why: "A price offer." }] }) : '{"violations":[]}';
+  const r = await handleProjectsAction(admin as never, "acct", "u1", { action: "try_rule", kind: "meaning", description: "Never offer a discount", rule_action: "approval" }, { ...deps, judge } as never);
+  assert(r.status === 200 && r.body.kind === "meaning" && r.body.rule_action === "approval", JSON.stringify(r.body));
+  assert(r.body.checked === 2 && r.body.matched === 1, `checked ${r.body.checked}, matched ${r.body.matched}`);
+  assert((r.body.hits as { match: string; tool: string }[])[0].match === "discount for students", JSON.stringify(r.body.hits));
+  assert(writes.length === 0, "nothing is written");
+  const none = await handleProjectsAction(admin as never, "acct", "u1", { action: "try_rule", kind: "meaning", description: "Never offer a discount" }, deps);
+  assert(none.status === 503 && none.body.error === "ai_unavailable", JSON.stringify(none.body));
+  const empty = await handleProjectsAction(admin as never, "acct", "u1", { action: "try_rule", kind: "meaning", description: "x" }, { ...deps, judge } as never);
+  assert(empty.status === 400 && empty.body.error === "invalid_description", JSON.stringify(empty.body));
+});
