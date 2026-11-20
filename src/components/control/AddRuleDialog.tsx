@@ -56,7 +56,7 @@ export function newRuleRow(kind: RuleKindChoice, e: AnyRuleEdit, accountId: stri
   return { table: "safety_rules", row: { user_id: accountId, ...safetyPatch(e as SafetyEdit), category: "custom", shadow_mode: shadow, agent_id: null, api_key_id: null } };
 }
 
-export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite, onSaved, fallback, extra }: {
+export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite, onSaved, fallback, extra, meaningFull }: {
   open: boolean; onOpenChange: (o: boolean) => void; accountId: string | null | undefined; canWrite: boolean;
   /** Called once the rule was saved. */
   onSaved: () => void;
@@ -64,6 +64,8 @@ export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite,
   fallback?: ReactNode;
   /** Shown above Save for the rule as typed so far (Try it first, conflict warnings); phrases are the words typed for a text rule. */
   extra?: (kind: RuleKindChoice, rule: AnyRuleEdit, problem: string | null, phrases: string[]) => ReactNode;
+  /** The account already has the most rules in plain words it can have (10): that choice says so instead of opening. */
+  meaningFull?: boolean;
 }) {
   const [kind, setKind] = useState<RuleKindChoice | null>(null);
   const [hard, setHard] = useState<HardEdit>(NEW_HARD);
@@ -134,11 +136,15 @@ export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite,
               <span className="mt-2 block text-sm font-semibold text-zinc-50">Find words in replies</span>
               <span className="mt-1 block text-xs text-zinc-400">For example: never mention prices or discounts to customers.</span>
             </button>
-            <button type="button" onClick={() => setKind("meaning")} disabled={!canWrite} data-testid="add-kind-meaning"
+            <button type="button" onClick={() => setKind("meaning")} disabled={!canWrite || !!meaningFull} data-testid="add-kind-meaning"
               className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-cyan-300/50 hover:bg-cyan-400/[0.06] disabled:opacity-40 sm:col-span-2">
               <MessageSquareText className="h-5 w-5 text-cyan-300" />
               <span className="mt-2 block text-sm font-semibold text-zinc-50">Say it in plain words</span>
-              <span className="mt-1 block text-xs text-zinc-400">For when no list of words can catch it. For example: never promise a delivery date. An AI judge reads each reply.</span>
+              <span className="mt-1 block text-xs text-zinc-400">
+                {meaningFull
+                  ? "You have 10 rules in plain words, the most an account can have. Delete or edit one to add another."
+                  : "For when no list of words can catch it. For example: never promise a delivery date. An AI judge reads each reply."}
+              </span>
             </button>
             {fallback && (
               <button type="button" onClick={() => setShowFallback(true)} className="text-left text-[11px] text-zinc-500 underline-offset-2 hover:text-cyan-200 hover:underline sm:col-span-2" data-testid="add-rule-fallback">

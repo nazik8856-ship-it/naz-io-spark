@@ -925,7 +925,7 @@ export async function advanceSession(admin: AnyAdmin, sessionId: string, deps: S
           sourceModel: `tool:${tool.name}`.slice(0, 80), content, origin: "external-api",
           externalId: `${s.id}:${stepNo}:${attempt}`, contentHash, extraRules: await projectRulesOf(admin, s),
           // Rules in plain words (the account's and the project's) are checked in the same review, so the recorded verdict has them.
-          meaning: { ai: deps.judgeAi, projectId: await projectIdOf(admin, s) },
+          meaning: { ai: deps.judgeAi === gatewayAi ? "gateway" : deps.judgeAi, projectId: await projectIdOf(admin, s) },
         });
       if (contained.secretsRemoved > 0) await deps.onSecretInReply?.(admin, s, tool.name, contained.secretsRemoved);
       // The review above already holds the rules in plain words (the AI judge, which must quote its evidence and can only make
@@ -1095,7 +1095,7 @@ export async function applyEditedReply(admin: AnyAdmin, sessionId: string, text:
   const result = await evaluateExternalText(admin, {
     userId: s.user_id, agentId: null, apiKeyId: s.api_key_id, isTest: false, sourceModel: "person:edit",
     content: clean, origin: "external-api", externalId: `${s.id}:${stepNo}:${attempt}`, contentHash: await sha256Hex(clean),
-    extraRules: await projectRulesOf(admin, s), meaning: { ai: deps.judgeAi, projectId: await projectIdOf(admin, s) },
+    extraRules: await projectRulesOf(admin, s), meaning: { ai: deps.judgeAi === gatewayAi ? "gateway" : deps.judgeAi, projectId: await projectIdOf(admin, s) },
   });
   const matches = result.matches ?? [];
   // The person's text is held to everything this task already decided (rules pinned earlier included).

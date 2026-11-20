@@ -87,3 +87,39 @@ Deno.test("a shadow rule in the shared review: allowed, with the finding among t
   assertEquals(r.verdict, "allow");
   assertEquals(r.shadowMatches.map((m) => m.rule_id), ["meaning:m1"]);
 });
+
+Deno.test("what the rules in plain words cost is kept with the reply check: rules read, rules left out, cost", async () => {
+  const { admin, inserts } = fakeAdmin([accountRule]);
+  await evaluateExternalText(admin as never, { ...params, meaning: { ai: judgeSays() } });
+  const row = inserts.find((i) => i.table === "outer_control_evaluations")?.row;
+  assertEquals([row?.meaning_rules_checked, row?.meaning_rules_skipped, row?.meaning_cost_usd], [1, 0, 0], "a caller's own judge is not metered");
+  const none = fakeAdmin([]);
+  await evaluateExternalText(none.admin as never, { ...params, meaning: { ai: judgeSays() } });
+  assert(!("meaning_rules_checked" in (none.inserts.find((i) => i.table === "outer_control_evaluations")?.row ?? {})), "no rules: nothing recorded");
+});
+
+Deno.test("the metered judge: one call per reply, its tokens and cost, added to the account's daily AI spend", async () => {
+  const { meteredGatewayJudge } = await import("./meaning-judge.ts");
+  const rpcs: { fn: string; args: Record<string, unknown> }[] = [];
+  const admin = { rpc: async (fn: string, args: Record<string, unknown>) => { rpcs.push({ fn, args }); return { data: null, error: null }; }, from: () => {
+    const q: Record<string, unknown> = {};
+    for (const m of ["select", "eq", "is", "order", "limit", "update", "insert"]) q[m] = () => q;
+    q.maybeSingle = async () => ({ data: null, error: null });
+    q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(res);
+    return q;
+  } };
+  Deno.env.set("OPENAI_API_KEY", "test-key");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"violations":[]}' } }], usage: { prompt_tokens: 1000, completion_tokens: 20 } }), { status: 200 })) as typeof fetch;
+  try {
+    const m = meteredGatewayJudge(admin as never, { userId: "acct", apiKeyId: "k1" });
+    assertEquals(await m.ai({ system: "s", user: "u" }), '{"violations":[]}');
+    assertEquals([m.cost.calls, m.cost.prompt_tokens, m.cost.completion_tokens], [1, 1000, 20]);
+    assert(m.cost.cost_usd > 0, "a cost is estimated");
+    const spend = rpcs.find((r) => r.fn === "record_ai_spend");
+    assertEquals([spend?.args._user_id, spend?.args._api_key_id, spend?.args._prompt_tokens], ["acct", "k1", 1000]);
+  } finally {
+    globalThis.fetch = realFetch;
+    Deno.env.delete("OPENAI_API_KEY");
+  }
+});

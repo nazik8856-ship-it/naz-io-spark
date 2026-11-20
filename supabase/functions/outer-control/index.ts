@@ -84,7 +84,6 @@ import { evaluateExternalText, excerptOf, maskedDescription } from "../_shared/o
 import { extractExternalText, parseExternalId } from "../_shared/outer-control-intake.ts";
 import { dataKeysFromEnv, fingerprint, fingerprintMatches, MIN_PASSPHRASE_CHARS } from "../_shared/field-crypto.ts";
 import { optionalSecret, requireSecret } from "../_shared/require-secret.ts";
-import { gatewayAi } from "../_shared/outer-control-report.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -507,7 +506,7 @@ Deno.serve(async (req) => {
     const result = await evaluateExternalText(admin, {
       userId: auth.userId, agentId, apiKeyId: auth.keyId, isTest: auth.isTest,
       sourceModel, content, origin: "external-api", externalId: ext.id, contentHash,
-      meaning: { ai: gatewayAi }, // the account's rules in plain words, in the same review
+      meaning: { ai: "gateway" }, // the account's rules in plain words, in the same review (metered)
     });
     if (!result.evaluationId) {
       // Two concurrent calls with the same external_id: the unique index let the

@@ -24,7 +24,7 @@ import { trialSpecOfDraft, trialSpecOfRow } from "@/lib/rule-trial";
 import RecentActivityCard from "@/components/control/dashboard/RecentActivityCard";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import PromptExtras, { type Attachment } from "@/components/generator/PromptExtras";
-import { buildControlMessage, CHAT_SPEC, CHAT_SUGGESTIONS, chatStepLabels, needsTemplate, statusSummary, type RuleItem } from "@/lib/inner-control-ui";
+import { buildControlMessage, CHAT_SPEC, CHAT_SUGGESTIONS, chatStepLabels, MAX_MEANING_RULES, meaningUsageLine, needsTemplate, statusSummary, type RuleItem } from "@/lib/inner-control-ui";
 import { useSpendSafetyStatus } from "@/hooks/useSpendSafetyStatus";
 import { useControlDashboardData } from "@/hooks/useControlDashboardData";
 import { usePendingApprovalsFeed } from "@/hooks/usePendingApprovalsFeed";
@@ -356,6 +356,7 @@ export default function ControlSystem() {
               onAdd={() => setRuleEditorOpen(true)}
               onTemplates={() => navigate("/control-system/templates")}
               onEdit={editRule}
+              note={meaningUsageLine(innerRules.meaning, innerRules.meaningUsage)}
               onTry={setTrying}
               onPromote={(r) => { void innerRules.promote(r).then((ok) => { if (ok) dashboard.refetch(); }); }}
               onToggle={(r) => void innerRules.setEnabled(r, r.status === "disabled")}
@@ -484,6 +485,7 @@ export default function ControlSystem() {
       <RuleEditDialog rule={editing} row={editing ? innerRules.rowOf(editing) : null} busy={!!innerRules.busyKey}
         onClose={() => setEditing(null)} onSave={async (r, e) => { const ok = await innerRules.edit(r, e); if (ok) dashboard.refetch(); return ok; }} />
       <AddRuleDialog open={ruleEditorOpen} onOpenChange={closeRuleEditor} accountId={accountId} canWrite={innerRules.canWrite}
+        meaningFull={innerRules.meaning.length >= MAX_MEANING_RULES}
         onSaved={() => { void innerRules.refetch(); dashboard.refetch(); }}
         fallback={<div className="-mx-6" data-testid="rule-editor"><HardRulesPanel defaultOpen /></div>}
         extra={(kind, rule, problem, phrases) => (

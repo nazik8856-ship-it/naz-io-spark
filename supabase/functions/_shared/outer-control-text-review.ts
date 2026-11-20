@@ -23,7 +23,7 @@ import { decideExternalText, describeChanges, verifyRedaction, type NextStep } f
 import { computeTrustScore as computeEntityTrustScore, gatherTrustScoreInput, type TrustScoreReport } from "./trust-score.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { embedDecisionIfExternal } from "./decision-embeddings.ts";
-import { applyMeaning, loadMeaningRuleSet, type JudgeAi, type MeaningRecord } from "./meaning-judge.ts";
+import { applyMeaning, loadMeaningRuleSet, meteredGatewayJudge, type JudgeAi, type MeaningRecord } from "./meaning-judge.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -163,7 +163,7 @@ export async function evaluateExternalText(
      * Check the reply against the rules in plain words too (meaning rules: the account's, and the project's when given), with
      * one AI judge call. Every path that checks a real reply passes it; a fixed self-test does not.
      */
-    meaning?: { ai: JudgeAi | null | undefined; projectId?: string | null };
+    meaning?: { ai: JudgeAi | "gateway" | null | undefined; projectId?: string | null };
   },
 ): Promise<TextReviewResult> {
   const { userId, agentId, apiKeyId, isTest, sourceModel, content, origin } = params;
@@ -290,13 +290,16 @@ export async function evaluateExternalText(
   let meaning: MeaningRecord | null = null;
   if (params.meaning) {
     const set = await loadMeaningRuleSet(admin, userId, params.meaning.projectId ?? null);
-    const m = await applyMeaning(params.meaning.ai, set.rules, content, { verdict, output: outputText, matches, changes, summary });
+    // "gateway": NazAI's own AI, metered into the account's daily spend (and its cap); a function is a test's or a caller's own.
+    const metered = params.meaning.ai === "gateway" ? meteredGatewayJudge(admin, { userId, agentId, apiKeyId }) : null;
+    const judge = metered ? metered.ai : params.meaning.ai as JudgeAi | null | undefined;
+    const m = await applyMeaning(judge, set.rules, content, { verdict, output: outputText, matches, changes, summary });
     if (m.record) {
       ({ verdict, output: outputText, matches, changes, summary } = m.foundation);
       shadowMatches = [...shadowMatches, ...m.shadow];
       nextStep = verdict === "block" ? "discard" : verdict === "escalate" ? "await_approval" : "use_output";
       trustScore = verdict === "block" ? 0 : verdict === "escalate" ? Math.min(trustScore, 50) : trustScore;
-      meaning = { ...m.record, skipped: set.skipped };
+      meaning = { ...m.record, skipped: set.skipped, ...(metered ? { cost: metered.cost } : {}) };
     }
   }
 
@@ -369,6 +372,8 @@ export async function evaluateExternalText(
     content_kind: "text", input_excerpt: excerptOf(storable), output_text: outputText,
     decision_id: textDecisionId, verdict, trust_score: trustScore, matches, summary,
     changes, next_step: nextStep, shadow_matches: shadowMatches, approval_id: approvalId, external_id: externalId, content_hash: contentHash,
+    // What the rules in plain words cost on this reply (for the Inner page's daily line); absent when none were checked.
+    ...(meaning ? { meaning_rules_checked: meaning.checked, meaning_rules_skipped: meaning.skipped ?? 0, meaning_cost_usd: meaning.cost?.cost_usd ?? 0 } : {}),
   });
 
   return {

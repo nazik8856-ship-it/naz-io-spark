@@ -19,7 +19,6 @@ import { startTask } from "./outer-control-workflow.ts";
 import { originContext, type TaskOrigin } from "./outer-control-task.ts";
 import { officialOutput } from "./outer-control-artifact.ts";
 import { honestStatus } from "./outer-control-status.ts";
-import { gatewayAi } from "./outer-control-report.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -82,7 +81,7 @@ export async function relayToTask(
   const result = await evaluateExternalText(admin, {
     userId: auth.userId, agentId: null, apiKeyId: auth.keyId, isTest: auth.isTest, sourceModel, content,
     origin: "external-api", externalId: null, contentHash: await fingerprintOf(content),
-    meaning: { ai: gatewayAi }, // the account's rules in plain words, in the same review
+    meaning: { ai: "gateway" }, // the account's rules in plain words, in the same review (metered)
   });
   if (!result.evaluationId) return err(500, "internal_error", "Could not record this evaluation.");
   const verdictBody = { verdict: result.verdict, evaluation_id: result.evaluationId, summary: result.summary, trust_score: result.trustScore, approval_id: result.approvalId ?? undefined };

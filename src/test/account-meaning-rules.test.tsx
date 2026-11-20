@@ -49,7 +49,9 @@ import { useInnerControlRules } from "@/hooks/useInnerControlRules";
 import AddRuleDialog, { meaningRuleOf, newRuleRow } from "@/components/control/AddRuleDialog";
 import RuleEditDialog from "@/components/control/RuleEditDialog";
 import RuleTrial from "@/components/control/RuleTrial";
-import { taskAnswerRuleCount, toRuleItems } from "@/lib/inner-control-ui";
+import { MAX_MEANING_RULES, meaningUsageLine, meaningUsageOf, taskAnswerRuleCount, toRuleItems } from "@/lib/inner-control-ui";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { meaningEditProblem, meaningPatch } from "@/lib/inner-rule-edit";
 import { meaningTrialLine, trialSpecOfDraft, trialSpecOfRow } from "@/lib/rule-trial";
 import { meaningConflicts } from "@/lib/new-rule-warnings";
@@ -154,5 +156,45 @@ describe("on the Inner page", () => {
     fireEvent.click(screen.getByTestId("rule-trial-run"));
     expect((await screen.findByTestId("rule-trial-line")).textContent).toBe("2 of your last 8 replies would have had the words that break it removed. 1 could not be read by the AI judge.");
     expect(db.invokes).toEqual([{ name: "projects", opts: { body: { action: "try_rule", kind: "meaning", name: "N", description: "Never promise a date", rule_action: "remove", account_id: "u1" } } }]);
+  });
+});
+
+// Inner Control Day 3 (#172): rules in plain words stay affordable. One AI call reads a reply against all of them, at most 10 are
+// read, the cost is counted in the daily AI spend, and the page says what today cost and when the cap was reached.
+describe("keeping rules in plain words affordable", () => {
+  const rule = (enabled = true) => ({ enabled });
+  it("today's checks: how many replies, what they cost, and how many had rules left out", () => {
+    expect(meaningUsageOf([
+      { meaning_rules_checked: 3, meaning_rules_skipped: 0, meaning_cost_usd: "0.0040" },
+      { meaning_rules_checked: 10, meaning_rules_skipped: 2, meaning_cost_usd: 0.006 },
+      { meaning_rules_checked: 0, meaning_rules_skipped: 0, meaning_cost_usd: null },
+    ])).toEqual({ replies: 2, costUsd: 0.01, skippedReplies: 1 });
+  });
+  it("the line: one AI call per reply, today's cost, the account's limit, and replies the cap left rules out of", () => {
+    expect(meaningUsageLine([], null)).toBeNull();
+    expect(meaningUsageLine([rule(), rule(false)], { replies: 0, costUsd: 0, skippedReplies: 0 }))
+      .toBe("Rules in plain words: each reply is read against all 1 in one AI call, counted in your daily AI spend. No reply checked today yet.");
+    expect(meaningUsageLine([rule()], { replies: 12, costUsd: 0.034, skippedReplies: 0 })).toMatch(/Today: 12 replies checked, about \$0\.03\.$/);
+    expect(meaningUsageLine([rule()], { replies: 1, costUsd: 0.002, skippedReplies: 0 })).toMatch(/Today: 1 reply checked, under \$0\.01\.$/);
+    const full = meaningUsageLine(Array.from({ length: 10 }, () => rule()), { replies: 3, costUsd: 0.02, skippedReplies: 1 })!;
+    expect(full).toMatch(/You have 10 of 10, the most an account can have\./);
+    expect(full).toMatch(/On 1 reply today some rules were not read: at most 10 are read per reply, your account's first, then the project's\.$/);
+    expect(meaningUsageLine([rule(false)], null)).toBe("Your rules in plain words are all switched off, so no AI checks are made.");
+    expect(meaningUsageLine([rule()], null)).not.toMatch(/Today/);
+  });
+  it("the cap is the same number in the browser, the server's judge and the database", () => {
+    const root = join(__dirname, "../..");
+    expect(readFileSync(join(root, "supabase/functions/_shared/meaning-judge.ts"), "utf8")).toMatch(new RegExp(`export const MAX_MEANING_RULES = ${MAX_MEANING_RULES};`));
+    expect(readFileSync(join(root, "supabase/migrations/20261120010000_account_meaning_rules.sql"), "utf8")).toMatch(new RegExp(`>= ${MAX_MEANING_RULES} THEN`));
+  });
+  it("at the limit the Add window says so instead of opening the form", () => {
+    render(<AddRuleDialog open onOpenChange={() => {}} accountId="u1" canWrite onSaved={() => {}} meaningFull />);
+    const choice = screen.getByTestId("add-kind-meaning") as HTMLButtonElement;
+    expect(choice.disabled).toBe(true);
+    expect(choice.textContent).toMatch(/You have 10 rules in plain words, the most an account can have/);
+  });
+  it("the hook reads today's recorded cost, and an unreadable cost is unknown, never zero", async () => {
+    const h = await hook();
+    expect(h.result.current.meaningUsage).toEqual({ replies: 0, costUsd: 0, skippedReplies: 0 });
   });
 });

@@ -17,6 +17,8 @@ import {
   type DecisionRow,
   type HardRuleRow,
   type MeaningRuleRow,
+  type MeaningUsage,
+  meaningUsageOf,
   type OuterTaskTag,
   type RuleItem,
   type SafetyRuleRow,
@@ -87,6 +89,7 @@ export function useInnerControlRules(project?: InnerProject | null) {
   const [hard, setHard] = useState<HardRuleRow[]>([]);
   const [safety, setSafety] = useState<SafetyRuleRow[]>([]);
   const [meaning, setMeaning] = useState<MeaningRuleRow[]>([]);
+  const [meaningUsage, setMeaningUsage] = useState<MeaningUsage | null>(null);
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [decisions, setDecisions] = useState<DecisionRow[]>([]);
   const [taskTags, setTaskTags] = useState<Map<string, OuterTaskTag>>(new Map());
@@ -116,7 +119,7 @@ export function useInnerControlRules(project?: InnerProject | null) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const agentOnly = (q: any) => (project?.kind === "agent" ? q.eq("agent_id", project.id) : q);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pulseQueries: Promise<any>[] = skipPulse ? [0, 1, 2, 3].map(() => Promise.resolve({ data: [] })) : [
+    const pulseQueries: Promise<any>[] = skipPulse ? [0, 1, 2, 3, 4].map(() => Promise.resolve({ data: [] })) : [
       agentOnly(anyDb.from("agent_decisions").select("decision, action_type, created_at").eq("user_id", accountId).eq("is_test", false).gte("created_at", since)).limit(2000),
       // Answer checks only: an action check (content_kind action) already has its decision row above.
       agentOnly(anyDb.from("outer_control_evaluations").select("verdict, created_at").eq("user_id", accountId).eq("content_kind", "text").gte("created_at", since)).limit(2000),
@@ -126,8 +129,11 @@ export function useInnerControlRules(project?: InnerProject | null) {
         // One word per VERDICT_WORDS entry (held to it by inner-control-ui.test.ts); a fixed text, no input in it.
         .or("decision.ilike.ALLOW%,decision.ilike.BLOCK%,decision.ilike.MODIFY%,decision.ilike.DEFERRED%,decision.ilike.ESCALATE%,decision.ilike.APPROVAL_REQUIRED%,decision.ilike.REQUIRE_APPROVAL%"))
         .order("created_at", { ascending: false }).limit(1),
+      // Today's checks that read rules in plain words: how many, what they cost, and whether the cap of 10 left some out.
+      agentOnly(anyDb.from("outer_control_evaluations").select("meaning_rules_checked, meaning_rules_skipped, meaning_cost_usd")
+        .eq("user_id", accountId).not("meaning_rules_checked", "is", null).gte("created_at", since)).limit(5000),
     ];
-    const [h, s, a, d, p, mr, dt, et, el, dl] = await Promise.all([
+    const [h, s, a, d, p, mr, dt, et, el, dl, mu] = await Promise.all([
       anyDb.from("hard_rules")
         .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id, required_approvals, created_at")
         .eq("user_id", accountId).order("created_at", { ascending: false }),
@@ -145,6 +151,8 @@ export function useInnerControlRules(project?: InnerProject | null) {
     setHard(rulesFor(project, (h.data ?? []) as HardRuleRow[]));
     setSafety(rulesFor(project, (s.data ?? []) as SafetyRuleRow[]));
     setMeaning((mr.data ?? []) as MeaningRuleRow[]);
+    // Unknown (not zero) when the query failed, so the screen never claims nothing was spent.
+    setMeaningUsage(skipPulse || (mu as { error?: unknown }).error ? null : meaningUsageOf((mu.data ?? []) as Parameters<typeof meaningUsageOf>[0]));
     setAgents((a.data ?? []) as { id: string; name: string }[]);
     const decisionRows = (d.data ?? []) as DecisionRow[];
     setDecisions(decisionRows);
@@ -298,5 +306,5 @@ export function useInnerControlRules(project?: InnerProject | null) {
     return true;
   };
 
-  return { loading, rules, counts, taskRules, pulse, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, promote, rowOf, meaning, refetch: load };
+  return { loading, rules, counts, taskRules, pulse, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, promote, rowOf, meaning, meaningUsage, refetch: load };
 }

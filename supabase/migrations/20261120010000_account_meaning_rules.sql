@@ -310,3 +310,9 @@ BEGIN
   RETURN r;
 END;
 $function$;
+
+-- ---- what rules in plain words cost (Inner Day 3, #172): kept with each reply check, for the Inner page's daily line.
+-- Numbers only: how many rules the judge read, how many the cap of 10 left out, and the estimated cost of its one call.
+ALTER TABLE public.outer_control_evaluations ADD COLUMN IF NOT EXISTS meaning_rules_checked smallint;
+ALTER TABLE public.outer_control_evaluations ADD COLUMN IF NOT EXISTS meaning_rules_skipped smallint;
+ALTER TABLE public.outer_control_evaluations ADD COLUMN IF NOT EXISTS meaning_cost_usd numeric(12, 6);

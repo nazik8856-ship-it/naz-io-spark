@@ -31,11 +31,13 @@ type Props = {
   onTry?: (r: RuleItem) => void;
   /** Go live: a rule in shadow mode starts changing outcomes (or a second owner is asked, with dual control). */
   onPromote?: (r: RuleItem) => void;
+  /** One line on what rules in plain words cost and whether their cap was reached (meaningUsageLine). */
+  note?: string | null;
 };
 
 export default function YourRulesCard({
   rules, counts, loading, canWrite, dualControl, busyKey, highlightKey,
-  onAdd, onTemplates, onEdit, onToggle, onDelete, onAsk, onTry, onPromote,
+  onAdd, onTemplates, onEdit, onToggle, onDelete, onAsk, onTry, onPromote, note,
 }: Props) {
   const [confirming, setConfirming] = useState<RuleItem | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -64,6 +66,8 @@ export default function YourRulesCard({
           </button>
         )}
       </div>
+
+      {note && <p className="mt-2 text-[11px] leading-relaxed text-zinc-400" data-testid="meaning-usage">{note}</p>}
 
       {!canWrite && (
         <p className="mt-3 text-[11px] text-amber-300/80">

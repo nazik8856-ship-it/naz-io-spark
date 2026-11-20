@@ -8,6 +8,8 @@ import { storableText } from "./outer-control-text-review.ts";
 import { BUILTIN_SAFETY_RULES, type SafetyMatch } from "./safety-scanner.ts";
 import type { Foundation } from "./outer-control-brain.ts";
 import { parseModelObject } from "./model-output.ts";
+import { callAiGateway, pickAiGateway } from "./ai-gateway.ts";
+import { estimateCostUsd, recordAiSpend, type Usage } from "./spend-guard.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
@@ -153,7 +155,37 @@ export function meaningRecord(rules: MeaningRule[], judge: JudgeResult) {
   };
 }
 
-export type MeaningRecord = ReturnType<typeof meaningRecord> & { skipped?: number };
+/** What the judge cost for one reply: its calls (one per reply), tokens and an estimate in US dollars. */
+export type JudgeCost = { calls: number; prompt_tokens: number; completion_tokens: number; cost_usd: number };
+export type MeaningRecord = ReturnType<typeof meaningRecord> & { skipped?: number; cost?: JudgeCost };
+
+/**
+ * NazAI's own AI gateway as the judge, metered: every call is added to the account's AI spend for the day (and to the agent's or
+ * API key's, when the reply came through one), so the daily spend cap covers rules in plain words too, and the cost of the call is
+ * kept with the reply's record.
+ */
+export function meteredGatewayJudge(admin: AnyAdmin, who: { userId: string; agentId?: string | null; apiKeyId?: string | null }): { ai: JudgeAi; cost: JudgeCost } {
+  const cost: JudgeCost = { calls: 0, prompt_tokens: 0, completion_tokens: 0, cost_usd: 0 };
+  const ai: JudgeAi = async (p) => {
+    const cfg = pickAiGateway();
+    if (!cfg) return null;
+    try {
+      const res = await callAiGateway({
+        model: cfg.deepModel, temperature: 0, response_format: { type: "json_object" },
+        messages: [{ role: "system", content: p.system }, { role: "user", content: p.user }],
+      }, cfg, AbortSignal.timeout(45_000));
+      if (!res.ok) return null;
+      const j = await res.json() as { choices?: { message?: { content?: string } }[]; usage?: Usage };
+      cost.calls++;
+      cost.prompt_tokens += Number(j.usage?.prompt_tokens ?? 0) || 0;
+      cost.completion_tokens += Number(j.usage?.completion_tokens ?? 0) || 0;
+      cost.cost_usd = Number((cost.cost_usd + estimateCostUsd(cfg.deepModel, j.usage)).toFixed(6));
+      await recordAiSpend(admin, who.userId, cfg.deepModel, j.usage, "meaning-rules", who.agentId ?? null, who.apiKeyId ?? null);
+      return j.choices?.[0]?.message?.content ?? null;
+    } catch { return null; }
+  };
+  return { ai, cost };
+}
 
 /** A shadow rule's finding, as a shadow match: logged with the reply's other shadow matches, never part of the verdict. */
 const shadowMatchOf = (x: MeaningFinding): SafetyMatch => ({

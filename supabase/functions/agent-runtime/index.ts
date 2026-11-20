@@ -23,7 +23,6 @@ import {
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { runControlGate, createPendingApproval, recordBreakerAttempt } from "../_shared/control-gate.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
-import { gatewayAi } from "../_shared/outer-control-report.ts";
 import { repairParams, repairContent, verifyRepair } from "../_shared/repair-engine.ts";
 import { scanAction } from "../_shared/safety-scanner.ts";
 import type { SafetyMatch } from "../_shared/safety-scanner.ts";
@@ -3576,7 +3575,7 @@ Rules:
                   const review = await evaluateExternalText(supabase, {
                     userId, agentId, apiKeyId: null, isTest: false,
                     sourceModel: `http_post:${host}`, content: respText, origin: "agent-runtime",
-                    meaning: { ai: gatewayAi }, // the account's rules in plain words, in the same review
+                    meaning: { ai: "gateway" }, // the account's rules in plain words, in the same review (metered)
                   });
                   outerVerdict = review.verdict;
                   outerSummary = review.summary;
