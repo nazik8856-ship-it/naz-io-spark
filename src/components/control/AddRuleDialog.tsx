@@ -56,7 +56,7 @@ export function newRuleRow(kind: RuleKindChoice, e: AnyRuleEdit, accountId: stri
   return { table: "safety_rules", row: { user_id: accountId, ...safetyPatch(e as SafetyEdit), category: "custom", shadow_mode: shadow, agent_id: null, api_key_id: null } };
 }
 
-export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite, onSaved, fallback, extra, meaningFull }: {
+export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite, onSaved, fallback, extra, meaningFull, initial }: {
   open: boolean; onOpenChange: (o: boolean) => void; accountId: string | null | undefined; canWrite: boolean;
   /** Called once the rule was saved. */
   onSaved: () => void;
@@ -66,6 +66,8 @@ export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite,
   extra?: (kind: RuleKindChoice, rule: AnyRuleEdit, problem: string | null, phrases: string[]) => ReactNode;
   /** The account already has the most rules in plain words it can have (10): that choice says so instead of opening. */
   meaningFull?: boolean;
+  /** A drafted action rule to start from (a suggested rule): the form opens filled in; nothing is saved until Save. */
+  initial?: { kind: "action"; hard: HardEdit } | null;
 }) {
   const [kind, setKind] = useState<RuleKindChoice | null>(null);
   const [hard, setHard] = useState<HardEdit>(NEW_HARD);
@@ -79,7 +81,8 @@ export default function AddRuleDialog({ open, onOpenChange, accountId, canWrite,
 
   useEffect(() => {
     if (!open) return;
-    setKind(null); setHard(NEW_HARD); setText(NEW_TEXT); setMeaningDraft(NEW_MEANING); setShadow(true); setTried(false); setBusy(false); setSaveError(null); setShowFallback(false);
+    setKind(initial?.kind ?? null); setHard(initial?.hard ?? NEW_HARD); setText(NEW_TEXT); setMeaningDraft(NEW_MEANING); setShadow(true); setTried(false); setBusy(false); setSaveError(null); setShowFallback(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const safety = useMemo(() => textRuleOf(text), [text]);

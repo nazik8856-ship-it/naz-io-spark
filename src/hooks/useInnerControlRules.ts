@@ -24,6 +24,7 @@ import {
   type SafetyRuleRow,
 } from "@/lib/inner-control-ui";
 import { rulesFor, type InnerProject } from "@/lib/inner-projects";
+import { SUGGEST_WINDOW_DAYS, type SuggestionDecision } from "@/lib/rule-suggestions";
 import { ocRead } from "@/lib/outer-control-read"; // encrypted content is read through the server (data encryption, front 3)
 import { hardPatch, meaningPatch, safetyPatch, writeOutcome, type HardEdit, type MeaningEdit, type SafetyEdit } from "@/lib/inner-rule-edit";
 
@@ -90,6 +91,7 @@ export function useInnerControlRules(project?: InnerProject | null) {
   const [safety, setSafety] = useState<SafetyRuleRow[]>([]);
   const [meaning, setMeaning] = useState<MeaningRuleRow[]>([]);
   const [meaningUsage, setMeaningUsage] = useState<MeaningUsage | null>(null);
+  const [weekDecisions, setWeekDecisions] = useState<SuggestionDecision[]>([]);
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [decisions, setDecisions] = useState<DecisionRow[]>([]);
   const [taskTags, setTaskTags] = useState<Map<string, OuterTaskTag>>(new Map());
@@ -118,8 +120,9 @@ export function useInnerControlRules(project?: InnerProject | null) {
     const skipPulse = project?.kind === "website";
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const agentOnly = (q: any) => (project?.kind === "agent" ? q.eq("agent_id", project.id) : q);
+    const weekAgo = new Date(Date.now() - SUGGEST_WINDOW_DAYS * 86_400_000).toISOString();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pulseQueries: Promise<any>[] = skipPulse ? [0, 1, 2, 3, 4].map(() => Promise.resolve({ data: [] })) : [
+    const pulseQueries: Promise<any>[] = skipPulse ? [0, 1, 2, 3, 4, 5].map(() => Promise.resolve({ data: [] })) : [
       agentOnly(anyDb.from("agent_decisions").select("decision, action_type, created_at").eq("user_id", accountId).eq("is_test", false).gte("created_at", since)).limit(2000),
       // Answer checks only: an action check (content_kind action) already has its decision row above.
       agentOnly(anyDb.from("outer_control_evaluations").select("verdict, created_at").eq("user_id", accountId).eq("content_kind", "text").gte("created_at", since)).limit(2000),
@@ -132,8 +135,11 @@ export function useInnerControlRules(project?: InnerProject | null) {
       // Today's checks that read rules in plain words: how many, what they cost, and whether the cap of 10 left some out.
       agentOnly(anyDb.from("outer_control_evaluations").select("meaning_rules_checked, meaning_rules_skipped, meaning_cost_usd")
         .eq("user_id", accountId).not("meaning_rules_checked", "is", null).gte("created_at", since)).limit(5000),
+      // This week's decisions, for suggested rules: what was stopped with no rule of the account behind it.
+      agentOnly(anyDb.from("agent_decisions").select("decision, action_type, hard_rule_id, created_at")
+        .eq("user_id", accountId).eq("is_test", false).gte("created_at", weekAgo)).order("created_at", { ascending: false }).limit(3000),
     ];
-    const [h, s, a, d, p, mr, dt, et, el, dl, mu] = await Promise.all([
+    const [h, s, a, d, p, mr, dt, et, el, dl, mu, wk] = await Promise.all([
       anyDb.from("hard_rules")
         .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, api_key_id, required_approvals, created_at")
         .eq("user_id", accountId).order("created_at", { ascending: false }),
@@ -151,6 +157,7 @@ export function useInnerControlRules(project?: InnerProject | null) {
     setHard(rulesFor(project, (h.data ?? []) as HardRuleRow[]));
     setSafety(rulesFor(project, (s.data ?? []) as SafetyRuleRow[]));
     setMeaning((mr.data ?? []) as MeaningRuleRow[]);
+    setWeekDecisions((wk as { error?: unknown }).error ? [] : (wk.data ?? []) as SuggestionDecision[]);
     // Unknown (not zero) when the query failed, so the screen never claims nothing was spent.
     setMeaningUsage(skipPulse || (mu as { error?: unknown }).error ? null : meaningUsageOf((mu.data ?? []) as Parameters<typeof meaningUsageOf>[0]));
     setAgents((a.data ?? []) as { id: string; name: string }[]);
@@ -306,5 +313,5 @@ export function useInnerControlRules(project?: InnerProject | null) {
     return true;
   };
 
-  return { loading, rules, counts, taskRules, pulse, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, promote, rowOf, meaning, meaningUsage, refetch: load };
+  return { loading, rules, counts, taskRules, pulse, activity, canWrite, dualControl, busyKey, setEnabled, remove, edit, promote, rowOf, meaning, meaningUsage, weekDecisions, hard, refetch: load };
 }

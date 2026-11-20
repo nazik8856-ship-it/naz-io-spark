@@ -211,6 +211,18 @@ describe("Inner Control page", () => {
     expect(state.updates).toEqual([]);
   });
 
+  it("an action stopped 3 times this week with no rule behind it is suggested; Make it a rule opens the drafted rule", async () => {
+    const held = { ...decision, id: "d9", decision: "ESCALATE stripe_refund (Stripe)", action_type: "stripe_refund", hard_rule_id: null, source: "judgement" };
+    state.tables = { ...state.tables, agent_decisions: [held, { ...held, id: "d10" }, { ...held, id: "d11" }] };
+    renderPage();
+    const card = await screen.findByTestId("rule-suggestion");
+    expect(card.textContent).toMatch(/This happened 3 times this week\. "stripe_refund" was held for approval 3 times/);
+    fireEvent.click(within(card).getByTestId("suggestion-make"));
+    const dialog = await screen.findByTestId("add-rule-dialog");
+    expect((within(dialog).getByLabelText("Rule") as HTMLTextAreaElement).value).toBe('Hold "stripe_refund" for my approval');
+    expect(state.updates).toEqual([]);
+  });
+
   it("the Add window offers Try it first once the rule is complete", async () => {
     renderPage();
     await screen.findByTestId("rule-row-hard:h1");
