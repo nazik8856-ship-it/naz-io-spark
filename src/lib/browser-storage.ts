@@ -29,6 +29,7 @@ export const BROWSER_STORAGE: Record<string, StorageEntry> = {
   "nazai_active_account_id": { storage: "session", holds: "the account (own or team) chosen in this tab", content: false },
   "nazai:post-auth-redirect": { storage: "session", holds: "the page to return to after signing in", content: false },
   "nazai_inner_project:": { storage: "session", holds: "the project chosen in this tab", content: false },
+  "nazai_rule_suggestions_dismissed:": { storage: "session", holds: "the suggested rules hidden with Not now in this tab (action names only)", content: false },
   "nazai-intro-played": { storage: "session", holds: "whether the entrance animation already played in this tab", content: false },
   "nazai_dryrun_reveal": { storage: "session", holds: "whether the dry-run toggle is revealed", content: false },
   "nazai_dryrun_on": { storage: "session", holds: "the dry-run toggle state", content: false },
@@ -75,7 +76,7 @@ export function clearAccountBrowserStorage(session: Storage | null = safeStorage
   try {
     for (const k of keysOf(session)) {
       const entry = Object.entries(BROWSER_STORAGE).find(([key]) => k === key || ((key.endsWith(":") || key.endsWith("_")) && k.startsWith(key)));
-      if (!entry || entry[1].content || k === "nazai_active_account_id" || k.startsWith("nazai_inner_project:")) session.removeItem(k);
+      if (!entry || entry[1].content || k === "nazai_active_account_id" || k.startsWith("nazai_inner_project:") || k.startsWith("nazai_rule_suggestions_dismissed:")) session.removeItem(k);
     }
   } catch { /* storage unavailable */ }
   purgeSensitiveBrowserStorage();

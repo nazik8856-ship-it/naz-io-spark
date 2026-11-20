@@ -223,7 +223,7 @@ export default function ControlSystem() {
   const dismissSuggestion = (s: RuleSuggestion) => {
     const next = new Set(dismissed).add(s.action);
     setDismissed(next);
-    try { sessionStorage.setItem(dismissKey, JSON.stringify([...next])); } catch { /* remembered for this page only */ }
+    try { sessionStorage.setItem(`nazai_rule_suggestions_dismissed:${accountId ?? ""}`, JSON.stringify([...next])); } catch { /* remembered for this page only */ }
   };
   const makeRuleFrom = (s: RuleSuggestion) => { setRuleDraft(s.draft); setRuleEditorOpen(true); };
 
