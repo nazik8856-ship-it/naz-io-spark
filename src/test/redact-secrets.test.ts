@@ -116,6 +116,17 @@ describe("error reports leave without secrets", () => {
     expect(scrubPostHogEvent(null)).toBeNull();
   });
 
+  it("a PostHog page view keeps its timestamp a date: as {} PostHog dropped every event (nothing recorded from 26 Oct 2026)", () => {
+    const at = new Date("2026-11-20T10:00:00Z");
+    const view = { event: "$pageview", uuid: "u1", timestamp: at, properties: { token: "phc_public_project_key", $pathname: "/control-system", $sent_at: at } };
+    const out = scrubPostHogEvent(view)! as typeof view;
+    expect(out.timestamp).toBeInstanceOf(Date);
+    expect(out.timestamp.toISOString()).toBe("2026-11-20T10:00:00.000Z");
+    expect(out.properties.$sent_at).toBeInstanceOf(Date);
+    expect(out.properties.$pathname).toBe("/control-system");
+    expect(JSON.parse(JSON.stringify(out)).timestamp).toBe("2026-11-20T10:00:00.000Z");
+  });
+
   it("a replay keeps its recording; only the page address it records loses its secrets", () => {
     const frames = [
       { type: 4, data: { href: "https://app.test/oauth/callback?code=4/0AY0e-abc&state=xyz", width: 400, height: 800 } },
