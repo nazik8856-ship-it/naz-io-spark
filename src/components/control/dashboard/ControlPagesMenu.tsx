@@ -193,11 +193,36 @@ const GROUPS: MenuGroup[] = [
 ];
 
 
-/** Every page of the Inner Control System, grouped, each with a one-line description. Used by the "All pages" menu and the settings sheet. */
+/**
+ * Pages taken out of this menu by real usage (Inner Day 3, #175, approved by the owner on 2026-11-20). None was opened in the
+ * analytics window (12 Sep to 26 Oct 2026; analytics recorded nothing after that until the date fix) and none is needed for a
+ * job: second-owner approvals, team, data export and deletion, incidents, the knowledge base, all decisions and webhooks stay.
+ * Nothing is deleted: every page keeps its route and opens by its link. "Are my rules working?" is now shown under each rule.
+ */
+export const HIDDEN_FROM_MENU = new Set([
+  "/control-system/live",
+  "/control-system/action-reversals",
+  "/control-system/policy",
+  "/control-system/policy-bundle",
+  "/control-system/changes",
+  "/control-system/rule-effectiveness",
+  "/control-system/confidence-calibration",
+  "/control-system/audit-verify",
+  "/control-system/compliance",
+  "/control-system/roi",
+  "/control-system/entities",
+]);
+
+/** The groups as the menu shows them: without the hidden pages, and without a group left empty. */
+export const MENU_GROUPS: MenuGroup[] = GROUPS
+  .map((g) => ({ ...g, items: g.items.filter((i) => !HIDDEN_FROM_MENU.has(i.path)) }))
+  .filter((g) => g.items.length > 0);
+
+/** Every page of the Inner Control System people use, grouped, each with a one-line description. Used by the "All pages" menu and the settings sheet. */
 export function ControlPagesGrid({ badges = {}, onNavigate, columns = "sm:grid-cols-2 lg:grid-cols-3" }: { badges?: Record<string, number>; onNavigate: (path: string) => void; columns?: string }) {
   return (
           <div className={`grid grid-cols-1 gap-4 ${columns}`}>
-            {GROUPS.map((group) => (
+            {MENU_GROUPS.map((group) => (
               <div key={group.title}>
                 <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">{group.title}</div>
                 <ul className="space-y-0.5">
