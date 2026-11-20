@@ -24,7 +24,7 @@ import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { evaluateExternalText } from "../_shared/outer-control-text-review.ts";
 import { requireCaller } from "../_shared/caller.ts";
-import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind, workRequestKind } from "../_shared/inner-chat-task.ts";
+import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind, workRequestKind, pastedTextToCheck } from "../_shared/inner-chat-task.ts";
 import { describeDraft, draftFromArgs, RULE_SCOPES } from "../_shared/inner-chat-rule.ts";
 import { ensureStarterTools, STARTER_TASKS, starterTasksUsed } from "../_shared/outer-control-starter.ts";
 
@@ -120,6 +120,14 @@ function formatTextReviewReply(result: Awaited<ReturnType<typeof evaluateExterna
   if (result.matches.length) {
     lines.push("", `Matched: ${result.matches.map((m) => m.name).join(", ")}.`);
   }
+  // Rules in plain words: the words that broke each one, and why (a "remove" rule's quote is never repeated).
+  for (const f of result.meaning?.findings ?? []) {
+    if (f.shadow) continue;
+    lines.push("", `"${f.rule}": ${f.quote ? `"${f.quote}" — ` : ""}${f.why}`);
+  }
+  // Shadow rules are watched only: they never change the verdict, but the person sees what they would have caught.
+  const shadow = [...new Set((result.shadowMatches ?? []).map((m) => m.name))];
+  if (shadow.length) lines.push("", `In shadow mode (not enforced), would have matched: ${shadow.join(", ")}.`);
   return lines.join("\n");
 }
 
@@ -299,7 +307,9 @@ Deno.serve(async (req) => {
               "CRM bot, anything besides this account's own Generator agents) and wants it checked, cleaned, or " +
               "verified against this account's rules, call the review_external_text tool with the exact text. " +
               "This is squarely on-topic -- checking an external AI's output against this account's own rules is " +
-              "exactly what this system is for, not a request to redirect.\n" +
+              "exactly what this system is for, not a request to redirect. A message that is ONLY a piece of text -- " +
+              "a sentence, reply, email or post someone might send, with no question or instruction to you (e.g. " +
+              "'Your order will arrive by Friday, guaranteed.') -- is text to check: call review_external_text with it.\n" +
               "3) Otherwise, reply normally in plain text — answer questions about how the Control System works, " +
               "explain past decisions, or ask ONE clarifying question when intent is ambiguous. " +
               "Do NOT call any tool in this mode. If asked what you can actually do or verify right now, answer ONLY from " +
@@ -371,8 +381,11 @@ Deno.serve(async (req) => {
       return json({ mode: "task_offer", offer: taskOffer({ kind, request, tools, freeUsed: used, freeTasks: STARTER_TASKS }) });
     }
 
-    if (call?.function?.name === "review_external_text") {
-      const content = String(parsed.content || "").slice(0, 8000);
+    // Safety net for the core loop: a message that is only a piece of text ("Your order will arrive by Friday, guaranteed.")
+    // answered with no tool at all is checked against the account's rules anyway, exactly as pasted.
+    const pasted = call ? null : pastedTextToCheck(message);
+    if (call?.function?.name === "review_external_text" || pasted) {
+      const content = String(pasted ?? parsed.content ?? "").slice(0, 8000);
       if (!content.trim()) {
         return json({ mode: "chat", reply: "I didn't catch the text to review — paste it and I'll check it against your rules." });
       }

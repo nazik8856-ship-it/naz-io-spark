@@ -53,6 +53,32 @@ const WORK_VERBS: [RegExp, ReportKind][] = [
   [/^(fact[- ]?check|verify)\b/, "factcheck"],
 ];
 const POLITE = /^(please\s+|can you\s+|could you\s+|would you\s+|help me\s+|i need you to\s+|i want you to\s+)+/;
+// A message that is only a piece of text to check ("Your order will arrive by Friday, guaranteed."): the exact text, or null.
+// The safety net for the core loop (paste text, get it checked against your rules): when the chat model answers such a message as
+// off-topic, the server checks the text itself. "Check this: …" / "Is this ok? …" keep only the text after the lead-in. Never a
+// question to the assistant (one sentence ending in "?"), a greeting or thanks, a work request, or a message about rules or
+// about what an agent wants to do: those have their own modes.
+const CHECK_LEAD_IN = /^(please\s+)?(check|review|verify|scan|clean( up)?|is this (ok|okay|fine|safe|allowed)\??|can i send this\??)\s*(this|the following|that)?\s*(text|reply|message|answer|response|output)?\s*[:\n-]\s*/i;
+const SMALL_TALK = /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|sure|good (morning|afternoon|evening))\b/i; // short ones only
+const NOT_TEXT_TO_CHECK = /^(what|how|why|when|where|which|who|can|could|should|would|will|do|does|did|is|are|am|show|tell|list|explain|add|delete|remove|turn|switch|enable|disable|make|create|help)\b/i;
+export function pastedTextToCheck(message: string): string | null {
+  let t = String(message ?? "").trim();
+  const lead = t.match(CHECK_LEAD_IN);
+  if (lead) t = t.slice(lead[0].length).trim();
+  t = t.replace(/^["“'`]+|["”'`]+$/g, "").trim();
+  if (t.length < 12 || t.length > 8000 || t.split(/\s+/).length < 3) return null;
+  if (!lead) {
+    const lower = t.toLowerCase();
+    if (NOT_TEXT_TO_CHECK.test(lower) || workRequestKind(lower)) return null;
+    if (SMALL_TALK.test(lower) && t.split(/\s+/).length <= 6) return null; // "thanks a lot", not "Thanks for waiting. Your refund…"
+    if (/\brules?\b|\b(my|our|the) (agent|ai|bot)s? (wants?|is trying|would like|plans?)\b/.test(lower)) return null;
+    // A rule asked for in words ("Never let my AI mention prices", "Always ask me before…") becomes a drafted rule instead.
+    if (/^(never|always|don'?t let|do not let|stop|block|forbid|ban)\b|\b(my|our) (ai|agent|bot|assistant)s?\b/.test(lower)) return null;
+    if (/\?\s*$/.test(t) && !/[.!?]\s+\S/.test(t.replace(/\?\s*$/, ""))) return null; // one sentence that is a question
+  }
+  return t;
+}
+
 export function workRequestKind(message: string): ReportKind | null {
   const m = String(message ?? "").trim().toLowerCase();
   if (!m || m.length > 1500) return null;

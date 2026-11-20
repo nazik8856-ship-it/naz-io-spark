@@ -1,6 +1,6 @@
 // Run with: deno test --no-check supabase/functions/_shared/inner-chat-task_test.ts
 // Inner Control chat runs tasks (Day 1, #159): which actions, which built-in tools, and what it costs before anything starts.
-import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind, workRequestKind } from "./inner-chat-task.ts";
+import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind, workRequestKind, pastedTextToCheck } from "./inner-chat-task.ts";
 
 function assert(c: unknown, m: string) { if (!c) throw new Error(m); }
 const STARTER = [{ id: "w", name: "NazAI Writer" }, { id: "a", name: "NazAI Analyst" }, { id: "r", name: "NazAI Reviewer" }];
@@ -47,4 +47,20 @@ Deno.test("a plain request for work is recognised (the chat's safety net); rules
     ["", null],
   ];
   for (const [m, want] of cases) assert(workRequestKind(m) === want, `${m} -> ${workRequestKind(m)}, want ${want}`);
+});
+
+Deno.test("text pasted on its own is text to check (the core loop), and other messages are not", () => {
+  const checked: [string, string | null][] = [
+    ["Your order will arrive by Friday, guaranteed.", "Your order will arrive by Friday, guaranteed."],
+    ["\"We can refund you in full, no questions asked.\"", "We can refund you in full, no questions asked."],
+    ["Check this: Our price is $49 and it ships tomorrow.", "Our price is $49 and it ships tomorrow."],
+    ["Is this ok?\nHi Sam, your account key is below. Let me know if anything breaks!", "Hi Sam, your account key is below. Let me know if anything breaks!"],
+    ["Thanks for waiting. Can I help with anything else?", "Thanks for waiting. Can I help with anything else?"],
+  ];
+  for (const [m, want] of checked) assert(pastedTextToCheck(m) === want, `${m} -> ${pastedTextToCheck(m)}`);
+  for (const m of [
+    "What rules do I have?", "How does shadow mode work?", "hello there friend", "Thanks a lot for that",
+    "Draft a polite reply to a customer asking for a refund", "Never let my AI mention prices", "my agent wants to email all customers",
+    "Show me today's decisions", "ok", "The capital of France?", "Add a rule about refunds please",
+  ]) assert(pastedTextToCheck(m) === null, `${m} should not be checked, got ${pastedTextToCheck(m)}`);
 });
