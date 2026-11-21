@@ -21,7 +21,8 @@ Deno.test("insert: content is stored only encrypted, bound to a generated id; de
   const row = table("outer_control_sessions")[0];
   assert(/^[0-9a-f-]{36}$/.test(row.id), "an id is generated before encrypting");
   assertEquals([row.objective, row.status, row.user_id], [null, "running", "u1"]);
-  assert(row.objective_enc.startsWith("v2:") && !row.objective_enc.includes("Q3"), "only ciphertext stored");
+  // The whole text, not a 2-letter piece of it: a random ciphertext contains "Q3" by chance about once in 75 runs (CI, 21 Nov).
+  assert(row.objective_enc.startsWith("v2:") && !row.objective_enc.includes("Write the Q3 plan"), "only ciphertext stored");
   assert(row.history_enc?.startsWith("v2:") && row.history === null, "an omitted default ([] history) is stored encrypted too");
   const { data: back } = await db.from("outer_control_sessions").select("*").eq("id", row.id).maybeSingle();
   assertEquals([back.objective, back.history, back.objective_enc], ["Write the Q3 plan", [], undefined]);
