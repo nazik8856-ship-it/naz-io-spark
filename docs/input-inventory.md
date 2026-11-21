@@ -39,7 +39,7 @@ The fields are found by reading the code (names used on the parsed body), so tre
 | `control-incidents` | user | readJson | 256 KB | `assignee_id`, `note`, `related_incident_id`, `root_cause_category` | `status` | `authorization` |
 | `control-monthly-report-email` | system | no body | — | — | — | `authorization` |
 | `control-self-audit` | user | no body | — | — | — | `authorization` |
-| `control-system-decide` | user | readJson | 256 KB | `account_id`, `action`, `action_type`, `agentId`, `content`, `description`, `dry_run`, `history`, `kind`, `params`, `provider`, `request`, `source_model` | — | `authorization` |
+| `control-system-decide` | user | readJson | 256 KB | `account_id`, `action`, `action_type`, `agentId`, `content`, `description`, `dry_run`, `history`, `kind`, `params`, `project_id`, `provider`, `request`, `source`, `source_model` | — | `authorization` |
 | `control-test-suite` | user | readJson | 256 KB | `categories`, `concurrency`, `dry_run`, `ids` | — | `authorization`, `x-internal-user-id` |
 | `control-weekly-trend-email` | system | no body | — | — | — | `authorization` |
 | `cron-correlated-failures` | system | no body | — | — | — | `authorization` |

@@ -15,8 +15,16 @@ const fakeAdmin = (result: { data?: unknown; error?: { message: string } | null;
   };
 };
 
-Deno.test("the free limits are 3 Control Tasks and 2 websites a month", () => {
-  assertEquals(FREE_LIMITS, { control_task: 3, website: 2 });
+Deno.test("the free limits are 3 Control Tasks and 2 websites a month, and 15 cleaned results a day", () => {
+  assertEquals(FREE_LIMITS, { control_task: 3, website: 2, context_clean: 15 });
+});
+
+Deno.test("cleaned results: a daily allowance, the same number as Clean it", async () => {
+  const { FREE_CLEANS_PER_DAY } = await import("./context-clean.ts");
+  assertEquals(FREE_LIMITS.context_clean, FREE_CLEANS_PER_DAY);
+  // The database's number (free_limit_of) is compared with this one by src/test/context-clean.test.tsx (CI runs these without file access).
+  assertEquals(/tomorrow/.test(freeLimitMessage("context_clean")), true);
+  assertEquals(freeLimitFromDbError({ message: "free_limit:context_clean" }), "context_clean");
 });
 
 Deno.test("an account within its allowance may start", async () => {

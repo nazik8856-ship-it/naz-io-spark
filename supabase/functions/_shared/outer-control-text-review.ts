@@ -164,6 +164,11 @@ export async function evaluateExternalText(
      * one AI judge call. Every path that checks a real reply passes it; a fixed self-test does not.
      */
     meaning?: { ai: JudgeAi | "gateway" | null | undefined; projectId?: string | null };
+    /**
+     * The person who pasted the text is deciding now (Clean it, the paste screen): a "needs approval" result is shown to them on
+     * screen and no approval request is queued. Every other path leaves this off.
+     */
+    personPresent?: boolean;
   },
 ): Promise<TextReviewResult> {
   const { userId, agentId, apiKeyId, isTest, sourceModel, content, origin } = params;
@@ -250,11 +255,13 @@ export async function evaluateExternalText(
       };
     }
 
-    const outcome = await createPendingApproval(admin, {
-      userId, decisionId, agentId, actionType: TEXT_REVIEW_ACTION_TYPE, provider: sourceModel,
-      description: safe, reason, riskTier: "high", origin,
-      apiKeyId, requiredApprovals: rule.required_approvals ?? undefined,
-    });
+    const outcome = params.personPresent
+      ? { approvalId: null, autoResolved: false as const, resolution: undefined }
+      : await createPendingApproval(admin, {
+        userId, decisionId, agentId, actionType: TEXT_REVIEW_ACTION_TYPE, provider: sourceModel,
+        description: safe, reason, riskTier: "high", origin,
+        apiKeyId, requiredApprovals: rule.required_approvals ?? undefined,
+      });
     const verdict: "allow" | "block" | "escalate" = outcome.autoResolved
       ? (outcome.resolution === "approved" ? "allow" : "block")
       : "escalate";
@@ -324,7 +331,7 @@ export async function evaluateExternalText(
   // An escalate from the safety scanner used to return nothing for anyone to
   // act on: no approval row existed (only the hard-rule path made one). Make
   // a real one, resolved by the key's own on_uncertain policy when it has one.
-  if (verdict === "escalate") {
+  if (verdict === "escalate" && !params.personPresent) {
     const outcome = await createPendingApproval(admin, {
       userId, decisionId: textDecisionId, agentId, actionType: TEXT_REVIEW_ACTION_TYPE, provider: sourceModel,
       description: storable, reason: summary, riskTier: matches.some((m) => m.severity === "block") ? "high" : "medium",

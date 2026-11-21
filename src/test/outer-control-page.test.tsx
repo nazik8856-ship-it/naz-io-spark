@@ -9,6 +9,7 @@ vi.mock("@/integrations/supabase/client", () => {
   const result = (table: string) => {
     const q: Record<string, unknown> = {};
     for (const m of ["select", "eq", "is", "not", "neq", "contains", "in", "order", "limit"]) q[m] = () => q;
+    q.maybeSingle = async () => ({ data: null, error: null });
     q.then = (res: (v: unknown) => unknown) => (state.hang.has(table) ? new Promise(() => {}) : Promise.resolve({ data: state.errors[table] ? null : state.tables[table] ?? [], error: state.errors[table] ?? null })).then(res);
     return q;
   };
@@ -30,7 +31,12 @@ const row = (n: number, verdict: string, trust = 90) => ({
   changes: [], next_step: null, shadow_matches: [], approval_id: null,
 });
 const tool = { id: "t1", name: "Support bot", endpoint_url: "https://bot.example.com/chat", request_format: "generic_json", approved_at: "2026-10-01", last_ok_at: null, last_error: null, last_checked_at: "2026-10-02" };
-const renderPage = () => render(<MemoryRouter><OuterControlSystem /></MemoryRouter>);
+// Context Day 1: Clean it is the first screen; the Task area, the status and Advanced are one section below it, opened here.
+const renderPage = () => {
+  const r = render(<MemoryRouter><OuterControlSystem /></MemoryRouter>);
+  fireEvent.click(screen.getByTestId("outer-more-toggle"));
+  return r;
+};
 
 describe("Outer Control page", () => {
   beforeEach(() => {
@@ -46,7 +52,27 @@ describe("Outer Control page", () => {
     };
   });
 
-  it("default view: the status (with what waits for you) and Start a task with the Tasks; everything else is in Advanced", async () => {
+  it("first screen: Clean it, with Tasks, tools and the API in one closed section below it", async () => {
+    render(<MemoryRouter><OuterControlSystem /></MemoryRouter>);
+    expect(screen.getByTestId("clean-it")).toBeTruthy();
+    expect(screen.getByTestId("clean-input")).toBeTruthy();
+    const toggle = screen.getByTestId("outer-more-toggle");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByTestId("outer-more")).toBeNull();
+    expect(screen.queryByTestId("active-sessions-card")).toBeNull();
+    expect(screen.queryByText(/Set up API access/)).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(await screen.findByTestId("status-bar")).toBeTruthy();
+  });
+
+  it("a link to the Task area (?project=…) opens the section by itself", async () => {
+    render(<MemoryRouter initialEntries={["/control-system/outer?project=p1"]}><OuterControlSystem /></MemoryRouter>);
+    expect(screen.getByTestId("outer-more-toggle").getAttribute("aria-expanded")).toBe("true");
+    expect(await screen.findByTestId("active-sessions-card")).toBeTruthy();
+  });
+
+  it("default view of the section: the status (with what waits for you) and Start a task with the Tasks; everything else is in Advanced", async () => {
     renderPage();
     const status = await screen.findByTestId("status-bar");
     expect(within(status).getByText("Outer Control is active")).toBeTruthy();

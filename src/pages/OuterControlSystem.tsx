@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjectList } from "@/hooks/useProjectList";
 import { isFirstValueUser } from "@/lib/first-value";
 import FirstValueBanner from "@/components/onboarding/FirstValueBanner";
-import { ArrowLeft, Globe2, ShieldCheck, KeyRound, Lock, Plug, ScanEye } from "lucide-react";
+import { ArrowLeft, ChevronDown, Globe2, ShieldCheck, KeyRound, Lock, Plug, ScanEye } from "lucide-react";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ import { selectRulesForEntity, type EntityScopedLike } from "@/lib/agent-policy"
 const anyDb = supabase as any;
 
 import ActiveSessionsCard from "@/components/control/outer/ActiveSessionsCard";
+import CleanItPanel from "@/components/control/outer/CleanItPanel";
 import WorkflowsCard from "@/components/control/outer/WorkflowsCard";
 import OuterStatusBar, { type Attention } from "@/components/control/outer/OuterStatusBar";
 import RecentDecisions, { type DecisionRow } from "@/components/control/outer/RecentDecisions";
@@ -249,7 +250,15 @@ function SetupRequired({ navigate }: { navigate: ReturnType<typeof useNavigate> 
  */
 export default function OuterControlSystem() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const { accountId } = useActiveAccount();
+  // Context Day 1: Clean it is the first screen. Tasks, connected tools and the API are one section below it, closed until it is
+  // opened, or until a link asks for it (?start=… from onboarding, ?project=… from a project's "Start a task").
+  const [moreOpen, setMoreOpen] = useState(false);
+  const deepLink = params.has("start") || params.has("project");
+  // The Task area reads ?start= / ?project= and then removes it from the address: the section stays open once a link opened it.
+  useEffect(() => { if (deepLink) setMoreOpen(true); }, [deepLink]);
+  const showMore = moreOpen || deepLink;
   // First-value onboarding: a new account with nothing in it yet sees only its first tasks here, without the API key step.
   const { user } = useAuth();
   const projectList = useProjectList();
@@ -438,6 +447,20 @@ export default function OuterControlSystem() {
     <div className="circuit-bg min-h-screen w-full text-white">
       <Header navigate={navigate} focused={firstValue} />
 
+      <div className="mx-auto max-w-4xl space-y-5 px-4 pt-6 sm:px-6 sm:pt-8">
+        <CleanItPanel accountId={accountId} />
+        <button type="button" onClick={() => setMoreOpen((o) => !o)} aria-expanded={showMore} data-testid="outer-more-toggle"
+          className="hud-glass flex w-full items-center gap-3 rounded-2xl px-5 py-3.5 text-left transition hover:border-white/20">
+          <Plug className="h-4 w-4 shrink-0 text-cyan-300" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium text-zinc-200">Tasks, connected tools and API</span>
+            <span className="block truncate text-xs text-zinc-500">Run a task across your AI tools, connect a tool, or send replies through the API</span>
+          </span>
+          <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-400 transition-transform ${showMore ? "rotate-180" : ""}`} />
+        </button>
+      </div>
+
+      {showMore && <div data-testid="outer-more">
       {loading && (
         <div className="mx-auto max-w-6xl px-6 py-16 text-center text-sm text-zinc-500">Loading…</div>
       )}
@@ -558,6 +581,8 @@ export default function OuterControlSystem() {
           </Dialog>
         </div>
       )}
+      </div>}
+      <div className="h-10" aria-hidden />
     </div>
   );
 }
