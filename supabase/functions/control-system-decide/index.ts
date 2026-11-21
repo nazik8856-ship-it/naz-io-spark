@@ -1,6 +1,8 @@
 // AI Control System — chat front door for the shared decision engine.
 // Input: { message: string, history?: [{role, content}], agentId? }
 //        { action: "run_task", kind, request }   (the person confirmed a task offer: starts it, returns { mode: "task_started", task_id })
+//        { action: "clean_text", content, source?, project_id? }   (Clean it: one result that follows the rules and the person's
+//        context, returns { mode: "clean_result", ... }; _shared/context-clean.ts)
 //
 // A request to DO work ("write…", "research…", "compare…") is answered with a task offer (mode "task_offer": the action, the
 // built-in tools, what it costs); nothing starts until the person confirms it with run_task. The Task is an ordinary Outer Control
@@ -27,6 +29,12 @@ import { requireCaller } from "../_shared/caller.ts";
 import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind, workRequestKind, pastedTextToCheck } from "../_shared/inner-chat-task.ts";
 import { describeDraft, draftFromArgs, RULE_SCOPES } from "../_shared/inner-chat-rule.ts";
 import { ensureStarterTools, STARTER_TASKS, starterTasksUsed } from "../_shared/outer-control-starter.ts";
+import { cleanSourceOf, cleanText, MAX_CLEAN_CHARS, pasteSourceModel, recheckSourceModel } from "../_shared/context-clean.ts";
+import { meteredGatewayJudge } from "../_shared/meaning-judge.ts";
+import { checkFreeLimit } from "../_shared/free-limits.ts";
+import { projectContextFor } from "../_shared/projects.ts";
+import { projectReferenceOf } from "../_shared/project-consistency.ts";
+import { projectKeysFromEnv } from "../_shared/project-crypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -207,7 +215,8 @@ Deno.serve(async (req) => {
     const agentId: string | null = body?.agentId ? String(body.agentId) : null;
     const dryRun = body?.dry_run === true;
     const runTask = body?.action === "run_task";
-    if (!message && !runTask) return json({ error: "message required" }, 400);
+    const cleanRequest = body?.action === "clean_text";
+    if (!message && !runTask && !cleanRequest) return json({ error: "message required" }, 400);
 
     // Was ALWAYS userId regardless of which account was selected via the
     // account switcher on the Control System page -- a delegated team
@@ -222,6 +231,37 @@ Deno.serve(async (req) => {
     const requestedAccountId = body?.account_id;
     const accountId = await resolveAccountScope(userClient, userId, requestedAccountId);
     if (!accountId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    // ---- Clean it: pasted text from any AI -> one result that follows the account's rules and the person's context -----------
+    if (cleanRequest) {
+      const content = String(body?.content ?? "").trim();
+      if (!content) return json({ error: "empty", message: "Paste the text you want cleaned." }, 400);
+      if (content.length > MAX_CLEAN_CHARS) {
+        return json({ error: "too_long", message: `That is ${content.length.toLocaleString("en")} characters; Clean it takes up to ${MAX_CLEAN_CHARS.toLocaleString("en")} at a time.` }, 400);
+      }
+      const source = cleanSourceOf(body?.source);
+      const projectId = typeof body?.project_id === "string" && /^[0-9a-f-]{36}$/i.test(body.project_id) ? body.project_id : null;
+      const allowed = await checkFreeLimit(supabase, accountId, "context_clean");
+      if (!allowed.ok) return json(allowed.refusal, 402);
+      let context: { name: string; text: string } | null = null;
+      if (projectId) {
+        const got = await projectContextFor(supabase, accountId, projectId, await projectKeysFromEnv(), 7_000);
+        if (!got.ok) return json({ error: "context_unavailable", message: `Your context could not be used: ${got.message}` }, 400);
+        const ref = projectReferenceOf(got.text);
+        if (ref) context = { name: got.name, text: ref };
+      }
+      const metered = meteredGatewayJudge(supabase, { userId: accountId, purpose: "context-clean" });
+      // The person who pasted it is deciding now: a "needs a person" result is shown to them, never queued as an approval.
+      const review = (text: string, recheck: boolean) => evaluateExternalText(supabase, {
+        userId: accountId, agentId: null, apiKeyId: null, isTest: false,
+        sourceModel: recheck ? recheckSourceModel(source) : pasteSourceModel(source), content: text, origin: "external-api",
+        meaning: { ai: "gateway", projectId }, personPresent: true,
+      });
+      const result = await cleanText({ review, ai: metered.ai, context }, content);
+      const { data: st } = await supabase.rpc("free_limit_status", { _user_id: accountId, _kind: "context_clean" });
+      const allowance = st && (st as { limited?: boolean }).limited ? { used: Number((st as { used?: number }).used ?? 0), limit: Number((st as { limit?: number }).limit ?? 0) } : null;
+      return json({ mode: "clean_result", ...result, source, allowance, cost_usd: metered.cost.cost_usd });
+    }
 
     // ---- The person confirmed a task offer: start it as an Outer Control Task with the built-in tools -------------------------
     if (runTask) {

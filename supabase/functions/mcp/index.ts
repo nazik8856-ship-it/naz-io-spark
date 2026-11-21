@@ -17,6 +17,7 @@ function redactDeep(value, depth = 0, seen = /* @__PURE__ */ new WeakSet()) {
   try {
     if (typeof value === "string") return redactSecrets(value);
     if (value === null || typeof value !== "object") return value;
+    if (value instanceof Date) return value;
     if (seen.has(value)) return "[circular]";
     if (depth > 8) return "[deep]";
     seen.add(value);

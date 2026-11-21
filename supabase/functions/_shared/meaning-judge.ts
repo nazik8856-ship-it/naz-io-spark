@@ -164,7 +164,7 @@ export type MeaningRecord = ReturnType<typeof meaningRecord> & { skipped?: numbe
  * API key's, when the reply came through one), so the daily spend cap covers rules in plain words too, and the cost of the call is
  * kept with the reply's record.
  */
-export function meteredGatewayJudge(admin: AnyAdmin, who: { userId: string; agentId?: string | null; apiKeyId?: string | null }): { ai: JudgeAi; cost: JudgeCost } {
+export function meteredGatewayJudge(admin: AnyAdmin, who: { userId: string; agentId?: string | null; apiKeyId?: string | null; purpose?: string }): { ai: JudgeAi; cost: JudgeCost } {
   const cost: JudgeCost = { calls: 0, prompt_tokens: 0, completion_tokens: 0, cost_usd: 0 };
   const ai: JudgeAi = async (p) => {
     const cfg = pickAiGateway();
@@ -180,7 +180,7 @@ export function meteredGatewayJudge(admin: AnyAdmin, who: { userId: string; agen
       cost.prompt_tokens += Number(j.usage?.prompt_tokens ?? 0) || 0;
       cost.completion_tokens += Number(j.usage?.completion_tokens ?? 0) || 0;
       cost.cost_usd = Number((cost.cost_usd + estimateCostUsd(cfg.deepModel, j.usage)).toFixed(6));
-      await recordAiSpend(admin, who.userId, cfg.deepModel, j.usage, "meaning-rules", who.agentId ?? null, who.apiKeyId ?? null);
+      await recordAiSpend(admin, who.userId, cfg.deepModel, j.usage, who.purpose ?? "meaning-rules", who.agentId ?? null, who.apiKeyId ?? null);
       return j.choices?.[0]?.message?.content ?? null;
     } catch { return null; }
   };

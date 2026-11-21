@@ -12,8 +12,9 @@
 // deno-lint-ignore no-explicit-any
 type AnyAdmin = any;
 
-export type FreeLimitKind = "control_task" | "website";
-export const FREE_LIMITS: Record<FreeLimitKind, number> = { control_task: 3, website: 2 };
+// context_clean (Clean it, Context Day 1) is per day (UTC), not per month: cleaned results from pasted text.
+export type FreeLimitKind = "control_task" | "website" | "context_clean";
+export const FREE_LIMITS: Record<FreeLimitKind, number> = { control_task: 3, website: 2, context_clean: 15 };
 
 export type FreeLimitStatus = {
   kind: FreeLimitKind;
@@ -35,6 +36,7 @@ export type FreeLimitRefusal = {
 
 /** The calm reason the limit window shows. It names what still works, never what is "locked". */
 export function freeLimitMessage(kind: FreeLimitKind, limit: number = FREE_LIMITS[kind]): string {
+  if (kind === "context_clean") return `Today's ${limit} free cleaned results are used. Everything you cleaned stays available; more cleans come back tomorrow.`;
   return kind === "control_task"
     ? `This month's ${limit} free Control Tasks are used. Your Tasks, results and tools stay available; starting a new Task needs Pro or next month's allowance.`
     : `This month's ${limit} free websites are created. Your websites stay available and editable; creating a new one needs Pro or next month's allowance.`;
@@ -67,6 +69,6 @@ export async function checkFreeLimit(admin: AnyAdmin, userId: string, kind: Free
 /** The insert trigger's refusal ("free_limit:control_task"), read back from a database error. */
 export function freeLimitFromDbError(error: unknown): FreeLimitKind | null {
   const msg = error && typeof error === "object" && "message" in error ? String((error as { message: unknown }).message ?? "") : "";
-  const m = /free_limit:(control_task|website)\b/.exec(msg);
+  const m = /free_limit:(control_task|website|context_clean)\b/.exec(msg);
   return m ? m[1] as FreeLimitKind : null;
 }

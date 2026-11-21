@@ -42,14 +42,20 @@ const STARTERS = [
   { id: "st2", name: "NazAI Analyst", endpoint_url: "nazai-internal://starter/analyst", request_format: "generic_json", approved_at: "2026-10-30", last_ok_at: "2026-10-30", last_error: null, last_checked_at: "2026-10-30" },
 ];
 const drive: { action: string }[] = [];
-const renderAt = (at: string) => render(
+// Context Day 1: Clean it is the first screen; the first-task steps live in the Tasks section below it, opened here.
+const renderAt = (at: string) => {
+  const r = render(
   <MemoryRouter initialEntries={[at]}>
     <Routes>
       <Route path="/control-system/outer" element={<OuterControlSystem />} />
       <Route path="/dashboard" element={<div>dashboard page</div>} />
     </Routes>
   </MemoryRouter>,
-);
+  );
+  const toggle = screen.getByTestId("outer-more-toggle");
+  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
+  return r;
+};
 
 describe("first-value onboarding: Outer Control", () => {
   beforeEach(() => {
