@@ -259,6 +259,8 @@ export default function OuterControlSystem() {
   // The Task area reads ?start= / ?project= and then removes it from the address: the section stays open once a link opened it.
   useEffect(() => { if (deepLink) setMoreOpen(true); }, [deepLink]);
   const showMore = moreOpen || deepLink;
+  // Control pulse: Clean it tells the page when it applies the rules, and the status dot pulses with it.
+  const [surge, setSurge] = useState(0);
   // First-value onboarding: a new account with nothing in it yet sees only its first tasks here, without the API key step.
   const { user } = useAuth();
   const projectList = useProjectList();
@@ -448,7 +450,7 @@ export default function OuterControlSystem() {
       <Header navigate={navigate} focused={firstValue} />
 
       <div className="mx-auto max-w-4xl space-y-5 px-4 pt-6 sm:px-6 sm:pt-8">
-        <CleanItPanel accountId={accountId} />
+        <CleanItPanel accountId={accountId} onActivity={() => setSurge((n) => n + 1)} />
         <button type="button" onClick={() => setMoreOpen((o) => !o)} aria-expanded={showMore} data-testid="outer-more-toggle"
           className="hud-glass flex w-full items-center gap-3 rounded-2xl px-5 py-3.5 text-left transition hover:border-white/20">
           <Plug className="h-4 w-4 shrink-0 text-cyan-300" />
@@ -503,6 +505,7 @@ export default function OuterControlSystem() {
             attention={attention}
             onOpenAdvanced={() => setAdvancedOpen(true)}
             onApiDocs={() => navigate("/control-system/api-docs")}
+            surge={surge}
           />}
 
           {/* 2. Start a task (also one that keeps going until it is done), what waits for the person, and the Tasks (the main focus).

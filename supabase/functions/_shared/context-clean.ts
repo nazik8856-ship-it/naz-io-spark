@@ -34,6 +34,7 @@ export type Review = {
   matches: { name: string; rationale?: string | null; redact?: boolean }[];
   meaning?: { findings?: { rule: string; quote: string | null; why: string; shadow?: boolean }[]; checked?: number } | null;
   evaluationId: string | null;
+  rulesChecked?: number;
 };
 
 export type Found = { kind: "rule" | "context"; name: string; quote: string | null; why: string; context_quote?: string | null };
@@ -49,7 +50,10 @@ export type CleanResult = {
   edits: Edit[];
   /** "passed": the rewrite went through the rules again and passed. */
   rewrite: "not_needed" | "passed" | "failed_check" | "unavailable";
-  context: { name: string; checked: boolean } | null;
+  /** How many rules the text was checked against (the first check: text rules, built-in protection, rules in plain words). */
+  rules_applied: number;
+  /** used / total: characters of the context that were read (at most CONTEXT_READ_CHARS) out of all of it. */
+  context: { name: string; checked: boolean; used?: number; total?: number } | null;
   summary: string;
   evaluation_id: string | null;
 };
@@ -134,13 +138,27 @@ export function parseRewrite(raw: string | null, original: string): { text: stri
   return { text, edits };
 }
 
+/** Characters of a person's context that a clean reads (PROJECT_CONTEXT_CHARS in projects.ts). */
+export const CONTEXT_READ_CHARS = 6_000;
+
+/**
+ * How much of a context is read, from the reference text projectContextFor gives (it ends with "[… the first 6,000 of 9,120
+ * characters]" when it was cut). Lengths only: the text itself never leaves the server for this.
+ */
+export function contextSizeOf(reference: string): { used: number; total: number } {
+  const m = /\n?\[… the first ([\d,]+) of ([\d,]+) characters\]\s*$/.exec(reference);
+  if (!m) return { used: reference.length, total: reference.length };
+  const n = (s: string) => Number(s.replace(/,/g, ""));
+  return { used: n(m[1]), total: n(m[2]) };
+}
+
 export type CleanDeps = {
   /** The shared reply review (evaluateExternalText), already bound to the account; `recheck` marks the second pass. */
   review: (content: string, recheck: boolean) => Promise<Review>;
   /** The metered AI (null when unavailable: the steps that need it say they did not run). */
   ai: JudgeAi | null;
   /** The person's context as checked reference text, with its name (null when none was chosen). */
-  context: { name: string; text: string } | null;
+  context: { name: string; text: string; used?: number; total?: number } | null;
 };
 
 const stillNeedsWork = (v: Verdict) => v === "block" || v === "escalate";
@@ -153,9 +171,9 @@ export async function cleanText(deps: CleanDeps, content: string): Promise<Clean
   const consistency = ctx && deps.ai && first.verdict !== "block"
     ? await checkAgainstProject(deps.ai, ctx.text, forAi, { reader: "you" })
     : { ran: false, contradictions: [] as Contradiction[], discarded: 0 };
-  const context = ctx ? { name: ctx.name, checked: consistency.ran } : null;
+  const context = ctx ? { name: ctx.name, checked: consistency.ran, ...(ctx.used !== undefined ? { used: ctx.used, total: ctx.total } : {}) } : null;
   const found = foundOf(first, consistency.contradictions);
-  const base = { found, context, evaluation_id: first.evaluationId };
+  const base = { found, context, evaluation_id: first.evaluationId, rules_applied: first.rulesChecked ?? 0 };
 
   if (first.verdict === "allow" && !consistency.contradictions.length) {
     return { ...base, status: "clean", text: content, edits: [], rewrite: "not_needed", summary: cleanSummary(first, context) };
@@ -183,7 +201,7 @@ function cleanSummary(first: Review, context: CleanResult["context"]): string {
 }
 
 /** No usable rewrite: the rules' own result (the cut version), or the block / the review, always with the reason. */
-function fallback(first: Review, base: Pick<CleanResult, "found" | "context" | "evaluation_id">, contradicted: boolean, rewrite: CleanResult["rewrite"]): CleanResult {
+function fallback(first: Review, base: Pick<CleanResult, "found" | "context" | "evaluation_id" | "rules_applied">, contradicted: boolean, rewrite: CleanResult["rewrite"]): CleanResult {
   const why = rewrite === "unavailable" ? "A rewrite could not run right now." : "The rewrite did not pass your rules, so it is not offered.";
   if (first.verdict === "block") return { ...base, status: "blocked", text: null, edits: [], rewrite, summary: `Blocked by your rules. ${why} ${first.summary}`.trim() };
   if (first.verdict === "escalate") return { ...base, status: "held", text: null, edits: [], rewrite, summary: `Your rules ask for a person to decide on this text. ${why}` };

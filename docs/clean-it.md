@@ -54,3 +54,25 @@ wording.
 
 Apply the migration, then redeploy `control-system-decide`. The shared reply review gained an opt-in `personPresent` and the metered
 judge an optional spend label; both default to the old behaviour, so the other functions need no redeploy. The website deploys on merge.
+
+## Details (Context Day 1.5)
+
+- **Control pulse**: "Outer Control is active" (on Clean it, and the status dot in the Tasks section) pulses softly in cyan; it
+  pulses stronger for about 1.5 s when Clean it is pressed and again when the rules have been applied.
+- **Rule application trail** under every result: `N rules applied → N fixes made → N items blocked`. Rules applied: what the first
+  check read (text rules, built-in protection, rules in plain words; `rulesChecked` from the reply review). Fixes: words the rewrite
+  replaced. Blocked: words removed, or the whole text when the rules blocked or held it. Each step is a button (it brings the matching
+  list into view with a short ring) with a marker highlight on hover: rules cyan, fixes green, blocked amber (red when blocked).
+- **Controlled result seal**: "Controlled by NazAI" with a thin cyan line, top right of a result that passed (clean or changed);
+  its tooltip gives the time the clean took.
+- **Quiet confidence**: a fully clean result (nothing found, nothing changed) dims the input and lifts the result, until the text is
+  edited.
+- **Context weight**: five thin marks next to the context, filled by how much of it a clean reads (up to 6,000 characters;
+  `context_weight` gives the lengths only, never the text); the exact numbers are in the tooltip.
+- **Clean, in motion**: the button shows "Applying your rules" with a timer to a tenth of a second (no spinner), a thin line moves
+  across the paste box, and the result comes in with a short reveal.
+- **Trust signature** under a result that passed: `Verified against your rules • Not shared • Controlled output`. "Not shared"
+  explains itself on hover: the text is never shown to anyone else; it goes only to the AI NazAI uses to check and fix it, and is
+  saved encrypted. Never shown on a result that did not pass.
+- Also: Ctrl/⌘ + Enter cleans; Copy turns into Copied; hovering a change marks its new words in the result.
+- All motion stops for reduced-motion.

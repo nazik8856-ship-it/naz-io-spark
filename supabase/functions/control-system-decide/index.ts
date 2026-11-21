@@ -3,6 +3,7 @@
 //        { action: "run_task", kind, request }   (the person confirmed a task offer: starts it, returns { mode: "task_started", task_id })
 //        { action: "clean_text", content, source?, project_id? }   (Clean it: one result that follows the rules and the person's
 //        context, returns { mode: "clean_result", ... }; _shared/context-clean.ts)
+//        { action: "context_weight", project_id }   (how much of that context a clean reads: lengths only, never the text)
 //
 // A request to DO work ("write…", "research…", "compare…") is answered with a task offer (mode "task_offer": the action, the
 // built-in tools, what it costs); nothing starts until the person confirms it with run_task. The Task is an ordinary Outer Control
@@ -29,7 +30,7 @@ import { requireCaller } from "../_shared/caller.ts";
 import { INNER_TASK_KINDS, isInnerTaskKind, requestProblem, taskOffer, toolsForKind, workRequestKind, pastedTextToCheck } from "../_shared/inner-chat-task.ts";
 import { describeDraft, draftFromArgs, RULE_SCOPES } from "../_shared/inner-chat-rule.ts";
 import { ensureStarterTools, STARTER_TASKS, starterTasksUsed } from "../_shared/outer-control-starter.ts";
-import { cleanSourceOf, cleanText, MAX_CLEAN_CHARS, pasteSourceModel, recheckSourceModel } from "../_shared/context-clean.ts";
+import { cleanSourceOf, cleanText, contextSizeOf, CONTEXT_READ_CHARS, MAX_CLEAN_CHARS, pasteSourceModel, recheckSourceModel } from "../_shared/context-clean.ts";
 import { meteredGatewayJudge } from "../_shared/meaning-judge.ts";
 import { checkFreeLimit } from "../_shared/free-limits.ts";
 import { projectContextFor } from "../_shared/projects.ts";
@@ -216,7 +217,8 @@ Deno.serve(async (req) => {
     const dryRun = body?.dry_run === true;
     const runTask = body?.action === "run_task";
     const cleanRequest = body?.action === "clean_text";
-    if (!message && !runTask && !cleanRequest) return json({ error: "message required" }, 400);
+    const weightRequest = body?.action === "context_weight";
+    if (!message && !runTask && !cleanRequest && !weightRequest) return json({ error: "message required" }, 400);
 
     // Was ALWAYS userId regardless of which account was selected via the
     // account switcher on the Control System page -- a delegated team
@@ -232,6 +234,16 @@ Deno.serve(async (req) => {
     const accountId = await resolveAccountScope(userClient, userId, requestedAccountId);
     if (!accountId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
 
+    // ---- Context weight: how much of the chosen context a clean reads (the indicator next to it). Lengths only. ---------------
+    if (weightRequest) {
+      const projectId = typeof body?.project_id === "string" && /^[0-9a-f-]{36}$/i.test(body.project_id) ? body.project_id : null;
+      if (!projectId) return json({ error: "project_required" }, 400);
+      const got = await projectContextFor(supabase, accountId, projectId, await projectKeysFromEnv(), 7_000);
+      if (!got.ok) return json({ error: "context_unavailable", message: got.message }, 404);
+      const size = contextSizeOf(projectReferenceOf(got.text) ?? "");
+      return json({ mode: "context_weight", name: got.name, used: size.used, total: size.total, limit: CONTEXT_READ_CHARS });
+    }
+
     // ---- Clean it: pasted text from any AI -> one result that follows the account's rules and the person's context -----------
     if (cleanRequest) {
       const content = String(body?.content ?? "").trim();
@@ -243,12 +255,12 @@ Deno.serve(async (req) => {
       const projectId = typeof body?.project_id === "string" && /^[0-9a-f-]{36}$/i.test(body.project_id) ? body.project_id : null;
       const allowed = await checkFreeLimit(supabase, accountId, "context_clean");
       if (!allowed.ok) return json(allowed.refusal, 402);
-      let context: { name: string; text: string } | null = null;
+      let context: { name: string; text: string; used?: number; total?: number } | null = null;
       if (projectId) {
         const got = await projectContextFor(supabase, accountId, projectId, await projectKeysFromEnv(), 7_000);
         if (!got.ok) return json({ error: "context_unavailable", message: `Your context could not be used: ${got.message}` }, 400);
         const ref = projectReferenceOf(got.text);
-        if (ref) context = { name: got.name, text: ref };
+        if (ref) context = { name: got.name, text: ref, ...contextSizeOf(ref) };
       }
       const metered = meteredGatewayJudge(supabase, { userId: accountId, purpose: "context-clean" });
       // The person who pasted it is deciding now: a "needs a person" result is shown to them, never queued as an approval.

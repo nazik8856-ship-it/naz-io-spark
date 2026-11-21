@@ -59,6 +59,11 @@ export type TextReviewResult = {
   // score). null only when neither an agent nor a calling api key is
   // known for this review.
   entityTrustScore: TrustScoreReport | null;
+  /**
+   * How many rules this reply was checked against: the text rules (built-in, the account's, the project's) and the rules in plain
+   * words that were read; 1 when a hard rule decided it, 0 when the kill switch did. Clean it shows it ("3 rules applied").
+   */
+  rulesChecked?: number;
   /** The rules in plain words this reply was checked against, and the quoted evidence (absent when none applied). */
   meaning?: MeaningRecord | null;
 };
@@ -251,7 +256,7 @@ export async function evaluateExternalText(
       return {
         verdict: "block", output: null, trustScore: 0, matches: [], summary: reason,
         evaluationId: evalRow?.id ?? null, evaluatedAt: evalRow?.created_at ?? null, criteria: "inner_control_gate_v1",
-        entityTrustScore, changes: [], nextStep: "discard", shadowMatches: [],
+        entityTrustScore, changes: [], nextStep: "discard", shadowMatches: [], rulesChecked: 1,
       };
     }
 
@@ -284,7 +289,7 @@ export async function evaluateExternalText(
       approvalId: outcome.approvalId, criteria: "inner_control_gate_v1",
       entityTrustScore, changes: [],
       nextStep: verdict === "allow" ? "use_output" : verdict === "block" ? "discard" : "await_approval",
-      shadowMatches: [],
+      shadowMatches: [], rulesChecked: 1,
     };
   }
 
@@ -390,5 +395,6 @@ export async function evaluateExternalText(
     criteria: "inner_control_safety_rules_v1",
     entityTrustScore,
     meaning,
+    rulesChecked: rules.length + (meaning?.checked ?? 0),
   };
 }
