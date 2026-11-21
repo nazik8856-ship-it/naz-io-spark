@@ -24,7 +24,10 @@ export type CleanResult = {
   found: Found[];
   edits: Edit[];
   rewrite: "not_needed" | "passed" | "failed_check" | "unavailable";
-  context: { name: string; checked: boolean } | null;
+  /** How many rules the text was checked against (text rules, built-in protection, rules in plain words). */
+  rules_applied?: number;
+  /** used / total: characters of the context that were read, out of all of it. */
+  context: { name: string; checked: boolean; used?: number; total?: number } | null;
   summary: string;
   allowance: { used: number; limit: number } | null;
 };
@@ -61,6 +64,45 @@ export async function cleanContext(input: { content: string; source: CleanSource
     return { ok: true, result: data as unknown as CleanResult };
   } catch {
     return { ok: false, limit: false, message: "Could not reach NazAI. Try again." };
+  }
+}
+
+/** A result NazAI stands behind: it passed the account's rules (as it was, or rewritten and checked again, or cut by the rules). */
+export const isControlled = (r: CleanResult) => (r.status === "clean" || r.status === "changed") && r.text !== null;
+
+/**
+ * The Rule Application Trail under a result: "3 rules applied → 2 fixes made → 1 item blocked".
+ * Fixes: words the rewrite replaced. Blocked: words removed, or the whole text when the rules blocked or held it.
+ */
+export function trailOf(r: CleanResult): { rules: number; fixes: number; blocked: number } {
+  const replaced = r.edits.filter((e) => e.after.trim()).length;
+  const removed = r.edits.filter((e) => !e.after.trim()).length;
+  const ruleFindings = r.found.filter((f) => f.kind === "rule").length;
+  const cutByRules = r.status === "changed" && r.edits.length === 0 ? ruleFindings : 0;
+  const stopped = r.status === "blocked" || r.status === "held" ? Math.max(1, ruleFindings) : 0;
+  return { rules: Math.max(0, r.rules_applied ?? 0), fixes: replaced, blocked: removed + cutByRules + stopped };
+}
+
+export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** "4.2s": how long the clean took, shown while it runs and on the seal. */
+export const secondsLabel = (ms: number) => `${(Math.max(0, ms) / 1000).toFixed(1)}s`;
+
+/** How much of a context a clean reads (the weight indicator next to it): lengths only, never the text. */
+export async function contextWeight(projectId: string, accountId: string | null): Promise<{ used: number; total: number; limit: number } | null> {
+  const { data: sess } = await supabase.auth.getSession();
+  const token = sess.session?.access_token ?? SUPABASE_ANON;
+  try {
+    const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/control-system-decide`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON },
+      body: JSON.stringify({ action: "context_weight", project_id: projectId, account_id: accountId }),
+    });
+    const d = await resp.json().catch(() => ({})) as { mode?: string; used?: number; total?: number; limit?: number };
+    if (!resp.ok || d.mode !== "context_weight") return null;
+    return { used: Number(d.used ?? 0), total: Number(d.total ?? 0), limit: Number(d.limit ?? 6000) };
+  } catch {
+    return null;
   }
 }
 

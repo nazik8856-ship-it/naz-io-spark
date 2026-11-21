@@ -356,6 +356,25 @@
   .oc-scan::after, .oc-flow, .oc-ring, .oc-in, .oc-glow { animation: none; }
 }
 
+/* Clean it details (docs/clean-it.md): the control pulse, the thin progress line, the result's reveal, the marker highlight on the
+   trail, the short focus ring. Calm and short; all of it stops for reduced-motion. */
+@keyframes nz-pulse { 0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.42); } 70% { box-shadow: 0 0 0 6px rgba(34, 211, 238, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); } }
+@keyframes nz-pulse-strong { 0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.85); } 70% { box-shadow: 0 0 0 12px rgba(34, 211, 238, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); } }
+@keyframes nz-line { from { transform: translateX(-100%); } to { transform: translateX(400%); } }
+@keyframes nz-reveal { from { opacity: 0; transform: translateY(8px); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes nz-focus { 0% { box-shadow: 0 0 0 1px var(--nz-focus, rgba(34, 211, 238, 0.75)), 0 0 24px -6px var(--nz-focus, rgba(34, 211, 238, 0.75)); } 100% { box-shadow: 0 0 0 1px transparent; } }
+.nz-pulse { animation: nz-pulse 2.8s ease-out infinite; }
+.nz-pulse-strong { animation: nz-pulse-strong 0.75s ease-out 2; }
+.nz-line { position: absolute; top: 0; left: 0; height: 2px; width: 25%; background: linear-gradient(90deg, transparent, #22d3ee, #d4af37, transparent); animation: nz-line 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+.nz-reveal { animation: nz-reveal 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.nz-focus { animation: nz-focus 1.6s ease-out; }
+.nz-marker { background-image: linear-gradient(var(--nz-marker), var(--nz-marker)); background-repeat: no-repeat; background-position: 0 90%; background-size: 0% 40%; transition: background-size 0.35s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.nz-marker:hover, .nz-marker:focus-visible { background-size: 100% 40%; }
+@media (prefers-reduced-motion: reduce) {
+  .nz-pulse, .nz-pulse-strong, .nz-line, .nz-reveal, .nz-focus { animation: none; }
+  .nz-marker { transition: none; }
+}
+
 /* First-value onboarding: the messy lanes drift, a light runs along the clean lane. Both stop for reduced-motion. */
 @keyframes fv-drift { to { stroke-dashoffset: -44; } }
 @keyframes fv-run { to { stroke-dashoffset: -64; } }

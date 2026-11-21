@@ -11,6 +11,8 @@ const state = vi.hoisted(() => ({
   inserted: [] as { table: string; rows: unknown }[],
   calls: [] as { url: string; body: Record<string, unknown> }[],
   reply: {} as Record<string, unknown>,
+  hold: null as null | Promise<void>,
+  weight: null as null | Record<string, unknown>,
   status: 200,
   captured: [] as { event: string; props: Record<string, unknown> }[],
 }));
@@ -37,7 +39,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/posthog", () => ({ posthog: { capture: (event: string, props: Record<string, unknown>) => state.captured.push({ event, props }) } }));
 
 import CleanItPanel from "@/components/control/outer/CleanItPanel";
-import { FREE_CLEANS_PER_DAY, allowanceLine, rememberedContext } from "@/lib/context-clean";
+import { FREE_CLEANS_PER_DAY, allowanceLine, rememberedContext, trailOf, isControlled, secondsLabel, type CleanResult } from "@/lib/context-clean";
 
 const changed = {
   mode: "clean_result", status: "changed", text: "Thanks! You will get the tracking link as soon as it ships.",
@@ -51,12 +53,14 @@ const paste = (text: string) => fireEvent.change(screen.getByTestId("clean-input
 
 beforeEach(() => {
   state.tables = { imported_projects: [], agents: [], websites: [], hard_rules: [{ id: "h", enabled: true }], safety_rules: [], meaning_rules: [] };
-  state.inserted = []; state.calls = []; state.captured = []; state.status = 200; state.reply = changed;
+  state.inserted = []; state.calls = []; state.captured = []; state.status = 200; state.reply = changed; state.hold = null; state.weight = null;
   try { window.localStorage.clear(); } catch { /* none */ }
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: { body: string }) => {
     const body = JSON.parse(init.body);
     state.calls.push({ url, body });
     if (url.endsWith("/projects")) return new Response(JSON.stringify({ ok: true, project: { id: "ctx1", name: body.name } }));
+    if (body.action === "context_weight") return new Response(JSON.stringify(state.weight ?? { error: "x" }), { status: state.weight ? 200 : 404 });
+    if (state.hold) await state.hold;
     return new Response(JSON.stringify(state.reply), { status: state.status });
   }));
   Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => undefined) } });
@@ -192,5 +196,132 @@ describe("Clean it: the pieces", () => {
     expect(rememberedContext("acc1", ["p1", "p2"], { p1: "Docs", p2: "My AI context" })).toBe("p1");
     window.localStorage.setItem("nazai_clean_context:acc1", "none");
     expect(rememberedContext("acc1", ["p1", "p2"], { p1: "Docs", p2: "My AI context" })).toBeNull();
+  });
+});
+
+const clean = { ...changed, status: "clean", text: "Thanks for your order, we will email you when it ships.", found: [], edits: [], rewrite: "not_needed", rules_applied: 6, summary: "Checked against your rules: nothing to change." };
+
+describe("Clean it: the details", () => {
+  it("Micro-interaction: a precise timer and a thin progress line while it works (no spinner); the result then appears", async () => {
+    let release = () => {};
+    state.hold = new Promise<void>((r) => { release = r; });
+    renderPanel();
+    paste("Your order will arrive by Friday.");
+    fireEvent.click(screen.getByTestId("clean-go"));
+    expect(await screen.findByTestId("clean-working")).toBeTruthy();
+    expect(screen.getByTestId("clean-timer").textContent).toMatch(/^\d+\.\ds$/);
+    expect(screen.getByTestId("clean-progress")).toBeTruthy();
+    expect(document.querySelector(".animate-spin")).toBeNull();
+    release();
+    const card = await screen.findByTestId("clean-result");
+    expect(card.className).toContain("nz-reveal");
+    expect(screen.queryByTestId("clean-progress")).toBeNull();
+  });
+
+  it("Control Pulse: 'Outer Control is active' pulses softly; Clean it makes it stronger (when pressed and when the rules are applied)", async () => {
+    renderPanel();
+    const pulse = screen.getByTestId("control-pulse");
+    expect(pulse.textContent).toContain("Outer Control is active");
+    expect(pulse.querySelector(".nz-pulse")).toBeTruthy();
+    expect(screen.queryByTestId("control-pulse-surge")).toBeNull();
+    paste("Your order will arrive by Friday.");
+    fireEvent.click(screen.getByTestId("clean-go"));
+    expect((await screen.findByTestId("control-pulse-surge")).className).toContain("nz-pulse-strong");
+  });
+
+  it("Rule Application Trail: rules applied → fixes made → items blocked, each one clickable with its own colour", async () => {
+    state.reply = { ...changed, rules_applied: 7 };
+    renderPanel();
+    paste("Your order will arrive by Friday.");
+    fireEvent.click(screen.getByTestId("clean-go"));
+    const trail = await screen.findByTestId("clean-trail");
+    expect(trail.textContent).toBe("7 rules applied→1 fix made→0 items blocked");
+    expect(within(trail).getByTestId("trail-rules").className).toContain("text-cyan-200");
+    expect(within(trail).getByTestId("trail-fixes").className).toContain("text-emerald-200");
+    for (const id of ["trail-rules", "trail-fixes", "trail-blocked"]) expect(within(trail).getByTestId(id).className).toContain("nz-marker");
+    fireEvent.click(within(trail).getByTestId("trail-fixes"));
+    expect(screen.getByTestId("clean-edits").className).toContain("nz-focus");
+  });
+
+  it("Controlled Result Seal and Trust Signature: on a result that passed, never on one that did not", async () => {
+    renderPanel();
+    paste("Your order will arrive by Friday.");
+    fireEvent.click(screen.getByTestId("clean-go"));
+    expect((await screen.findByTestId("clean-seal")).textContent).toBe("Controlled by NazAI");
+    expect(screen.getByTestId("clean-signature").textContent).toBe("Verified against your rules • Not shared • Controlled output");
+    state.reply = { ...changed, status: "blocked", text: null, edits: [], rewrite: "failed_check", summary: "Blocked by your rules." };
+    fireEvent.click(screen.getByTestId("clean-go"));
+    await waitFor(() => expect(screen.getByTestId("clean-status").textContent).toBe("Blocked by your rules"));
+    expect(screen.queryByTestId("clean-seal")).toBeNull();
+    expect(screen.queryByTestId("clean-signature")).toBeNull();
+    expect(screen.getByTestId("trail-blocked").textContent).toBe("1 item blocked");
+    expect(screen.getByTestId("trail-blocked").className).toContain("text-rose-200");
+  });
+
+  it("Quiet Confidence: a fully clean result dims the input and becomes the focus, until the text is changed", async () => {
+    state.reply = clean;
+    renderPanel();
+    paste("Thanks for your order, we will email you when it ships.");
+    fireEvent.click(screen.getByTestId("clean-go"));
+    await waitFor(() => expect(screen.getByTestId("clean-result").getAttribute("data-elevated")).toBe("true"));
+    expect(screen.getByTestId("clean-input-area").getAttribute("data-quiet")).toBe("true");
+    paste("Thanks for your order, we will email you when it ships. Promise!");
+    expect(screen.getByTestId("clean-input-area").getAttribute("data-quiet")).toBe("false");
+    expect(screen.getByTestId("clean-result").getAttribute("data-elevated")).toBe("false");
+  });
+
+  it("Quiet Confidence is never shown when something was changed or found", async () => {
+    renderPanel();
+    paste("Your order will arrive by Friday.");
+    fireEvent.click(screen.getByTestId("clean-go"));
+    await screen.findByTestId("clean-result");
+    expect(screen.getByTestId("clean-input-area").getAttribute("data-quiet")).toBe("false");
+  });
+
+  it("Context Weight: five thin marks, filled by how much of the context a clean reads, with the exact numbers on hover", async () => {
+    state.tables.imported_projects = [{ id: "ctx1", user_id: "acc1", name: "My AI context", updated_at: "2026-11-21" }];
+    state.weight = { mode: "context_weight", name: "My AI context", used: 2400, total: 2400, limit: 6000 };
+    renderPanel();
+    const w = await screen.findByTestId("context-weight");
+    await waitFor(() => expect(w.getAttribute("data-filled")).toBe("2"));
+    expect(w.getAttribute("title")).toBe("Reads all 2,400 characters of your context (up to 6,000)");
+    expect(state.calls.find((c) => c.body.action === "context_weight")!.body).toMatchObject({ project_id: "ctx1", account_id: "acc1" });
+  });
+
+  it("the context weight says when a long context is cut", async () => {
+    state.tables.imported_projects = [{ id: "ctx1", user_id: "acc1", name: "My AI context", updated_at: "2026-11-21" }];
+    state.weight = { mode: "context_weight", used: 6000, total: 9120, limit: 6000 };
+    renderPanel();
+    const w = await screen.findByTestId("context-weight");
+    await waitFor(() => expect(w.getAttribute("data-filled")).toBe("5"));
+    expect(w.getAttribute("title")).toBe("Reads the first 6,000 of 9,120 characters of your context");
+  });
+
+  it("small touches: the keyboard shortcut cleans, Copy turns into Copied, and hovering a change marks its new words", async () => {
+    renderPanel();
+    paste("Your order will arrive by Friday.");
+    fireEvent.keyDown(screen.getByTestId("clean-input"), { key: "Enter", ctrlKey: true });
+    await screen.findByTestId("clean-result");
+    fireEvent.click(screen.getByTestId("clean-copy"));
+    await waitFor(() => expect(screen.getByTestId("clean-copy").textContent?.trim()).toBe("Copied"));
+    fireEvent.mouseEnter(within(screen.getByTestId("clean-edits")).getAllByRole("listitem")[0]);
+    expect(screen.getByTestId("clean-text").querySelector("mark")?.textContent).toBe("You will get the tracking link as soon as it ships");
+    expect(screen.getByTestId("clean-text").textContent).toBe(changed.text);
+  });
+});
+
+describe("Clean it details: the numbers", () => {
+  const base = changed as unknown as CleanResult;
+  it("trail: replaced words are fixes; removed words, and a blocked or held text, are blocked", () => {
+    expect(trailOf({ ...base, rules_applied: 3 })).toEqual({ rules: 3, fixes: 1, blocked: 0 });
+    expect(trailOf({ ...base, edits: [{ before: "a", after: "", why: "" }, { before: "b", after: "c", why: "" }] })).toEqual({ rules: 0, fixes: 1, blocked: 1 });
+    expect(trailOf({ ...base, status: "blocked", text: null, edits: [] })).toEqual({ rules: 0, fixes: 0, blocked: 1 });
+    expect(trailOf({ ...base, status: "changed", edits: [], rewrite: "unavailable" })).toEqual({ rules: 0, fixes: 0, blocked: 1 }); // the rules' cut version
+  });
+  it("only a result that passed is 'controlled'; seconds are precise to a tenth", () => {
+    expect(isControlled(base)).toBe(true);
+    expect(isControlled({ ...base, status: "flagged" })).toBe(false);
+    expect(isControlled({ ...base, status: "held", text: null })).toBe(false);
+    expect(secondsLabel(4230)).toBe("4.2s");
   });
 });

@@ -1,7 +1,7 @@
 // Run with: deno test --no-check supabase/functions/_shared/context-clean_test.ts
 // Clean it (Context Day 1): one result that follows the account's rules and the person's context, and never a claimed check
 // that did not pass.
-import { buildRewritePrompt, cleanSourceOf, cleanText, foundOf, parseRewrite, pasteSourceModel, recheckSourceModel, toReader, type Review } from "./context-clean.ts";
+import { buildRewritePrompt, cleanSourceOf, cleanText, contextSizeOf, foundOf, parseRewrite, pasteSourceModel, recheckSourceModel, toReader, type Review } from "./context-clean.ts";
 import { buildConsistencyPrompt } from "./project-consistency.ts";
 
 function assert(c: unknown, m: string) { if (!c) throw new Error(m); }
@@ -139,4 +139,14 @@ Deno.test("a contradiction and an edit reach the card in the reader's words", as
   const r = await cleanText({ review: rules([]), ai: aiSays({ consistency, rewrite }), context: { name: "C", text: "Refunds within 30 days." } }, "We offer refunds within 14 days.");
   eq(r.found[0].why, "But your context says 30 days.", "found");
   eq(r.edits[0].why, "Contradicts your context.", "edit");
+});
+
+Deno.test("the card's numbers: rules applied from the first check, and how much of the context was read", async () => {
+  const counted = (t: string): Review => ({ ...(/arrive by friday/i.test(t) ? promise(t) : allow(t)), rulesChecked: 7 });
+  const rewrite = JSON.stringify({ text: "Thanks! You will get a tracking link.", edits: [] });
+  const r = await cleanText({ review: async (t) => counted(t), ai: aiSays({ rewrite }), context: { name: "C", text: "facts", used: 5, total: 5 } }, "Thanks! It ships soon."); // allowed, so compared
+  eq(r.rules_applied, 7, "rules applied");
+  eq(r.context, { name: "C", checked: true, used: 5, total: 5 }, "context size");
+  eq(contextSizeOf("short text"), { used: 10, total: 10 }, "not cut");
+  eq(contextSizeOf("long text…\n[… the first 6,000 of 9,120 characters]"), { used: 6000, total: 9120 }, "cut at 6,000");
 });

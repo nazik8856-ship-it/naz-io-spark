@@ -12,16 +12,21 @@ type Props = {
   attention: Attention[];
   onOpenAdvanced: () => void;
   onApiDocs: () => void;
+  /** Control pulse: changes each time Clean it applies the rules (the dot's cyan pulse becomes stronger for about 1.5 s). */
+  surge?: number;
 };
 
-export default function OuterStatusBar({ trust, health, attention, onOpenAdvanced, onApiDocs }: Props) {
+export default function OuterStatusBar({ trust, health, attention, onOpenAdvanced, onApiDocs, surge = 0 }: Props) {
   const [showAttention, setShowAttention] = useState(false);
   const tone = attention.length ? "warn" : "ok";
   return (
     <section className="hud-glass rounded-2xl px-6 py-5" aria-label="Status" data-testid="status-bar">
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <div className="flex min-w-0 flex-1 basis-72 items-start gap-3">
-          <span className={`mt-2 h-2.5 w-2.5 shrink-0 rounded-full ${TONE_DOT[tone]}`} aria-hidden />
+          <span className="relative mt-2 flex h-2.5 w-2.5 shrink-0" aria-hidden data-testid="status-pulse">
+            <span className={`absolute inset-0 rounded-full nz-pulse ${TONE_DOT[tone]}`} />
+            {surge > 0 && <span key={surge} className="absolute inset-0 rounded-full nz-pulse-strong" />}
+          </span>
           <div className="min-w-0">
             <h1 className="text-lg font-semibold text-zinc-100">Outer Control is active</h1>
             <p className="mt-0.5 text-sm text-zinc-400" data-testid="health-text">{health}</p>
