@@ -151,10 +151,26 @@ describe("Clean it", () => {
     expect(state.captured.map((c) => c.event)).toContain("starter_rules_added");
   });
 
-  it("starter rules are not offered once the account has rules in plain words", async () => {
-    state.tables.meaning_rules = [{ id: "m1", enabled: true }];
+  it("an account with other rules in plain words still gets the starter rules it lacks (live test, 21 Nov)", async () => {
+    state.tables.meaning_rules = [{ id: "m1", name: "Never promise a delivery date", enabled: true }];
     renderPanel();
-    await waitFor(() => expect(screen.getByTestId("clean-rules-line").textContent).toMatch(/2 of your rules/));
+    const box = await screen.findByTestId("clean-starter");
+    expect(within(box).getByTestId("clean-starter-add").textContent).toBe("Add these 3");
+    expect(screen.getByTestId("clean-rules-line").textContent).toMatch(/2 of your rules/);
+  });
+
+  it("only the missing ones are offered and added; none when the account has all three", async () => {
+    state.tables.meaning_rules = [{ id: "m1", name: "No promises", enabled: true }];
+    const first = renderPanel();
+    const box = await screen.findByTestId("clean-starter");
+    expect(within(box).queryByText("No promises")).toBeNull();
+    fireEvent.click(within(box).getByTestId("clean-starter-add"));
+    await waitFor(() => expect(state.inserted).toHaveLength(1));
+    expect((state.inserted[0].rows as { name: string }[]).map((r) => r.name)).toEqual(["No invented numbers", "No professional advice as fact"]);
+    first.unmount();
+    state.tables.meaning_rules = ["No invented numbers", "No promises", "No professional advice as fact"].map((name, i) => ({ id: `m${i}`, name, enabled: true }));
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId("clean-rules-line").textContent).toMatch(/4 of your rules/));
     expect(screen.queryByTestId("clean-starter")).toBeNull();
   });
 });

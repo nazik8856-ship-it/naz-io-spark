@@ -1,7 +1,8 @@
 // Run with: deno test --no-check supabase/functions/_shared/context-clean_test.ts
 // Clean it (Context Day 1): one result that follows the account's rules and the person's context, and never a claimed check
 // that did not pass.
-import { buildRewritePrompt, cleanSourceOf, cleanText, foundOf, parseRewrite, pasteSourceModel, recheckSourceModel, type Review } from "./context-clean.ts";
+import { buildRewritePrompt, cleanSourceOf, cleanText, foundOf, parseRewrite, pasteSourceModel, recheckSourceModel, toReader, type Review } from "./context-clean.ts";
+import { buildConsistencyPrompt } from "./project-consistency.ts";
 
 function assert(c: unknown, m: string) { if (!c) throw new Error(m); }
 const eq = (a: unknown, b: unknown, m: string) => assert(JSON.stringify(a) === JSON.stringify(b), `${m}: ${JSON.stringify(a)} != ${JSON.stringify(b)}`);
@@ -115,4 +116,27 @@ Deno.test("sources: four known ones; the first pass and the re-check are told ap
   eq(cleanSourceOf("<script>"), "other", "anything else");
   eq(pasteSourceModel("chatgpt"), "paste:chatgpt", "first pass");
   assert(!recheckSourceModel("chatgpt").startsWith("paste:"), "the re-check never counts as a clean");
+});
+
+Deno.test("reasons are written to the reader: your context, never the person or the project (live test, 21 Nov)", () => {
+  eq(toReader("Contradicts the person's context about delivery days."), "Contradicts your context about delivery days.", "edit reason");
+  eq(toReader("The answer states delivery on Monday, but the project specifies delivery only on Tuesday and Friday."),
+    "The answer states delivery on Monday, but your context says delivery only on Tuesday and Friday.", "found reason");
+  eq(toReader("The project's refund window is 30 days."), "Your context's refund window is 30 days.", "start of a sentence");
+  eq(toReader("This breaks the user's refund policy."), "This breaks your refund policy.", "possessive");
+  eq(toReader("No delivery promises."), "No delivery promises.", "nothing to change");
+});
+
+Deno.test("the AI is asked to write to the reader; a Task's project check keeps its own wording", () => {
+  assert(/your context/.test(buildRewritePrompt("x y z", [], null).system), "rewrite asks for 'your context'");
+  assert(/never \"the project\"/.test(buildConsistencyPrompt("p", "r", { reader: "you" }).system), "Clean it asks for 'your context'");
+  assert(!/your context/.test(buildConsistencyPrompt("p", "r").system), "a Task's check is unchanged");
+});
+
+Deno.test("a contradiction and an edit reach the card in the reader's words", async () => {
+  const consistency = JSON.stringify({ contradictions: [{ answer_quote: "refunds within 14 days", project_quote: "Refunds within 30 days", why: "But the project specifies 30 days." }] });
+  const rewrite = JSON.stringify({ text: "We offer refunds within 30 days.", edits: [{ before: "refunds within 14 days", after: "refunds within 30 days", why: "Contradicts the person's context." }] });
+  const r = await cleanText({ review: rules([]), ai: aiSays({ consistency, rewrite }), context: { name: "C", text: "Refunds within 30 days." } }, "We offer refunds within 14 days.");
+  eq(r.found[0].why, "But your context says 30 days.", "found");
+  eq(r.edits[0].why, "Contradicts your context.", "edit");
 });
