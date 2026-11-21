@@ -37,8 +37,13 @@ an id only); with nothing chosen it uses the project named "My AI context".
 
 ## Starter rules
 
-When the account has no rules in plain words, three are offered (No invented numbers, No promises, No professional advice as
-fact). Nothing is saved until "Add these 3"; they are saved live (not shadow) as account-wide rules in plain words.
+Three starter rules for AI output (No invented numbers, No promises, No professional advice as fact): the ones the account does
+not have yet (by name) are offered, even when it has other rules in plain words. Nothing is saved until "Add these N"; they are
+saved live (not shadow) as account-wide rules in plain words.
+
+The reasons on the card are written to the reader ("your context"): the rewrite and the context check are asked for it, and
+`toReader` turns any "the person's" / "the project" that is left into "your" / "your context". A Task's project check keeps its own
+wording.
 
 ## Measurement (PostHog; counts and labels only, never the text)
 

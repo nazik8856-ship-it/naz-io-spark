@@ -37,7 +37,7 @@ export default function CleanItPanel({ accountId }: { accountId: string | null }
   const [result, setResult] = useState<CleanResult | null>(null);
   const [problem, setProblem] = useState<{ message: string; limit: boolean } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [rules, setRules] = useState<{ total: number; plain: number } | null>(null);
+  const [rules, setRules] = useState<{ total: number; names: string[] } | null>(null);
   const [starterHidden, setStarterHidden] = useState(false);
   const [addingStarter, setAddingStarter] = useState(false);
 
@@ -53,10 +53,10 @@ export default function CleanItPanel({ accountId }: { accountId: string | null }
       const [h, s, m] = await Promise.all([
         anyDb.from("hard_rules").select("id, enabled").eq("user_id", accountId),
         anyDb.from("safety_rules").select("id, enabled").eq("user_id", accountId),
-        anyDb.from("meaning_rules").select("id, enabled").eq("user_id", accountId).is("project_id", null),
+        anyDb.from("meaning_rules").select("id, name, enabled").eq("user_id", accountId).is("project_id", null),
       ]);
       const on = (r: { data?: { enabled?: boolean }[] | null }) => (r?.data ?? []).filter((x) => x.enabled !== false).length;
-      setRules({ total: on(h) + on(s) + on(m), plain: (m?.data ?? []).length });
+      setRules({ total: on(h) + on(s) + on(m), names: (m?.data ?? []).map((x: { name?: string }) => String(x.name ?? "").trim().toLowerCase()) });
     } catch { /* the line under the box stays generic */ }
   };
   useEffect(() => { void loadRules(); }, [accountId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -83,23 +83,26 @@ export default function CleanItPanel({ accountId }: { accountId: string | null }
     trackClean("result_copied", { status: result.status, rewrite: result.rewrite });
   };
 
+  // The starter rules this account does not have yet (by name): offered even when it has other rules in plain words.
+  const missingStarter = rules ? STARTER_RULES.filter((r) => !rules.names.includes(r.name.toLowerCase())) : [];
   const addStarter = async () => {
-    if (!accountId) return;
+    if (!accountId || !missingStarter.length) return;
+    const adding = missingStarter;
     setAddingStarter(true);
     const { data, error } = await anyDb.from("meaning_rules")
-      .insert(STARTER_RULES.map((r) => ({ user_id: accountId, project_id: null, name: r.name, description: r.description, action: r.action, enabled: true, shadow_mode: false })))
+      .insert(adding.map((r) => ({ user_id: accountId, project_id: null, name: r.name, description: r.description, action: r.action, enabled: true, shadow_mode: false })))
       .select("id");
     setAddingStarter(false);
-    if (error || (data ?? []).length !== STARTER_RULES.length) { toast.error(error?.message || "The rules could not be added. You may not have permission to change rules on this account."); return; }
-    toast.success(`${STARTER_RULES.length} rules added. They apply to every text you clean.`);
-    trackClean("starter_rules_added", { count: STARTER_RULES.length });
+    if (error || (data ?? []).length !== adding.length) { toast.error(error?.message || "The rules could not be added. You may not have permission to change rules on this account."); return; }
+    toast.success(`${adding.length} rule${adding.length === 1 ? "" : "s"} added. They apply to every text you clean.`);
+    trackClean("starter_rules_added", { count: adding.length });
     void loadRules();
   };
 
   const chars = content.trim().length;
   const tooLong = chars > MAX_CLEAN_CHARS;
   const contextName = projects.find((p) => p.id === contextId)?.name ?? null;
-  const showStarter = rules !== null && rules.plain === 0 && !starterHidden;
+  const showStarter = missingStarter.length > 0 && !starterHidden;
 
   return (
     <section className="relative overflow-hidden rounded-2xl border border-cyan-400/20 bg-[#040915]/85 px-5 py-6 shadow-[0_0_80px_-30px_rgba(34,211,238,0.45)] sm:px-7" aria-label="Clean it" data-testid="clean-it">
@@ -163,12 +166,12 @@ export default function CleanItPanel({ accountId }: { accountId: string | null }
           <div className="oc-in mt-3 flex flex-col items-start gap-x-3 gap-y-2 rounded-xl border border-amber-300/25 sm:flex-row sm:items-center bg-gradient-to-r from-amber-400/[0.07] to-cyan-400/[0.04] px-3 py-2" data-testid="clean-starter">
             <span className="min-w-0 text-xs leading-relaxed text-zinc-300 sm:flex-1">
               <span className="font-medium text-amber-50">Suggested rules for AI output: </span>
-              {STARTER_RULES.map((r, i) => <span key={r.name} title={r.description}>{i ? " · " : ""}<span className="underline decoration-dotted decoration-zinc-600 underline-offset-2">{r.name}</span></span>)}
+              {missingStarter.map((r, i) => <span key={r.name} title={r.description}>{i ? " · " : ""}<span className="underline decoration-dotted decoration-zinc-600 underline-offset-2">{r.name}</span></span>)}
             </span>
             <span className="flex shrink-0 items-center gap-3">
               <button type="button" disabled={addingStarter} onClick={addStarter} data-testid="clean-starter-add" title="Saved as rules in plain words; edit or delete them any time in Inner Control"
                 className="rounded-lg border border-amber-300/50 bg-amber-400/15 px-2.5 py-1 text-xs font-medium text-amber-50 hover:bg-amber-400/25 disabled:opacity-50">
-                {addingStarter ? "Adding…" : `Add these ${STARTER_RULES.length}`}
+                {addingStarter ? "Adding…" : missingStarter.length === 1 ? "Add this rule" : `Add these ${missingStarter.length}`}
               </button>
               <button type="button" onClick={() => setStarterHidden(true)} className="text-xs text-zinc-500 hover:text-zinc-300">Not now</button>
             </span>
