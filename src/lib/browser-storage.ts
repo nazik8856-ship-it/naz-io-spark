@@ -30,6 +30,7 @@ export const BROWSER_STORAGE: Record<string, StorageEntry> = {
   "nazai:post-auth-redirect": { storage: "session", holds: "the page to return to after signing in", content: false },
   "nazai_inner_project:": { storage: "session", holds: "the project chosen in this tab", content: false },
   "nazai_rule_suggestions_dismissed:": { storage: "session", holds: "the suggested rules hidden with Not now in this tab (action names only)", content: false },
+  "nazai_clean_format": { storage: "local", holds: "the result shape last chosen in Clean it (as pasted, email, short message or bullet points)", content: false },
   "nazai_clean_context:": { storage: "local", holds: "which project Clean it uses as your context (a project id only, never its text)", content: false },
   "nazai-intro-played": { storage: "session", holds: "whether the entrance animation already played in this tab", content: false },
   "nazai_dryrun_reveal": { storage: "session", holds: "whether the dry-run toggle is revealed", content: false },

@@ -15,6 +15,15 @@ export const CLEAN_SOURCES = [
 ] as const;
 export type CleanSource = typeof CLEAN_SOURCES[number]["id"];
 
+/** The shape of a result (Context Day 2); the server reshapes only after the clean and checks the new shape again. */
+export const CLEAN_FORMATS = [
+  { id: "as_pasted", label: "As pasted" },
+  { id: "email", label: "Email" },
+  { id: "short", label: "Short message" },
+  { id: "bullets", label: "Bullet points" },
+] as const;
+export type CleanFormat = typeof CLEAN_FORMATS[number]["id"];
+
 export type Found = { kind: "rule" | "context"; name: string; quote: string | null; why: string; context_quote?: string | null };
 export type Edit = { before: string; after: string; why: string };
 export type CleanStatus = "clean" | "changed" | "flagged" | "held" | "blocked";
@@ -30,6 +39,10 @@ export type CleanResult = {
   context: { name: string; checked: boolean; used?: number; total?: number } | null;
   summary: string;
   allowance: { used: number; limit: number } | null;
+  /** The shape it is in ("as_pasted" also when a reshaped version did not pass: format_note says why). */
+  format?: CleanFormat;
+  email?: { subject: string; body: string };
+  format_note?: string;
 };
 
 export type CleanOutcome =
@@ -45,14 +58,14 @@ export const STATUS_TITLE: Record<CleanStatus, string> = {
   blocked: "Blocked by your rules",
 };
 
-export async function cleanContext(input: { content: string; source: CleanSource; projectId: string | null; accountId: string | null }): Promise<CleanOutcome> {
+export async function cleanContext(input: { content: string; source: CleanSource; projectId: string | null; accountId: string | null; format?: CleanFormat }): Promise<CleanOutcome> {
   const { data: sess } = await supabase.auth.getSession();
   const token = sess.session?.access_token ?? SUPABASE_ANON;
   try {
     const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/control-system-decide`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON },
-      body: JSON.stringify({ action: "clean_text", content: input.content, source: input.source, project_id: input.projectId, account_id: input.accountId }),
+      body: JSON.stringify({ action: "clean_text", content: input.content, source: input.source, project_id: input.projectId, account_id: input.accountId, format: input.format ?? "as_pasted" }),
     });
     const data = await resp.json().catch(() => ({})) as Record<string, unknown>;
     if (resp.status === 402 || data.error === "free_limit") {
@@ -143,6 +156,108 @@ export const STARTER_RULES = [
 ];
 
 // ---- Measurement (PostHog): counts and labels only, never the text -------------------------------------------------------
-export function trackClean(event: "context_checked" | "result_copied" | "context_added" | "starter_rules_added", props: Record<string, string | number | boolean | null> = {}) {
+export function trackClean(event: "context_checked" | "result_copied" | "context_added" | "starter_rules_added" | "email_opened", props: Record<string, string | number | boolean | null> = {}) {
   try { posthog.capture(event, props); } catch { /* analytics never breaks the page */ }
+}
+
+// ---- Formats on this device: the shape last chosen (a label only, never text) ----------------------------------------------
+export function rememberedFormat(): CleanFormat {
+  let v: string | null = null;
+  try { v = window.localStorage.getItem("nazai_clean_format"); } catch { /* storage blocked */ }
+  return (CLEAN_FORMATS.map((f) => f.id) as string[]).includes(v ?? "") ? v as CleanFormat : "as_pasted";
+}
+export function rememberFormat(f: CleanFormat) {
+  try { window.localStorage.setItem("nazai_clean_format", f); } catch { /* storage blocked */ }
+}
+
+// ---- Light text structure: paragraphs, "- " lists and **bold**, for showing a result and for "Copy formatted" --------------
+export type Block = { kind: "p"; lines: string[] } | { kind: "ul"; items: string[] };
+export function blocksOf(text: string): Block[] {
+  const out: Block[] = [];
+  for (const chunk of text.replace(/\r\n/g, "\n").split(/\n{2,}/)) {
+    const lines = chunk.split("\n").filter((l) => l.trim() !== "");
+    if (!lines.length) continue;
+    let para: string[] = [];
+    let list: string[] = [];
+    const flushP = () => { if (para.length) { out.push({ kind: "p", lines: para }); para = []; } };
+    const flushL = () => { if (list.length) { out.push({ kind: "ul", items: list }); list = []; } };
+    for (const l of lines) {
+      const m = /^\s*(?:[-•*]|\d+[.)])\s+(.*)$/.exec(l);
+      if (m) { flushP(); list.push(m[1]); } else { flushL(); para.push(l); }
+    }
+    flushP(); flushL();
+  }
+  return out;
+}
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const inlineHtml = (s: string) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+/** HTML for "Copy formatted": escaped, with paragraphs, lists and bold kept (pastes formatted into email, Docs, Notion, Slack). */
+export function toHtml(text: string, subject?: string): string {
+  const body = blocksOf(text).map((b) => b.kind === "ul"
+    ? `<ul>${b.items.map((i) => `<li>${inlineHtml(i)}</li>`).join("")}</ul>`
+    : `<p>${b.lines.map(inlineHtml).join("<br>")}</p>`).join("");
+  return (subject ? `<p><strong>${esc(subject)}</strong></p>` : "") + body;
+}
+/** Plain text for "Copy": an email gets its subject line on top; **bold** markers are dropped. */
+export function toPlain(text: string, subject?: string): string {
+  const body = text.replace(/\*\*(.+?)\*\*/g, "$1");
+  return subject ? `Subject: ${subject}\n\n${body}` : body;
+}
+
+// ---- Send: NazAI opens the person's own mail with everything filled in (it never sends as them) ----------------------------
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const q = (v: string) => encodeURIComponent(v);
+export function mailLinks(m: { from: string; to: string; subject: string; body: string }) {
+  const personal = /@(outlook|hotmail|live|msn)\./i.test(m.from);
+  return {
+    gmail: `https://mail.google.com/mail/?authuser=${q(m.from)}&view=cm&fs=1&to=${q(m.to)}&su=${q(m.subject)}&body=${q(m.body)}`,
+    outlook: `https://${personal ? "outlook.live.com/mail/0" : "outlook.office.com/mail"}/deeplink/compose?to=${q(m.to)}&subject=${q(m.subject)}&body=${q(m.body)}`,
+    mailto: `mailto:${q(m.to)}?subject=${q(m.subject)}&body=${q(m.body)}`,
+  };
+}
+
+// ---- Structured context (sorted on the server; the person edits; saved with a heading per part) ----------------------------
+export const CONTEXT_SECTIONS = [
+  { key: "facts", title: "Facts", hint: "Who you are, what you sell, prices, places, dates, names." },
+  { key: "policies", title: "Policies", hint: "Refunds, delivery, returns, guarantees, what you do and do not offer." },
+  { key: "tone", title: "Tone", hint: "How you write: formal or casual, length, words you like, sign-off." },
+  { key: "never_say", title: "Never say", hint: "Promises, claims, words or topics your replies must never contain." },
+] as const;
+export type SectionKey = typeof CONTEXT_SECTIONS[number]["key"];
+export type StructuredContext = Record<SectionKey, string[]>;
+const cleanItem = (v: string) => v.replace(/^[\s\-•*·]+/, "").replace(/\s+/g, " ").trim().slice(0, 300);
+/** The same text the server saves (supabase/functions/_shared/context-structure.ts, composeContext; a test compares them). */
+export function composeContext(s: StructuredContext): string {
+  return CONTEXT_SECTIONS
+    .filter(({ key }) => s[key]?.length)
+    .map(({ key, title }) => `## ${title}\n${s[key].map((i) => `- ${cleanItem(i)}`).join("\n")}`)
+    .join("\n\n");
+}
+export function parseContextSections(text: string | null | undefined): StructuredContext | null {
+  if (!text) return null;
+  const out: StructuredContext = { facts: [], policies: [], tone: [], never_say: [] };
+  let current: SectionKey | null = null;
+  let any = false;
+  for (const line of text.split("\n")) {
+    const h = /^\s*##\s+(.+?)\s*$/.exec(line);
+    if (h) { const f = CONTEXT_SECTIONS.find((c) => c.title.toLowerCase() === h[1].toLowerCase()); current = f ? f.key : null; if (f) any = true; continue; }
+    if (current && /^\s*[-•*]\s+/.test(line)) { const item = cleanItem(line); if (item) out[current].push(item); }
+  }
+  return any ? out : null;
+}
+export async function structureContext(text: string, accountId: string | null): Promise<{ ok: true; sections: StructuredContext; discarded: number; hidden: { name: string; count: number }[] } | { ok: false; message: string }> {
+  const { data: sess } = await supabase.auth.getSession();
+  const token = sess.session?.access_token ?? SUPABASE_ANON;
+  try {
+    const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/control-system-decide`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON },
+      body: JSON.stringify({ action: "structure_context", text, account_id: accountId }),
+    });
+    const d = await resp.json().catch(() => ({})) as Record<string, unknown>;
+    if (!resp.ok || d.mode !== "context_structure") return { ok: false, message: String(d.message || "Your context could not be sorted right now. You can still save it as it is.") };
+    return { ok: true, sections: d.sections as StructuredContext, discarded: Number(d.discarded ?? 0), hidden: (d.hidden as { name: string; count: number }[]) ?? [] };
+  } catch {
+    return { ok: false, message: "Could not reach NazAI. Try again." };
+  }
 }

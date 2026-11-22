@@ -1,4 +1,4 @@
-# Clean it (Context Day 1)
+# Clean it (Context Days 1 and 2)
 
 Outer Control's first screen. A person pastes text that ChatGPT, Claude, Gemini or any AI wrote; NazAI applies the account's rules
 and the person's own context and returns ONE result: the text to copy, what the checks found and what the rewrite changed.
@@ -47,8 +47,8 @@ wording.
 
 ## Measurement (PostHog; counts and labels only, never the text)
 
-`context_checked` (status, changed, rewrite, source, with_context, found, edits), `result_copied`, `context_added` (chars),
-`starter_rules_added`.
+`context_checked` (status, changed, rewrite, source, with_context, found, edits), `result_copied`, `context_added` (chars,
+structured, edited), `starter_rules_added`, `email_opened` (client: gmail, outlook or mail_app; never the addresses).
 
 ## Deploy
 
@@ -76,3 +76,36 @@ judge an optional spend label; both default to the old behaviour, so the other f
   saved encrypted. Never shown on a result that did not pass.
 - Also: Ctrl/⌘ + Enter cleans; Copy turns into Copied; hovering a change marks its new words in the result.
 - All motion stops for reduced-motion.
+
+## Context Day 2: structured context, result formats, email, homepage
+
+**Structured context** (`supabase/functions/_shared/context-structure.ts`; action `structure_context`). "Sort it" in the context
+dialog sends the pasted text (secrets hidden first) to the AI, which sorts it into Facts, Policies, Tone and Never say. Only what the
+text says is kept: an item whose words are mostly not in the text is dropped as invented, and the dialog says how many lines were
+left out. Each part is an editable list (one item per line). It is saved as one encrypted project with a heading per part
+(`## Facts` and `- item`), so a context saved as plain text keeps working. The website and the server build the same text (a test
+compares them). Edit (pencil next to the chosen context) reads the saved text, opens it in its four parts, and Save changes saves a
+new version and archives the old one (kept in Projects). Sorting is metered (`context-structure`) and does not count as a clean.
+
+How the parts are used: the context check compares a reply with Facts and Policies, and anything listed under Never say counts as a
+conflict; the rewrite keeps to Tone and never writes what is under Never say.
+
+**Result formats** (`supabase/functions/_shared/context-format.ts`): As pasted, Email, Short message, Bullet points (`format` on
+`clean_text`; remembered on this device as `nazai_clean_format`). The reshape happens only after the clean, and only for a result
+that passed. It uses the text and the Tone, adds no facts, and is checked again against the rules and the context (an email's
+subject with its body). If the reshaped version does not pass, or cannot be made, the cleaned text is shown with a note saying why.
+Copy gives plain text (an email with its `Subject:` line); Copy formatted also puts HTML on the clipboard, so paragraphs, lists and
+bold paste formatted into Gmail, Docs, Notion or Slack. Bold is rendered as React elements, never as HTML from the AI.
+
+**Email view and Send**: an email result is shown as an email (From, To, Subject, body) marked "Email · ready to send". Send asks for
+From and To (checked as email addresses; several recipients allowed) and a Subject, then opens the person's own Gmail (the account
+named in From, via `authuser`), Outlook (outlook.live.com for Outlook, Hotmail, Live and MSN addresses, otherwise
+outlook.office.com) or mail app (`mailto:`), with everything filled in. The person presses Send there: NazAI never sends as them,
+and the addresses are not sent to NazAI or saved.
+
+**Homepage**: "AI Control Layer: Control the AI you already use. Your rules. Your context. One clean result." A before/after demo of
+three illustrative cleans (ChatGPT, Claude, Gemini) replaces the typing console. "Clean it — free" (also in the header) goes to
+`/control-system/outer`, after sign-in when signed out. The task flow is still there ("or describe any business task"). The page
+title and descriptions say the same.
+
+Deploy: redeploy `control-system-decide`. There is no database change. The website deploys on merge.

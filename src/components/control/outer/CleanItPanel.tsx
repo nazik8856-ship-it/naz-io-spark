@@ -5,15 +5,17 @@
 // reveal with its seal, the rule application trail, the quiet confidence of a clean result, the context weight and the trust line.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, BookUser, Check, ClipboardCopy, Plus, ShieldCheck, Sparkles, Wand2 } from "lucide-react";
+import { ArrowRight, BookUser, Check, ClipboardCopy, Mail, PenLine, Plus, Send, ShieldCheck, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useProjectList, announceProjectsChanged } from "@/hooks/useProjectList";
 import { callProjects } from "@/lib/projects";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  allowanceLine, cleanContext, CLEAN_SOURCES, CONTEXT_NAME, CONTEXT_SOURCES_HELP, contextWeight, isControlled, MAX_CLEAN_CHARS, plural,
-  rememberContext, rememberedContext, secondsLabel, STARTER_RULES, STATUS_TITLE, trackClean, trailOf, type CleanResult, type CleanSource,
+  allowanceLine, blocksOf, cleanContext, CLEAN_FORMATS, CLEAN_SOURCES, composeContext, CONTEXT_NAME, CONTEXT_SECTIONS, CONTEXT_SOURCES_HELP,
+  contextWeight, EMAIL_RE, isControlled, mailLinks, MAX_CLEAN_CHARS, parseContextSections, plural, rememberContext, rememberedContext,
+  rememberedFormat, rememberFormat, secondsLabel, STARTER_RULES, STATUS_TITLE, structureContext, toHtml, toPlain, trackClean, trailOf,
+  type CleanFormat, type CleanResult, type CleanSource, type SectionKey, type StructuredContext,
 } from "@/lib/context-clean";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -36,6 +38,8 @@ export default function CleanItPanel({ accountId, onActivity }: { accountId: str
   const projects = useMemo(() => projectList.items.filter((p) => p.kind === "imported").map((p) => ({ id: p.id, name: p.name })), [projectList.items]);
   const [content, setContent] = useState("");
   const [source, setSource] = useState<CleanSource>("chatgpt");
+  const [format, setFormat] = useState<CleanFormat>(() => rememberedFormat());
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   const [contextId, setContextId] = useState<string | null>(null);
   const [contextPicked, setContextPicked] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -99,7 +103,7 @@ export default function CleanItPanel({ accountId, onActivity }: { accountId: str
     const t0 = Date.now();
     setBusy(true); setProblem(null); setResult(null); setTook(null); setStartedAt(t0); setNow(t0);
     pulse();
-    const out = await cleanContext({ content: text, source, projectId: contextId, accountId });
+    const out = await cleanContext({ content: text, source, projectId: contextId, accountId, format });
     setBusy(false); setStartedAt(null); setTook(Date.now() - t0);
     if ("message" in out) { setProblem({ message: out.message, limit: out.limit }); return; }
     setResult(out.result); setResultFor(text);
@@ -108,14 +112,24 @@ export default function CleanItPanel({ accountId, onActivity }: { accountId: str
     trackClean("context_checked", {
       status: out.result.status, changed: out.result.status === "changed", rewrite: out.result.rewrite, source,
       with_context: !!out.result.context, found: out.result.found.length, edits: out.result.edits.length,
+      format: out.result.format ?? "as_pasted", reshaped: (out.result.format ?? "as_pasted") === format,
     });
   };
 
-  const copy = async (): Promise<boolean> => {
+  // Copy: plain text, or formatted (paragraphs, lists and bold kept, for email, Docs, Notion, Slack).
+  const copy = async (mode: "plain" | "formatted"): Promise<boolean> => {
     if (!result?.text) return false;
+    const plain = toPlain(result.text, result.email?.subject);
     let ok = true;
-    try { await navigator.clipboard.writeText(result.text); } catch { ok = false; toast.error("Copy did not work here. Select the text and copy it."); }
-    trackClean("result_copied", { status: result.status, rewrite: result.rewrite });
+    try {
+      const Item = (window as unknown as { ClipboardItem?: new (d: Record<string, Blob>) => unknown }).ClipboardItem;
+      if (mode === "formatted" && Item && navigator.clipboard.write) {
+        await navigator.clipboard.write([new Item({ "text/html": new Blob([toHtml(result.text, result.email?.subject)], { type: "text/html" }), "text/plain": new Blob([plain], { type: "text/plain" }) }) as ClipboardItem]);
+      } else {
+        await navigator.clipboard.writeText(plain);
+      }
+    } catch { ok = false; toast.error("Copy did not work here. Select the text and copy it."); }
+    trackClean("result_copied", { status: result.status, rewrite: result.rewrite, mode, format: result.format ?? "as_pasted" });
     return ok;
   };
 
@@ -173,6 +187,14 @@ export default function CleanItPanel({ accountId, onActivity }: { accountId: str
                 {s.label}
               </button>
             ))}
+            <span className="mx-2 hidden h-4 w-px bg-white/10 sm:inline-block" aria-hidden />
+            <span className="mr-1 basis-full text-xs text-zinc-500 sm:basis-auto">Shape</span>
+            {CLEAN_FORMATS.map((f) => (
+              <button key={f.id} type="button" aria-pressed={format === f.id} onClick={() => { setFormat(f.id); rememberFormat(f.id); }} data-testid={`clean-format-${f.id}`}
+                className={`flex items-center gap-1 rounded-full border px-3 py-1 text-xs transition ${format === f.id ? "border-amber-300/60 bg-amber-400/15 text-amber-50" : "border-white/10 bg-white/[0.03] text-zinc-400 hover:text-zinc-200"}`}>
+                {f.id === "email" && <Mail className="h-3 w-3" />}{f.label}
+              </button>
+            ))}
           </div>
 
           <div className={`oc-box relative mt-3 overflow-hidden rounded-2xl border bg-black/40 p-1 ${busy ? "border-cyan-400/50" : "border-white/10"}`}>
@@ -197,7 +219,12 @@ export default function CleanItPanel({ accountId, onActivity }: { accountId: str
               {projects.map((p) => <option key={p.id} value={p.id} className="bg-[#040915]">{p.name}</option>)}
             </select>
             {contextId && <ContextWeight weight={weight} />}
-            <button type="button" onClick={() => setAddOpen(true)} className="flex shrink-0 items-center gap-1 text-xs text-cyan-300 hover:text-cyan-200" data-testid="clean-add-context">
+            {contextId && (
+              <button type="button" aria-label="Edit your context" title="Edit your context" data-testid="clean-edit-context"
+                onClick={() => { setEditing({ id: contextId, name: contextName ?? CONTEXT_NAME }); setAddOpen(true); }}
+                className="shrink-0 text-zinc-500 hover:text-cyan-200"><PenLine className="h-3.5 w-3.5" /></button>
+            )}
+            <button type="button" onClick={() => { setEditing(null); setAddOpen(true); }} className="flex shrink-0 items-center gap-1 text-xs text-cyan-300 hover:text-cyan-200" data-testid="clean-add-context">
               <Plus className="h-3 w-3" /> Add
             </button>
           </div>
@@ -249,7 +276,7 @@ export default function CleanItPanel({ accountId, onActivity }: { accountId: str
         {result && <ResultCard result={result} onCopy={copy} elevated={quiet} took={took} />}
       </div>
 
-      <AddContextDialog open={addOpen} onOpenChange={setAddOpen} accountId={accountId}
+      <AddContextDialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) setEditing(null); }} accountId={accountId} editing={editing}
         onAdded={(id) => { pickContext(id); announceProjectsChanged(); }} />
     </section>
   );
@@ -294,11 +321,12 @@ const TRAIL_STYLE = {
   stopped: { text: "text-rose-200", marker: "rgba(251, 113, 133, 0.32)" },
 } as const;
 
-function ResultCard({ result, onCopy, elevated, took }: { result: CleanResult; onCopy: () => Promise<boolean>; elevated: boolean; took: number | null }) {
+function ResultCard({ result, onCopy, elevated, took }: { result: CleanResult; onCopy: (mode: "plain" | "formatted") => Promise<boolean>; elevated: boolean; took: number | null }) {
   const trail = trailOf(result);
   const controlled = isControlled(result);
   const [hoverEdit, setHoverEdit] = useState<number | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"plain" | "formatted" | null>(null);
+  const [sendOpen, setSendOpen] = useState(false);
   const [focus, setFocus] = useState<{ key: string; n: number } | null>(null);
   const rulesRef = useRef<HTMLDivElement>(null);
   const editsRef = useRef<HTMLDivElement>(null);
@@ -311,7 +339,8 @@ function ResultCard({ result, onCopy, elevated, took }: { result: CleanResult; o
   };
   const ring = (key: string) => focus?.key === key ? "nz-focus" : "";
   const blockedStyle = result.status === "blocked" ? TRAIL_STYLE.stopped : TRAIL_STYLE.blocked;
-  const copyNow = async () => { if (await onCopy()) { setCopied(true); window.setTimeout(() => setCopied(false), 1600); } };
+  const copyNow = async (mode: "plain" | "formatted") => { if (await onCopy(mode)) { setCopied(mode); window.setTimeout(() => setCopied(null), 1600); } };
+  const shaped = (result.format ?? "as_pasted") !== "as_pasted";
 
   // Hovering a change marks its new words in the result.
   const after = hoverEdit !== null ? result.edits[hoverEdit]?.after?.trim() : "";
@@ -331,6 +360,7 @@ function ResultCard({ result, onCopy, elevated, took }: { result: CleanResult; o
         )}
       </div>
       <p className="nz-reveal mt-2 text-sm text-zinc-300" style={{ animationDelay: "60ms" }} data-testid="clean-summary">{result.summary}</p>
+      {result.format_note && <p className="mt-1 text-xs text-amber-200/80" data-testid="clean-format-note">{result.format_note}</p>}
 
       {result.text !== null && (
         <div className="nz-reveal relative mt-3 rounded-xl border border-cyan-400/20 bg-[#030814] p-3 pt-8" style={{ animationDelay: "120ms" }}>
@@ -340,13 +370,30 @@ function ResultCard({ result, onCopy, elevated, took }: { result: CleanResult; o
               <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-cyan-200/75">Controlled by NazAI</span>
             </span>
           )}
-          <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-zinc-100" data-testid="clean-text">{text}</p>
-          <div className="mt-2 flex justify-end">
-            <button type="button" onClick={() => void copyNow()} data-testid="clean-copy"
-              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${copied ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-50" : "border-cyan-300/40 bg-cyan-400/10 text-cyan-50 hover:bg-cyan-400/20"}`}>
-              {copied ? <><Check className="h-3.5 w-3.5" /> Copied</> : <><ClipboardCopy className="h-3.5 w-3.5" /> Copy</>}
+          {result.email ? (
+            <EmailView subject={result.email.subject} body={result.text} />
+          ) : shaped ? (
+            <div className="text-[15px] leading-relaxed text-zinc-100" data-testid="clean-text"><RichText text={result.text} /></div>
+          ) : (
+            <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-zinc-100" data-testid="clean-text">{text}</p>
+          )}
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+            <button type="button" onClick={() => void copyNow("formatted")} data-testid="clean-copy-formatted" title="Keeps paragraphs, lists and bold when you paste into email, Docs, Notion or Slack"
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition ${copied === "formatted" ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-50" : "border-white/10 text-zinc-300 hover:border-white/20 hover:text-zinc-100"}`}>
+              {copied === "formatted" ? <><Check className="h-3.5 w-3.5" /> Copied</> : "Copy formatted"}
             </button>
+            <button type="button" onClick={() => void copyNow("plain")} data-testid="clean-copy"
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${copied === "plain" ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-50" : "border-cyan-300/40 bg-cyan-400/10 text-cyan-50 hover:bg-cyan-400/20"}`}>
+              {copied === "plain" ? <><Check className="h-3.5 w-3.5" /> Copied</> : <><ClipboardCopy className="h-3.5 w-3.5" /> Copy</>}
+            </button>
+            {result.email && controlled && (
+              <button type="button" onClick={() => setSendOpen(true)} data-testid="clean-send"
+                className="flex items-center gap-1.5 rounded-lg border border-amber-300/50 bg-gradient-to-r from-amber-400/20 to-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-amber-50 hover:from-amber-400/30">
+                <Send className="h-3.5 w-3.5" /> Send…
+              </button>
+            )}
           </div>
+          {result.email && <SendEmailDialog open={sendOpen} onOpenChange={setSendOpen} subject={result.email.subject} body={result.text} />}
         </div>
       )}
 
@@ -409,47 +456,220 @@ function TrailStep({ label, n, style, onClick, testId }: { label: string; n: num
   );
 }
 
-function AddContextDialog({ open, onOpenChange, accountId, onAdded }: { open: boolean; onOpenChange: (o: boolean) => void; accountId: string | null; onAdded: (id: string) => void }) {
-  const [name, setName] = useState(CONTEXT_NAME);
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const save = async () => {
-    if (!text.trim()) return;
-    setBusy(true); setProblem(null);
-    const r = await callProjects("import_paste", { text: text.trim(), name: name.trim() || CONTEXT_NAME, account_id: accountId });
-    setBusy(false);
-    const id = (r.data?.project as { id?: string } | undefined)?.id;
-    if (!r.ok || !id) { setProblem(r.message || "Your context could not be saved."); return; }
-    trackClean("context_added", { chars: text.trim().length });
-    onAdded(id);
-    setText(""); onOpenChange(false);
-    toast.success("Your context is saved, encrypted. Clean it now uses it.");
-  };
+/** **bold** inside a line, as React (never HTML from the AI). */
+function Inline({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return <>{parts.map((p, i) => /^\*\*[^*]+\*\*$/.test(p) ? <strong key={i} className="font-semibold text-zinc-50">{p.slice(2, -2)}</strong> : <span key={i}>{p}</span>)}</>;
+}
+
+/** A reshaped result: paragraphs, bullet lists and bold, laid out as they will be pasted. */
+function RichText({ text }: { text: string }) {
+  return (
+    <div className="space-y-3">
+      {blocksOf(text).map((b, i) => b.kind === "ul" ? (
+        <ul key={i} className="space-y-1.5">
+          {b.items.map((it, j) => (
+            <li key={j} className="flex gap-2.5"><span className="mt-[0.6em] h-1 w-1 shrink-0 rounded-full bg-cyan-300/80" aria-hidden /><span><Inline text={it} /></span></li>
+          ))}
+        </ul>
+      ) : (
+        <p key={i} className="break-words">{b.lines.map((l, j) => <span key={j}>{j ? <br /> : null}<Inline text={l} /></span>)}</p>
+      ))}
+    </div>
+  );
+}
+
+/** Email format: shown as an email ready to send (who, subject, body), in NazAI's look. */
+function EmailView({ subject, body }: { subject: string; body: string }) {
+  return (
+    <div data-testid="clean-email">
+      <div className="mb-3 flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.22em] text-amber-200/70">
+        <Mail className="h-3 w-3" /> Email · ready to send
+      </div>
+      <dl className="space-y-1.5 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2.5 text-xs">
+        <div className="flex items-baseline gap-3"><dt className="w-14 shrink-0 text-zinc-500">From</dt><dd className="text-zinc-400">You</dd></div>
+        <div className="flex items-baseline gap-3"><dt className="w-14 shrink-0 text-zinc-500">To</dt><dd className="text-zinc-600">Added when you send</dd></div>
+        <div className="flex items-baseline gap-3 border-t border-white/5 pt-1.5"><dt className="w-14 shrink-0 text-zinc-500">Subject</dt><dd className="text-[15px] font-semibold text-zinc-50" data-testid="clean-email-subject">{subject}</dd></div>
+      </dl>
+      <div className="mt-4 border-l-2 border-cyan-300/20 pl-4 text-[15px] leading-relaxed text-zinc-100" data-testid="clean-text"><RichText text={body} /></div>
+    </div>
+  );
+}
+
+/**
+ * Send: who it is from and to. NazAI opens the person's own Gmail (the account named in From), Outlook or mail app with everything
+ * filled in; they press Send there. NazAI never sends as them, and the addresses are not saved.
+ */
+function SendEmailDialog({ open, onOpenChange, subject, body }: { open: boolean; onOpenChange: (o: boolean) => void; subject: string; body: string }) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [subj, setSubj] = useState(subject);
+  useEffect(() => { if (open) setSubj(subject); }, [open, subject]);
+  const fromOk = EMAIL_RE.test(from.trim());
+  const toList = to.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
+  const toOk = toList.length > 0 && toList.every((x) => EMAIL_RE.test(x));
+  const ready = fromOk && toOk && !!subj.trim();
+  const links = mailLinks({ from: from.trim(), to: toList.join(","), subject: subj.trim(), body: toPlain(body) });
+  const opened = (client: string) => { trackClean("email_opened", { client }); onOpenChange(false); };
+  const field = "w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/50";
+  const btn = "flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm font-semibold transition";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto border-amber-300/20 bg-[#040915] text-zinc-100 sm:max-w-xl" data-testid="clean-context-dialog">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-lg"><BookUser className="h-4 w-4 text-amber-200" /> Add your AI context</DialogTitle>
+      <DialogContent className="border-cyan-400/20 bg-[#040915] text-zinc-100 sm:max-w-md" data-testid="clean-send-dialog">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-amber-400/10 blur-[80px]" aria-hidden />
+        <DialogHeader className="relative">
+          <DialogTitle className="flex items-center gap-2 text-lg"><Send className="h-4 w-4 text-amber-200" /> Send this email</DialogTitle>
+          <DialogDescription className="text-zinc-400">NazAI opens your own email with everything filled in, and you press Send there. Your addresses are not saved.</DialogDescription>
+        </DialogHeader>
+        <div className="relative space-y-3">
+          <label className="block space-y-1"><span className="text-xs text-zinc-400">From (your email)</span>
+            <input type="email" value={from} onChange={(e) => setFrom(e.target.value)} placeholder="you@yourcompany.com" className={field} data-testid="send-from" autoComplete="email" /></label>
+          <label className="block space-y-1"><span className="text-xs text-zinc-400">To</span>
+            <input type="text" value={to} onChange={(e) => setTo(e.target.value)} placeholder="sam@example.com" className={field} data-testid="send-to" /></label>
+          <label className="block space-y-1"><span className="text-xs text-zinc-400">Subject</span>
+            <input type="text" value={subj} onChange={(e) => setSubj(e.target.value)} className={field} data-testid="send-subject" /></label>
+          {(from && !fromOk) || (to && !toOk) ? <p className="text-xs text-rose-200" role="alert">Check the email address{to && !toOk && from && !fromOk ? "es" : ""}.</p> : null}
+          <div className="flex flex-col gap-2 pt-1 sm:flex-row">
+            <a href={ready ? links.gmail : undefined} target="_blank" rel="noopener noreferrer" aria-disabled={!ready} data-testid="send-gmail" onClick={(e) => { if (!ready) e.preventDefault(); else opened("gmail"); }}
+              className={`${btn} ${ready ? "border-cyan-300/50 bg-gradient-to-r from-cyan-500/30 to-amber-300/20 text-cyan-50 shadow-[0_0_24px_-8px_rgba(34,211,238,0.8)]" : "pointer-events-auto cursor-not-allowed border-white/10 text-zinc-500"}`}>Gmail</a>
+            <a href={ready ? links.outlook : undefined} target="_blank" rel="noopener noreferrer" aria-disabled={!ready} data-testid="send-outlook" onClick={(e) => { if (!ready) e.preventDefault(); else opened("outlook"); }}
+              className={`${btn} ${ready ? "border-white/15 text-zinc-100 hover:border-white/30" : "cursor-not-allowed border-white/10 text-zinc-500"}`}>Outlook</a>
+            <a href={ready ? links.mailto : undefined} aria-disabled={!ready} data-testid="send-mailto" onClick={(e) => { if (!ready) e.preventDefault(); else opened("mail_app"); }}
+              className={`${btn} ${ready ? "border-white/15 text-zinc-100 hover:border-white/30" : "cursor-not-allowed border-white/10 text-zinc-500"}`}>Mail app</a>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type Draft = Record<SectionKey, string>;
+const draftOf = (s: StructuredContext): Draft => ({ facts: s.facts.join("\n"), policies: s.policies.join("\n"), tone: s.tone.join("\n"), never_say: s.never_say.join("\n") });
+const sectionsOf = (d: Draft): StructuredContext => ({
+  facts: d.facts.split("\n").map((x) => x.trim()).filter(Boolean),
+  policies: d.policies.split("\n").map((x) => x.trim()).filter(Boolean),
+  tone: d.tone.split("\n").map((x) => x.trim()).filter(Boolean),
+  never_say: d.never_say.split("\n").map((x) => x.trim()).filter(Boolean),
+});
+
+/**
+ * Your context, added or edited. Paste what your AI knows about you; "Sort it" divides it into Facts, Policies, Tone and Never say
+ * (only what the text says), each part editable; saved encrypted as one project. Editing saves a new version and archives the old.
+ */
+function AddContextDialog({ open, onOpenChange, accountId, onAdded, editing }: { open: boolean; onOpenChange: (o: boolean) => void; accountId: string | null; onAdded: (id: string) => void; editing: { id: string; name: string } | null }) {
+  const [name, setName] = useState(CONTEXT_NAME);
+  const [text, setText] = useState("");
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [busy, setBusy] = useState<"sort" | "save" | "load" | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setProblem(null); setNote(null); setDraft(null); setText(""); setName(editing?.name ?? CONTEXT_NAME);
+    if (!editing) return;
+    let live = true;
+    setBusy("load");
+    void callProjects("read", { project_id: editing.id, account_id: accountId }).then((r) => {
+      if (!live) return;
+      setBusy(null);
+      const content = String((r.data as { content?: string })?.content ?? "");
+      if (!r.ok) { setProblem(r.message || "Your context could not be read."); return; }
+      const parsed = parseContextSections(content);
+      if (parsed) setDraft(draftOf(parsed)); else setText(content);
+    });
+    return () => { live = false; };
+  }, [open, editing, accountId]);
+
+  const sort = async () => {
+    if (!text.trim()) return;
+    setBusy("sort"); setProblem(null);
+    const r = await structureContext(text.trim(), accountId);
+    setBusy(null);
+    if (r.ok === false) { setProblem(r.message); return; }
+    setDraft(draftOf(r.sections));
+    const bits = [r.discarded ? `${r.discarded} line${r.discarded === 1 ? " was" : "s were"} left out because your text does not say ${r.discarded === 1 ? "it" : "them"}.` : "", r.hidden.length ? "Secrets in your text were hidden and are not kept." : ""].filter(Boolean);
+    setNote(bits.length ? bits.join(" ") : null);
+  };
+
+  const save = async () => {
+    const content = draft ? composeContext(sectionsOf(draft)) : text.trim();
+    if (!content) { setProblem("Add at least one line."); return; }
+    setBusy("save"); setProblem(null);
+    const r = await callProjects("import_paste", { text: content, name: name.trim() || CONTEXT_NAME, account_id: accountId });
+    const id = (r.data?.project as { id?: string } | undefined)?.id;
+    if (!r.ok || !id) { setBusy(null); setProblem(r.message || "Your context could not be saved."); return; }
+    if (editing) await callProjects("archive", { project_id: editing.id, archived: true, account_id: accountId }); // the old version is kept, archived
+    setBusy(null);
+    trackClean("context_added", { chars: content.length, structured: !!draft, edited: !!editing });
+    onAdded(id);
+    onOpenChange(false);
+    toast.success(editing ? "Your context is updated. The previous version is archived in Projects." : "Your context is saved, encrypted. Clean it now uses it.");
+  };
+
+  const sectionCls = "block w-full resize-y rounded-lg bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600";
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto border-amber-300/20 bg-[#040915] text-zinc-100 sm:max-w-2xl" data-testid="clean-context-dialog">
+        <div className="pointer-events-none absolute -left-16 -top-20 h-48 w-48 rounded-full bg-amber-400/10 blur-[80px]" aria-hidden />
+        <DialogHeader className="relative">
+          <DialogTitle className="flex items-center gap-2 text-lg"><BookUser className="h-4 w-4 text-amber-200" /> {editing ? "Edit your context" : "Add your AI context"}</DialogTitle>
           <DialogDescription className="text-zinc-400">
-            Paste what your AI already knows about you or your business: facts, prices, policies, how you write. Clean it keeps every result consistent with it. It is stored encrypted, and you can edit or delete it in Projects.
+            {draft
+              ? "Sorted into four parts. Edit any line: one item per line. Clean it checks against Facts, Policies and Never say, and writes in your Tone."
+              : "Paste what your AI already knows about you or your business: facts, prices, policies, how you write. NazAI sorts it into four parts you can edit. It is stored encrypted."}
           </DialogDescription>
         </DialogHeader>
-        <ul className="space-y-1 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-zinc-400">
-          {CONTEXT_SOURCES_HELP.map((h) => <li key={h.tool}><span className="text-zinc-200">{h.tool}:</span> {h.where}</li>)}
-        </ul>
+        {busy === "load" && <p className="text-sm text-zinc-500">Reading your context…</p>}
+        {!draft && busy !== "load" && (
+          <>
+            <ul className="space-y-1 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-zinc-400">
+              {CONTEXT_SOURCES_HELP.map((h) => <li key={h.tool}><span className="text-zinc-200">{h.tool}:</span> {h.where}</li>)}
+            </ul>
+            <div className={`oc-box relative overflow-hidden rounded-xl border bg-black/40 p-1 ${busy === "sort" ? "border-cyan-400/50" : "border-white/10"}`}>
+              {busy === "sort" && <span className="pointer-events-none absolute inset-x-0 top-0 h-[2px] overflow-hidden" aria-hidden><span className="nz-line" /></span>}
+              <textarea aria-label="Your context" rows={8} value={text} onChange={(e) => setText(e.target.value)} data-testid="clean-context-text"
+                placeholder="e.g. We are a 5-person bakery in Leeds. Delivery is Tuesday and Friday only. Refunds within 14 days. We never use exclamation marks."
+                className="block w-full resize-y rounded-lg bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600" />
+            </div>
+          </>
+        )}
+        {draft && (
+          <div className="grid gap-3 sm:grid-cols-2" data-testid="context-sections">
+            {CONTEXT_SECTIONS.map((c) => (
+              <label key={c.key} className="block rounded-xl border border-white/10 bg-white/[0.02] p-2.5" data-testid={`context-section-${c.key}`}>
+                <span className="flex items-baseline justify-between gap-2 px-1">
+                  <span className={`text-xs font-semibold ${c.key === "never_say" ? "text-rose-200" : c.key === "tone" ? "text-amber-100" : "text-cyan-100"}`}>{c.title}</span>
+                  <span className="font-mono text-[10px] text-zinc-600">{draft[c.key].split("\n").filter((x) => x.trim()).length}</span>
+                </span>
+                <span className="block px-1 text-[11px] text-zinc-500">{c.hint}</span>
+                <textarea rows={4} value={draft[c.key]} onChange={(e) => setDraft({ ...draft, [c.key]: e.target.value })} className={`${sectionCls} mt-1`} placeholder="Nothing yet" aria-label={c.title} />
+              </label>
+            ))}
+          </div>
+        )}
+        {note && <p className="text-xs text-amber-200/80" data-testid="context-note">{note}</p>}
         <label className="block text-xs text-zinc-400" htmlFor="clean-context-name">Name</label>
         <input id="clean-context-name" value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none focus:border-cyan-400/50" />
-        <div className="oc-box rounded-xl border border-white/10 bg-black/40 p-1">
-          <textarea aria-label="Your context" rows={8} value={text} onChange={(e) => setText(e.target.value)} data-testid="clean-context-text"
-            placeholder="e.g. We are a 5-person bakery in Leeds. Delivery is Tuesday and Friday only. Refunds within 14 days. We never use exclamation marks."
-            className="block w-full resize-y rounded-lg bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600" />
-        </div>
         {problem && <p role="alert" className="text-sm text-rose-200">{problem}</p>}
-        <button type="button" disabled={busy || !text.trim()} onClick={() => void save()} data-testid="clean-context-save"
-          className="w-full rounded-xl border border-amber-300/50 bg-gradient-to-r from-amber-400/25 to-cyan-400/15 px-3 py-2.5 text-sm font-semibold text-amber-50 disabled:opacity-40">
-          {busy ? "Saving…" : "Save my context"}
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row-reverse">
+          {draft ? (
+            <button type="button" disabled={busy !== null} onClick={() => void save()} data-testid="clean-context-save"
+              className="flex-1 rounded-xl border border-amber-300/50 bg-gradient-to-r from-amber-400/25 to-cyan-400/15 px-3 py-2.5 text-sm font-semibold text-amber-50 disabled:opacity-40">
+              {busy === "save" ? "Saving…" : editing ? "Save changes" : "Save my context"}
+            </button>
+          ) : (
+            <button type="button" disabled={busy !== null || !text.trim()} onClick={() => void sort()} data-testid="clean-context-sort"
+              className="flex-1 rounded-xl border border-cyan-300/50 bg-gradient-to-r from-cyan-500/30 to-amber-300/20 px-3 py-2.5 text-sm font-semibold text-cyan-50 disabled:opacity-40">
+              {busy === "sort" ? "Sorting into four parts…" : "Sort it into Facts, Policies, Tone, Never say"}
+            </button>
+          )}
+          {draft ? (
+            <button type="button" disabled={busy !== null} onClick={() => { setText(composeContext(sectionsOf(draft))); setDraft(null); setNote(null); }} className="text-xs text-zinc-500 hover:text-zinc-300 sm:px-3">Edit as plain text</button>
+          ) : (
+            <button type="button" disabled={busy !== null || !text.trim()} onClick={() => void save()} data-testid="clean-context-save" className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-40 sm:px-3">Save as it is</button>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

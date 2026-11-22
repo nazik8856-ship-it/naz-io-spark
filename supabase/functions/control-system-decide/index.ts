@@ -4,6 +4,8 @@
 //        { action: "clean_text", content, source?, project_id? }   (Clean it: one result that follows the rules and the person's
 //        context, returns { mode: "clean_result", ... }; _shared/context-clean.ts)
 //        { action: "context_weight", project_id }   (how much of that context a clean reads: lengths only, never the text)
+//        { action: "structure_context", text }   (sorts pasted context into Facts, Policies, Tone, Never say; nothing is saved)
+//        clean_text also takes format: "as_pasted" | "email" | "short" | "bullets" (_shared/context-format.ts)
 //
 // A request to DO work ("write…", "research…", "compare…") is answered with a task offer (mode "task_offer": the action, the
 // built-in tools, what it costs); nothing starts until the person confirms it with run_task. The Task is an ordinary Outer Control
@@ -32,6 +34,9 @@ import { describeDraft, draftFromArgs, RULE_SCOPES } from "../_shared/inner-chat
 import { ensureStarterTools, STARTER_TASKS, starterTasksUsed } from "../_shared/outer-control-starter.ts";
 import { cleanSourceOf, cleanText, contextSizeOf, CONTEXT_READ_CHARS, MAX_CLEAN_CHARS, pasteSourceModel, recheckSourceModel } from "../_shared/context-clean.ts";
 import { meteredGatewayJudge } from "../_shared/meaning-judge.ts";
+import { cleanFormatOf } from "../_shared/context-format.ts";
+import { composeContext, structureContext } from "../_shared/context-structure.ts";
+import { hideBeforeSaving } from "../_shared/projects.ts";
 import { checkFreeLimit } from "../_shared/free-limits.ts";
 import { projectContextFor } from "../_shared/projects.ts";
 import { projectReferenceOf } from "../_shared/project-consistency.ts";
@@ -218,7 +223,8 @@ Deno.serve(async (req) => {
     const runTask = body?.action === "run_task";
     const cleanRequest = body?.action === "clean_text";
     const weightRequest = body?.action === "context_weight";
-    if (!message && !runTask && !cleanRequest && !weightRequest) return json({ error: "message required" }, 400);
+    const structureRequest = body?.action === "structure_context";
+    if (!message && !runTask && !cleanRequest && !weightRequest && !structureRequest) return json({ error: "message required" }, 400);
 
     // Was ALWAYS userId regardless of which account was selected via the
     // account switcher on the Control System page -- a delegated team
@@ -242,6 +248,16 @@ Deno.serve(async (req) => {
       if (!got.ok) return json({ error: "context_unavailable", message: got.message }, 404);
       const size = contextSizeOf(projectReferenceOf(got.text) ?? "");
       return json({ mode: "context_weight", name: got.name, used: size.used, total: size.total, limit: CONTEXT_READ_CHARS });
+    }
+
+    // ---- Structured context: the pasted context sorted into Facts, Policies, Tone, Never say (shown to edit; nothing saved) -----
+    if (structureRequest) {
+      // Secrets never go to the AI: keys, card numbers and written-out passwords are hidden first, as when a project is saved.
+      const hidden = hideBeforeSaving(String(body?.text ?? ""));
+      const metered = meteredGatewayJudge(supabase, { userId: accountId, purpose: "context-structure" });
+      const out = await structureContext(metered.ai, hidden.text);
+      if (!out.ok) return json({ error: "not_structured", message: out.message }, 400);
+      return json({ mode: "context_structure", sections: out.sections, text: composeContext(out.sections), discarded: out.discarded, hidden: hidden.hidden, cost_usd: metered.cost.cost_usd });
     }
 
     // ---- Clean it: pasted text from any AI -> one result that follows the account's rules and the person's context -----------
@@ -269,7 +285,7 @@ Deno.serve(async (req) => {
         sourceModel: recheck ? recheckSourceModel(source) : pasteSourceModel(source), content: text, origin: "external-api",
         meaning: { ai: "gateway", projectId }, personPresent: true,
       });
-      const result = await cleanText({ review, ai: metered.ai, context }, content);
+      const result = await cleanText({ review, ai: metered.ai, context }, content, cleanFormatOf(body?.format));
       const { data: st } = await supabase.rpc("free_limit_status", { _user_id: accountId, _kind: "context_clean" });
       const allowance = st && (st as { limited?: boolean }).limited ? { used: Number((st as { used?: number }).used ?? 0), limit: Number((st as { limit?: number }).limit ?? 0) } : null;
       return json({ mode: "clean_result", ...result, source, allowance, cost_usd: metered.cost.cost_usd });

@@ -15,6 +15,8 @@ const state = vi.hoisted(() => ({
   weight: null as null | Record<string, unknown>,
   status: 200,
   captured: [] as { event: string; props: Record<string, unknown> }[],
+  structure: null as null | Record<string, unknown>,
+  readContent: "",
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
@@ -39,7 +41,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/posthog", () => ({ posthog: { capture: (event: string, props: Record<string, unknown>) => state.captured.push({ event, props }) } }));
 
 import CleanItPanel from "@/components/control/outer/CleanItPanel";
-import { FREE_CLEANS_PER_DAY, allowanceLine, rememberedContext, trailOf, isControlled, secondsLabel, type CleanResult } from "@/lib/context-clean";
+import { FREE_CLEANS_PER_DAY, allowanceLine, rememberedContext, trailOf, isControlled, secondsLabel, blocksOf, toHtml, toPlain, mailLinks, composeContext, parseContextSections, type CleanResult } from "@/lib/context-clean";
 
 const changed = {
   mode: "clean_result", status: "changed", text: "Thanks! You will get the tracking link as soon as it ships.",
@@ -53,12 +55,15 @@ const paste = (text: string) => fireEvent.change(screen.getByTestId("clean-input
 
 beforeEach(() => {
   state.tables = { imported_projects: [], agents: [], websites: [], hard_rules: [{ id: "h", enabled: true }], safety_rules: [], meaning_rules: [] };
-  state.inserted = []; state.calls = []; state.captured = []; state.status = 200; state.reply = changed; state.hold = null; state.weight = null;
+  state.inserted = []; state.calls = []; state.captured = []; state.status = 200; state.reply = changed; state.hold = null; state.weight = null; state.structure = null; state.readContent = "";
   try { window.localStorage.clear(); } catch { /* none */ }
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: { body: string }) => {
     const body = JSON.parse(init.body);
     state.calls.push({ url, body });
-    if (url.endsWith("/projects")) return new Response(JSON.stringify({ ok: true, project: { id: "ctx1", name: body.name } }));
+    if (url.endsWith("/projects") && body.action === "read") return new Response(JSON.stringify({ ok: true, content: state.readContent }));
+    if (url.endsWith("/projects") && body.action === "archive") return new Response(JSON.stringify({ ok: true, archived: true }));
+    if (url.endsWith("/projects")) return new Response(JSON.stringify({ ok: true, project: { id: body.action === "import_paste" && state.calls.filter((c) => c.body.action === "import_paste").length > 1 ? "ctx2" : "ctx1", name: body.name } }));
+    if (body.action === "structure_context") return new Response(JSON.stringify(state.structure ?? { error: "x", message: "Sorting is not available right now." }), { status: state.structure ? 200 : 503 });
     if (body.action === "context_weight") return new Response(JSON.stringify(state.weight ?? { error: "x" }), { status: state.weight ? 200 : 404 });
     if (state.hold) await state.hold;
     return new Response(JSON.stringify(state.reply), { status: state.status });
@@ -323,5 +328,163 @@ describe("Clean it details: the numbers", () => {
     expect(isControlled({ ...base, status: "flagged" })).toBe(false);
     expect(isControlled({ ...base, status: "held", text: null })).toBe(false);
     expect(secondsLabel(4230)).toBe("4.2s");
+  });
+});
+
+// ---- Context Day 2: structured context, result formats, the email view and the Send box ----------------------------------
+const emailReply = {
+  ...changed, status: "clean", edits: [], found: [], rewrite: null, summary: "It follows your rules.", format: "email",
+  email: { subject: "Your order is on its way" }, text: "Hi Sam,\n\nThanks for your order. You will get the **tracking link** as soon as it ships.\n\n- Refunds within 30 days\n- Delivery Tuesday or Friday\n\nBest,\nThe Bakery team",
+};
+
+describe("Clean it Day 2: result formats", () => {
+  it("the shape is sent with the clean and remembered; Email shows the result as an email, ready to send", async () => {
+    state.reply = emailReply;
+    renderPanel();
+    fireEvent.click(screen.getByTestId("clean-format-email"));
+    expect(screen.getByTestId("clean-format-email").getAttribute("aria-pressed")).toBe("true");
+    paste("Thanks for your order, it ships soon.");
+    fireEvent.click(screen.getByTestId("clean-go"));
+    const card = await screen.findByTestId("clean-result");
+    expect(state.calls.find((c) => c.body.action === "clean_text")!.body.format).toBe("email");
+    expect(window.localStorage.getItem("nazai_clean_format")).toBe("email");
+    const mail = within(card).getByTestId("clean-email");
+    expect(mail.textContent).toContain("Email · ready to send");
+    expect(within(mail).getByTestId("clean-email-subject").textContent).toBe("Your order is on its way");
+    expect(within(mail).getByText("tracking link").tagName).toBe("STRONG"); // bold, as React, never HTML from the AI
+    expect(mail.querySelectorAll("li").length).toBe(2);
+    expect(within(card).getByTestId("clean-send")).toBeTruthy();
+  });
+
+  it("Copy gives plain text with the subject; Copy formatted gives HTML too (paragraphs, list, bold)", async () => {
+    state.reply = emailReply;
+    const writes: unknown[] = [];
+    class FakeItem { constructor(public parts: Record<string, Blob>) {} }
+    vi.stubGlobal("ClipboardItem", FakeItem);
+    Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => undefined), write: vi.fn(async (items: unknown[]) => { writes.push(...items); }) } });
+    renderPanel();
+    paste("Thanks for your order.");
+    fireEvent.click(screen.getByTestId("clean-go"));
+    fireEvent.click(await screen.findByTestId("clean-copy"));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+    const plain = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(plain.startsWith("Subject: Your order is on its way\n\nHi Sam,")).toBe(true);
+    expect(plain).not.toContain("**");
+    fireEvent.click(screen.getByTestId("clean-copy-formatted"));
+    await waitFor(() => expect(writes.length).toBe(1));
+    const blob = (writes[0] as FakeItem).parts["text/html"];
+    const html = await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsText(blob); });
+    expect(html).toContain("<strong>tracking link</strong>");
+    expect(html).toContain("<ul><li>Refunds within 30 days</li>");
+  });
+
+  it("a reshape that did not pass is not offered: the note says why, there is no Send", async () => {
+    state.reply = { ...emailReply, format: "as_pasted", email: undefined, text: "Thanks for your order.", format_note: "The email version did not pass your rules, so the cleaned text is shown." };
+    renderPanel();
+    paste("Thanks for your order.");
+    fireEvent.click(screen.getByTestId("clean-go"));
+    const card = await screen.findByTestId("clean-result");
+    expect(within(card).getByTestId("clean-format-note").textContent).toContain("did not pass your rules");
+    expect(within(card).queryByTestId("clean-email")).toBeNull();
+    expect(within(card).queryByTestId("clean-send")).toBeNull();
+  });
+});
+
+describe("Clean it Day 2: Send", () => {
+  it("asks From and To; opens the person's own Gmail, Outlook or mail app with everything filled in, never sends itself", async () => {
+    state.reply = emailReply;
+    renderPanel();
+    paste("Thanks for your order.");
+    fireEvent.click(screen.getByTestId("clean-go"));
+    fireEvent.click(await screen.findByTestId("clean-send"));
+    const box = await screen.findByTestId("clean-send-dialog");
+    expect(box.textContent).toContain("you press Send there");
+    expect(within(box).getByTestId("send-gmail").getAttribute("href")).toBeNull(); // nothing until both addresses are right
+    fireEvent.change(within(box).getByTestId("send-from"), { target: { value: "me@bakery" } });
+    fireEvent.change(within(box).getByTestId("send-to"), { target: { value: "sam@example.com" } });
+    expect(within(box).getByRole("alert").textContent).toContain("Check the email address");
+    fireEvent.change(within(box).getByTestId("send-from"), { target: { value: "me@bakery.co.uk" } });
+    const gmail = within(box).getByTestId("send-gmail").getAttribute("href")!;
+    expect(gmail).toContain("authuser=me%40bakery.co.uk");
+    expect(gmail).toContain("to=sam%40example.com");
+    expect(gmail).toContain("su=Your%20order%20is%20on%20its%20way");
+    expect(decodeURIComponent(gmail)).toContain("You will get the tracking link as soon"); // plain body, no ** markers
+    expect(within(box).getByTestId("send-gmail").getAttribute("rel")).toContain("noopener");
+    expect(within(box).getByTestId("send-outlook").getAttribute("href")).toContain("outlook.office.com/mail/deeplink/compose");
+    expect(within(box).getByTestId("send-mailto").getAttribute("href")!.startsWith("mailto:sam%40example.com?subject=")).toBe(true);
+    expect(state.calls.some((c) => JSON.stringify(c.body).includes("sam@example.com"))).toBe(false); // the addresses are not sent to NazAI
+  });
+
+  it("links: a personal Outlook address opens outlook.live.com; several recipients are kept", () => {
+    const l = mailLinks({ from: "me@hotmail.com", to: "a@x.com,b@y.com", subject: "Hi", body: "Line 1\nLine 2" });
+    expect(l.outlook.startsWith("https://outlook.live.com/mail/0/deeplink/compose?to=a%40x.com%2Cb%40y.com")).toBe(true);
+    expect(l.mailto).toContain("body=Line%201%0ALine%202");
+  });
+});
+
+describe("Clean it Day 2: structured context", () => {
+  const sorted = { mode: "context_structure", sections: { facts: ["A bakery in Leeds"], policies: ["Refunds within 30 days"], tone: ["Warm and brief"], never_say: ["Same-day delivery"] }, text: "", discarded: 1, hidden: [], cost_usd: 0 };
+
+  it("Sort it: four parts to edit, what was left out is said, saved with a heading per part", async () => {
+    state.structure = sorted;
+    renderPanel();
+    fireEvent.click(screen.getByTestId("clean-add-context"));
+    fireEvent.change(await screen.findByTestId("clean-context-text"), { target: { value: "We are a bakery in Leeds. Refunds within 30 days. Warm and brief. Never promise same-day delivery." } });
+    fireEvent.click(screen.getByTestId("clean-context-sort"));
+    const parts = await screen.findByTestId("context-sections");
+    expect(state.calls.find((c) => c.body.action === "structure_context")!.body).toMatchObject({ text: expect.stringContaining("bakery"), account_id: "acc1" });
+    expect(within(parts).getByTestId("context-section-never_say").textContent).toContain("Never say");
+    expect(screen.getByTestId("context-note").textContent).toContain("1 line was left out");
+    fireEvent.change(within(within(parts).getByTestId("context-section-tone")).getByRole("textbox"), { target: { value: "Warm and brief\nNo exclamation marks" } });
+    fireEvent.click(screen.getByTestId("clean-context-save"));
+    await waitFor(() => expect(state.calls.some((c) => c.body.action === "import_paste")).toBe(true));
+    expect(state.calls.find((c) => c.body.action === "import_paste")!.body.text).toBe(
+      "## Facts\n- A bakery in Leeds\n\n## Policies\n- Refunds within 30 days\n\n## Tone\n- Warm and brief\n- No exclamation marks\n\n## Never say\n- Same-day delivery");
+    expect(state.captured.find((c) => c.event === "context_added")!.props).toMatchObject({ structured: true, edited: false });
+  });
+
+  it("when sorting is not available, the message says so and Save as it is still works", async () => {
+    renderPanel();
+    fireEvent.click(screen.getByTestId("clean-add-context"));
+    fireEvent.change(await screen.findByTestId("clean-context-text"), { target: { value: "Refunds within 30 days." } });
+    fireEvent.click(screen.getByTestId("clean-context-sort"));
+    expect((await screen.findByRole("alert")).textContent).toContain("Sorting is not available");
+    fireEvent.click(screen.getByTestId("clean-context-save"));
+    await waitFor(() => expect(state.calls.find((c) => c.body.action === "import_paste")?.body.text).toBe("Refunds within 30 days."));
+  });
+
+  it("Edit: the saved context opens in its four parts; Save changes saves a new version and archives the old one", async () => {
+    state.tables.imported_projects = [{ id: "ctx1", name: "My AI context", source_mode: "paste", source_kind: "paste", files: [], created_at: "", updated_at: "", archived_at: null }];
+    state.readContent = composeContext(sorted.sections);
+    window.localStorage.setItem("nazai_clean_context:acc1", "ctx1");
+    renderPanel();
+    fireEvent.click(await screen.findByTestId("clean-edit-context"));
+    const parts = await screen.findByTestId("context-sections");
+    expect(state.calls.find((c) => c.body.action === "read")!.body).toMatchObject({ project_id: "ctx1", account_id: "acc1" });
+    expect((within(within(parts).getByTestId("context-section-facts")).getByRole("textbox") as HTMLTextAreaElement).value).toBe("A bakery in Leeds");
+    fireEvent.change(within(within(parts).getByTestId("context-section-facts")).getByRole("textbox"), { target: { value: "A bakery in York" } });
+    fireEvent.click(screen.getByTestId("clean-context-save"));
+    await waitFor(() => expect(state.calls.some((c) => c.body.action === "archive")).toBe(true));
+    expect(state.calls.find((c) => c.body.action === "import_paste")!.body.text).toContain("- A bakery in York");
+    expect(state.calls.find((c) => c.body.action === "archive")!.body).toMatchObject({ project_id: "ctx1", archived: true });
+  });
+});
+
+describe("Clean it Day 2: the pieces", () => {
+  it("the website saves exactly the text the server saves, and reads it back", () => {
+    const server = readFileSync(join(process.cwd(), "supabase/functions/_shared/context-structure.ts"), "utf8");
+    const s = { facts: ["  - A bakery   in Leeds"], policies: [], tone: ["Warm"], never_say: ["Same-day delivery"] };
+    expect(composeContext(s)).toBe("## Facts\n- A bakery in Leeds\n\n## Tone\n- Warm\n\n## Never say\n- Same-day delivery");
+    expect(server).toContain('.map(({ key, title }) => `## ${title}\\n${s[key].map((i) => `- ${cleanItem(i)}`).join("\\n")}`)');
+    expect(server).toContain('.replace(/^[\\s\\-•*·]+/, "").replace(/\\s+/g, " ").trim().slice(0, MAX_ITEM)');
+    expect(server).toContain("const MAX_ITEM = 300;");
+    expect(parseContextSections(composeContext(s))).toEqual({ facts: ["A bakery in Leeds"], policies: [], tone: ["Warm"], never_say: ["Same-day delivery"] });
+    expect(parseContextSections("Just plain text")).toBeNull();
+  });
+
+  it("text structure: paragraphs, lists and bold; HTML is escaped", () => {
+    expect(blocksOf("Hi,\n\n- one\n- two\nAfter")).toEqual([{ kind: "p", lines: ["Hi,"] }, { kind: "ul", items: ["one", "two"] }, { kind: "p", lines: ["After"] }]);
+    expect(toHtml("<b>x</b> **y**", "S & T")).toBe("<p><strong>S &amp; T</strong></p><p>&lt;b&gt;x&lt;/b&gt; <strong>y</strong></p>");
+    expect(toPlain("**a** b")).toBe("a b");
   });
 });
