@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import MagneticButton from "@/components/interactions/MagneticButton";
 import SmoothScrollLink from "@/components/interactions/SmoothScrollLink";
@@ -35,6 +35,8 @@ import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
 import AuthTransition from "@/components/AuthTransition";
 import MissionWorkspace from "@/components/mission/MissionWorkspace";
+import CleanItDemo from "@/components/home/CleanItDemo";
+import { FREE_CLEANS_PER_DAY } from "@/lib/context-clean";
 // GuardianCanvas relocated into Dashboard → Settings → Brand-Snap Canvas (per UX simplification).
 
 const NODES = [
@@ -103,11 +105,9 @@ const DOMAINS = [
   },
 ];
 
-const TYPEWRITER_PROMPTS = [
-  "Build and launch a complete AI-powered SaaS subscription platform for fitness coaches with marketing automation",
-  "Create a full business strategy, financial projections, and daily operations dashboard for my e-commerce store",
-  "Orchestrate a complete merger analysis + legal contracts + integration plan for two consulting firms",
-];
+/** Where Clean it lives: Outer Control's first screen. */
+export const CLEAN_IT_PATH = "/control-system/outer";
+
 
 const Workflower = () => {
   const [scrollY, setScrollY] = useState(0);
@@ -115,10 +115,9 @@ const Workflower = () => {
   const [authTransitioning, setAuthTransitioning] = useState(false);
   const [missionOpen, setMissionOpen] = useState(false);
   const [activeSector, setActiveSector] = useState("home");
-  const [typedText, setTypedText] = useState("");
-  const [promptIdx, setPromptIdx] = useState(0);
+  // Where the person goes after signing in from here: Clean it, or the dashboard (the mission flow).
+  const [afterAuth, setAfterAuth] = useState("/dashboard");
   const [expandedDomain, setExpandedDomain] = useState<number | null>(null);
-  const consoleRef = useRef<HTMLTextAreaElement>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -128,24 +127,16 @@ const Workflower = () => {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Typewriter cycling through complex prompts
-  useEffect(() => {
-    const target = TYPEWRITER_PROMPTS[promptIdx];
-    let i = 0;
-    setTypedText("");
-    const typer = setInterval(() => {
-      i++;
-      setTypedText(target.slice(0, i));
-      if (i >= target.length) {
-        clearInterval(typer);
-        setTimeout(() => setPromptIdx((p) => (p + 1) % TYPEWRITER_PROMPTS.length), 2400);
-      }
-    }, 28);
-    return () => clearInterval(typer);
-  }, [promptIdx]);
+
+  /** The main action: Clean it, free. Signed in: straight there; otherwise sign in first, then Clean it. */
+  const cleanIt = () => {
+    if (user) navigate(CLEAN_IT_PATH);
+    else { setAfterAuth(CLEAN_IT_PATH); setAuthModalOpen(true); }
+  };
 
   const launchMission = (sector = "home") => {
     setActiveSector(sector);
+    setAfterAuth("/dashboard");
     if (user) {
       // Authenticated — skip registration window, go straight to dashboard
       navigate("/dashboard");
@@ -289,11 +280,12 @@ const Workflower = () => {
                   </button>
                   <MagneticButton radius={90} strength={0.28}>
                     <button
-                      onClick={() => launchMission("home")}
+                      onClick={cleanIt}
                       className="px-3.5 md:px-5 py-2 text-[12px] font-black uppercase tracking-wider rounded-lg bg-[#22c55e] text-black hover:shadow-[0_0_30px_rgba(34,197,94,0.6)] transition-shadow whitespace-nowrap"
                       style={{ fontFamily: "'Inter', sans-serif", boxShadow: "0 0 22px rgba(34,197,94,0.4)" }}
+                      data-testid="home-nav-clean"
                     >
-                      Start Free Mission
+                      Clean it free
                     </button>
                   </MagneticButton>
                 </>
@@ -335,36 +327,36 @@ const Workflower = () => {
             <motion.div
               variants={{
                 hidden: { opacity: 0, y: 20 },
-                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } },
               }}
               className="inline-flex items-center gap-2 px-3 py-1.5 mb-8 rounded-full border border-[#22c55e]/30 bg-[#22c55e]/5"
             >
               <div className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse shadow-[0_0_8px_#22c55e]" />
-              <span className="text-[9px] tracking-[0.4em] text-[#22c55e] font-black uppercase">
-                AI Business Operating System
+              <span className="text-[9px] tracking-[0.4em] text-[#22c55e] font-black uppercase" data-testid="home-eyebrow">
+                AI Control Layer
               </span>
             </motion.div>
 
-            {/* TITAN HEADLINE — heavy bold italic mono */}
+            {/* HEADLINE: control for the AI people already use */}
             <motion.h1
               variants={{
                 hidden: { opacity: 0, y: 20 },
-                visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } },
               }}
               className="font-mono italic font-black tracking-tighter leading-[0.95] text-white text-4xl md:text-6xl lg:text-7xl mb-6"
               style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
             >
               <span className="bg-clip-text text-transparent bg-gradient-to-r from-white via-[#22c55e] to-white drop-shadow-[0_0_25px_rgba(34,197,94,0.35)]">
-                NazAI
+                Control
               </span>{" "}
-              — Your AI Business
+              the AI
               <br />
-              Operating System.
+              You Already Use.
               <br />
-              <span className="text-white/80 text-3xl md:text-5xl lg:text-6xl">
-                Handle Anything Business-Related
+              <span className="text-white/80 text-2xl md:text-4xl lg:text-5xl">
+                Your rules. Your context.
                 <br />
-                with <span className="text-[#22c55e] drop-shadow-[0_0_18px_rgba(34,197,94,0.6)]">One Prompt.</span>
+                <span className="text-[#22c55e] drop-shadow-[0_0_18px_rgba(34,197,94,0.6)]">One clean result.</span>
               </span>
             </motion.h1>
 
@@ -376,18 +368,16 @@ const Workflower = () => {
               }}
               className="max-w-3xl mx-auto text-sm md:text-base text-white/60 leading-relaxed mb-10 font-medium"
             >
-              From idea validation and financial modeling to full operations, AI agents, automation, strategy,
-              and execution — <span className="text-white">NazAI orchestrates any business function end-to-end.</span>
+              Paste an answer from ChatGPT, Claude or Gemini. NazAI checks it against your rules and what your AI knows
+              about your business, fixes what is wrong and checks it again.{" "}
+              <span className="text-white">You get one result you can trust: as it is, as an email ready to send, or as bullet points.</span>
             </motion.p>
 
-            {/* COMMAND CONSOLE */}
-            <motion.div
-              variants={{
+            {/* CLEAN IT DEMO (before / after) */}
+            <motion.div variants={{
                 hidden: { opacity: 0, y: 20 },
-                visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
-              }}
-              className="relative max-w-3xl mx-auto mb-8"
-            >
+                visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } },
+              }} className="relative max-w-4xl mx-auto mb-8">
               <div
                 className="absolute -inset-px rounded-2xl pointer-events-none"
                 style={{
@@ -396,37 +386,7 @@ const Workflower = () => {
                   opacity: 0.6,
                 }}
               />
-              <div
-                className="relative rounded-2xl border border-[#22c55e]/30 bg-[#020617]/80 backdrop-blur-xl overflow-hidden"
-                style={{ boxShadow: "0 0 60px rgba(34,197,94,0.15), inset 0 0 40px rgba(0,0,0,0.4)" }}
-              >
-                <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 bg-black/40">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full bg-[#22c55e] shadow-[0_0_6px_#22c55e]" />
-                    <div className="w-2 h-2 rounded-full bg-white/20" />
-                    <div className="w-2 h-2 rounded-full bg-white/20" />
-                  </div>
-                  <span className="text-[8px] tracking-[0.4em] uppercase text-white/40 font-bold">
-                    nazai // command_console
-                  </span>
-                  <span className="text-[8px] text-[#22c55e] font-bold">● LIVE</span>
-                </div>
-                <div className="relative p-5 md:p-6 text-left min-h-[140px]">
-                  <div className="text-[9px] tracking-[0.3em] text-white/30 mb-2 uppercase font-bold">
-                    {'>'} describe any business task
-                  </div>
-                  <textarea
-                    ref={consoleRef}
-                    rows={3}
-                    onClick={() => launchMission("home")}
-                    onFocus={() => launchMission("home")}
-                    readOnly
-                    value={typedText}
-                    className="w-full bg-transparent resize-none outline-none text-white text-sm md:text-base font-mono leading-relaxed cursor-pointer caret-[#22c55e]"
-                  />
-                  <span className="inline-block w-[8px] h-[18px] bg-[#22c55e] align-middle ml-0.5 animate-pulse shadow-[0_0_8px_#22c55e]" />
-                </div>
-              </div>
+              <CleanItDemo onTry={cleanIt} />
             </motion.div>
 
             <motion.div
@@ -438,14 +398,15 @@ const Workflower = () => {
             >
               <MagneticButton radius={110} strength={0.32}>
                 <button
-                  onClick={() => launchMission("home")}
+                  onClick={cleanIt}
+                  data-testid="home-clean-cta"
                   className="group relative px-8 md:px-10 py-4 bg-[#22c55e] text-black font-black uppercase text-xs md:text-[13px] tracking-wider rounded-lg overflow-hidden transition-shadow hover:shadow-[0_0_60px_rgba(34,197,94,0.7)]"
                   style={{ boxShadow: "0 0 40px rgba(34,197,94,0.5), inset 0 -2px 0 rgba(0,0,0,0.3)" }}
                 >
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
                   <span className="relative flex items-center gap-2">
-                    <Send size={14} />
-                    Start Free Mission — Describe Any Business Task
+                    <ShieldCheck size={14} />
+                    Clean it — free
                   </span>
                 </button>
               </MagneticButton>
@@ -458,6 +419,15 @@ const Workflower = () => {
                 </button>
               </MagneticButton>
             </motion.div>
+            <motion.p variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } },
+              }} className="mt-5 text-[11px] text-white/40" style={{ fontFamily: "'Inter', sans-serif" }}>
+              {FREE_CLEANS_PER_DAY} free cleans a day · no card needed ·{" "}
+              <button type="button" onClick={() => launchMission("home")} className="underline decoration-white/20 underline-offset-4 hover:text-white/80" data-testid="home-mission-link">
+                or describe any business task
+              </button>
+            </motion.p>
           </motion.div>
         </div>
 
@@ -962,7 +932,7 @@ const Workflower = () => {
         active={authTransitioning}
         onComplete={() => {
           setAuthTransitioning(false);
-          navigate("/dashboard");
+          navigate(afterAuth);
         }}
       />
 
